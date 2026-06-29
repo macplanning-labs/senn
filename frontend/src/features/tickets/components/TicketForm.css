@@ -1,0 +1,133 @@
+/**
+ * TicketForm.css — チケットフォームのスタイル
+ */
+
+.ticket-form {
+  max-width: 700px;
+}
+
+.ticket-form__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  margin-bottom: var(--space-6);
+}
+
+.ticket-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.ticket-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.ticket-form__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.ticket-form__input,
+.ticket-form__select,
+.ticket-form__textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.ticket-form__textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.ticket-form__input:focus,
+.ticket-form__select:focus,
+.ticket-form__textarea:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(92, 108, 255, 0.15);
+  outline: none;
+}
+
+.ticket-form__input--error {
+  border-color: var(--color-error);
+}
+
+.ticket-form__error {
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
+.ticket-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* ── アクション ── */
+.ticket-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-default);
+}
+
+.ticket-form__cancel {
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.ticket-form__cancel:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.ticket-form__submit {
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: white;
+  background: linear-gradient(135deg, var(--color-accent-primary), #7c8aff);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ticket-form__submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(92, 108, 255, 0.3);
+}
+
+.ticket-form__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ticket-form__server-error {
+  padding: var(--space-3);
+  background-color: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 640px) {
+  .ticket-form__row {
+    grid-template-columns: 1fr;
+  }
+}

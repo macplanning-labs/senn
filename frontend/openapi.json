@@ -1,0 +1,2680 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "WIP — Project Management API",
+    "version": "1.0.0",
+    "description": "REST API for WIP project management tool. Built with Django REST Framework."
+  },
+  "paths": {
+    "/api/v1/auth/login/": {
+      "post": {
+        "operationId": "auth_login_create",
+        "description": "Takes a set of user credentials and returns an access and refresh JSON web\ntoken pair to prove the authentication of those credentials.",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenObtainPairRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenObtainPairRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenObtainPairRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenObtainPair"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout/": {
+      "post": {
+        "operationId": "auth_logout_create",
+        "description": "リフレッシュトークンをブラックリストに追加してログアウト",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequestRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequestRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequestRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "205": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me/": {
+      "get": {
+        "operationId": "auth_me_retrieve",
+        "description": "現在認証中のユーザー情報を返す",
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register/": {
+      "post": {
+        "operationId": "auth_register_create",
+        "description": "新規ユーザーを登録し、JWTトークンを返す",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/auth/token/refresh/": {
+      "post": {
+        "operationId": "auth_token_refresh_create",
+        "description": "Takes a refresh type JSON web token and returns an access type JSON web\ntoken if the refresh token is valid.",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRefreshRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRefreshRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRefresh"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/milestones/": {
+      "get": {
+        "operationId": "milestones_list",
+        "description": "マイルストーン一覧を取得",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "The pagination cursor value.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordering",
+            "required": false,
+            "in": "query",
+            "description": "Which field to use when ordering the results.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "A search term.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "milestones"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedMilestoneList"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "milestones_create",
+        "description": "新規マイルストーンを作成",
+        "tags": [
+          "milestones"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilestoneCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/milestones/{id}/": {
+      "get": {
+        "operationId": "milestones_retrieve",
+        "description": "マイルストーン詳細を取得",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this マイルストーン.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "milestones"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Milestone"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "milestones_update",
+        "description": "マイルストーンを更新",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this マイルストーン.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "milestones"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MilestoneCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilestoneCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "milestones_partial_update",
+        "description": "マイルストーンCRUD — ModelViewSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this マイルストーン.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "milestones"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedMilestoneCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedMilestoneCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedMilestoneCreateRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilestoneCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "milestones_destroy",
+        "description": "マイルストーンを削除",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this マイルストーン.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "milestones"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/": {
+      "get": {
+        "operationId": "projects_list",
+        "description": "プロジェクト一覧を取得",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "The pagination cursor value.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordering",
+            "required": false,
+            "in": "query",
+            "description": "Which field to use when ordering the results.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "A search term.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedProjectList"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "projects_create",
+        "description": "新規プロジェクトを作成",
+        "tags": [
+          "projects"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{id}/": {
+      "get": {
+        "operationId": "projects_retrieve",
+        "description": "プロジェクト詳細を取得",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this プロジェクト.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "projects_update",
+        "description": "プロジェクトを更新",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this プロジェクト.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "projects"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "projects_partial_update",
+        "description": "プロジェクトCRUD — ModelViewSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this プロジェクト.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "projects"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedProjectCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedProjectCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedProjectCreateRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "projects_destroy",
+        "description": "プロジェクトを削除",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this プロジェクト.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/": {
+      "get": {
+        "operationId": "tickets_list",
+        "description": "チケット一覧（フィルタ・検索・ソート対応）",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "assignee",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "The pagination cursor value.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "due_date__gte",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "due_date__isnull",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "due_date__lte",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "milestone",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "ordering",
+            "required": false,
+            "in": "query",
+            "description": "Which field to use when ordering the results.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "parent",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "parent__isnull",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "schema": {
+              "type": "string",
+              "title": "優先度",
+              "enum": [
+                "中",
+                "低",
+                "高"
+              ]
+            },
+            "description": "* `高` - 高\n* `中` - 中\n* `低` - 低"
+          },
+          {
+            "in": "query",
+            "name": "priority__in",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Multiple values may be separated by commas.",
+            "explode": false,
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "A search term.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "title": "ステータス",
+              "enum": [
+                "処理中",
+                "処理済み",
+                "完了",
+                "未対応"
+              ]
+            },
+            "description": "* `未対応` - 未対応\n* `処理中` - 処理中\n* `処理済み` - 処理済み\n* `完了` - 完了"
+          },
+          {
+            "in": "query",
+            "name": "status__in",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Multiple values may be separated by commas.",
+            "explode": false,
+            "style": "form"
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedTicketListList"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "tickets_create",
+        "description": "新規チケット作成（ticket_key自動採番）",
+        "tags": [
+          "tickets"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{id}/": {
+      "get": {
+        "operationId": "tickets_retrieve",
+        "description": "チケット詳細（コメント含む）",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this チケット.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "tickets_update",
+        "description": "チケット更新",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this チケット.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "tickets_partial_update",
+        "description": "チケットCRUD + コメント — ModelViewSet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this チケット.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedTicketCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedTicketCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedTicketCreateRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketCreate"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "tickets_destroy",
+        "description": "チケット削除",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this チケット.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/api/v1/tickets/{id}/comments/": {
+      "get": {
+        "operationId": "tickets_comments_list",
+        "description": "チケットのコメント一覧を取得",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "assignee",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "The pagination cursor value.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "due_date__gte",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "due_date__isnull",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "due_date__lte",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this チケット.",
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "milestone",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "ordering",
+            "required": false,
+            "in": "query",
+            "description": "Which field to use when ordering the results.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "parent",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "parent__isnull",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "schema": {
+              "type": "string",
+              "title": "優先度",
+              "enum": [
+                "中",
+                "低",
+                "高"
+              ]
+            },
+            "description": "* `高` - 高\n* `中` - 中\n* `低` - 低"
+          },
+          {
+            "in": "query",
+            "name": "priority__in",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Multiple values may be separated by commas.",
+            "explode": false,
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "A search term.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "title": "ステータス",
+              "enum": [
+                "処理中",
+                "処理済み",
+                "完了",
+                "未対応"
+              ]
+            },
+            "description": "* `未対応` - 未対応\n* `処理中` - 処理中\n* `処理済み` - 処理済み\n* `完了` - 完了"
+          },
+          {
+            "in": "query",
+            "name": "status__in",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Multiple values may be separated by commas.",
+            "explode": false,
+            "style": "form"
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedCommentList"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "tickets_comments_create",
+        "description": "チケットにコメントを追加",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this チケット.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "tickets"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreateRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreateRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "jwtAuth": []
+          },
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Category": {
+        "type": "object",
+        "description": "カテゴリー（読み取り用）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "title": "名前",
+            "maxLength": 100
+          },
+          "slug": {
+            "type": "string",
+            "title": "スラッグ",
+            "description": "URLやフィルタ用の英字識別子",
+            "maxLength": 50,
+            "pattern": "^[-a-zA-Z0-9_]+$"
+          },
+          "level": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LevelEnum"
+              }
+            ],
+            "title": "階層レベル",
+            "minimum": 0,
+            "maximum": 32767
+          },
+          "parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "親カテゴリー",
+            "description": "level=2の場合、所属するlevel=1のカテゴリー"
+          },
+          "sort_order": {
+            "type": "integer",
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "並び順"
+          },
+          "color": {
+            "type": "string",
+            "title": "表示カラー",
+            "description": "HEXカラーコード（例: #6366f1）",
+            "maxLength": 7
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ]
+      },
+      "Comment": {
+        "type": "object",
+        "description": "コメント（読み取り用）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "body": {
+            "type": "string",
+            "title": "本文"
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              }
+            ],
+            "readOnly": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "author",
+          "body",
+          "createdAt",
+          "id"
+        ]
+      },
+      "CommentCreateRequest": {
+        "type": "object",
+        "description": "コメント（作成用）",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "title": "本文"
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "LevelEnum": {
+        "enum": [
+          1,
+          2
+        ],
+        "type": "integer",
+        "description": "* `1` - 種別/フェーズ\n* `2` - カテゴリー"
+      },
+      "LogoutRequestRequest": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Milestone": {
+        "type": "object",
+        "description": "マイルストーン（読み取り用）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "title": "名前",
+            "maxLength": 200
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date",
+            "readOnly": true
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          },
+          "openTicketCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "closedTicketCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "closedTicketCount",
+          "createdAt",
+          "dueDate",
+          "id",
+          "name",
+          "openTicketCount"
+        ]
+      },
+      "MilestoneCreate": {
+        "type": "object",
+        "description": "マイルストーン（作成・更新用）",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "名前",
+            "maxLength": 200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "MilestoneCreateRequest": {
+        "type": "object",
+        "description": "マイルストーン（作成・更新用）",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "名前",
+            "maxLength": 200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "PaginatedCommentList": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "next": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cD00ODY%3D\""
+          },
+          "previous": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cj0xJnA9NDg3"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            }
+          }
+        }
+      },
+      "PaginatedMilestoneList": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "next": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cD00ODY%3D\""
+          },
+          "previous": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cj0xJnA9NDg3"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Milestone"
+            }
+          }
+        }
+      },
+      "PaginatedProjectList": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "next": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cD00ODY%3D\""
+          },
+          "previous": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cj0xJnA9NDg3"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          }
+        }
+      },
+      "PaginatedTicketListList": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "next": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cD00ODY%3D\""
+          },
+          "previous": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri",
+            "example": "http://api.example.org/accounts/?cursor=cj0xJnA9NDg3"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketList"
+            }
+          }
+        }
+      },
+      "PatchedMilestoneCreateRequest": {
+        "type": "object",
+        "description": "マイルストーン（作成・更新用）",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "名前",
+            "maxLength": 200
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          }
+        }
+      },
+      "PatchedProjectCreateRequest": {
+        "type": "object",
+        "description": "プロジェクト（作成・更新用）",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "プロジェクト名",
+            "maxLength": 200
+          },
+          "prefix": {
+            "type": "string",
+            "minLength": 1,
+            "title": "キープレフィックス",
+            "description": "チケットキーの接頭辞（例: PROJ → PROJ-000001）",
+            "maxLength": 20
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          }
+        }
+      },
+      "PatchedTicketCreateRequest": {
+        "type": "object",
+        "description": "チケット（作成・更新用）",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "タイトル",
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StatusEnum"
+              }
+            ],
+            "title": "ステータス"
+          },
+          "priority": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PriorityEnum"
+              }
+            ],
+            "title": "優先度"
+          },
+          "ticket_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TicketTypeEnum"
+              }
+            ],
+            "title": "種別"
+          },
+          "assignee": {
+            "type": "integer",
+            "nullable": true,
+            "title": "担当者"
+          },
+          "category": {
+            "type": "integer",
+            "nullable": true,
+            "title": "カテゴリー",
+            "description": "第2層カテゴリー（機能/コンポーネント）"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          },
+          "milestone": {
+            "type": "integer",
+            "nullable": true,
+            "title": "マイルストーン"
+          },
+          "parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "親課題",
+            "description": "子課題の場合、所属する親課題"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "title": "開始日"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "title": "期限日"
+          }
+        }
+      },
+      "PriorityEnum": {
+        "enum": [
+          "高",
+          "中",
+          "低"
+        ],
+        "type": "string",
+        "description": "* `高` - 高\n* `中` - 中\n* `低` - 低"
+      },
+      "Project": {
+        "type": "object",
+        "description": "プロジェクト（読み取り用）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "title": "プロジェクト名",
+            "maxLength": 200
+          },
+          "prefix": {
+            "type": "string",
+            "title": "キープレフィックス",
+            "description": "チケットキーの接頭辞（例: PROJ → PROJ-000001）",
+            "maxLength": 20
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "ticketCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "memberCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "createdAt",
+          "id",
+          "memberCount",
+          "name",
+          "prefix",
+          "ticketCount"
+        ]
+      },
+      "ProjectCreate": {
+        "type": "object",
+        "description": "プロジェクト（作成・更新用）",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "プロジェクト名",
+            "maxLength": 200
+          },
+          "prefix": {
+            "type": "string",
+            "title": "キープレフィックス",
+            "description": "チケットキーの接頭辞（例: PROJ → PROJ-000001）",
+            "maxLength": 20
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          }
+        },
+        "required": [
+          "name",
+          "prefix"
+        ]
+      },
+      "ProjectCreateRequest": {
+        "type": "object",
+        "description": "プロジェクト（作成・更新用）",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "プロジェクト名",
+            "maxLength": 200
+          },
+          "prefix": {
+            "type": "string",
+            "minLength": 1,
+            "title": "キープレフィックス",
+            "description": "チケットキーの接頭辞（例: PROJ → PROJ-000001）",
+            "maxLength": 20
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          }
+        },
+        "required": [
+          "name",
+          "prefix"
+        ]
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "description": "新規ユーザー登録",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "title": "ユーザー名",
+            "description": "この項目は必須です。半角アルファベット、半角数字、@/./+/-/_ で150文字以下にしてください。",
+            "pattern": "^[\\w.@+-]+$",
+            "maxLength": 150
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "メールアドレス",
+            "maxLength": 254
+          },
+          "password": {
+            "type": "string",
+            "writeOnly": true,
+            "minLength": 8
+          },
+          "first_name": {
+            "type": "string",
+            "title": "名",
+            "maxLength": 150
+          },
+          "last_name": {
+            "type": "string",
+            "title": "姓",
+            "maxLength": 150
+          }
+        },
+        "required": [
+          "password",
+          "username"
+        ]
+      },
+      "StatusEnum": {
+        "enum": [
+          "未対応",
+          "処理中",
+          "処理済み",
+          "完了"
+        ],
+        "type": "string",
+        "description": "* `未対応` - 未対応\n* `処理中` - 処理中\n* `処理済み` - 処理済み\n* `完了` - 完了"
+      },
+      "TicketCreate": {
+        "type": "object",
+        "description": "チケット（作成・更新用）",
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "タイトル",
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StatusEnum"
+              }
+            ],
+            "title": "ステータス"
+          },
+          "priority": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PriorityEnum"
+              }
+            ],
+            "title": "優先度"
+          },
+          "ticket_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TicketTypeEnum"
+              }
+            ],
+            "title": "種別"
+          },
+          "assignee": {
+            "type": "integer",
+            "nullable": true,
+            "title": "担当者"
+          },
+          "category": {
+            "type": "integer",
+            "nullable": true,
+            "title": "カテゴリー",
+            "description": "第2層カテゴリー（機能/コンポーネント）"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          },
+          "milestone": {
+            "type": "integer",
+            "nullable": true,
+            "title": "マイルストーン"
+          },
+          "parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "親課題",
+            "description": "子課題の場合、所属する親課題"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "title": "開始日"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "title": "期限日"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "TicketCreateRequest": {
+        "type": "object",
+        "description": "チケット（作成・更新用）",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "タイトル",
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "title": "説明"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StatusEnum"
+              }
+            ],
+            "title": "ステータス"
+          },
+          "priority": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PriorityEnum"
+              }
+            ],
+            "title": "優先度"
+          },
+          "ticket_type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TicketTypeEnum"
+              }
+            ],
+            "title": "種別"
+          },
+          "assignee": {
+            "type": "integer",
+            "nullable": true,
+            "title": "担当者"
+          },
+          "category": {
+            "type": "integer",
+            "nullable": true,
+            "title": "カテゴリー",
+            "description": "第2層カテゴリー（機能/コンポーネント）"
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          },
+          "milestone": {
+            "type": "integer",
+            "nullable": true,
+            "title": "マイルストーン"
+          },
+          "parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "親課題",
+            "description": "子課題の場合、所属する親課題"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "title": "開始日"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "title": "期限日"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
+      "TicketDetail": {
+        "type": "object",
+        "description": "チケット詳細（コメント・添付ファイル含む）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "ticketKey": {
+            "type": "string",
+            "readOnly": true
+          },
+          "title": {
+            "type": "string",
+            "title": "タイトル",
+            "maxLength": 500
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StatusEnum"
+              }
+            ],
+            "title": "ステータス"
+          },
+          "priority": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PriorityEnum"
+              }
+            ],
+            "title": "優先度"
+          },
+          "ticketType": {
+            "type": "string",
+            "readOnly": true
+          },
+          "assignee": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              }
+            ],
+            "readOnly": true
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              }
+            ],
+            "readOnly": true
+          },
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Category"
+              }
+            ],
+            "readOnly": true
+          },
+          "milestone": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Milestone"
+              }
+            ],
+            "readOnly": true
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          },
+          "parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "親課題",
+            "description": "子課題の場合、所属する親課題"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "readOnly": true
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date",
+            "readOnly": true
+          },
+          "commentCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "childCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "gantt_order": {
+            "type": "integer",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "title": "ガント表示順",
+            "description": "ガントチャートでの手動並べ替え順序"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            },
+            "readOnly": true
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "assignee",
+          "author",
+          "category",
+          "childCount",
+          "closedAt",
+          "commentCount",
+          "comments",
+          "createdAt",
+          "description",
+          "dueDate",
+          "id",
+          "milestone",
+          "startDate",
+          "ticketKey",
+          "ticketType",
+          "title",
+          "updatedAt"
+        ]
+      },
+      "TicketList": {
+        "type": "object",
+        "description": "チケット一覧（軽量版）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "ticketKey": {
+            "type": "string",
+            "readOnly": true
+          },
+          "title": {
+            "type": "string",
+            "title": "タイトル",
+            "maxLength": 500
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StatusEnum"
+              }
+            ],
+            "title": "ステータス"
+          },
+          "priority": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PriorityEnum"
+              }
+            ],
+            "title": "優先度"
+          },
+          "ticketType": {
+            "type": "string",
+            "readOnly": true
+          },
+          "assignee": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              }
+            ],
+            "readOnly": true
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              }
+            ],
+            "readOnly": true
+          },
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Category"
+              }
+            ],
+            "readOnly": true
+          },
+          "milestone": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Milestone"
+              }
+            ],
+            "readOnly": true
+          },
+          "project": {
+            "type": "integer",
+            "nullable": true,
+            "title": "プロジェクト"
+          },
+          "parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "親課題",
+            "description": "子課題の場合、所属する親課題"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "readOnly": true
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date",
+            "readOnly": true
+          },
+          "commentCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "childCount": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "gantt_order": {
+            "type": "integer",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "title": "ガント表示順",
+            "description": "ガントチャートでの手動並べ替え順序"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "assignee",
+          "author",
+          "category",
+          "childCount",
+          "commentCount",
+          "createdAt",
+          "dueDate",
+          "id",
+          "milestone",
+          "startDate",
+          "ticketKey",
+          "ticketType",
+          "title",
+          "updatedAt"
+        ]
+      },
+      "TicketTypeEnum": {
+        "enum": [
+          "不具合",
+          "課題",
+          "作業依頼",
+          "QA"
+        ],
+        "type": "string",
+        "description": "* `不具合` - 不具合\n* `課題` - 課題\n* `作業依頼` - 作業依頼\n* `QA` - QA"
+      },
+      "TokenObtainPair": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "string",
+            "readOnly": true
+          },
+          "refresh": {
+            "type": "string",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "access",
+          "refresh"
+        ]
+      },
+      "TokenObtainPairRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "writeOnly": true,
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "writeOnly": true,
+            "minLength": 1
+          }
+        },
+        "required": [
+          "password",
+          "username"
+        ]
+      },
+      "TokenRefresh": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "string",
+            "readOnly": true
+          },
+          "refresh": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "access",
+          "refresh"
+        ]
+      },
+      "TokenRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "refresh"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "description": "ユーザー情報（読み取り用）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "username": {
+            "type": "string",
+            "title": "ユーザー名",
+            "description": "この項目は必須です。半角アルファベット、半角数字、@/./+/-/_ で150文字以下にしてください。",
+            "pattern": "^[\\w.@+-]+$",
+            "maxLength": 150
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "メールアドレス",
+            "maxLength": 254
+          },
+          "firstName": {
+            "type": "string",
+            "readOnly": true
+          },
+          "lastName": {
+            "type": "string",
+            "readOnly": true
+          },
+          "displayName": {
+            "type": "string",
+            "readOnly": true
+          },
+          "isStaff": {
+            "type": "boolean",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "displayName",
+          "firstName",
+          "id",
+          "isStaff",
+          "lastName",
+          "username"
+        ]
+      },
+      "UserSummary": {
+        "type": "object",
+        "description": "ユーザー（FK参照用の軽量版）",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "username": {
+            "type": "string",
+            "title": "ユーザー名",
+            "description": "この項目は必須です。半角アルファベット、半角数字、@/./+/-/_ で150文字以下にしてください。",
+            "pattern": "^[\\w.@+-]+$",
+            "maxLength": 150
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "メールアドレス",
+            "maxLength": 254
+          },
+          "displayName": {
+            "type": "string",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "displayName",
+          "id",
+          "username"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "wip_sessionid"
+      },
+      "jwtAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

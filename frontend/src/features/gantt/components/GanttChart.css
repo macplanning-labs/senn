@@ -1,0 +1,204 @@
+/**
+ * GanttChart.css — ガントチャートのスタイル
+ */
+
+.gantt {
+  max-width: 1200px;
+}
+
+.gantt__header {
+  margin-bottom: var(--space-6);
+}
+
+.gantt__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+}
+
+/* ── コンテナ ── */
+.gantt__container {
+  position: relative;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* ── タイムラインヘッダー ── */
+.gantt__timeline-header {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-default);
+  background-color: var(--color-bg-secondary);
+}
+
+.gantt__label-col {
+  width: 200px;
+  min-width: 200px;
+  padding: var(--space-2) var(--space-3);
+  border-right: 1px solid var(--color-border-default);
+  flex-shrink: 0;
+}
+
+.gantt__timeline-scale {
+  flex: 1;
+  position: relative;
+  height: 32px;
+}
+
+.gantt__week-marker {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  border-left: 1px dashed var(--color-border-default);
+  padding-left: var(--space-1);
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+/* ── チケット行 ── */
+.gantt__row {
+  display: flex;
+  min-height: 40px;
+  border-bottom: 1px solid var(--color-border-default);
+  transition: background-color var(--transition-fast);
+}
+
+.gantt__row:last-child {
+  border-bottom: none;
+}
+
+.gantt__row:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.gantt__ticket-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.gantt__ticket-key {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.gantt__ticket-title {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── バー ── */
+.gantt__bar-col {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.gantt__bar {
+  position: absolute;
+  height: 24px;
+  border-radius: var(--radius-md);
+  background-color: var(--bar-color);
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  transition: opacity var(--transition-fast);
+  cursor: pointer;
+}
+
+.gantt__bar:hover {
+  opacity: 1;
+}
+
+.gantt__bar--overdue {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 77, 79, 0.15) 4px,
+    rgba(255, 77, 79, 0.15) 8px
+  );
+  border: 1px solid var(--color-error);
+}
+
+.gantt__bar-label {
+  font-size: 10px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ── 今日の線 ── */
+.gantt__today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--color-error);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.gantt__today-line::before {
+  content: 'Today';
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-size: 10px;
+  color: var(--color-error);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+/* ── ローディング / 空 ── */
+.gantt__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.gantt__skeleton-row {
+  height: 40px;
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 25%,
+    var(--color-bg-elevated) 50%,
+    var(--color-bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.gantt__empty {
+  padding: var(--space-10);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+}
+
+@media (max-width: 768px) {
+  .gantt__label-col {
+    width: 120px;
+    min-width: 120px;
+  }
+
+  .gantt__ticket-key {
+    display: none;
+  }
+}

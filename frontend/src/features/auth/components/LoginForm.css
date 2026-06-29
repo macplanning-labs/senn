@@ -1,0 +1,142 @@
+/**
+ * LoginForm.css — ログインフォームのスタイル
+ *
+ * ダークモード対応のモダンなログインカード。
+ */
+
+.login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: var(--color-bg-primary);
+  padding: var(--space-4);
+}
+
+.login__card {
+  width: 100%;
+  max-width: 380px;
+  animation: slideInFromBottom var(--transition-slow) ease-out;
+}
+
+.login__header {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.login__logo {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  background: linear-gradient(135deg, var(--color-accent-primary), #a78bfa, #f472b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.login__tagline {
+  margin-top: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* ── フォーム ── */
+.login__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.login__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.login__label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.login__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.login__forgot {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-link);
+}
+
+.login__input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-md);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.login__input:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(92, 108, 255, 0.15);
+  outline: none;
+}
+
+/* ── 送信ボタン ── */
+.login__submit {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: white;
+  background: linear-gradient(135deg, var(--color-accent-primary), #7c8aff);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-top: var(--space-2);
+}
+
+.login__submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-accent-primary-hover), #8c9aff);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(92, 108, 255, 0.3);
+}
+
+.login__submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── エラー ── */
+.login__error {
+  padding: var(--space-2) var(--space-3);
+  background-color: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  animation: slideInFromBottom 200ms ease-out;
+}
+
+/* ── サインアップリンク ── */
+.login__signup {
+  text-align: center;
+  margin-top: var(--space-6);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.login__signup a {
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-medium);
+}

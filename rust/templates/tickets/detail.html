@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ticket.ticket_key }} — WIP{% endblock %}
+{% block page_title %}{{ ticket.ticket_key }} {{ ticket.title }}{% endblock %}
+
+{% block header_actions %}
+<a href="/tickets/{{ ticket.id }}/edit" class="btn btn-outline btn-sm">✏️ 編集</a>
+{% endblock %}
+
+{% block extra_css %}
+{% include "tickets/partials/_detail_styles.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="detail-layout">
+  {# ===== メインカラム ===== #}
+  <div class="detail-main">
+    {# 説明 #}
+    <div class="card">
+      <div class="card-header-simple">
+        <h2 style="font-size:15px;font-weight:700;">📝 説明</h2>
+      </div>
+      <div class="card-body">
+        <div class="ticket-description">
+          {% if ticket.description.is_empty() %}
+          <p class="text-muted">説明なし</p>
+          {% else %}
+          {{ ticket.description }}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# コメント #}
+    <div class="card">
+      <div class="card-header-simple">
+        <h2 style="font-size:15px;font-weight:700;">💬 コメント ({{ comments.len() }})</h2>
+      </div>
+      <div class="card-body">
+        {% for c in comments %}
+        <div class="comment-item">
+          <div class="comment-header">
+            <div class="comment-avatar">{{ c.author_name.chars().next().unwrap_or('?') }}</div>
+            <div>
+              <span class="comment-author">{{ c.author_name }}</span>
+              <span class="comment-time">{{ c.created_at|date }}</span>
+            </div>
+            <form method="post" action="/comments/{{ c.id }}/delete" style="margin-left:auto;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('削除しますか？')" style="font-size:11px;color:var(--text-muted);">🗑</button>
+            </form>
+          </div>
+          <div class="comment-body">{{ c.body }}</div>
+        </div>
+        {% endfor %}
+
+        {# コメント投稿フォーム #}
+        <form method="post" action="/tickets/{{ ticket.id }}/comment" class="comment-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <textarea name="body" class="form-control" rows="3" placeholder="コメントを入力..." required></textarea>
+          <div style="text-align:right;margin-top:8px;">
+            <button type="submit" class="btn btn-primary btn-sm">コメント送信</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ===== サイドバー ===== #}
+  <div class="detail-sidebar">
+    <div class="card">
+      <div class="card-body">
+        {# ステータス変更 #}
+        <div class="detail-field">
+          <label class="detail-label">ステータス</label>
+          <div class="status-actions">
+            {% for s in available_statuses %}
+            {% if s != ticket.status %}
+            <form method="post" action="/tickets/{{ ticket.id }}/status" style="display:inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="status" value="{{ s }}">
+              <button type="submit" class="btn btn-sm {% if s == "完了" %}btn-primary{% else %}btn-outline{% endif %}">{{ s }}</button>
+            </form>
+            {% endif %}
+            {% endfor %}
+          </div>
+          <span class="badge {% if ticket.status == "未対応" %}badge-open{% elif ticket.status == "処理中" %}badge-in-progress{% elif ticket.status == "処理済み" %}badge-resolved{% elif ticket.status == "完了" %}badge-closed{% endif %}" style="margin-top:4px;">{{ ticket.status }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">種別</label>
+          <span>{{ ticket.ticket_type }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">優先度</label>
+          <span class="badge {% if ticket.priority == "高" %}badge-high{% elif ticket.priority == "中" %}badge-medium{% elif ticket.priority == "低" %}badge-low{% endif %}">{{ ticket.priority }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">担当者</label>
+          <span>{{ ticket.assignee_name|default("-") }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">カテゴリー</label>
+          <span>{{ ticket.category_name|default("-") }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">マイルストーン</label>
+          <span>{{ ticket.milestone_name|default("-") }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">開始日</label>
+          <span>{% if let Some(d) = ticket.start_date %}{{ d }}{% else %}-{% endif %}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">期限日</label>
+          <span>{% if let Some(d) = ticket.due_date %}{{ d }}{% else %}-{% endif %}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">作成者</label>
+          <span>{{ ticket.author_name|default("-") }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">作成日</label>
+          <span>{{ ticket.created_at|date }}</span>
+        </div>
+
+        <div class="detail-field">
+          <label class="detail-label">更新日</label>
+          <span>{{ ticket.updated_at|date }}</span>
+        </div>
+
+        <hr style="margin:16px 0;">
+
+        {# ウォッチ #}
+        <form method="post" action="/tickets/{{ ticket.id }}/watch">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-outline btn-sm" style="width:100%;">
+            {% if is_watching %}👁️ ウォッチ中{% else %}👁️‍🗨️ ウォッチする{% endif %}
+          </button>
+        </form>
+
+        {# 削除 #}
+        <form method="post" action="/tickets/{{ ticket.id }}/delete" style="margin-top:8px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;color:var(--danger);" onclick="return confirm('このチケットを削除しますか？')">🗑 削除</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

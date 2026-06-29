@@ -1,0 +1,165 @@
+/**
+ * tokens.css — WIP デザインシステム CSS変数
+ *
+ * Linearライクなモダンダークテーマ。
+ * 全コンポーネントはこの変数を参照し、ハードコーディングしない。
+ */
+
+:root {
+  /* ============================================
+     カラーパレット（ダークモード = デフォルト）
+     ============================================ */
+
+  /* 背景色 — 深いグレー階調 */
+  --color-bg-primary: #0d0d0d;
+  --color-bg-secondary: #141414;
+  --color-bg-tertiary: #1a1a1a;
+  --color-bg-elevated: #1f1f1f;
+  --color-bg-hover: #252525;
+  --color-bg-active: #2a2a2a;
+  --color-bg-overlay: rgba(0, 0, 0, 0.7);
+
+  /* テキスト色 */
+  --color-text-primary: #f0f0f0;
+  --color-text-secondary: #a0a0a0;
+  --color-text-tertiary: #666666;
+  --color-text-inverse: #0d0d0d;
+  --color-text-link: #7c8aff;
+
+  /* ボーダー色 */
+  --color-border-default: #2a2a2a;
+  --color-border-hover: #3a3a3a;
+  --color-border-focus: #5c6cff;
+
+  /* アクセントカラー — インディゴ/パープル */
+  --color-accent-primary: #5c6cff;
+  --color-accent-primary-hover: #7c8aff;
+  --color-accent-primary-active: #4a58e0;
+
+  /* ステータスカラー */
+  --color-status-open: #a0a0a0;
+  --color-status-in-progress: #f5a623;
+  --color-status-resolved: #50e3c2;
+  --color-status-closed: #5c6cff;
+
+  /* 優先度カラー */
+  --color-priority-urgent: #ff4d4f;
+  --color-priority-high: #ff7a45;
+  --color-priority-medium: #f5a623;
+  --color-priority-low: #a0a0a0;
+
+  /* セマンティックカラー */
+  --color-success: #50e3c2;
+  --color-warning: #f5a623;
+  --color-error: #ff4d4f;
+  --color-info: #5c6cff;
+
+  /* ============================================
+     タイポグラフィ
+     ============================================ */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+
+  --font-size-xs: 0.6875rem;    /* 11px */
+  --font-size-sm: 0.75rem;      /* 12px */
+  --font-size-base: 0.8125rem;  /* 13px — Linearと同じ */
+  --font-size-md: 0.875rem;     /* 14px */
+  --font-size-lg: 1rem;         /* 16px */
+  --font-size-xl: 1.25rem;      /* 20px */
+  --font-size-2xl: 1.5rem;      /* 24px */
+  --font-size-3xl: 2rem;        /* 32px */
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* ============================================
+     スペーシング
+     ============================================ */
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+
+  /* ============================================
+     ボーダー
+     ============================================ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ============================================
+     シャドウ
+     ============================================ */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6);
+
+  /* ============================================
+     トランジション
+     ============================================ */
+  --transition-fast: 100ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* ============================================
+     サイドバー
+     ============================================ */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 56px;
+
+  /* ============================================
+     Zインデックス
+     ============================================ */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal-overlay: 300;
+  --z-modal: 400;
+  --z-popover: 500;
+  --z-tooltip: 600;
+  --z-toast: 700;
+  --z-command-palette: 800;
+}
+
+/* ============================================
+   ライトモード
+   ============================================ */
+[data-theme='light'] {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f8f8f8;
+  --color-bg-tertiary: #f0f0f0;
+  --color-bg-elevated: #ffffff;
+  --color-bg-hover: #f4f4f4;
+  --color-bg-active: #e8e8e8;
+  --color-bg-overlay: rgba(0, 0, 0, 0.4);
+
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #666666;
+  --color-text-tertiary: #999999;
+  --color-text-inverse: #ffffff;
+  --color-text-link: #5c6cff;
+
+  --color-border-default: #e0e0e0;
+  --color-border-hover: #cccccc;
+  --color-border-focus: #5c6cff;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+}

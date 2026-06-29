@@ -1,0 +1,67 @@
+[package]
+name = "wip"
+version = "0.1.0"
+edition = "2021"
+description = "WIP — プロジェクト管理ツール（チケット・ガントチャート・Wiki）"
+
+[dependencies]
+# Web フレームワーク
+axum = { version = "0.8", features = ["macros", "multipart"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+
+# テンプレートエンジン
+askama = "0.13"
+
+# データベース
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "macros", "chrono", "uuid"] }
+
+# セッション
+tower-sessions = "0.14"
+tower-sessions-sqlx-store = { version = "0.14", features = ["postgres"] }
+
+# シリアライズ
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 日時
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# ログ
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 環境変数
+dotenvy = "0.15"
+
+# エラーハンドリング
+anyhow = "1"
+thiserror = "2"
+
+# 認証
+argon2 = "0.5"
+totp-rs = { version = "5", features = ["qr"] }
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+
+# メール
+lettre = { version = "0.11", features = ["tokio1-native-tls"] }
+
+# Markdown
+pulldown-cmark = "0.12"
+
+# Excel
+rust_xlsxwriter = "0.80"
+
+# CSRF
+rand = "0.8"
+base64 = "0.22"
+
+# Django パスワード移行
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha2 = "0.10"

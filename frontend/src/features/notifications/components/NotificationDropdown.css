@@ -1,0 +1,155 @@
+/**
+ * NotificationDropdown.css — 通知ドロップダウンのスタイル
+ */
+
+.notif {
+  position: relative;
+}
+
+.notif__bell {
+  position: relative;
+  padding: var(--space-1);
+  font-size: 18px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-fast);
+}
+
+.notif__bell:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.notif__badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background-color: var(--color-error);
+  color: white;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* ── ドロップダウン ── */
+.notif__dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  width: 360px;
+  max-height: 500px;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  z-index: var(--z-dropdown);
+  overflow: hidden;
+  animation: slideInFromBottom 150ms ease-out;
+}
+
+.notif__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.notif__header-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.notif__mark-all {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-link);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+/* ── リスト ── */
+.notif__list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.notif__empty {
+  padding: var(--space-8);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.notif__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-default);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.notif__item:last-child {
+  border-bottom: none;
+}
+
+.notif__item:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.notif__item--unread {
+  background-color: color-mix(in srgb, var(--color-accent-primary) 5%, transparent);
+}
+
+.notif__icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.notif__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notif__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.notif__message {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notif__time {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.notif__unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-accent-primary);
+  flex-shrink: 0;
+  margin-top: 6px;
+}

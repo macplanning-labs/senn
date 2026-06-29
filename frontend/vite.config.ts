@@ -1,0 +1,27 @@
+/// vite.config.ts — WIP フロントエンド ビルド設定
+///
+/// パスエイリアス (@/) と開発用APIプロキシを設定。
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    port: 5173,
+    // Django API へのプロキシ（開発時のCORS回避）
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+})
+

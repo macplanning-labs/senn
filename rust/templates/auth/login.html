@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ログイン — WIP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    .login-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0f2027 0%, #203a43 40%, #2c5364 100%);
+    }
+    .login-card {
+      background: rgba(255,255,255,0.97);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 48px 40px;
+      width: 420px;
+      max-width: 90vw;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+    }
+    .login-logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .login-logo .logo-icon {
+      width: 64px;
+      height: 64px;
+      font-size: 28px;
+      margin: 0 auto 16px;
+      background: linear-gradient(135deg, #0d9488, #14b8a6);
+    }
+    .login-logo h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 32px;
+      font-weight: 900;
+      color: #0d9488;
+      letter-spacing: 4px;
+    }
+    .login-subtitle {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-icon">W</div>
+        <h1>WIP</h1>
+        <p class="login-subtitle">Work In Progress — プロジェクト管理</p>
+      </div>
+
+      {% if error_message %}
+      <div class="alert alert-danger" role="alert">
+        <span>{{ error_message }}</span>
+      </div>
+      {% endif %}
+
+      <form method="post" action="/auth/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+          <label class="form-label" for="id_username">ユーザーID</label>
+          <input type="text" name="username" id="id_username" class="form-control" required autofocus autocomplete="username" placeholder="ユーザーIDを入力">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="id_password">パスワード</label>
+          <input type="password" name="password" id="id_password" class="form-control" required autocomplete="current-password" placeholder="パスワードを入力">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">ログイン</button>
+      </form>
+
+      <div style="position:relative;text-align:center;margin:20px 0;">
+        <hr style="border:none;border-top:1px solid var(--border);">
+        <span style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,0.97);padding:0 12px;font-size:12px;color:var(--text-muted);">または</span>
+      </div>
+
+      <button type="button" id="passkeyLoginBtn" class="btn btn-outline" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">
+        🗝️ パスキーでログイン
+      </button>
+    </div>
+  </div>
+  <script src="/static/js/main.js"></script>
+  <script>
+  document.getElementById('passkeyLoginBtn').addEventListener('click', async function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '認証中...';
+    try {
+      var beginRes = await fetch('/auth/webauthn/login/begin', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': document.querySelector('[name=csrf_token]').value },
+      });
+      var options = await beginRes.json();
+      options.challenge = base64urlToBuffer(options.challenge);
+      if (options.allowCredentials) {
+        options.allowCredentials = options.allowCredentials.map(function(c) {
+          return Object.assign({}, c, { id: base64urlToBuffer(c.id) });
+        });
+      }
+      var assertion = await navigator.credentials.get({ publicKey: options });
+      var completeRes = await fetch('/auth/webauthn/login/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: assertion.id,
+          rawId: bufferToBase64url(assertion.rawId),
+          response: {
+            authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+            clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+            signature: bufferToBase64url(assertion.response.signature),
+            userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : null,
+          },
+          type: assertion.type,
+        }),
+      });
+      var result = await completeRes.json();
+      if (result.status === 'ok') {
+        window.location.href = '/';
+      } else {
+        alert('ログインに失敗しました: ' + (result.error || '不明なエラー'));
+      }
+    } catch (e) {
+      if (e.name !== 'NotAllowedError') {
+        alert('エラー: ' + e.message);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🗝️ パスキーでログイン';
+    }
+  });
+  function base64urlToBuffer(b) {
+    var s = b.replace(/-/g,'+').replace(/_/g,'/');
+    var p = s.length%4===0?'':'='.repeat(4-s.length%4);
+    var d = atob(s+p);
+    return Uint8Array.from(d,function(c){return c.charCodeAt(0)}).buffer;
+  }
+  function bufferToBase64url(buf) {
+    var a = new Uint8Array(buf), s = '';
+    for(var i=0;i<a.length;i++) s+=String.fromCharCode(a[i]);
+    return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  </script>
+</body>
+</html>

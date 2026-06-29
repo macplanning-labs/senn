@@ -1,0 +1,233 @@
+/**
+ * Dashboard.css — ダッシュボードのスタイル
+ */
+
+.dashboard {
+  max-width: 1000px;
+}
+
+/* ── ヘッダー ── */
+.dashboard__header {
+  margin-bottom: var(--space-8);
+}
+
+.dashboard__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.dashboard__greeting {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-md);
+  color: var(--color-text-tertiary);
+}
+
+/* ── 統計カード ── */
+.dashboard__stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+.dashboard__stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-5);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.dashboard__stat-card:hover {
+  border-color: var(--color-border-hover);
+  transform: translateY(-2px);
+}
+
+.dashboard__stat-value {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard__stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ── セクション ── */
+.dashboard__section {
+  margin-bottom: var(--space-8);
+}
+
+.dashboard__section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.dashboard__section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.dashboard__view-all {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ── チケット一覧 ── */
+.dashboard__ticket-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.dashboard__ticket-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  text-decoration: none;
+  color: inherit;
+  border-bottom: 1px solid var(--color-border-default);
+  transition: background-color var(--transition-fast);
+}
+
+.dashboard__ticket-row:last-child {
+  border-bottom: none;
+}
+
+.dashboard__ticket-row:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.dashboard__ticket-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1;
+}
+
+.dashboard__ticket-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.dashboard__ticket-key {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.dashboard__ticket-title {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard__ticket-due {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.dashboard__ticket-due--overdue {
+  color: var(--color-error);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dashboard__ticket-updated {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  min-width: 60px;
+  text-align: right;
+}
+
+/* ── バッジ ── */
+.dashboard__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--badge-color);
+  background-color: color-mix(in srgb, var(--badge-color) 12%, transparent);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.dashboard__badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--badge-color);
+}
+
+.dashboard__priority {
+  font-size: var(--font-size-xs);
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── ローディング ── */
+.dashboard__loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dashboard__skeleton {
+  height: 48px;
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 25%,
+    var(--color-bg-elevated) 50%,
+    var(--color-bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius-md);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* ── 空状態 ── */
+.dashboard__empty {
+  padding: var(--space-10);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-md);
+}
+
+/* ── レスポンシブ ── */
+@media (max-width: 768px) {
+  .dashboard__stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard__ticket-right {
+    display: none;
+  }
+}

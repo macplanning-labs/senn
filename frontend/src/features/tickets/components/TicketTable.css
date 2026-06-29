@@ -1,0 +1,232 @@
+/**
+ * TicketTable.css — チケット一覧テーブルのスタイル
+ */
+
+.ticket-table {
+  max-width: 1200px;
+}
+
+/* ── ヘッダー ── */
+.ticket-table__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.ticket-table__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.ticket-table__create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: linear-gradient(135deg, var(--color-accent-primary), #7c8aff);
+  color: white;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.ticket-table__create-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(92, 108, 255, 0.3);
+  color: white;
+}
+
+/* ── フィルタ ── */
+.ticket-table__filters {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.ticket-table__search {
+  flex: 1;
+  max-width: 300px;
+}
+
+.ticket-table__filter-select {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* ── テーブル ── */
+.ticket-table__container {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ticket-table__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ticket-table__th {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--color-border-default);
+  background-color: var(--color-bg-secondary);
+  white-space: nowrap;
+}
+
+.ticket-table__th--priority { width: 30px; }
+.ticket-table__th--key { width: 120px; }
+.ticket-table__th--status { width: 130px; }
+.ticket-table__th--assignee { width: 150px; }
+.ticket-table__th--due { width: 100px; }
+.ticket-table__th--meta { width: 80px; }
+
+.ticket-table__row {
+  transition: background-color var(--transition-fast);
+}
+
+.ticket-table__row:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.ticket-table__td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border-default);
+  font-size: var(--font-size-base);
+  vertical-align: middle;
+}
+
+.ticket-table__row:last-child .ticket-table__td {
+  border-bottom: none;
+}
+
+/* ── セル固有 ── */
+.ticket-table__key-link {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+}
+
+.ticket-table__key-link:hover {
+  color: var(--color-text-link);
+}
+
+.ticket-table__title-link {
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+}
+
+.ticket-table__title-link:hover {
+  color: var(--color-text-link);
+}
+
+.ticket-table__status-select {
+  padding: 2px var(--space-2);
+  background-color: transparent;
+  border: 1px solid;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: center;
+}
+
+.ticket-table__assignee {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.ticket-table__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-accent-primary), #a78bfa);
+  color: white;
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  flex-shrink: 0;
+}
+
+.ticket-table__unassigned {
+  color: var(--color-text-tertiary);
+}
+
+.ticket-table__due--overdue {
+  color: var(--color-error);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ticket-table__meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-right: var(--space-2);
+}
+
+/* ── ローディング / 空状態 ── */
+.ticket-table__loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ticket-table__skeleton-row {
+  height: 44px;
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 25%,
+    var(--color-bg-elevated) 50%,
+    var(--color-bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ticket-table__empty {
+  padding: var(--space-10);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-md);
+}
+
+@media (max-width: 768px) {
+  .ticket-table__filters {
+    flex-wrap: wrap;
+  }
+
+  .ticket-table__search {
+    max-width: none;
+  }
+
+  .ticket-table__th--assignee,
+  .ticket-table__td--assignee,
+  .ticket-table__th--due,
+  .ticket-table__td--due,
+  .ticket-table__th--meta,
+  .ticket-table__td--meta {
+    display: none;
+  }
+}

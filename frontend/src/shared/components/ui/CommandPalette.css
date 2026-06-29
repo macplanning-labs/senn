@@ -1,0 +1,113 @@
+/**
+ * CommandPalette.css — コマンドパレットのスタイル
+ */
+
+.command-palette__overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--color-bg-overlay);
+  z-index: var(--z-command-palette);
+  animation: fadeIn 100ms ease;
+}
+
+.command-palette {
+  position: fixed;
+  top: 20vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  z-index: calc(var(--z-command-palette) + 1);
+  overflow: hidden;
+  animation: slideInFromBottom 150ms ease-out;
+}
+
+/* ── 入力 ── */
+.command-palette__input {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border-default);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  outline: none;
+}
+
+.command-palette__input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* ── リスト ── */
+.command-palette__list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.command-palette__empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* ── グループ ── */
+.command-palette__group [cmdk-group-heading] {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── アイテム ── */
+.command-palette__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.command-palette__item[aria-selected="true"],
+.command-palette__item:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.command-palette__item[aria-selected="true"] {
+  background-color: var(--color-bg-active);
+}
+
+.command-palette__item-icon {
+  font-size: var(--font-size-md);
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.command-palette__item-label {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+/* ── フッター ── */
+.command-palette__footer {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border-default);
+  background-color: var(--color-bg-secondary);
+}
+
+.command-palette__shortcut {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}

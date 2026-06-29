@@ -1,0 +1,63 @@
+/**
+ * uiStore.ts — グローバルUI状態管理
+ *
+ * テーマ切替、言語切替、サイドバー開閉など
+ * アプリ全体のUI状態を管理するZustandストア。
+ */
+
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+type Theme = 'dark' | 'light';
+type Language = 'en' | 'ja';
+
+interface UIState {
+  /** 現在のテーマ */
+  theme: Theme;
+  /** 現在の言語 */
+  language: Language;
+  /** サイドバーの開閉状態 */
+  sidebarOpen: boolean;
+  /** コマンドパレットの開閉状態 */
+  commandPaletteOpen: boolean;
+
+  // アクション
+  setTheme: (theme: Theme) => void;
+  toggleTheme: () => void;
+  setLanguage: (language: Language) => void;
+  toggleSidebar: () => void;
+  setCommandPaletteOpen: (open: boolean) => void;
+}
+
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      theme: 'dark',
+      language: navigator.language.startsWith('ja') ? 'ja' : 'en',
+      sidebarOpen: true,
+      commandPaletteOpen: false,
+
+      setTheme: (theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+        set({ theme });
+      },
+      toggleTheme: () =>
+        set((state) => {
+          const newTheme = state.theme === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', newTheme);
+          return { theme: newTheme };
+        }),
+      setLanguage: (language) => set({ language }),
+      toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+      setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+    }),
+    {
+      name: 'wip-ui-preferences',
+      partialize: (state) => ({
+        theme: state.theme,
+        language: state.language,
+        sidebarOpen: state.sidebarOpen,
+      }),
+    },
+  ),
+);
