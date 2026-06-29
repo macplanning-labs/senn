@@ -1,7 +1,7 @@
 /**
  * LoginForm.tsx — ログインフォーム
  *
- * メール + パスワードでJWT認証。
+ * ユーザー名 + パスワードでJWT認証。
  * Zodバリデーション + 入力値保持 + エラー表示。
  */
 
@@ -13,7 +13,7 @@ import { useAuthStore } from '@/shared/stores/authStore';
 import './LoginForm.css';
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  username: z.string().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -22,7 +22,7 @@ export function LoginForm() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
 
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,7 +32,7 @@ export function LoginForm() {
     setError('');
 
     // フロント側バリデーション（Layer 1）
-    const result = loginSchema.safeParse({ email, password });
+    const result = loginSchema.safeParse({ username, password });
     if (!result.success) {
       setError(result.error.issues[0]?.message ?? 'Validation error');
       return;
@@ -40,10 +40,10 @@ export function LoginForm() {
 
     setIsLoading(true);
     try {
-      await login(email, password);
+      await login(username, password);
       navigate('/dashboard');
     } catch {
-      setError('Invalid email or password');
+      setError(t('auth.loginError', 'Invalid username or password'));
     } finally {
       setIsLoading(false);
     }
@@ -59,7 +59,7 @@ export function LoginForm() {
         </div>
 
         {/* フォーム */}
-        <form className="login__form" onSubmit={(e) => { void handleSubmit(e); }}>
+        <form className="login__form" onSubmit={(e) => { void handleSubmit(e); }} data-testid="login-form">
           {error && (
             <div className="login__error" data-testid="login-error" role="alert">
               {error}
@@ -67,19 +67,20 @@ export function LoginForm() {
           )}
 
           <div className="login__field">
-            <label htmlFor="email" className="login__label">
-              {t('auth.email')}
+            <label htmlFor="username" className="login__label">
+              {t('auth.username', 'Username')}
             </label>
             <input
-              id="email"
-              type="email"
+              id="username"
+              type="text"
+              name="username"
               className="login__input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
-              autoComplete="email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="admin"
+              autoComplete="username"
               autoFocus
-              data-testid="login-email"
+              data-testid="login-username"
             />
           </div>
 
@@ -115,7 +116,7 @@ export function LoginForm() {
 
         {/* サインアップリンク */}
         <p className="login__signup">
-          Don't have an account?{' '}
+          {t('auth.noAccount', "Don't have an account?")}{' '}
           <Link to="/register" data-testid="register-link">
             {t('auth.register')}
           </Link>
