@@ -25,7 +25,7 @@ const statusColors: Record<string, string> = {
 };
 
 export function CycleList() {
-  const { project } = useProject();
+  const { currentProject: project } = useProject();
   const { data: cycles = [], isLoading } = useCycles(project?.id);
   const createMutation = useCreateCycle();
   const deleteMutation = useDeleteCycle();
