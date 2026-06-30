@@ -114,7 +114,16 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['memberships', projectId] });
       closeModal();
     },
-    onError: () => setError('メンバーの追加に失敗しました'),
+    onError: (err: unknown) => {
+      const axiosErr = err as { response?: { data?: Record<string, string[]> } };
+      const detail = axiosErr.response?.data;
+      if (detail) {
+        const messages = Object.values(detail).flat().join(', ');
+        setError(messages || 'メンバーの追加に失敗しました');
+      } else {
+        setError('メンバーの追加に失敗しました');
+      }
+    },
   });
 
   // --- 削除 ---

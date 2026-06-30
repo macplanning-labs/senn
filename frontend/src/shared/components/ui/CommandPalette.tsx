@@ -3,14 +3,27 @@
  *
  * cmdk ライブラリベースのグローバル検索 + ナビゲーション。
  * Linearスタイルのキーボードファーストな操作体験。
+ * API検索によるチケット・Wiki・プロジェクト横断検索。
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/shared/stores/uiStore';
+import { apiClient } from '@/shared/api/client';
 import './CommandPalette.css';
+
+interface SearchResult {
+  type: 'ticket' | 'wiki' | 'project';
+  id: number;
+  key?: string;
+  title: string;
+  status?: string;
+  projectKey?: string;
+  url: string;
+  icon: string;
+}
 
 const NAVIGATION_ITEMS = [
   { id: 'dashboard', label: 'nav.dashboard', path: '/dashboard', icon: '📊' },
@@ -30,6 +43,8 @@ export function CommandPalette() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { commandPaletteOpen, setCommandPaletteOpen, toggleTheme } = useUIStore();
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // ⌘K / Ctrl+K でトグル
   const handleKeyDown = useCallback(
@@ -50,6 +65,33 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  // API検索（debounce付き）
+  useEffect(() => {
+    if (!searchQuery || searchQuery.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await apiClient.get('/search/', {
+          params: { q: searchQuery, limit: 8 },
+        });
+        setSearchResults(data.results ?? []);
+      } catch {
+        setSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // パレットを閉じるときにクリア
+  useEffect(() => {
+    if (!commandPaletteOpen) {
+      setSearchQuery('');
+      setSearchResults([]);
+    }
+  }, [commandPaletteOpen]);
+
   if (!commandPaletteOpen) return null;
 
   const handleSelect = (item: { action?: string; path?: string }) => {
@@ -58,6 +100,11 @@ export function CommandPalette() {
     } else if (item.path) {
       navigate(item.path);
     }
+    setCommandPaletteOpen(false);
+  };
+
+  const handleSearchSelect = (result: SearchResult) => {
+    navigate(result.url);
     setCommandPaletteOpen(false);
   };
 
@@ -72,11 +119,13 @@ export function CommandPalette() {
 
       {/* パレット本体 */}
       <div className="command-palette" data-testid="command-palette">
-        <Command label="Command Palette" shouldFilter>
+        <Command label="Command Palette" shouldFilter={searchResults.length === 0}>
           <Command.Input
             className="command-palette__input"
             placeholder={t('common.search')}
             autoFocus
+            value={searchQuery}
+            onValueChange={setSearchQuery}
             data-testid="command-palette-search"
           />
 
@@ -84,6 +133,34 @@ export function CommandPalette() {
             <Command.Empty className="command-palette__empty">
               {t('common.noResults')}
             </Command.Empty>
+
+            {/* API検索結果 */}
+            {searchResults.length > 0 && (
+              <Command.Group
+                heading="検索結果"
+                className="command-palette__group"
+              >
+                {searchResults.map((result) => (
+                  <Command.Item
+                    key={`${result.type}-${result.id}`}
+                    value={`${result.key || ''} ${result.title}`}
+                    onSelect={() => handleSearchSelect(result)}
+                    className="command-palette__item"
+                  >
+                    <span className="command-palette__item-icon">{result.icon}</span>
+                    <span className="command-palette__item-label">
+                      {result.key && (
+                        <span className="command-palette__item-key">{result.key} </span>
+                      )}
+                      {result.title}
+                    </span>
+                    {result.status && (
+                      <span className="command-palette__item-badge">{result.status}</span>
+                    )}
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
 
             {/* ナビゲーション */}
             <Command.Group
