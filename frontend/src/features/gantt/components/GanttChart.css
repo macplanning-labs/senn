@@ -15,6 +15,40 @@
   font-weight: var(--font-weight-bold);
 }
 
+.gantt__legend {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.gantt__legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.gantt__legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.gantt__legend-swatch--overdue {
+  background-color: var(--color-status-open);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    rgba(255, 77, 79, 0.5) 3px,
+    rgba(255, 77, 79, 0.5) 6px
+  );
+  border: 2px solid var(--color-error);
+}
+
 /* ── コンテナ ── */
 .gantt__container {
   position: relative;
@@ -127,10 +161,17 @@
     -45deg,
     transparent,
     transparent 4px,
-    rgba(255, 77, 79, 0.15) 4px,
-    rgba(255, 77, 79, 0.15) 8px
+    rgba(255, 77, 79, 0.4) 4px,
+    rgba(255, 77, 79, 0.4) 8px
   );
-  border: 1px solid var(--color-error);
+  border: 2px solid var(--color-error);
+  box-shadow: 0 0 6px rgba(255, 77, 79, 0.5);
+  animation: gantt-pulse 2s ease-in-out infinite;
+}
+
+@keyframes gantt-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 77, 79, 0.3); }
+  50% { box-shadow: 0 0 10px rgba(255, 77, 79, 0.7); }
 }
 
 .gantt__bar-label {

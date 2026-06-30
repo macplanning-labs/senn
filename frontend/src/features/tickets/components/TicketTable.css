@@ -48,7 +48,7 @@
 
 .ticket-table__search {
   flex: 1;
-  max-width: 300px;
+  max-width: 600px;
 }
 
 .ticket-table__filter-select {
@@ -71,6 +71,7 @@
 .ticket-table__table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .ticket-table__th {
@@ -84,14 +85,39 @@
   border-bottom: 1px solid var(--color-border-default);
   background-color: var(--color-bg-secondary);
   white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ticket-table__th--priority { width: 30px; }
-.ticket-table__th--key { width: 120px; }
-.ticket-table__th--status { width: 130px; }
-.ticket-table__th--assignee { width: 150px; }
-.ticket-table__th--due { width: 100px; }
-.ticket-table__th--meta { width: 80px; }
+/* カラム幅は colgroup で制御（リサイズフック経由） */
+
+/* リサイズ中はテーブルのポインターイベントを抑制 */
+.ticket-table__table--resizing {
+  cursor: col-resize;
+}
+
+.ticket-table__table--resizing .ticket-table__row {
+  pointer-events: none;
+}
+
+/* ── リサイズハンドル ── */
+.ticket-table__resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color var(--transition-fast);
+  z-index: 1;
+}
+
+.ticket-table__resize-handle:hover,
+.ticket-table__resize-handle:active {
+  background-color: var(--color-accent-primary);
+}
 
 .ticket-table__row {
   transition: background-color var(--transition-fast);
@@ -101,11 +127,20 @@
   background-color: var(--color-bg-hover);
 }
 
+.ticket-table__row--selected {
+  background-color: var(--color-bg-active);
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: -2px;
+}
+
 .ticket-table__td {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border-default);
   font-size: var(--font-size-base);
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ticket-table__row:last-child .ticket-table__td {
@@ -128,6 +163,10 @@
   color: var(--color-text-primary);
   text-decoration: none;
   font-weight: var(--font-weight-medium);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ticket-table__title-link:hover {
@@ -229,4 +268,173 @@
   .ticket-table__td--meta {
     display: none;
   }
+}
+
+/* ── チェックボックス ── */
+.ticket-table__checkbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-accent-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── フィルタプリセット ── */
+.ticket-table__preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ticket-table__preset-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.ticket-table__preset-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-primary);
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.ticket-table__preset-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 240px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  padding: var(--space-1);
+  animation: dropdownFadeIn 0.15s ease;
+}
+
+.ticket-table__preset-empty {
+  padding: var(--space-3);
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.ticket-table__preset-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ticket-table__preset-apply {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.ticket-table__preset-apply:hover {
+  background: var(--color-bg-hover);
+}
+
+.ticket-table__preset-detail {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.ticket-table__preset-delete {
+  padding: var(--space-1);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+.ticket-table__preset-delete:hover {
+  color: var(--color-error);
+  background: var(--color-bg-hover);
+}
+
+.ticket-table__preset-save {
+  display: block;
+  width: 100%;
+  padding: var(--space-2);
+  border-top: 1px solid var(--color-border-default);
+  color: var(--color-accent-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.ticket-table__preset-save:hover {
+  background: var(--color-bg-hover);
+}
+
+/* ── バルクアクションバー ── */
+.ticket-table__bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  animation: bulkBarSlide 0.2s ease;
+}
+
+@keyframes bulkBarSlide {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.ticket-table__bulk-count {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-accent-primary);
+}
+
+.ticket-table__bulk-select {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.ticket-table__bulk-clear {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.ticket-table__bulk-clear:hover {
+  color: var(--color-text-primary);
 }

@@ -2,21 +2,29 @@
  * App.tsx — WIP アプリケーションルート
  *
  * React Router v7 によるルーティング。
- * 認証状態に応じてレイアウトを切り替え。
+ * プロジェクトスコープURL: /p/:projectKey/tickets 等
+ * グローバルURL: /dashboard, /settings
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MainLayout } from '@/shared/components/layout/MainLayout';
 import { LoginForm } from '@/features/auth/components/LoginForm';
 import { Dashboard } from '@/features/dashboard/components/Dashboard';
-import { TicketTable } from '@/features/tickets/components/TicketTable';
-import { TicketDetail } from '@/features/tickets/components/TicketDetail';
+import { TicketListPage } from '@/features/tickets/components/TicketListPage';
 import { TicketForm } from '@/features/tickets/components/TicketForm';
+import { KanbanBoard } from '@/features/tickets/components/KanbanBoard';
 import { GanttChart } from '@/features/gantt/components/GanttChart';
+import { CycleList } from '@/features/cycles/components/CycleList';
+import { CycleDetail } from '@/features/cycles/components/CycleDetail';
 import { WikiList } from '@/features/wiki/components/WikiList';
+import { SettingsPage } from '@/features/settings/components/SettingsPage';
+import { ProjectSettingsPage } from '@/features/settings/components/ProjectSettingsPage';
+import { NotificationsPage } from '@/features/notifications/components/NotificationsPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
+import { ToastContainer } from '@/shared/components/ui/ToastContainer';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { getLastProjectKey } from '@/shared/hooks/useProject';
 import { useEffect } from 'react';
 
 // TanStack Query クライアント
@@ -55,7 +63,35 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** プレースホルダーページ（Week 2で実装） */
+/**
+ * 旧URL → 新URL リダイレクト
+ * /tickets → /p/:lastProjectKey/tickets
+ * /wiki → /p/:lastProjectKey/wiki
+ */
+function RedirectToProject({ subpath }: { subpath: string }) {
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuthStore();
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const lastKey = getLastProjectKey();
+    if (lastKey) {
+      navigate(`/p/${lastKey}/${subpath}`, { replace: true });
+    } else {
+      // プロジェクトキーがない場合、ダッシュボードへ
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, navigate, subpath]);
+
+  return null;
+}
+
+/** プロジェクトインデックス → tickets にリダイレクト */
+function ProjectIndex() {
+  return <TicketListPage />;
+}
+
+/** プレースホルダーページ */
 function PlaceholderPage({ title }: { title: string }) {
   return (
     <div data-testid={`page-${title.toLowerCase()}`}>
@@ -68,7 +104,7 @@ function PlaceholderPage({ title }: { title: string }) {
         {title}
       </h1>
       <p style={{ color: 'var(--color-text-tertiary)' }}>
-        Coming in Week 2...
+        Coming soon...
       </p>
     </div>
   );
@@ -98,15 +134,32 @@ export default function App() {
               </ProtectedRoute>
             }
           >
+            {/* グローバルページ */}
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/tickets" element={<TicketTable />} />
-            <Route path="/tickets/new" element={<TicketForm />} />
-            <Route path="/tickets/:id/edit" element={<TicketForm />} />
-            <Route path="/tickets/:id" element={<TicketDetail />} />
-            <Route path="/gantt" element={<GanttChart />} />
-            <Route path="/wiki" element={<WikiList />} />
-            <Route path="/notifications" element={<PlaceholderPage title="Notifications" />} />
-            <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+
+            {/* プロジェクトスコープ */}
+            <Route path="/p/:projectKey">
+              <Route index element={<ProjectIndex />} />
+              <Route path="tickets" element={<TicketListPage />} />
+              <Route path="tickets/new" element={<TicketForm />} />
+              <Route path="tickets/:ticketId/edit" element={<TicketForm />} />
+              <Route path="tickets/:ticketId" element={<TicketListPage />} />
+              <Route path="board" element={<KanbanBoard />} />
+              <Route path="board/:ticketId" element={<KanbanBoard />} />
+              <Route path="wiki" element={<WikiList />} />
+              <Route path="gantt" element={<GanttChart />} />
+              <Route path="cycles" element={<CycleList />} />
+              <Route path="cycles/:cycleId" element={<CycleDetail />} />
+              <Route path="settings" element={<ProjectSettingsPage />} />
+            </Route>
+
+            {/* 旧URL後方互換リダイレクト */}
+            <Route path="/tickets" element={<RedirectToProject subpath="tickets" />} />
+            <Route path="/tickets/*" element={<RedirectToProject subpath="tickets" />} />
+            <Route path="/wiki" element={<RedirectToProject subpath="wiki" />} />
+            <Route path="/gantt" element={<RedirectToProject subpath="gantt" />} />
           </Route>
 
           {/* ルートリダイレクト */}
@@ -125,6 +178,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <CommandPalette />
+        <ToastContainer />
       </BrowserRouter>
     </QueryClientProvider>
   );

@@ -1,0 +1,63 @@
+/**
+ * TicketListPage.css — チケット一覧 + 右ペインレイアウト
+ */
+
+.ticket-list-page {
+  display: grid;
+  grid-template-columns: 1fr;
+  height: 100%;
+  transition: grid-template-columns 200ms ease;
+}
+
+.ticket-list-page--with-panel {
+  grid-template-columns: 1fr 380px;
+}
+
+.ticket-list-page__table {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0; /* gridの縮小を許可 */
+}
+
+.ticket-list-page__panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* パネル表示時: 詳細に表示される情報はテーブルから隠す */
+.ticket-list-page--with-panel .ticket-table__th--assignee,
+.ticket-list-page--with-panel .ticket-table__td--assignee,
+.ticket-list-page--with-panel .ticket-table__th--labels,
+.ticket-list-page--with-panel .ticket-table__td--labels,
+.ticket-list-page--with-panel .ticket-table__th--meta,
+.ticket-list-page--with-panel .ticket-table__td--meta {
+  display: none;
+}
+
+/* レスポンシブ: 1024px以下でパネルをオーバーレイに */
+@media (max-width: 1024px) {
+  .ticket-list-page--with-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-list-page--with-panel .ticket-list-page__panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 420px;
+    max-width: 90vw;
+    height: 100vh;
+    z-index: 100;
+    box-shadow: var(--shadow-xl);
+  }
+
+  /* オーバーレイ時は全カラム表示 */
+  .ticket-list-page--with-panel .ticket-table__th--assignee,
+  .ticket-list-page--with-panel .ticket-table__td--assignee,
+  .ticket-list-page--with-panel .ticket-table__th--labels,
+  .ticket-list-page--with-panel .ticket-table__td--labels,
+  .ticket-list-page--with-panel .ticket-table__th--meta,
+  .ticket-list-page--with-panel .ticket-table__td--meta {
+    display: table-cell;
+  }
+}

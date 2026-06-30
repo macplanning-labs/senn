@@ -58,6 +58,12 @@ export const useUIStore = create<UIState>()(
         language: state.language,
         sidebarOpen: state.sidebarOpen,
       }),
+      onRehydrateStorage: () => (state) => {
+        // localStorage から復元されたテーマを DOM に適用
+        if (state?.theme) {
+          document.documentElement.setAttribute('data-theme', state.theme);
+        }
+      },
     },
   ),
 );

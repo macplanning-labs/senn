@@ -1,233 +1,589 @@
 /**
- * Dashboard.css — ダッシュボードのスタイル
+ * Dashboard.css — ウィジェットベースダッシュボード
+ *
+ * CSS Grid 2カラムレイアウト + ウィジェットカード。
+ * span=2 でフルワイド、span=1 で半分幅。
  */
 
 .dashboard {
-  max-width: 1000px;
+  max-width: 1100px;
+  padding: 0 var(--space-2);
 }
 
+/* ── ダッシュボードタブ ── */
+.dashboard__tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.08));
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.dashboard__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.dashboard__tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.dashboard__tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-primary, hsl(220, 80%, 60%));
+}
+
+.dashboard__tab--add {
+  color: var(--color-text-tertiary);
+  font-size: 1.1rem;
+  padding: var(--space-2) var(--space-3);
+}
+
+.dashboard__tab--add:hover {
+  color: var(--color-primary, hsl(220, 80%, 60%));
+}
+
+.dashboard__tab--new {
+  padding: var(--space-1) var(--space-2);
+}
+
+.dashboard__tab-input {
+  background: var(--color-bg-surface, hsl(225, 15%, 12%));
+  border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.12));
+  border-radius: var(--radius-sm, 4px);
+  color: var(--color-text-primary);
+  padding: 2px 8px;
+  font-size: 0.85rem;
+  width: 140px;
+  outline: none;
+}
+
+.dashboard__tab-input:focus {
+  border-color: var(--color-primary, hsl(220, 80%, 60%));
+}
+
+.dashboard__tab-delete {
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.dashboard__tab-delete:hover {
+  color: var(--color-error, hsl(0, 70%, 60%));
+  background: hsla(0, 70%, 60%, 0.1);
+}
 /* ── ヘッダー ── */
 .dashboard__header {
-  margin-bottom: var(--space-8);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.dashboard__header-left {
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard__title {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-2xl, 1.5rem);
+  font-weight: var(--font-weight-bold, 700);
   color: var(--color-text-primary);
 }
 
 .dashboard__greeting {
   margin-top: var(--space-1);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-md, 0.95rem);
   color: var(--color-text-tertiary);
 }
 
-/* ── 統計カード ── */
-.dashboard__stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-4);
-  margin-bottom: var(--space-8);
-}
-
-.dashboard__stat-card {
+.dashboard__add-btn {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-5);
-  background-color: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-  transition: border-color var(--transition-fast), transform var(--transition-fast);
-}
-
-.dashboard__stat-card:hover {
-  border-color: var(--color-border-hover);
-  transform: translateY(-2px);
-}
-
-.dashboard__stat-value {
-  font-size: var(--font-size-3xl);
-  font-weight: var(--font-weight-bold);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.dashboard__stat-label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-  font-weight: var(--font-weight-medium);
-}
-
-/* ── セクション ── */
-.dashboard__section {
-  margin-bottom: var(--space-8);
-}
-
-.dashboard__section-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: 1px dashed var(--color-border, hsla(0, 0%, 100%, 0.12));
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.dashboard__add-btn:hover {
+  border-color: var(--color-primary, hsl(220, 80%, 60%));
+  color: var(--color-primary, hsl(220, 80%, 60%));
+  background: hsla(220, 80%, 60%, 0.06);
+}
+
+/* ── ウィジェットグリッド ── */
+.dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 768px) {
+  .dashboard__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── ウィジェットカード ── */
+.widget-card {
+  background: var(--color-bg-elevated, hsl(225, 15%, 15%));
+  border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.08));
+  border-radius: var(--radius-lg, 12px);
+  padding: var(--space-5, 1.25rem);
+  position: relative;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  animation: widget-fade-in 0.3s ease-out both;
+}
+
+.widget-card:hover {
+  border-color: var(--color-border-hover, hsla(0, 0%, 100%, 0.15));
+  box-shadow: 0 4px 20px hsla(0, 0%, 0%, 0.2);
+}
+
+.widget-card--span-2 {
+  grid-column: span 2;
+}
+
+/* D&D ドラッグ中 */
+.widget-card--dragging {
+  opacity: 0.5;
+  border-color: var(--color-primary, hsl(220, 80%, 60%));
+  box-shadow: 0 0 0 2px hsla(220, 80%, 60%, 0.3);
+}
+
+.widget-card__drag-handle {
+  cursor: grab;
+  color: var(--color-text-tertiary);
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+  user-select: none;
+  letter-spacing: 1px;
+}
+
+.widget-card:hover .widget-card__drag-handle {
+  opacity: 1;
+}
+
+.widget-card__drag-handle:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 768px) {
+  .widget-card--span-2 {
+    grid-column: span 1;
+  }
+}
+
+@keyframes widget-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 削除ボタン */
+.widget-card__remove {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.widget-card:hover .widget-card__remove {
+  opacity: 1;
+}
+
+.widget-card__remove:hover {
+  color: var(--color-error, hsl(0, 70%, 60%));
+  background: hsla(0, 70%, 60%, 0.1);
+}
+
+/* ウィジェットヘッダー */
+.widget-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
-.dashboard__section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+.widget-card__icon {
+  font-size: 1.1rem;
+}
+
+.widget-card__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+/* ── StatsCards ── */
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.stats-cards__item {
+  text-align: center;
+  padding: var(--space-3);
+  background: var(--color-bg-surface, hsl(225, 15%, 12%));
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.06));
+}
+
+.stats-cards__value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stats-cards__label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
+}
+
+/* ── TicketOverview (ドーナツ) ── */
+.ticket-overview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.ticket-overview__donut {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.ticket-overview__donut-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.2rem;
+  font-weight: 700;
   color: var(--color-text-primary);
 }
 
-.dashboard__view-all {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-link);
-  font-weight: var(--font-weight-medium);
-}
-
-/* ── チケット一覧 ── */
-.dashboard__ticket-list {
+.ticket-overview__legend {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.dashboard__ticket-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  text-decoration: none;
-  color: inherit;
-  border-bottom: 1px solid var(--color-border-default);
-  transition: background-color var(--transition-fast);
-}
-
-.dashboard__ticket-row:last-child {
-  border-bottom: none;
-}
-
-.dashboard__ticket-row:hover {
-  background-color: var(--color-bg-hover);
-}
-
-.dashboard__ticket-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
+  gap: var(--space-2);
   flex: 1;
 }
 
-.dashboard__ticket-right {
+.ticket-overview__legend-item {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
+  font-size: 0.85rem;
+}
+
+.ticket-overview__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.dashboard__ticket-key {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
+.ticket-overview__legend-count {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
-.dashboard__ticket-title {
-  font-size: var(--font-size-base);
+/* ── Activity / MyTickets / Wiki リスト共通 ── */
+.widget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.widget-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.05));
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.widget-list__item:last-child {
+  border-bottom: none;
+}
+
+a.widget-list__item:hover {
   color: var(--color-text-primary);
-  white-space: nowrap;
+}
+
+.widget-list__icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.widget-list__text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dashboard__ticket-due {
-  font-size: var(--font-size-xs);
+.widget-list__text strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.widget-list__link {
+  color: var(--color-accent, #58a6ff);
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.15s, text-decoration 0.15s;
+}
+
+.widget-list__link:hover {
+  color: var(--color-accent-hover, #79b8ff);
+  text-decoration: underline;
+}
+
+.widget-list__meta {
+  font-size: 0.75rem;
   color: var(--color-text-tertiary);
   white-space: nowrap;
 }
 
-.dashboard__ticket-due--overdue {
-  color: var(--color-error);
-  font-weight: var(--font-weight-semibold);
-}
-
-.dashboard__ticket-updated {
-  font-size: var(--font-size-xs);
+.widget-list__empty {
+  text-align: center;
+  padding: var(--space-4);
   color: var(--color-text-tertiary);
-  white-space: nowrap;
-  min-width: 60px;
-  text-align: right;
+  font-size: 0.85rem;
 }
 
-/* ── バッジ ── */
-.dashboard__badge {
+/* バッジ（ステータス等） */
+.widget-badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--badge-color);
-  background-color: color-mix(in srgb, var(--badge-color) 12%, transparent);
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
   text-transform: capitalize;
-  white-space: nowrap;
+  background: color-mix(in srgb, var(--badge-color, gray) 15%, transparent);
+  color: var(--badge-color, gray);
 }
 
-.dashboard__badge-dot {
+.widget-badge__dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--badge-color);
+  background: var(--badge-color, gray);
 }
 
-.dashboard__priority {
-  font-size: var(--font-size-xs);
-  width: 20px;
-  text-align: center;
+/* 優先度アイコン */
+.widget-priority {
+  font-size: 0.75rem;
   flex-shrink: 0;
 }
 
-/* ── ローディング ── */
-.dashboard__loading {
+/* 期限（超過時は赤） */
+.widget-due {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.widget-due--overdue {
+  color: var(--color-error, hsl(0, 70%, 60%));
+  font-weight: 600;
+}
+
+/* 通知バッジ */
+.widget-notif-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--color-primary, hsl(220, 80%, 60%));
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* ── AddWidgetModal ── */
+.add-widget-overlay {
+  position: fixed;
+  inset: 0;
+  background: hsla(0, 0%, 0%, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: overlay-fade 0.15s ease-out;
+}
+
+@keyframes overlay-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.add-widget-modal {
+  background: var(--color-bg-elevated, hsl(225, 15%, 15%));
+  border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.1));
+  border-radius: var(--radius-lg, 12px);
+  padding: var(--space-6);
+  width: 90%;
+  max-width: 480px;
+  animation: modal-slide 0.2s ease-out;
+}
+
+@keyframes modal-slide {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.add-widget-modal__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-4);
+}
+
+.add-widget-modal__list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.dashboard__skeleton {
-  height: 48px;
-  background: linear-gradient(
-    90deg,
-    var(--color-bg-tertiary) 25%,
-    var(--color-bg-elevated) 50%,
-    var(--color-bg-tertiary) 75%
-  );
-  background-size: 200% 100%;
-  border-radius: var(--radius-md);
-  animation: pulse 1.5s ease-in-out infinite;
+.add-widget-modal__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.08));
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-text-secondary);
+  width: 100%;
+  text-align: left;
+  transition: all 0.15s;
 }
 
-/* ── 空状態 ── */
-.dashboard__empty {
-  padding: var(--space-10);
-  text-align: center;
+.add-widget-modal__item:hover {
+  background: hsla(220, 80%, 60%, 0.06);
+  border-color: var(--color-primary, hsl(220, 80%, 60%));
+  color: var(--color-text-primary);
+}
+
+.add-widget-modal__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.add-widget-modal__item-icon {
+  font-size: 1.3rem;
+}
+
+.add-widget-modal__item-text {
+  flex: 1;
+}
+
+.add-widget-modal__item-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.add-widget-modal__item-desc {
+  font-size: 0.75rem;
   color: var(--color-text-tertiary);
-  background-color: var(--color-bg-elevated);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-  font-size: var(--font-size-md);
 }
 
-/* ── レスポンシブ ── */
-@media (max-width: 768px) {
-  .dashboard__stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.add-widget-modal__close {
+  margin-top: var(--space-4);
+  width: 100%;
+  padding: var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all 0.15s;
+}
 
-  .dashboard__ticket-right {
-    display: none;
-  }
+.add-widget-modal__close:hover {
+  background: hsla(0, 0%, 100%, 0.04);
+}
+
+/* ── ローディング ── */
+.dashboard__loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-8);
+}
+
+.dashboard__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border, hsla(0, 0%, 100%, 0.1));
+  border-top-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

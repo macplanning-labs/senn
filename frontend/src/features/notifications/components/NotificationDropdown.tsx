@@ -6,8 +6,9 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import './NotificationDropdown.css';
 
 interface Notification {
@@ -43,7 +44,6 @@ function timeAgo(dateStr: string): string {
 }
 
 export function NotificationDropdown() {
-  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -67,26 +67,42 @@ export function NotificationDropdown() {
     enabled: isOpen,
   });
 
-  // 既読マーク
-  const readMutation = useMutation({
-    mutationFn: async (id: number) => {
+  // 楽観的既読マーク — クリックの瞬間に未読ドットが消える（0ms）
+  const readMutation = useOptimisticMutation<void, number>({
+    mutationFn: async (id) => {
       await apiClient.post(`/notifications/${id}/read/`);
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      void queryClient.invalidateQueries({ queryKey: ['unread-count'] });
+    queryKey: ['notifications'],
+    updater: (currentData, id) => {
+      const data = currentData as { results: Notification[] } | undefined;
+      if (!data?.results) return currentData;
+      return {
+        ...data,
+        results: data.results.map((n) =>
+          n.id === id ? { ...n, isRead: true } : n,
+        ),
+      };
     },
+    invalidateKeys: [['unread-count']],
+    errorMessage: '既読マークに失敗しました。',
   });
 
-  // 一括既読
-  const readAllMutation = useMutation({
+  // 楽観的一括既読 — ボタン押下で全通知が即既読化 + バッジが0に
+  const readAllMutation = useOptimisticMutation<void, void>({
     mutationFn: async () => {
       await apiClient.post('/notifications/read_all/');
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      void queryClient.invalidateQueries({ queryKey: ['unread-count'] });
+    queryKey: ['notifications'],
+    updater: (currentData) => {
+      const data = currentData as { results: Notification[] } | undefined;
+      if (!data?.results) return currentData;
+      return {
+        ...data,
+        results: data.results.map((n) => ({ ...n, isRead: true })),
+      };
     },
+    invalidateKeys: [['unread-count']],
+    errorMessage: '一括既読に失敗しました。',
   });
 
   // 外側クリックで閉じる

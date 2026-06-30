@@ -1,0 +1,588 @@
+/**
+ * ProjectSettings.css — プロジェクト設定画面のスタイル
+ *
+ * KI「マスタメンテナンス — モーダル編集方式」準拠
+ * タブ切替＋モーダルでCRUD完結
+ */
+
+/* ─── レイアウト ──────────────────────────────── */
+.project-settings {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.project-settings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+}
+
+.project-settings__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.project-settings__project-name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  margin-left: var(--space-3);
+  font-weight: var(--font-weight-normal);
+}
+
+/* ─── タブ ────────────────────────────────────── */
+.project-settings__tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border-default);
+  margin-bottom: var(--space-5);
+}
+
+.project-settings__tab {
+  padding: var(--space-2) var(--space-4);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.project-settings__tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.project-settings__tab--active {
+  color: var(--color-accent-primary);
+  border-bottom-color: var(--color-accent-primary);
+}
+
+/* ─── セクションヘッダー ─────────────────────── */
+.settings-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.settings-section__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.settings-section__count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  margin-left: var(--space-2);
+}
+
+.settings-section__add-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  color: white;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.settings-section__add-btn:hover {
+  background: var(--color-accent-hover);
+  transform: translateY(-1px);
+}
+
+/* ─── テーブル ────────────────────────────────── */
+.settings-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.settings-table th,
+.settings-table td {
+  padding: var(--space-3) var(--space-3);
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.settings-table th {
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: var(--font-size-xs);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.settings-table tbody tr {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.settings-table tbody tr:hover {
+  background: var(--color-bg-hover);
+}
+
+.settings-table td {
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+}
+
+.settings-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── カラー表示 ──────────────────────────────── */
+.settings-table__color-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-table__color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-table__color-name {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ─── アクションセル ─────────────────────────── */
+.settings-table__actions {
+  display: flex;
+  gap: var(--space-1);
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.settings-table tbody tr:hover .settings-table__actions {
+  opacity: 1;
+}
+
+.settings-table__action-btn {
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  transition: all var(--transition-fast);
+}
+
+.settings-table__action-btn:hover {
+  border-color: var(--color-accent-primary);
+  color: var(--color-accent-primary);
+}
+
+.settings-table__action-btn--danger:hover {
+  border-color: var(--color-status-critical);
+  color: var(--color-status-critical);
+}
+
+/* ─── ラベルバッジ（テーブル内） ──────────────── */
+.settings-label-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+}
+
+/* ─── ツリー表示（カテゴリー） ────────────────── */
+.settings-tree__group {
+  margin-bottom: var(--space-2);
+}
+
+.settings-tree__parent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.settings-tree__parent:hover {
+  background: var(--color-bg-hover);
+}
+
+.settings-tree__parent-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.settings-tree__parent-badge {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-tertiary);
+  padding: 1px 8px;
+  border-radius: 9999px;
+}
+
+.settings-tree__children {
+  margin-left: var(--space-5);
+  border-left: 2px solid var(--color-border-subtle);
+  padding-left: var(--space-3);
+}
+
+.settings-tree__child {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-sm);
+}
+
+.settings-tree__child:hover {
+  background: var(--color-bg-hover);
+}
+
+.settings-tree__child-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* ─── マイルストーン進捗バー ─────────────────── */
+.milestone-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.milestone-progress__bar {
+  flex: 1;
+  height: 6px;
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 120px;
+}
+
+.milestone-progress__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent-primary);
+  transition: width 0.3s ease;
+}
+
+.milestone-progress__text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  min-width: 32px;
+  text-align: right;
+}
+
+.milestone-due {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.milestone-due--overdue {
+  color: var(--color-status-critical);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ─── モーダル ────────────────────────────────── */
+.settings-modal__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: modal-fade-in 0.15s ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.settings-modal {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  min-width: 420px;
+  max-width: 520px;
+  width: 100%;
+  animation: modal-slide-in 0.2s ease;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes modal-slide-in {
+  from { transform: translateY(-12px) scale(0.97); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.settings-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-5);
+}
+
+.settings-modal__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.settings-modal__close {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.settings-modal__close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* ─── フォーム ────────────────────────────────── */
+.settings-form__group {
+  margin-bottom: var(--space-4);
+}
+
+.settings-form__label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.settings-form__input,
+.settings-form__select,
+.settings-form__textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.settings-form__input:focus,
+.settings-form__select:focus,
+.settings-form__textarea:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.settings-form__textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.settings-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* ─── カラーピッカー ─────────────────────────── */
+.settings-color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings-color-picker__swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.settings-color-picker__swatch:hover {
+  transform: scale(1.15);
+}
+
+.settings-color-picker__swatch--selected {
+  border-color: var(--color-text-primary);
+  box-shadow: 0 0 0 2px var(--color-bg-elevated),
+              0 0 0 4px var(--color-text-primary);
+}
+
+.settings-color-picker__custom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.settings-color-picker__custom-input {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ─── ボタン ──────────────────────────────────── */
+.settings-form__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-5);
+}
+
+.settings-form__btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  border: 1px solid var(--color-border-default);
+}
+
+.settings-form__btn--primary {
+  background: var(--color-accent-primary);
+  color: white;
+  border-color: var(--color-accent-primary);
+}
+
+.settings-form__btn--primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.settings-form__btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-form__btn--secondary {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+.settings-form__btn--secondary:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.settings-form__btn--danger {
+  background: var(--color-status-critical);
+  color: white;
+  border-color: var(--color-status-critical);
+}
+
+.settings-form__btn--danger:hover {
+  opacity: 0.9;
+}
+
+/* ─── 空状態 ──────────────────────────────────── */
+.settings-empty {
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  color: var(--color-text-tertiary);
+}
+
+.settings-empty__icon {
+  font-size: 40px;
+  margin-bottom: var(--space-3);
+  opacity: 0.5;
+}
+
+.settings-empty__text {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-4);
+}
+
+/* ─── 確認ダイアログ ─────────────────────────── */
+.confirm-dialog__message {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin-bottom: var(--space-2);
+}
+
+.confirm-dialog__warning {
+  font-size: var(--font-size-xs);
+  color: var(--color-status-warning);
+  background: rgba(245, 158, 11, 0.1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+}
+
+/* ─── エラー表示 ──────────────────────────────── */
+.settings-form__error {
+  font-size: var(--font-size-xs);
+  color: var(--color-status-critical);
+  margin-top: var(--space-1);
+}
+
+/* ─── メンバーステータスバッジ ─────────────────── */
+.member-status--active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.member-status--warning {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+}
+
+.member-status--grace {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.member-status--expired {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+

@@ -1,100 +1,76 @@
 /**
- * Dashboard.tsx — ダッシュボードページ
+ * Dashboard.tsx — ウィジェットベース・カスタムダッシュボード
  *
- * 統計カード + 自分のチケット一覧。
- * TanStack Query でAPIデータを取得。
+ * Phase 1: デフォルトダッシュボード + 6種プリセットウィジェット。
+ * GET /api/v1/dashboard/default/ から全ウィジェットデータを取得し、
+ * widgetType → コンポーネントのレジストリで描画する。
  */
 
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useAuthStore } from '@/shared/stores/authStore';
 import './Dashboard.css';
 
-// 型定義
-interface TicketSummary {
+// ── 型定義 ──────────────────────────────────
+
+interface WidgetData {
   id: number;
-  ticketKey: string;
-  title: string;
-  status: string;
-  priority: string;
-  dueDate: string | null;
-  updatedAt: string;
+  widgetType: string;
+  position: number;
+  span: number;
+  config: Record<string, unknown>;
+  data: unknown;
 }
 
-interface DashboardStats {
-  openTickets: number;
-  overdueTickets: number;
-  completedThisWeek: number;
-  totalProjects: number;
+interface DashboardResponse {
+  id: number;
+  name: string;
+  layout: string;
+  isDefault: boolean;
+  widgets: WidgetData[];
 }
 
-// ステータスバッジの色マッピング
+interface DashboardSummary {
+  id: number;
+  name: string;
+  layout: string;
+  isDefault: boolean;
+  widgetCount: number;
+}
+
+interface WidgetProps {
+  data: unknown;
+}
+
+// ── ステータス / 優先度カラー ──────────────
+
 const statusColors: Record<string, string> = {
-  open: 'var(--color-status-open)',
-  in_progress: 'var(--color-status-in-progress)',
-  resolved: 'var(--color-status-resolved)',
-  closed: 'var(--color-status-closed)',
+  backlog: 'var(--color-status-backlog, hsl(220, 10%, 42%))',
+  open: 'var(--color-status-open, hsl(210, 70%, 55%))',
+  in_progress: 'var(--color-status-in-progress, hsl(45, 80%, 55%))',
+  resolved: 'var(--color-status-resolved, hsl(150, 60%, 50%))',
+  closed: 'var(--color-status-closed, hsl(220, 10%, 50%))',
+  canceled: 'var(--color-status-canceled, hsl(0, 0%, 60%))',
+};
+
+const priorityIcons: Record<string, string> = {
+  urgent: '⚠',
+  high: '▮▮▮',
+  medium: '▮▮',
+  low: '▮',
 };
 
 const priorityColors: Record<string, string> = {
-  urgent: 'var(--color-priority-urgent)',
-  high: 'var(--color-priority-high)',
-  medium: 'var(--color-priority-medium)',
-  low: 'var(--color-priority-low)',
+  urgent: 'var(--color-priority-urgent, hsl(0, 80%, 55%))',
+  high: 'var(--color-priority-high, hsl(25, 80%, 55%))',
+  medium: 'var(--color-priority-medium, hsl(45, 60%, 55%))',
+  low: 'var(--color-priority-low, hsl(210, 40%, 55%))',
 };
 
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent?: string;
-}) {
-  return (
-    <div className="dashboard__stat-card" data-testid={`stat-${label}`}>
-      <span
-        className="dashboard__stat-value"
-        style={accent ? { color: accent } : undefined}
-      >
-        {value}
-      </span>
-      <span className="dashboard__stat-label">{label}</span>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const color = statusColors[status] ?? 'var(--color-text-tertiary)';
-  const label = status.replace('_', ' ');
-  return (
-    <span
-      className="dashboard__badge"
-      style={{ '--badge-color': color } as React.CSSProperties}
-      data-testid={`status-${status}`}
-    >
-      <span className="dashboard__badge-dot" />
-      {label}
-    </span>
-  );
-}
-
-function PriorityIndicator({ priority }: { priority: string }) {
-  const color = priorityColors[priority] ?? 'var(--color-text-tertiary)';
-  return (
-    <span
-      className="dashboard__priority"
-      style={{ color }}
-      title={priority}
-      data-testid={`priority-${priority}`}
-    >
-      {priority === 'urgent' ? '⬆⬆' : priority === 'high' ? '⬆' : priority === 'medium' ? '—' : '⬇'}
-    </span>
-  );
-}
+// ── ヘルパー ─────────────────────────────
 
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -110,140 +86,620 @@ function formatRelativeDate(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-export function Dashboard() {
-  const { t } = useTranslation();
-  const user = useAuthStore((s) => s.user);
+// ── ウィジェットコンポーネント ─────────────
 
-  // 自分のチケットを取得
-  const { data: myTickets, isLoading: ticketsLoading } = useQuery<TicketSummary[]>({
-    queryKey: ['my-tickets', user?.id],
-    queryFn: async () => {
-      const res = await apiClient.get<{ results: TicketSummary[] }>('/tickets/', {
-        params: {
-          assignee: user?.id,
-          status__in: 'open,in_progress',
-          ordering: '-updated_at',
-        },
-      });
-      return res.data.results ?? [];
-    },
-    enabled: !!user,
+function StatsCardsWidget({ data }: WidgetProps) {
+  const d = data as Record<string, number>;
+  const items = [
+    { label: 'Open', value: d.open_tickets ?? 0, color: 'var(--color-accent-primary, hsl(220, 80%, 60%))' },
+    { label: 'Overdue', value: d.overdue_tickets ?? 0, color: 'var(--color-error, hsl(0, 70%, 60%))' },
+    { label: 'Done (7d)', value: d.completed_this_week ?? 0, color: 'var(--color-success, hsl(140, 60%, 55%))' },
+    { label: 'Due Soon', value: d.due_soon_tickets ?? 0, color: 'var(--color-warning, hsl(45, 80%, 55%))' },
+    { label: 'Projects', value: d.total_projects ?? 0, color: 'var(--color-text-secondary)' },
+  ];
+  return (
+    <div className="stats-cards">
+      {items.map((item) => (
+        <div key={item.label} className="stats-cards__item">
+          <div className="stats-cards__value" style={{ color: item.color }}>
+            {item.value}
+          </div>
+          <div className="stats-cards__label">{item.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TicketOverviewWidget({ data }: WidgetProps) {
+  const d = data as { open: number; in_progress: number; resolved: number; closed: number; total: number };
+  const total = d.total || 1;
+  const segments = [
+    { key: 'open', label: 'Open', count: d.open, color: 'hsl(210, 70%, 55%)' },
+    { key: 'in_progress', label: 'In Progress', count: d.in_progress, color: 'hsl(45, 80%, 55%)' },
+    { key: 'resolved', label: 'Resolved', count: d.resolved, color: 'hsl(150, 60%, 50%)' },
+    { key: 'closed', label: 'Closed', count: d.closed, color: 'hsl(220, 10%, 50%)' },
+  ];
+
+  // conic-gradient を生成
+  let accum = 0;
+  const gradientParts = segments.map((seg) => {
+    const pct = (seg.count / total) * 100;
+    const start = accum;
+    accum += pct;
+    return `${seg.color} ${start}% ${accum}%`;
   });
-
-  // 統計情報を取得
-  const { data: stats } = useQuery<DashboardStats>({
-    queryKey: ['dashboard-stats'],
-    queryFn: async () => {
-      const [ticketsRes, projectsRes] = await Promise.all([
-        apiClient.get<{ results: TicketSummary[] }>('/tickets/', {
-          params: { status__in: 'open,in_progress' },
-        }),
-        apiClient.get<{ results: unknown[] }>('/projects/'),
-      ]);
-
-      const tickets = ticketsRes.data.results ?? [];
-      const now = new Date();
-
-
-      return {
-        openTickets: tickets.length,
-        overdueTickets: tickets.filter(
-          (t) => t.dueDate && new Date(t.dueDate) < now,
-        ).length,
-        completedThisWeek: 0, // 別クエリで取得可能
-        totalProjects: (projectsRes.data.results ?? []).length,
-      };
-    },
-  });
+  const gradient = `conic-gradient(${gradientParts.join(', ')})`;
 
   return (
-    <div className="dashboard" data-testid="dashboard-page">
-      {/* ヘッダー */}
-      <div className="dashboard__header">
-        <h1 className="dashboard__title">{t('dashboard.title')}</h1>
-        <p className="dashboard__greeting">
-          {user ? `Welcome back, ${user.firstName || user.username}` : ''}
-        </p>
+    <div className="ticket-overview">
+      <div
+        className="ticket-overview__donut"
+        style={{ background: gradient }}
+      >
+        <span className="ticket-overview__donut-center">{d.total}</span>
       </div>
-
-      {/* 統計カード */}
-      <div className="dashboard__stats" data-testid="dashboard-stats">
-        <StatCard
-          label={t('dashboard.openTickets')}
-          value={stats?.openTickets ?? 0}
-          accent="var(--color-accent-primary)"
-        />
-        <StatCard
-          label={t('dashboard.overdue')}
-          value={stats?.overdueTickets ?? 0}
-          accent="var(--color-error)"
-        />
-        <StatCard
-          label={t('dashboard.completedThisWeek')}
-          value={stats?.completedThisWeek ?? 0}
-          accent="var(--color-success)"
-        />
-        <StatCard
-          label={t('dashboard.totalProjects')}
-          value={stats?.totalProjects ?? 0}
-        />
-      </div>
-
-      {/* 自分のチケット */}
-      <div className="dashboard__section">
-        <div className="dashboard__section-header">
-          <h2 className="dashboard__section-title">{t('dashboard.myTickets')}</h2>
-          <Link to="/tickets" className="dashboard__view-all">
-            View all →
-          </Link>
-        </div>
-
-        {ticketsLoading ? (
-          <div className="dashboard__loading">
-            <div className="dashboard__skeleton" />
-            <div className="dashboard__skeleton" />
-            <div className="dashboard__skeleton" />
+      <div className="ticket-overview__legend">
+        {segments.map((seg) => (
+          <div key={seg.key} className="ticket-overview__legend-item">
+            <span className="ticket-overview__legend-dot" style={{ background: seg.color }} />
+            <span>{seg.label}</span>
+            <span className="ticket-overview__legend-count">{seg.count}</span>
           </div>
-        ) : !myTickets?.length ? (
-          <div className="dashboard__empty" data-testid="no-tickets">
-            <p>🎉 No open tickets assigned to you!</p>
-          </div>
-        ) : (
-          <div className="dashboard__ticket-list" data-testid="my-ticket-list">
-            {myTickets.map((ticket) => (
-              <Link
-                key={ticket.id}
-                to={`/tickets/${ticket.id}`}
-                className="dashboard__ticket-row"
-                data-testid={`ticket-${ticket.ticketKey}`}
-              >
-                <div className="dashboard__ticket-left">
-                  <PriorityIndicator priority={ticket.priority} />
-                  <span className="dashboard__ticket-key">{ticket.ticketKey}</span>
-                  <span className="dashboard__ticket-title">{ticket.title}</span>
-                </div>
-                <div className="dashboard__ticket-right">
-                  <StatusBadge status={ticket.status} />
-                  {ticket.dueDate && (
-                    <span
-                      className={`dashboard__ticket-due ${
-                        new Date(ticket.dueDate) < new Date()
-                          ? 'dashboard__ticket-due--overdue'
-                          : ''
-                      }`}
-                    >
-                      {new Date(ticket.dueDate).toLocaleDateString()}
-                    </span>
-                  )}
-                  <span className="dashboard__ticket-updated">
-                    {formatRelativeDate(ticket.updatedAt)}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
+        ))}
       </div>
     </div>
   );
 }
+
+function RecentActivityWidget({ data }: WidgetProps) {
+  const activities = data as Array<{
+    id: number;
+    ticket_id: number | null;
+    ticket_key: string | null;
+    ticket_title: string | null;
+    project_key: string | null;
+    old_status: string;
+    new_status: string;
+    changed_by: string;
+    changed_at: string;
+  }>;
+
+  if (!activities?.length) {
+    return <div className="widget-list__empty">📋 No recent activity</div>;
+  }
+
+  return (
+    <div className="widget-list">
+      {activities.map((a) => (
+        <div key={a.id} className="widget-list__item">
+          <span className="widget-list__icon">🔄</span>
+          <span className="widget-list__text">
+            <strong>{a.changed_by}</strong>{' '}
+            {a.ticket_id && a.project_key ? (
+              <Link to={`/p/${a.project_key}/tickets/${a.ticket_id}`} className="widget-list__link">
+                {a.ticket_key}
+              </Link>
+            ) : (
+              a.ticket_key
+            )}{' '}
+            <span
+              className="widget-badge"
+              style={{ '--badge-color': statusColors[a.old_status] } as React.CSSProperties}
+            >
+              <span className="widget-badge__dot" />
+              {a.old_status.replace('_', ' ')}
+            </span>
+            {' → '}
+            <span
+              className="widget-badge"
+              style={{ '--badge-color': statusColors[a.new_status] } as React.CSSProperties}
+            >
+              <span className="widget-badge__dot" />
+              {a.new_status.replace('_', ' ')}
+            </span>
+          </span>
+          <span className="widget-list__meta">{formatRelativeDate(a.changed_at)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MyTicketsWidget({ data }: WidgetProps) {
+  const tickets = data as Array<{
+    id: number;
+    ticket_key: string;
+    title: string;
+    status: string;
+    priority: string;
+    due_date: string | null;
+    updated_at: string;
+  }>;
+
+  if (!tickets?.length) {
+    return <div className="widget-list__empty">🎉 No open tickets!</div>;
+  }
+
+  return (
+    <div className="widget-list">
+      {tickets.map((t) => (
+        <Link key={t.id} to={`/p/${t.project_key || '_'}/tickets/${t.id}`} className="widget-list__item">
+          <span
+            className="widget-priority"
+            style={{ color: priorityColors[t.priority] }}
+          >
+            {priorityIcons[t.priority] || '—'}
+          </span>
+          <span className="widget-list__text">
+            <strong>{t.ticket_key}</strong> {t.title}
+          </span>
+          {t.due_date && (
+            <span
+              className={`widget-due ${
+                new Date(t.due_date) < new Date() ? 'widget-due--overdue' : ''
+              }`}
+            >
+              {new Date(t.due_date).toLocaleDateString()}
+            </span>
+          )}
+          <span
+            className="widget-badge"
+            style={{ '--badge-color': statusColors[t.status] } as React.CSSProperties}
+          >
+            <span className="widget-badge__dot" />
+            {t.status.replace('_', ' ')}
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function RecentWikiWidget({ data }: WidgetProps) {
+  const pages = data as Array<{
+    id: number;
+    title: string;
+    slug: string;
+    projectKey: string | null;
+    updatedAt: string;
+    lastEditor: string | null;
+  }>;
+
+  if (!pages?.length) {
+    return <div className="widget-list__empty">📖 No wiki pages yet</div>;
+  }
+
+  return (
+    <div className="widget-list">
+      {pages.map((p) => (
+        <Link key={p.id} to={`/p/${p.projectKey || '_'}/wiki`} className="widget-list__item">
+          <span className="widget-list__icon">📄</span>
+          <span className="widget-list__text">{p.title}</span>
+          <span className="widget-list__meta">
+            {p.lastEditor && `${p.lastEditor} · `}
+            {formatRelativeDate(p.updatedAt)}
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function UnreadNotificationsWidget({ data }: WidgetProps) {
+  const d = data as {
+    count: number;
+    items: Array<{
+      id: number;
+      title: string;
+      message: string;
+      category: string;
+      ticketId: number | null;
+      createdAt: string;
+    }>;
+  };
+
+  if (!d?.items?.length) {
+    return <div className="widget-list__empty">✅ All caught up!</div>;
+  }
+
+  const categoryIcons: Record<string, string> = {
+    assignment: '👤',
+    comment: '💬',
+    status_change: '🔄',
+    mention: '📢',
+  };
+
+  return (
+    <div className="widget-list">
+      <div className="widget-list__item" style={{ justifyContent: 'space-between', borderBottom: 'none' }}>
+        <span>Unread</span>
+        <span className="widget-notif-badge">{d.count}</span>
+      </div>
+      {d.items.map((n) => (
+        <Link
+          key={n.id}
+          to={n.ticketId ? `/tickets/${n.ticketId}` : '/notifications'}
+          className="widget-list__item"
+        >
+          <span className="widget-list__icon">{categoryIcons[n.category] || '🔔'}</span>
+          <span className="widget-list__text">{n.title}</span>
+          <span className="widget-list__meta">{formatRelativeDate(n.createdAt)}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+// ── ウィジェットレジストリ ──────────────────
+
+const WIDGET_REGISTRY: Record<string, React.FC<WidgetProps>> = {
+  stats_cards: StatsCardsWidget,
+  ticket_overview: TicketOverviewWidget,
+  recent_activity: RecentActivityWidget,
+  my_tickets: MyTicketsWidget,
+  recent_wiki: RecentWikiWidget,
+  unread_notifications: UnreadNotificationsWidget,
+};
+
+const WIDGET_META: Record<string, { icon: string; label: string; desc: string }> = {
+  stats_cards: { icon: '📊', label: 'Stats Cards', desc: 'KPI summary cards' },
+  ticket_overview: { icon: '🍩', label: 'Ticket Overview', desc: 'Status breakdown donut' },
+  recent_activity: { icon: '📰', label: 'Recent Activity', desc: 'Status change timeline' },
+  my_tickets: { icon: '📝', label: 'My Tickets', desc: 'Your open tickets' },
+  recent_wiki: { icon: '📖', label: 'Recent Wiki', desc: 'Recently updated pages' },
+  unread_notifications: { icon: '🔔', label: 'Notifications', desc: 'Unread notifications' },
+};
+
+// ── AddWidgetModal ────────────────────────
+
+function AddWidgetModal({
+  visibleTypes,
+  onAdd,
+  onClose,
+}: {
+  visibleTypes: string[];
+  onAdd: (type: string) => void;
+  onClose: () => void;
+}) {
+  const allTypes = Object.keys(WIDGET_META);
+
+  return (
+    <div className="add-widget-overlay" onClick={onClose}>
+      <div className="add-widget-modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="add-widget-modal__title">Add Widget</h3>
+        <div className="add-widget-modal__list">
+          {allTypes.map((type) => {
+            const meta = WIDGET_META[type];
+            if (!meta) return null;
+            const alreadyVisible = visibleTypes.includes(type);
+            return (
+              <button
+                key={type}
+                className="add-widget-modal__item"
+                disabled={alreadyVisible}
+                onClick={() => onAdd(type)}
+              >
+                <span className="add-widget-modal__item-icon">{meta.icon}</span>
+                <div className="add-widget-modal__item-text">
+                  <div className="add-widget-modal__item-name">
+                    {meta.label}
+                    {alreadyVisible && ' ✓'}
+                  </div>
+                  <div className="add-widget-modal__item-desc">{meta.desc}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <button className="add-widget-modal__close" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── メインコンポーネント ────────────────────
+
+export function Dashboard() {
+  const { t } = useTranslation();
+  const user = useAuthStore((s) => s.user);
+  const queryClient = useQueryClient();
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [activeDashboardId, setActiveDashboardId] = useState<number | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [editingName, setEditingName] = useState<number | null>(null);
+  const [editNameValue, setEditNameValue] = useState('');
+
+  // D&D 状態
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+  // ダッシュボード一覧取得
+  const { data: dashboardList } = useQuery<DashboardSummary[]>({
+    queryKey: ['dashboard-list'],
+    queryFn: async () => {
+      const res = await apiClient.get<DashboardSummary[]>('/dashboard/list/');
+      return res.data;
+    },
+  });
+
+  // アクティブなダッシュボードID（初期はデフォルト）
+  const effectiveId = activeDashboardId ?? dashboardList?.[0]?.id ?? null;
+
+  // ダッシュボード詳細取得
+  const { data: dashboard, isLoading } = useQuery<DashboardResponse>({
+    queryKey: ['dashboard-detail', effectiveId],
+    queryFn: async () => {
+      if (!effectiveId) {
+        const res = await apiClient.get<DashboardResponse>('/dashboard/default/');
+        return res.data;
+      }
+      const res = await apiClient.get<DashboardResponse>(`/dashboard/detail/${effectiveId}/`);
+      return res.data;
+    },
+    enabled: effectiveId !== null || !dashboardList,
+  });
+
+  // ── Mutations ──
+
+  const removeMutation = useMutation({
+    mutationFn: async (widgetId: number) => {
+      await apiClient.delete('/dashboard/remove-widget/', { data: { widgetId } });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-detail'] });
+    },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async (widgetType: string) => {
+      await apiClient.post('/dashboard/add-widget/', {
+        widgetType,
+        dashboardId: dashboard?.id,
+      });
+    },
+    onSuccess: () => {
+      setShowAddModal(false);
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-detail'] });
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (widgetOrder: number[]) => {
+      await apiClient.post('/dashboard/reorder-widgets/', { widgetOrder });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-detail'] });
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiClient.post<{ id: number }>('/dashboard/create/', { name });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setIsCreating(false);
+      setNewName('');
+      setActiveDashboardId(data.id);
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (dashboardId: number) => {
+      await apiClient.delete('/dashboard/delete/', { data: { dashboardId } });
+    },
+    onSuccess: () => {
+      setActiveDashboardId(null);
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-detail'] });
+    },
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: async ({ dashboardId, name }: { dashboardId: number; name: string }) => {
+      await apiClient.patch('/dashboard/update/', { dashboardId, name });
+    },
+    onSuccess: () => {
+      setEditingName(null);
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-detail'] });
+    },
+  });
+
+  // ── D&D ハンドラ ──
+
+  const handleDragStart = (idx: number) => {
+    setDragIdx(idx);
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === idx) return;
+
+    // Optimistic: ローカルで入れ替え（UIだけ）
+    const items = [...(dashboard?.widgets ?? [])];
+    const [moved] = items.splice(dragIdx, 1);
+    if (!moved) return;
+    items.splice(idx, 0, moved);
+    setDragIdx(idx);
+
+    // queryClient のキャッシュを直接書き換え（アニメーション滑らか化）
+    queryClient.setQueryData(['dashboard-detail', effectiveId], (old: DashboardResponse | undefined) => {
+      if (!old) return old;
+      return { ...old, widgets: items };
+    });
+  };
+
+  const handleDrop = () => {
+    if (dragIdx === null) return;
+    setDragIdx(null);
+    const widgetOrder = (dashboard?.widgets ?? []).map((w) => w.id);
+    reorderMutation.mutate(widgetOrder);
+  };
+
+  // ── Loading ──
+
+  if (isLoading && !dashboard) {
+    return (
+      <div className="dashboard" data-testid="dashboard-page">
+        <div className="dashboard__loading">
+          <div className="dashboard__spinner" />
+        </div>
+      </div>
+    );
+  }
+
+  const widgets = dashboard?.widgets ?? [];
+  const visibleTypes = widgets.map((w) => w.widgetType);
+
+  return (
+    <div className="dashboard" data-testid="dashboard-page">
+      {/* ダッシュボードタブ */}
+      {dashboardList && dashboardList.length > 0 && (
+        <div className="dashboard__tabs">
+          {dashboardList.map((d) => (
+            <button
+              key={d.id}
+              className={`dashboard__tab ${effectiveId === d.id ? 'dashboard__tab--active' : ''}`}
+              onClick={() => setActiveDashboardId(d.id)}
+            >
+              {editingName === d.id ? (
+                <input
+                  className="dashboard__tab-input"
+                  value={editNameValue}
+                  onChange={(e) => setEditNameValue(e.target.value)}
+                  onBlur={() => renameMutation.mutate({ dashboardId: d.id, name: editNameValue })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') renameMutation.mutate({ dashboardId: d.id, name: editNameValue });
+                    if (e.key === 'Escape') setEditingName(null);
+                  }}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingName(d.id);
+                    setEditNameValue(d.name);
+                  }}
+                >
+                  {d.name}
+                </span>
+              )}
+              {!d.isDefault && effectiveId === d.id && (
+                <button
+                  className="dashboard__tab-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (confirm(`"${d.name}" を削除しますか？`)) {
+                      deleteMutation.mutate(d.id);
+                    }
+                  }}
+                  title="Delete dashboard"
+                >
+                  ×
+                </button>
+              )}
+            </button>
+          ))}
+          {isCreating ? (
+            <div className="dashboard__tab dashboard__tab--new">
+              <input
+                className="dashboard__tab-input"
+                placeholder="Dashboard name..."
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newName.trim()) createMutation.mutate(newName.trim());
+                  if (e.key === 'Escape') setIsCreating(false);
+                }}
+                autoFocus
+              />
+            </div>
+          ) : (
+            <button
+              className="dashboard__tab dashboard__tab--add"
+              onClick={() => setIsCreating(true)}
+              title="New dashboard"
+            >
+              +
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ヘッダー */}
+      <div className="dashboard__header">
+        <div className="dashboard__header-left">
+          <h1 className="dashboard__title">
+            {dashboard?.name || t('dashboard.title')}
+          </h1>
+          <p className="dashboard__greeting">
+            {user ? `Welcome back, ${user.firstName || user.username}` : ''}
+          </p>
+        </div>
+        <button
+          className="dashboard__add-btn"
+          onClick={() => setShowAddModal(true)}
+          data-testid="add-widget-btn"
+        >
+          + Add Widget
+        </button>
+      </div>
+
+      {/* ウィジェットグリッド（D&D対応） */}
+      <div className="dashboard__grid">
+        {widgets.map((w, i) => {
+          const Widget = WIDGET_REGISTRY[w.widgetType];
+          const meta = WIDGET_META[w.widgetType];
+          if (!Widget) return null;
+          return (
+            <div
+              key={w.id}
+              className={`widget-card ${w.span >= 2 ? 'widget-card--span-2' : ''} ${
+                dragIdx === i ? 'widget-card--dragging' : ''
+              }`}
+              style={{ animationDelay: `${i * 60}ms` }}
+              data-testid={`widget-${w.widgetType}`}
+              draggable
+              onDragStart={() => handleDragStart(i)}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={handleDrop}
+              onDragEnd={() => setDragIdx(null)}
+            >
+              <button
+                className="widget-card__remove"
+                onClick={() => removeMutation.mutate(w.id)}
+                title="Remove widget"
+                data-testid={`remove-${w.widgetType}`}
+              >
+                ×
+              </button>
+              <div className="widget-card__header">
+                <span className="widget-card__drag-handle" title="Drag to reorder">⠿</span>
+                <span className="widget-card__icon">{meta?.icon}</span>
+                <span className="widget-card__title">{meta?.label}</span>
+              </div>
+              <Widget data={w.data} />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ウィジェット追加モーダル */}
+      {showAddModal && (
+        <AddWidgetModal
+          visibleTypes={visibleTypes}
+          onAdd={(type) => addMutation.mutate(type)}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+

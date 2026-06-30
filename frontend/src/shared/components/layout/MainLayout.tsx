@@ -12,7 +12,22 @@ import { useUIStore } from '@/shared/stores/uiStore';
 import { useOfflineStatus } from '@/shared/hooks/useOfflineStatus';
 import { startSync, stopSync } from '@/shared/sync/syncEngine';
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import './MainLayout.css';
+
+function LanguageToggle() {
+  const { i18n } = useTranslation();
+  const isJa = i18n.language === 'ja';
+  return (
+    <button
+      className="layout__lang-toggle"
+      onClick={() => void i18n.changeLanguage(isJa ? 'en' : 'ja')}
+      title={isJa ? 'Switch to English' : '日本語に切替'}
+    >
+      {isJa ? '🇯🇵' : '🇺🇸'}
+    </button>
+  );
+}
 
 export function MainLayout() {
   const { sidebarOpen, setCommandPaletteOpen } = useUIStore();
@@ -40,6 +55,7 @@ export function MainLayout() {
             <span>⌘K to search...</span>
           </button>
           <div className="layout__header-actions">
+            <LanguageToggle />
             <NotificationDropdown />
           </div>
         </header>

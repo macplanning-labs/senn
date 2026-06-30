@@ -45,6 +45,15 @@
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+/* ダークモードのdate/calendarアイコン対応 */
+.ticket-form__input[type="date"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] .ticket-form__input[type="date"] {
+  color-scheme: light;
+}
+
 .ticket-form__textarea {
   resize: vertical;
   min-height: 120px;
@@ -130,4 +139,50 @@
   .ticket-form__row {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── ラベル選択 ── */
+.ticket-form__labels-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ticket-form__label-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ticket-form__label-chip:hover {
+  border-color: var(--color-border-focus);
+}
+
+.ticket-form__label-chip:has(input:checked) {
+  border-color: var(--color-accent-primary);
+  background-color: rgba(92, 108, 255, 0.1);
+  color: var(--color-text-primary);
+}
+
+.ticket-form__label-chip input {
+  display: none;
+}
+
+.ticket-form__label-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ticket-form__label-empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
 }

@@ -40,7 +40,7 @@ export async function pullTickets(): Promise<void> {
             status: (t.status ?? 'open') as string,
             priority: (t.priority ?? 'medium') as string,
             ticketType: (t.ticketType ?? t.ticket_type ?? 'issue') as string,
-            assigneeId: (t.assignee as { id: number } | null)?.id ?? null,
+            assigneeId: ((t.assignees as { id: number }[]) ?? [])[0]?.id ?? null,
             projectId: (t.project as number | null) ?? null,
             dueDate: (t.dueDate ?? t.due_date ?? null) as string | null,
             updatedAt: (t.updatedAt ?? t.updated_at ?? new Date().toISOString()) as string,

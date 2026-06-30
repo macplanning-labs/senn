@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:api": "orval --config ./orval.config.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

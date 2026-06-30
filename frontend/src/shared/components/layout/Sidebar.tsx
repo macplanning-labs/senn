@@ -2,13 +2,17 @@
  * Sidebar.tsx — サイドバーナビゲーション
  *
  * Linearライクな折りたたみ可能サイドバー。
- * プロジェクト切替・ナビゲーション・ユーザーメニューを含む。
+ * プロジェクト切替セレクタ・ナビゲーション・ユーザーメニューを含む。
  */
 
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { useProject, useProjectSwitch, getLastProjectKey } from '@/shared/hooks/useProject';
+import { apiClient } from '@/shared/api/client';
+import { useQueryClient } from '@tanstack/react-query';
 import './Sidebar.css';
 
 // アイコンはSVGインラインで実装（外部依存なし）
@@ -40,6 +44,16 @@ function IconGantt() {
   );
 }
 
+function IconBoard() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="2" width="4" height="12" rx="1" />
+      <rect x="6" y="2" width="4" height="8" rx="1" />
+      <rect x="11" y="2" width="4" height="10" rx="1" />
+    </svg>
+  );
+}
+
 function IconWiki() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -67,6 +81,17 @@ function IconSettings() {
   );
 }
 
+function IconCycle() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 4a6 6 0 0 1-1.5 8.5" />
+      <path d="M4 12A6 6 0 0 1 5.5 3.5" />
+      <path d="M14 4l-2 0 0 2" />
+      <path d="M2 12l2 0 0-2" />
+    </svg>
+  );
+}
+
 function IconCollapse() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -75,18 +100,67 @@ function IconCollapse() {
   );
 }
 
-const navItems = [
-  { path: '/dashboard', icon: IconDashboard, labelKey: 'nav.dashboard' },
-  { path: '/tickets', icon: IconTicket, labelKey: 'nav.tickets' },
-  { path: '/gantt', icon: IconGantt, labelKey: 'nav.gantt' },
-  { path: '/wiki', icon: IconWiki, labelKey: 'nav.wiki' },
-  { path: '/notifications', icon: IconNotification, labelKey: 'nav.notifications' },
-] as const;
+function IconChevronDown() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 4.5l3 3 3-3" />
+    </svg>
+  );
+}
 
 export function Sidebar() {
   const { t } = useTranslation();
-  const { sidebarOpen, toggleSidebar } = useUIStore();
+  const { sidebarOpen, toggleSidebar, theme, toggleTheme } = useUIStore();
   const { user, logout } = useAuthStore();
+  const { projectKey: routeProjectKey, currentProject, projectList, isLoading: projectsLoading } = useProject();
+  const { switchProject } = useProjectSwitch();
+  const queryClient = useQueryClient();
+
+  // projectKey: useParams → URL解析 → localStorage のフォールバック
+  const resolvedProjectKey = routeProjectKey
+    ?? (() => {
+      const match = window.location.pathname.match(/^\/p\/([^/]+)/);
+      return match?.[1] ?? getLastProjectKey() ?? null;
+    })();
+
+
+  // プロジェクトセレクタのドロップダウン開閉
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectPrefix, setNewProjectPrefix] = useState('');
+  const [createError, setCreateError] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 外側クリックで閉じる
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setProjectDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // プロジェクトスコープのベースパス
+  const projectBase = resolvedProjectKey ? `/p/${resolvedProjectKey}` : '';
+
+  const projectNavItems = resolvedProjectKey
+    ? [
+        { path: `${projectBase}/tickets`, icon: IconTicket, label: t('nav.tickets') },
+        { path: `${projectBase}/board`, icon: IconBoard, label: 'Board' },
+        { path: `${projectBase}/cycles`, icon: IconCycle, label: 'Cycles' },
+        { path: `${projectBase}/gantt`, icon: IconGantt, label: t('nav.gantt') },
+        { path: `${projectBase}/wiki`, icon: IconWiki, label: t('nav.wiki') },
+      ]
+    : [];
+
+  // グローバルナビ項目
+  const globalNavItems = [
+    { path: '/dashboard', icon: IconDashboard, label: t('nav.dashboard') },
+    { path: '/notifications', icon: IconNotification, label: t('nav.notifications') },
+  ];
 
   return (
     <aside
@@ -110,32 +184,206 @@ export function Sidebar() {
         </button>
       </div>
 
+      {/* プロジェクトセレクタ */}
+      <div className="sidebar__project-selector" ref={dropdownRef}>
+        <button
+          className="sidebar__project-btn"
+          onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+          data-testid="project-selector"
+          title={!sidebarOpen ? (currentProject?.name ?? 'Select project') : undefined}
+        >
+          <span className="sidebar__project-icon">
+            {currentProject?.prefix?.[0]?.toUpperCase() ?? '?'}
+          </span>
+          {sidebarOpen && (
+            <>
+              <span className="sidebar__project-name">
+                {projectsLoading
+                  ? '...'
+                  : currentProject?.name ?? 'プロジェクトを選択'}
+              </span>
+              <IconChevronDown />
+            </>
+          )}
+        </button>
+
+        {projectDropdownOpen && (
+          <div className="sidebar__project-dropdown" data-testid="project-dropdown">
+            {projectList.map((p) => (
+              <button
+                key={p.id}
+                className={`sidebar__project-option ${p.prefix.toLowerCase() === resolvedProjectKey?.toLowerCase() ? 'sidebar__project-option--active' : ''}`}
+                onClick={() => {
+                  switchProject(p.prefix);
+                  setProjectDropdownOpen(false);
+                }}
+              >
+                <span className="sidebar__project-option-icon">
+                  {p.prefix[0]?.toUpperCase() ?? '?'}
+                </span>
+                <div className="sidebar__project-option-info">
+                  <span className="sidebar__project-option-name">{p.name}</span>
+                  <span className="sidebar__project-option-prefix">{p.prefix}</span>
+                </div>
+              </button>
+            ))}
+            {projectList.length === 0 && !projectsLoading && (
+              <div className="sidebar__project-empty">プロジェクトがありません</div>
+            )}
+
+            {/* 新規プロジェクト作成 */}
+            <div className="sidebar__project-create">
+              {showCreateForm ? (
+                <form
+                  className="sidebar__create-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setCreateError('');
+                    if (!newProjectName.trim() || !newProjectPrefix.trim()) {
+                      setCreateError('名前とプレフィックスを入力してください');
+                      return;
+                    }
+                    try {
+                      await apiClient.post('/projects/', {
+                        name: newProjectName.trim(),
+                        prefix: newProjectPrefix.trim().toUpperCase(),
+                      });
+                      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+                      switchProject(newProjectPrefix.trim().toUpperCase());
+                      setShowCreateForm(false);
+                      setNewProjectName('');
+                      setNewProjectPrefix('');
+                      setProjectDropdownOpen(false);
+                    } catch {
+                      setCreateError('作成に失敗しました');
+                    }
+                  }}
+                >
+                  <input
+                    className="sidebar__create-input"
+                    placeholder="プロジェクト名"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    autoFocus
+                  />
+                  <input
+                    className="sidebar__create-input sidebar__create-input--prefix"
+                    placeholder="KEY (例: PROJ)"
+                    value={newProjectPrefix}
+                    onChange={(e) => setNewProjectPrefix(e.target.value)}
+                    maxLength={10}
+                  />
+                  {createError && (
+                    <div className="sidebar__create-error">{createError}</div>
+                  )}
+                  <div className="sidebar__create-actions">
+                    <button type="submit" className="sidebar__create-submit">作成</button>
+                    <button
+                      type="button"
+                      className="sidebar__create-cancel"
+                      onClick={() => { setShowCreateForm(false); setCreateError(''); }}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  className="sidebar__project-add"
+                  onClick={() => setShowCreateForm(true)}
+                  data-testid="create-project-btn"
+                >
+                  <span className="sidebar__project-add-icon">+</span>
+                  新規プロジェクト
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ナビゲーション */}
       <nav className="sidebar__nav">
-        {navItems.map(({ path, icon: Icon, labelKey }) => (
+        {/* プロジェクトスコープナビ */}
+        {projectNavItems.length > 0 && (
+          <>
+            {sidebarOpen && (
+              <div className="sidebar__nav-label">プロジェクト</div>
+            )}
+            {projectNavItems.map(({ path, icon: Icon, label }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) =>
+                  `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
+                }
+                title={!sidebarOpen ? label : undefined}
+                data-testid={`nav-${path.split('/').pop()}`}
+              >
+                <span className="sidebar__icon"><Icon /></span>
+                {sidebarOpen && <span className="sidebar__label">{label}</span>}
+              </NavLink>
+            ))}
+          </>
+        )}
+
+        {/* 区切り線 */}
+        {projectNavItems.length > 0 && <div className="sidebar__divider" />}
+
+        {/* グローバルナビ */}
+        {sidebarOpen && (
+          <div className="sidebar__nav-label">グローバル</div>
+        )}
+        {globalNavItems.map(({ path, icon: Icon, label }) => (
           <NavLink
             key={path}
             to={path}
             className={({ isActive }) =>
               `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
             }
-            title={!sidebarOpen ? t(labelKey) : undefined}
+            title={!sidebarOpen ? label : undefined}
             data-testid={`nav-${path.slice(1)}`}
           >
             <span className="sidebar__icon"><Icon /></span>
-            {sidebarOpen && <span className="sidebar__label">{t(labelKey)}</span>}
+            {sidebarOpen && <span className="sidebar__label">{label}</span>}
           </NavLink>
         ))}
       </nav>
 
-      {/* フッター：ユーザーメニュー + 設定 */}
+      {/* フッター：テーマ切替 + 設定 + ユーザーメニュー */}
       <div className="sidebar__footer">
+        <button
+          className="sidebar__link sidebar__theme-toggle"
+          onClick={toggleTheme}
+          data-testid="theme-toggle"
+          title={!sidebarOpen ? (theme === 'dark' ? 'Light mode' : 'Dark mode') : undefined}
+        >
+          <span className="sidebar__icon">
+            {theme === 'dark' ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="3" />
+                <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13.5 8.5a5.5 5.5 0 1 1-6-6 4.5 4.5 0 0 0 6 6z" />
+              </svg>
+            )}
+          </span>
+          {sidebarOpen && (
+            <span className="sidebar__label">
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            </span>
+          )}
+        </button>
+
         <NavLink
-          to="/settings"
+          to={resolvedProjectKey ? `${projectBase}/settings` : '/settings'}
           className={({ isActive }) =>
             `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
           }
           data-testid="nav-settings"
+          title={!sidebarOpen ? t('nav.settings') : undefined}
         >
           <span className="sidebar__icon"><IconSettings /></span>
           {sidebarOpen && <span className="sidebar__label">{t('nav.settings')}</span>}

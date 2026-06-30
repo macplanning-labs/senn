@@ -5,7 +5,7 @@
  * 右カラム: 選択したページのMarkdownプレビュー
  */
 
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
@@ -67,6 +67,11 @@ export function WikiList() {
   const [editContent, setEditContent] = useState('');
   const [editCategory, setEditCategory] = useState('other');
   const [isCreating, setIsCreating] = useState(false);
+
+  // --- D&D インポート ---
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [importResult, setImportResult] = useState<{ success: number; failed: string[] } | null>(null);
+  const dragCounter = useRef(0);
 
   // ページ一覧
   const { data: pages, isLoading } = useQuery<{ results: WikiListItem[] }>({
@@ -146,8 +151,104 @@ export function WikiList() {
     }
   }
 
+  // --- D&D ハンドラー ---
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    dragCounter.current = 0;
+
+    const files = Array.from(e.dataTransfer.files).filter(
+      (f) => f.name.endsWith('.md') || f.name.endsWith('.markdown') || f.name.endsWith('.txt')
+    );
+
+    if (files.length === 0) return;
+
+    let success = 0;
+    const failed: string[] = [];
+
+    for (const file of files) {
+      try {
+        const content = await file.text();
+        // ファイル名から拡張子を除去してタイトルにする
+        const title = file.name.replace(/\.(md|markdown|txt)$/, '').replace(/[-_]/g, ' ');
+        await apiClient.post('/wiki/', {
+          title,
+          content,
+          category: 'other',
+        });
+        success++;
+      } catch {
+        failed.push(file.name);
+      }
+    }
+
+    // 一覧を再取得
+    void queryClient.invalidateQueries({ queryKey: ['wiki-pages'] });
+
+    // 結果表示（3秒後に自動消去）
+    setImportResult({ success, failed });
+    setTimeout(() => setImportResult(null), 5000);
+  }, [queryClient]);
+
   return (
-    <div className="wiki" data-testid="wiki-page">
+    <div
+      className={`wiki ${isDragOver ? 'wiki--drag-over' : ''}`}
+      data-testid="wiki-page"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* D&D オーバーレイ */}
+      {isDragOver && (
+        <div className="wiki__drop-overlay">
+          <div className="wiki__drop-message">
+            <span className="wiki__drop-icon">📥</span>
+            <span className="wiki__drop-text">MDファイルをドロップしてインポート</span>
+            <span className="wiki__drop-hint">.md / .markdown / .txt</span>
+          </div>
+        </div>
+      )}
+
+      {/* インポート結果トースト */}
+      {importResult && (
+        <div className="wiki__import-toast">
+          {importResult.success > 0 && (
+            <span className="wiki__import-success">
+              ✅ {importResult.success}件のページをインポートしました
+            </span>
+          )}
+          {importResult.failed.length > 0 && (
+            <span className="wiki__import-failed">
+              ❌ 失敗: {importResult.failed.join(', ')}
+            </span>
+          )}
+        </div>
+      )}
       <div className="wiki__header">
         <h1 className="wiki__title">{t('nav.wiki')}</h1>
         <button
@@ -280,7 +381,9 @@ export function WikiList() {
             </div>
           ) : (
             <div className="wiki__placeholder">
-              Select a page or create a new one
+              <div className="wiki__placeholder-icon">📥</div>
+              <div className="wiki__placeholder-text">ページを選択するか、新しいページを作成してください</div>
+              <div className="wiki__placeholder-hint">MDファイルをドラッグ＆ドロップしてインポートもできます</div>
             </div>
           )}
         </main>

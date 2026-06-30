@@ -64,6 +64,25 @@
   gap: var(--space-3);
 }
 
+.layout__lang-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: none;
+  border: 1px solid var(--color-border-default);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.layout__lang-toggle:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent-primary);
+}
+
 /* ── コンテンツ ── */
 .layout__content {
   flex: 1;

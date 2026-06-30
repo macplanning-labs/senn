@@ -1,0 +1,65 @@
+/**
+ * InlineEdit.css — インライン編集コンポーネントのスタイル
+ */
+
+.inline-edit {
+  font-family: inherit;
+  transition: all var(--transition-fast);
+}
+
+/* 表示モード */
+.inline-edit--display {
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: default;
+  min-width: 20px;
+}
+
+.inline-edit--display:hover {
+  border-color: var(--color-border-default);
+  background: var(--color-bg-hover);
+}
+
+.inline-edit__placeholder {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+/* 編集モード */
+.inline-edit--editing {
+  padding: 1px 4px;
+  border: 1px solid var(--color-accent-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: inherit;
+  outline: none;
+  width: 100%;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+/* セレクト */
+.inline-edit--select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 1px 8px 1px 4px;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.inline-edit--select:hover {
+  border-color: var(--color-border-default);
+  background: var(--color-bg-hover);
+}
+
+.inline-edit--select:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}

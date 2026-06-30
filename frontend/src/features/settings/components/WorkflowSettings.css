@@ -1,0 +1,200 @@
+/* WorkflowSettings.css */
+
+.workflow-settings {
+  max-width: 700px;
+}
+
+.workflow-settings__header {
+  margin-bottom: var(--space-5);
+}
+
+.workflow-settings__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.workflow-settings__desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.workflow-settings__empty {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+/* --- ステータス一覧 --- */
+
+.workflow-settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+.workflow-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  transition: background var(--transition-fast);
+}
+
+.workflow-status-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.workflow-status-row__color {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.workflow-status-row__name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  min-width: 100px;
+}
+
+.workflow-status-row__name:hover {
+  color: var(--color-accent);
+}
+
+.workflow-status-row__input {
+  font-size: var(--font-size-sm);
+  padding: var(--space-1);
+  border: 1px solid var(--color-border-focus);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  min-width: 100px;
+}
+
+.workflow-status-row__slug {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  min-width: 80px;
+}
+
+.workflow-status-row__category {
+  font-size: var(--font-size-xs);
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.workflow-status-row__color-picker {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: none;
+  padding: 0;
+}
+
+.workflow-status-row__badge {
+  font-size: var(--font-size-xs);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: var(--font-weight-medium);
+}
+
+.workflow-status-row__delete {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  margin-left: auto;
+}
+
+.workflow-status-row:hover .workflow-status-row__delete {
+  opacity: 1;
+}
+
+.workflow-status-row__delete:hover {
+  color: var(--color-error);
+}
+
+/* --- 新規追加フォーム --- */
+
+.workflow-settings__add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.workflow-settings__add-input {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  flex: 1;
+}
+
+.workflow-settings__add-input--slug {
+  flex: 0.7;
+  font-family: var(--font-family-mono);
+}
+
+.workflow-settings__add-select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.workflow-settings__add-color {
+  width: 28px;
+  height: 28px;
+  border: none;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+}
+
+.workflow-settings__add-btn {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.workflow-settings__add-btn:hover {
+  filter: brightness(1.1);
+}
+
+.workflow-settings__add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

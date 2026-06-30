@@ -1,0 +1,285 @@
+/* CycleList.css — サイクル一覧スタイル */
+
+.cycle-list {
+  padding: var(--space-6);
+  max-width: 900px;
+}
+
+.cycle-list__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.cycle-list__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.cycle-list__add-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.cycle-list__add-btn:hover { opacity: 0.85; }
+
+/* --- 作成フォーム --- */
+.cycle-form {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cycle-form__input {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+.cycle-form__input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.cycle-form__dates {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cycle-form__separator {
+  color: var(--color-text-tertiary);
+}
+
+.cycle-form__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cycle-form__btn {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cycle-form__btn:hover {
+  background: var(--color-bg-tertiary);
+}
+.cycle-form__btn--primary {
+  background: var(--color-accent);
+  color: white;
+  border-color: var(--color-accent);
+}
+.cycle-form__btn--primary:hover {
+  opacity: 0.85;
+  background: var(--color-accent);
+}
+.cycle-form__btn--complete {
+  background: var(--color-success);
+  color: white;
+  border-color: var(--color-success);
+}
+
+/* --- アクティブサイクル（大きなカード） --- */
+.cycle-active {
+  background: linear-gradient(135deg, var(--color-bg-secondary), var(--color-bg-tertiary));
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-6);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.cycle-active:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+}
+
+.cycle-active__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.cycle-active__badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: white;
+}
+
+.cycle-active__name {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.cycle-active__dates {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  margin-left: auto;
+}
+
+.cycle-active__stats {
+  display: flex;
+  gap: var(--space-6);
+  margin-bottom: var(--space-3);
+}
+
+.cycle-active__stat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.cycle-active__stat-value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+}
+
+.cycle-active__stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.cycle-active__progress {
+  height: 6px;
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: var(--space-3);
+}
+
+.cycle-active__progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), #8b5cf6);
+  border-radius: var(--radius-full);
+  transition: width 0.4s ease;
+}
+
+.cycle-active__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* --- セクション --- */
+.cycle-section {
+  margin-bottom: var(--space-6);
+}
+
+.cycle-section__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-3);
+}
+
+/* --- サイクル行 --- */
+.cycle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cycle-row:hover {
+  background: var(--color-bg-secondary);
+}
+
+.cycle-row__status {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  min-width: 48px;
+}
+
+.cycle-row__name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  flex: 1;
+}
+
+.cycle-row__dates {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.cycle-row__progress {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+
+.cycle-row__bar {
+  width: 80px;
+  height: 4px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.cycle-row__bar-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+  transition: width 0.3s;
+}
+
+.cycle-row__delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  font-size: var(--font-size-sm);
+}
+.cycle-row:hover .cycle-row__delete {
+  opacity: 0.6;
+}
+.cycle-row__delete:hover {
+  opacity: 1 !important;
+}
+
+/* --- 空状態 --- */
+.cycle-empty {
+  text-align: center;
+  padding: var(--space-10);
+  color: var(--color-text-tertiary);
+}
+.cycle-empty p {
+  margin-bottom: var(--space-2);
+}
+
+.cycle-loading {
+  padding: var(--space-10);
+  text-align: center;
+  color: var(--color-text-tertiary);
+}

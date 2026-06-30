@@ -9,9 +9,12 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { useAuthStore } from '@/shared/stores/authStore';
+import ChangeLogTimeline from './ChangeLogTimeline';
+import { TimeTracker } from './TimeTracker';
 import './TicketDetail.css';
 
 interface TicketData {
@@ -22,7 +25,7 @@ interface TicketData {
   status: string;
   priority: string;
   ticketType: string;
-  assignee: { id: number; username: string; displayName: string } | null;
+  assignees: { id: number; username: string; displayName: string }[];
   author: { id: number; username: string; displayName: string } | null;
   category: { id: number; name: string; color: string } | null;
   milestone: { id: number; name: string; dueDate: string | null } | null;
@@ -46,17 +49,19 @@ interface CommentData {
 }
 
 const STATUS_OPTIONS = [
+  { value: 'backlog', label: 'Backlog', color: 'var(--color-status-backlog, #6b7280)' },
   { value: 'open', label: 'Open', color: 'var(--color-status-open)' },
   { value: 'in_progress', label: 'In Progress', color: 'var(--color-status-in-progress)' },
   { value: 'resolved', label: 'Resolved', color: 'var(--color-status-resolved)' },
   { value: 'closed', label: 'Closed', color: 'var(--color-status-closed)' },
+  { value: 'canceled', label: 'Canceled', color: 'var(--color-status-canceled, #9ca3af)' },
 ] as const;
 
 const PRIORITY_OPTIONS = [
-  { value: 'urgent', label: 'Urgent', icon: '⬆⬆' },
-  { value: 'high', label: 'High', icon: '⬆' },
-  { value: 'medium', label: 'Medium', icon: '—' },
-  { value: 'low', label: 'Low', icon: '⬇' },
+  { value: 'urgent', label: 'Urgent', icon: '⚠' },
+  { value: 'high', label: 'High', icon: '▮▮▮' },
+  { value: 'medium', label: 'Medium', icon: '▮▮' },
+  { value: 'low', label: 'Low', icon: '▮' },
 ] as const;
 
 function formatDate(dateStr: string | null): string {
@@ -83,14 +88,15 @@ export function TicketDetail() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
   const [commentText, setCommentText] = useState('');
 
+  const ticketQueryKey = ['ticket', id];
+
   // チケット詳細取得
   const { data: ticket, isLoading } = useQuery<TicketData>({
-    queryKey: ['ticket', id],
+    queryKey: ticketQueryKey,
     queryFn: async () => {
       const res = await apiClient.get<TicketData>(`/tickets/${id}/`);
       return res.data;
@@ -98,29 +104,51 @@ export function TicketDetail() {
     enabled: !!id,
   });
 
-  // フィールド更新
-  const updateMutation = useMutation({
-    mutationFn: async (patch: Record<string, unknown>) => {
+  // 楽観的フィールド更新
+  const updateMutation = useOptimisticMutation<void, Record<string, unknown>>({
+    mutationFn: async (patch) => {
       await apiClient.patch(`/tickets/${id}/`, patch);
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    queryKey: ticketQueryKey,
+    updater: (currentData, patch) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, ...patch };
     },
+    invalidateKeys: [['tickets']],
+    errorMessage: '更新に失敗しました。元に戻しました。',
   });
 
-  // コメント追加
-  const commentMutation = useMutation({
-    mutationFn: async (body: string) => {
+  // 楽観的コメント追加
+  const commentMutation = useOptimisticMutation<void, string>({
+    mutationFn: async (body) => {
       await apiClient.post(`/tickets/${id}/comments/`, { body });
     },
-    onSuccess: () => {
-      setCommentText('');
-      void queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+    queryKey: ticketQueryKey,
+    updater: (currentData, body) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return {
+        ...data,
+        commentCount: data.commentCount + 1,
+        comments: [
+          ...data.comments,
+          {
+            id: -Date.now(),
+            body,
+            author: { id: user?.id ?? 0, username: user?.username ?? '', displayName: user?.firstName ?? 'You' },
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
     },
+    onSuccessCallback: () => {
+      setCommentText('');
+    },
+    errorMessage: 'コメントの追加に失敗しました。',
   });
 
-  // 削除
+  // 削除（ページ遷移するため楽観的更新不要）
   const deleteMutation = useMutation({
     mutationFn: async () => {
       await apiClient.delete(`/tickets/${id}/`);
@@ -234,7 +262,7 @@ export function TicketDetail() {
                   placeholder="Add a comment..."
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
-                  rows={3}
+                  rows={10}
                   data-testid="comment-input"
                 />
                 <button
@@ -252,6 +280,9 @@ export function TicketDetail() {
               </div>
             </div>
           </div>
+
+          {/* 変更履歴タイムライン */}
+          <ChangeLogTimeline ticketId={ticket.id} />
         </div>
 
         {/* ── 右カラム: メタ情報パネル ── */}
@@ -292,14 +323,16 @@ export function TicketDetail() {
 
           {/* 担当者 */}
           <div className="ticket-detail__field">
-            <label className="ticket-detail__field-label">Assignee</label>
+            <label className="ticket-detail__field-label">Assignees</label>
             <div className="ticket-detail__field-value">
-              {ticket.assignee ? (
+              {ticket.assignees?.length > 0 ? (
                 <span className="ticket-detail__assignee">
-                  <span className="ticket-detail__mini-avatar">
-                    {(ticket.assignee.displayName || ticket.assignee.username)[0]?.toUpperCase()}
-                  </span>
-                  {ticket.assignee.displayName || ticket.assignee.username}
+                  {ticket.assignees.map((a) => (
+                    <span key={a.id} className="ticket-detail__mini-avatar" title={a.displayName || a.username}>
+                      {(a.displayName || a.username)[0]?.toUpperCase()}
+                    </span>
+                  ))}
+                  {ticket.assignees.map((a) => a.displayName || a.username).join(', ')}
                 </span>
               ) : (
                 <span className="ticket-detail__unassigned">Unassigned</span>
@@ -370,6 +403,9 @@ export function TicketDetail() {
               </div>
             )}
           </div>
+
+          {/* タイムトラッカー */}
+          <TimeTracker ticketId={ticket.id} />
         </aside>
       </div>
     </div>

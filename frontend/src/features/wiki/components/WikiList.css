@@ -313,6 +313,112 @@
 
 .wiki__editor-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ─── D&D インポート ──────────────────────────── */
+.wiki--drag-over {
+  position: relative;
+}
+
+.wiki__drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(99, 102, 241, 0.15);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: dropFadeIn 0.15s ease;
+}
+
+@keyframes dropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.wiki__drop-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8);
+  background: var(--color-bg-elevated);
+  border: 3px dashed var(--color-accent-primary);
+  border-radius: var(--radius-xl);
+  animation: dropBounce 0.3s ease;
+}
+
+@keyframes dropBounce {
+  0% { transform: scale(0.9); }
+  60% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+.wiki__drop-icon {
+  font-size: 48px;
+}
+
+.wiki__drop-text {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.wiki__drop-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* ─── インポート結果トースト ──────────────────── */
+.wiki__import-toast {
+  position: fixed;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  animation: toastSlideIn 0.3s ease;
+}
+
+@keyframes toastSlideIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.wiki__import-success {
+  font-size: var(--font-size-sm);
+  color: #22c55e;
+}
+
+.wiki__import-failed {
+  font-size: var(--font-size-sm);
+  color: #ef4444;
+}
+
+/* ─── プレースホルダー ────────────────────────── */
+.wiki__placeholder-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-3);
+  opacity: 0.5;
+}
+
+.wiki__placeholder-text {
+  font-size: var(--font-size-base);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.wiki__placeholder-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
+}
+
 @media (max-width: 768px) {
   .wiki__layout { grid-template-columns: 1fr; }
 }

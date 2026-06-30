@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
+import { useProject } from '@/shared/hooks/useProject';
 import './GanttChart.css';
 
 interface GanttTicket {
@@ -20,14 +21,16 @@ interface GanttTicket {
   priority: string;
   startDate: string | null;
   dueDate: string | null;
-  assignee: { id: number; displayName: string; username: string } | null;
+  assignees: { id: number; displayName: string; username: string }[];
 }
 
 const statusColors: Record<string, string> = {
+  backlog: 'var(--color-status-backlog, #6b7280)',
   open: 'var(--color-status-open)',
   in_progress: 'var(--color-status-in-progress)',
   resolved: 'var(--color-status-resolved)',
   closed: 'var(--color-status-closed)',
+  canceled: 'var(--color-status-canceled, #9ca3af)',
 };
 
 function addDays(date: Date, days: number): Date {
@@ -46,14 +49,16 @@ function formatShortDate(date: Date): string {
 
 export function GanttChart() {
   const { t } = useTranslation();
+  const { projectKey } = useProject();
 
   const { data, isLoading } = useQuery<{ results: GanttTicket[] }>({
-    queryKey: ['gantt-tickets'],
+    queryKey: ['gantt-tickets', projectKey],
     queryFn: async () => {
       const res = await apiClient.get<{ results: GanttTicket[] }>('/tickets/', {
         params: {
           due_date__isnull: false,
           ordering: 'gantt_order,due_date',
+          ...(projectKey ? { project__prefix: projectKey } : {}),
         },
       });
       return res.data;
@@ -104,6 +109,29 @@ export function GanttChart() {
     <div className="gantt" data-testid="gantt-page">
       <div className="gantt__header">
         <h1 className="gantt__title">{t('nav.gantt')}</h1>
+        <div className="gantt__legend">
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-backlog, #6b7280)' }} /> Backlog
+          </span>
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-open)' }} /> Open
+          </span>
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-in-progress)' }} /> In Progress
+          </span>
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-resolved)' }} /> Resolved
+          </span>
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-closed)' }} /> Closed
+          </span>
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-canceled, #9ca3af)' }} /> Canceled
+          </span>
+          <span className="gantt__legend-item">
+            <span className="gantt__legend-swatch gantt__legend-swatch--overdue" /> Overdue
+          </span>
+        </div>
       </div>
 
       {isLoading ? (
@@ -175,7 +203,7 @@ export function GanttChart() {
                   >
                     {widthPct > 8 && (
                       <span className="gantt__bar-label">
-                        {ticket.assignee?.displayName ?? ticket.assignee?.username ?? ''}
+                        {ticket.assignees?.map(a => a.displayName ?? a.username).join(', ') || ''}
                       </span>
                     )}
                   </div>

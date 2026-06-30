@@ -1,0 +1,209 @@
+/* TimeTracker.css */
+
+.time-tracker {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.time-tracker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.time-tracker__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.time-tracker__total {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.time-tracker__timer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.time-tracker__elapsed {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-family-mono);
+  color: var(--color-success);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.time-tracker__btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-weight: var(--font-weight-medium);
+}
+
+.time-tracker__btn--start {
+  background: var(--color-success);
+  color: var(--color-text-inverse);
+  border-color: var(--color-success);
+}
+
+.time-tracker__btn--start:hover {
+  filter: brightness(1.1);
+}
+
+.time-tracker__btn--stop {
+  background: var(--color-error);
+  color: #fff;
+  border-color: var(--color-error);
+}
+
+.time-tracker__btn--stop:hover {
+  filter: brightness(1.1);
+}
+
+.time-tracker__btn--manual {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.time-tracker__btn--manual:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.time-tracker__btn--submit {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.time-tracker__btn--submit:hover {
+  filter: brightness(1.1);
+}
+
+.time-tracker__input {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+}
+
+.time-tracker__input--small {
+  width: 56px;
+  text-align: center;
+  margin-bottom: 0;
+}
+
+.time-tracker__manual {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.time-tracker__unit {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+}
+
+/* --- エントリ一覧 --- */
+
+.time-tracker__entries {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.time-tracker__more {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-1);
+}
+
+.time-entry-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  transition: background var(--transition-fast);
+}
+
+.time-entry-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.time-entry-row__user {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+  min-width: 60px;
+}
+
+.time-entry-row__duration {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  min-width: 50px;
+}
+
+.time-entry-row__desc {
+  color: var(--color-text-tertiary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time-entry-row__date {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.time-entry-row__delete {
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  padding: 0 var(--space-1);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.time-entry-row:hover .time-entry-row__delete {
+  opacity: 1;
+}
+
+.time-entry-row__delete:hover {
+  color: var(--color-error);
+}

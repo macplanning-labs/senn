@@ -89,7 +89,7 @@ export function LoginForm() {
               <label htmlFor="password" className="login__label">
                 {t('auth.password')}
               </label>
-              <Link to="/forgot-password" className="login__forgot">
+              <Link to="/forgot-password" className="login__forgot" tabIndex={-1}>
                 {t('auth.forgotPassword')}
               </Link>
             </div>

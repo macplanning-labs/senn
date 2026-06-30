@@ -1,0 +1,154 @@
+/* ====================================================
+   ChangeLogTimeline — 変更履歴タイムラインスタイル
+   ==================================================== */
+
+.changelog-timeline {
+  margin-top: var(--space-4, 1rem);
+  padding-top: var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.08));
+}
+
+.changelog-timeline__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, hsl(220, 10%, 55%));
+  margin: 0 0 var(--space-3, 0.75rem);
+}
+
+/* --- Empty & Loading --- */
+
+.changelog-timeline--empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  font-size: 0.85rem;
+  color: var(--color-text-tertiary, hsl(220, 10%, 45%));
+  padding: var(--space-4, 1rem) 0;
+}
+
+.changelog-timeline__empty-icon {
+  font-size: 1.2rem;
+}
+
+.changelog-timeline--loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4, 1rem);
+}
+
+.changelog-timeline__spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-border, hsla(0, 0%, 100%, 0.1));
+  border-top-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-radius: 50%;
+  animation: changelog-spin 0.6s linear infinite;
+}
+
+@keyframes changelog-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- Timeline List --- */
+
+.changelog-timeline__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.changelog-timeline__item {
+  display: flex;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem) 0;
+  position: relative;
+}
+
+/* Vertical line */
+.changelog-timeline__item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 28px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--color-border, hsla(0, 0%, 100%, 0.08));
+}
+
+/* --- Icon --- */
+
+.changelog-timeline__icon {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  background: var(--color-surface-elevated, hsl(225, 15%, 18%));
+  border-radius: 50%;
+  border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.08));
+  z-index: 1;
+}
+
+/* --- Content --- */
+
+.changelog-timeline__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.changelog-timeline__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25em;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, hsl(220, 10%, 55%));
+  line-height: 1.6;
+}
+
+.changelog-timeline__user {
+  font-weight: 600;
+  color: var(--color-text-primary, hsl(220, 10%, 90%));
+}
+
+.changelog-timeline__field strong {
+  color: var(--color-text-primary, hsl(220, 10%, 90%));
+}
+
+.changelog-timeline__time {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary, hsl(220, 10%, 45%));
+  white-space: nowrap;
+}
+
+/* --- Diff --- */
+
+.changelog-timeline__diff {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.changelog-timeline__old {
+  color: var(--color-danger, hsl(0, 70%, 60%));
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.changelog-timeline__arrow {
+  color: var(--color-text-tertiary, hsl(220, 10%, 45%));
+  font-size: 0.7rem;
+}
+
+.changelog-timeline__new {
+  color: var(--color-success, hsl(140, 60%, 55%));
+  font-weight: 500;
+}
