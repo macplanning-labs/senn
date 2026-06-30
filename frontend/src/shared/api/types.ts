@@ -284,3 +284,51 @@ export interface WorkflowStatus {
   position: number;
   isDefault: boolean;
 }
+
+// ============================================================
+// Git連携
+// ============================================================
+
+export type GitProvider = 'github' | 'gitlab';
+export type GitEventType = 'commit' | 'pull_request' | 'branch';
+export type PRState = 'open' | 'merged' | 'closed';
+
+export interface GitIntegration {
+  id: number;
+  project: number;
+  provider: GitProvider;
+  repositoryUrl: string;
+  webhookSecret: string;
+  isActive: boolean;
+  createdBy: UserSummary | null;
+  createdAt: string;
+  eventCount: number;
+}
+
+export interface GitEvent {
+  id: number;
+  eventType: GitEventType;
+  title: string;
+  url: string;
+  sha: string;
+  shaShort: string;
+  branch: string;
+  authorName: string;
+  authorAvatarUrl: string;
+  prNumber: number | null;
+  prState: PRState;
+  createdAt: string;
+}
+
+// ============================================================
+// メール通知設定
+// ============================================================
+
+export interface EmailPreferences {
+  emailNotificationsEnabled: boolean;
+  notifyOnAssigned: boolean;
+  notifyOnCommented: boolean;
+  notifyOnStatusChanged: boolean;
+  notifyOnDueSoon: boolean;
+}
+

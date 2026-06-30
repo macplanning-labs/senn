@@ -12,6 +12,7 @@ import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { TimeTracker } from './TimeTracker';
+import { GitActivity } from './GitActivity';
 import ChangeLogTimeline from './ChangeLogTimeline';
 import './TicketDetailPanel.css';
 
@@ -343,6 +344,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
       {/* タイムトラッカー */}
       <TimeTracker ticketId={ticket.id} />
+
+      {/* Gitアクティビティ */}
+      <GitActivity ticketId={ticket.id} />
 
       {/* 変更履歴タイムライン */}
       <ChangeLogTimeline ticketId={ticket.id} />

@@ -43,3 +43,14 @@ export const useToastStore = create<ToastState>()((set) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     })),
 }));
+
+/** 便利フック — success / error / info メソッドを提供 */
+export function useToast() {
+  const { addToast } = useToastStore();
+  return {
+    success: (message: string) => addToast({ type: 'success', message }),
+    error: (message: string) => addToast({ type: 'error', message }),
+    info: (message: string) => addToast({ type: 'info', message }),
+  };
+}
+

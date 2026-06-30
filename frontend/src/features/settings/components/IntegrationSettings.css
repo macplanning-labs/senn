@@ -1,0 +1,259 @@
+/* IntegrationSettings.css — Git連携設定 */
+
+.integration-settings {
+  max-width: 700px;
+}
+
+.integration-loading {
+  color: var(--color-text-tertiary);
+  padding: var(--space-4);
+}
+
+/* Info box */
+.integration-info {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.integration-info__label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--space-1);
+}
+
+.integration-info__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.integration-info__value code {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-primary);
+  background: var(--color-bg-primary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  word-break: break-all;
+}
+
+.integration-info__copy {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.integration-info__copy:hover {
+  background: var(--color-bg-elevated);
+}
+
+.integration-info__help {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-quaternary);
+  margin: var(--space-2) 0 0;
+  line-height: 1.5;
+}
+
+.integration-info__help code {
+  background: var(--color-bg-primary);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+/* Add form */
+.integration-form {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: fadeSlideIn 0.2s ease;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.integration-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.integration-form__field label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.integration-form__field input,
+.integration-form__field select {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.integration-form__field input:focus,
+.integration-form__field select:focus {
+  border-color: var(--color-accent-primary);
+}
+
+/* Empty state */
+.integration-empty {
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  color: var(--color-text-tertiary);
+}
+
+.integration-empty__icon {
+  font-size: 48px;
+  margin-bottom: var(--space-3);
+}
+
+.integration-empty__hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-quaternary);
+  max-width: 400px;
+  margin: var(--space-2) auto 0;
+}
+
+/* Card list */
+.integration-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.integration-card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  transition: border-color 0.15s;
+}
+
+.integration-card:hover {
+  border-color: var(--color-border-hover);
+}
+
+.integration-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.integration-card__provider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.integration-card__status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-quaternary);
+}
+
+.integration-card__status--active {
+  color: #3fb950;
+}
+
+.integration-card__url {
+  margin-bottom: var(--space-2);
+}
+
+.integration-card__url a {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-primary);
+  text-decoration: none;
+}
+
+.integration-card__url a:hover {
+  text-decoration: underline;
+}
+
+.integration-card__secret {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.integration-card__secret-label {
+  color: var(--color-text-tertiary);
+}
+
+.integration-card__secret code {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-tertiary);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.integration-card__secret-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  padding: 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.integration-card__secret-toggle:hover {
+  opacity: 1;
+}
+
+.integration-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.integration-card__events {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-quaternary);
+}
+
+.integration-card__delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--color-status-error);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.integration-card__delete:hover {
+  background: rgba(248, 81, 73, 0.1);
+}

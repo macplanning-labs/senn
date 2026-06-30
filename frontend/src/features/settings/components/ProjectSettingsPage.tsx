@@ -18,9 +18,10 @@ import { CategorySettings } from './CategorySettings';
 import { MilestoneSettings } from './MilestoneSettings';
 import { MemberSettings } from './MemberSettings';
 import { WorkflowSettings } from './WorkflowSettings';
+import { IntegrationSettings } from './IntegrationSettings';
 import './ProjectSettings.css';
 
-type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'members';
+type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'members' | 'integrations';
 
 interface TabDef {
   key: TabKey;
@@ -36,6 +37,7 @@ const TABS: TabDef[] = [
   { key: 'categories', label: 'Categories', icon: '📂' },
   { key: 'milestones', label: 'Milestones', icon: '🎯' },
   { key: 'members', label: 'Members', icon: '👥' },
+  { key: 'integrations', label: 'Integrations', icon: '🔗' },
 ];
 
 const LANGUAGES = [
@@ -213,6 +215,9 @@ export function ProjectSettingsPage() {
         )}
         {activeTab === 'members' && (
           <MemberSettings projectId={currentProject.id} />
+        )}
+        {activeTab === 'integrations' && (
+          <IntegrationSettings projectId={currentProject.id} />
         )}
       </div>
     </div>

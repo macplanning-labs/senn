@@ -15,6 +15,7 @@ import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { useAuthStore } from '@/shared/stores/authStore';
 import ChangeLogTimeline from './ChangeLogTimeline';
 import { TimeTracker } from './TimeTracker';
+import { GitActivity } from './GitActivity';
 import './TicketDetail.css';
 
 interface TicketData {
@@ -406,6 +407,9 @@ export function TicketDetail() {
 
           {/* タイムトラッカー */}
           <TimeTracker ticketId={ticket.id} />
+
+          {/* Gitアクティビティ */}
+          <GitActivity ticketId={ticket.id} />
         </aside>
       </div>
     </div>
