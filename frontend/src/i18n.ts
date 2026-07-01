@@ -94,6 +94,15 @@ const resources = {
         changedField: '{{user}} changed {{field}}',
         noPresets: 'No saved presets',
       },
+      ai: {
+        suggestPoints: 'AI estimate story points',
+        sprintHealth: 'Sprint Health Analysis',
+        analyzing: 'Analyzing...',
+        unavailable: 'AI service unavailable',
+        confidence: 'Confidence',
+        connected: 'Connected',
+        disconnected: 'Disconnected',
+      },
       cycle: {
         newCycle: '+ New Cycle',
         complete: 'Complete',
@@ -247,6 +256,15 @@ const resources = {
         noChangeLog: '変更履歴はありません',
         changedField: '{{user}} が {{field}} を変更',
         noPresets: '保存済みプリセットなし',
+      },
+      ai: {
+        suggestPoints: 'AIでストーリーポイントを見積もる',
+        sprintHealth: 'スプリント健全性分析',
+        analyzing: '分析中...',
+        unavailable: 'AIサービス利用不可',
+        confidence: '確信度',
+        connected: '接続済み',
+        disconnected: '未接続',
       },
       cycle: {
         newCycle: '+ 新しいサイクル',

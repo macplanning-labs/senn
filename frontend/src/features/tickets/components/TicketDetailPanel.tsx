@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
@@ -81,9 +82,12 @@ interface Props {
 }
 
 export function TicketDetailPanel({ ticketId, onClose }: Props) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { projectKey } = useProject();
   const [commentText, setCommentText] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<{ suggested_points: number; confidence_score: number; reason: string } | null>(null);
 
   const ticketQueryKey = ['ticket', ticketId];
 
@@ -283,30 +287,68 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         {/* ストーリーポイント */}
         <div className="detail-panel__field">
           <span className="detail-panel__field-label">Story Points</span>
-          <select
-            value={ticket.storyPoints ?? ''}
-            onChange={(e) => {
-              const val = e.target.value === '' ? null : Number(e.target.value);
-              storyPointsMutation.mutate(val);
-            }}
-            style={{
-              padding: '2px 6px',
-              background: 'var(--color-bg-tertiary)',
-              border: '1px solid var(--color-border-default)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-text-primary)',
-              fontSize: 'var(--font-size-sm)',
-              cursor: 'pointer',
-            }}
-            data-testid="story-points-input"
-          >
-            <option value="">—</option>
-            <option value="1">1 — 瞬殺 / No-brainer</option>
-            <option value="2">2 — 普通 / Straightforward</option>
-            <option value="3">3 — ちょい重 / Moderate</option>
-            <option value="5">5 — 時の運 / Risky</option>
-            <option value="8">8 — 泥沼 / Here be dragons 🐉</option>
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <select
+              value={ticket.storyPoints ?? ''}
+              onChange={(e) => {
+                const val = e.target.value === '' ? null : Number(e.target.value);
+                storyPointsMutation.mutate(val);
+              }}
+              style={{
+                padding: '2px 6px',
+                background: 'var(--color-bg-tertiary)',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)',
+                cursor: 'pointer',
+              }}
+              data-testid="story-points-input"
+            >
+              <option value="">—</option>
+              <option value="1">1 — 瞬殺 / No-brainer</option>
+              <option value="2">2 — 普通 / Straightforward</option>
+              <option value="3">3 — ちょい重 / Moderate</option>
+              <option value="5">5 — 時の運 / Risky</option>
+              <option value="8">8 — 泥沼 / Here be dragons 🐉</option>
+            </select>
+            <button
+              type="button"
+              className="detail-panel__ai-btn"
+              title={aiSuggestion?.reason || t('ai.suggestPoints')}
+              disabled={aiLoading}
+              onClick={async () => {
+                setAiLoading(true);
+                setAiSuggestion(null);
+                try {
+                  const res = await apiClient.post('/ai/suggest-points/', {
+                    title: ticket.title,
+                    description: ticket.description || '',
+                  });
+                  const data = res.data as { suggested_points: number; confidence_score: number; reason: string };
+                  setAiSuggestion(data);
+                  if (data.confidence_score > 0) {
+                    storyPointsMutation.mutate(data.suggested_points);
+                  }
+                } catch {
+                  setAiSuggestion({ suggested_points: 2, confidence_score: 0, reason: 'AI unavailable' });
+                } finally {
+                  setAiLoading(false);
+                }
+              }}
+              data-testid="ai-suggest-btn"
+            >
+              {aiLoading ? '⏳' : '🤖'}
+            </button>
+          </div>
+          {aiSuggestion && aiSuggestion.confidence_score > 0 && (
+            <div className="detail-panel__ai-reason">
+              <span className="detail-panel__ai-confidence">
+                {Math.round(aiSuggestion.confidence_score * 100)}%
+              </span>
+              {aiSuggestion.reason}
+            </div>
+          )}
         </div>
 
         {/* カテゴリ */}
