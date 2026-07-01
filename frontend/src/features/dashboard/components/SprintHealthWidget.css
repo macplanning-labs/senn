@@ -1,0 +1,157 @@
+/* SprintHealthWidget.css — AI Sprint Health ウィジェット */
+
+.sprint-health {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sprint-health__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sprint-health__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.sprint-health__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sprint-health__model {
+  padding: 1px 6px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+}
+
+.sprint-health__analyze-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--color-accent-emphasis);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-accent-emphasis);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.sprint-health__analyze-btn:hover:not(:disabled) {
+  background: var(--color-accent-emphasis);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.sprint-health__analyze-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 分析結果 */
+.sprint-health__result {
+  padding: 12px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+}
+
+.sprint-health__risk-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 999px);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.sprint-health__summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+.sprint-health__section-title {
+  margin: 12px 0 6px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.sprint-health__alerts {
+  margin-top: 8px;
+}
+
+.sprint-health__alert-item {
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #f59e0b;
+}
+
+.sprint-health__alert-task {
+  font-weight: 600;
+  margin-right: 6px;
+  color: var(--color-accent-emphasis);
+}
+
+.sprint-health__actions {
+  margin-top: 8px;
+}
+
+.sprint-health__actions ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+}
+
+.sprint-health__actions li {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.sprint-health__toggle {
+  display: block;
+  margin: 8px auto 0;
+  padding: 2px 16px;
+  border: none;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.sprint-health__toggle:hover {
+  background: var(--color-border-default);
+}
+
+/* プレースホルダー */
+.sprint-health__placeholder {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+}

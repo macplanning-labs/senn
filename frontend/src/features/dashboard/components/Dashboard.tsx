@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { SprintHealthWidget } from './SprintHealthWidget';
 import './Dashboard.css';
 
 // ── 型定義 ──────────────────────────────────
@@ -341,6 +342,7 @@ const WIDGET_REGISTRY: Record<string, React.FC<WidgetProps>> = {
   my_tickets: MyTicketsWidget,
   recent_wiki: RecentWikiWidget,
   unread_notifications: UnreadNotificationsWidget,
+  sprint_health: SprintHealthWidget,
 };
 
 const WIDGET_META: Record<string, { icon: string; label: string; desc: string }> = {
@@ -350,6 +352,7 @@ const WIDGET_META: Record<string, { icon: string; label: string; desc: string }>
   my_tickets: { icon: '📝', label: 'My Tickets', desc: 'Your open tickets' },
   recent_wiki: { icon: '📖', label: 'Recent Wiki', desc: 'Recently updated pages' },
   unread_notifications: { icon: '🔔', label: 'Notifications', desc: 'Unread notifications' },
+  sprint_health: { icon: '🤖', label: 'Sprint Health', desc: 'AI-powered sprint analysis' },
 };
 
 // ── AddWidgetModal ────────────────────────
