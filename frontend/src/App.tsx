@@ -23,6 +23,7 @@ import { ProjectSettingsPage } from '@/features/settings/components/ProjectSetti
 import { NotificationsPage } from '@/features/notifications/components/NotificationsPage';
 import { TeamsPage } from '@/features/teams/components/TeamsPage';
 import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsPage';
+import { WorkloadReportPage } from '@/features/reports/components/WorkloadReportPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
 import { ToastContainer } from '@/shared/components/ui/ToastContainer';
 import { useAuthStore } from '@/shared/stores/authStore';
@@ -142,6 +143,7 @@ export default function App() {
             <Route path="/triage" element={<TriageRequestsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/reports" element={<WorkloadReportPage />} />
 
             {/* プロジェクトスコープ */}
             <Route path="/p/:projectKey">

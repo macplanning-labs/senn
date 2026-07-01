@@ -1,0 +1,216 @@
+/* WorkloadReportPage.css — 稼働レポートスタイル */
+
+.workload-report {
+  padding: var(--space-6);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.workload-report__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.workload-report__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.workload-report__period-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--color-bg-tertiary);
+  padding: 3px;
+  border-radius: var(--radius-md);
+}
+
+.workload-report__tab {
+  padding: 6px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.workload-report__tab--active {
+  background: var(--color-accent-emphasis);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.workload-report__tab:hover:not(.workload-report__tab--active) {
+  color: var(--color-text-primary);
+}
+
+.workload-report__loading {
+  text-align: center;
+  padding: 60px;
+  color: var(--color-text-tertiary);
+}
+
+/* サマリーカード */
+.workload-report__summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.workload-report__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-5) var(--space-4);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  transition: transform 0.2s ease;
+}
+
+.workload-report__card:hover {
+  transform: translateY(-2px);
+}
+
+.workload-report__card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-accent-emphasis);
+  line-height: 1;
+}
+
+.workload-report__card-label {
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* セクション */
+.workload-report__section {
+  margin-bottom: var(--space-6);
+}
+
+.workload-report__section-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-4);
+}
+
+/* 日別棒グラフ */
+.workload-report__chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 180px;
+  padding: 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.workload-report__bar-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.workload-report__bar {
+  width: 100%;
+  max-width: 32px;
+  min-height: 2px;
+  background: linear-gradient(180deg, var(--color-accent-emphasis), #818cf8);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: height 0.3s ease;
+}
+
+.workload-report__bar:hover {
+  opacity: 0.85;
+}
+
+.workload-report__bar-label {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* グリッド（ユーザー別・プロジェクト別） */
+.workload-report__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+}
+
+/* ランキングアイテム */
+.workload-report__rank-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border-muted, var(--color-border-default));
+}
+
+.workload-report__rank-name {
+  min-width: 100px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.workload-report__rank-prefix {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-secondary);
+}
+
+.workload-report__rank-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-full, 999px);
+  overflow: hidden;
+}
+
+.workload-report__rank-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent-emphasis), #818cf8);
+  border-radius: var(--radius-full, 999px);
+  transition: width 0.3s ease;
+}
+
+.workload-report__rank-bar--project {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.workload-report__rank-value {
+  min-width: 60px;
+  text-align: right;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.workload-report__empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}

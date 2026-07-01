@@ -172,6 +172,7 @@ export function Sidebar() {
     { path: '/dashboard', icon: IconDashboard, label: t('nav.dashboard') },
     { path: '/teams', icon: IconTeam, label: t('nav.teams') },
     { path: '/triage', icon: '📋', label: t('nav.triage') },
+    { path: '/reports', icon: '📊', label: t('nav.reports') },
     { path: '/notifications', icon: IconNotification, label: t('nav.notifications') },
   ];
 

@@ -256,9 +256,36 @@ export function TicketTable() {
       {/* ヘッダー */}
       <div className="ticket-table__header">
         <h1 className="ticket-table__title">{t('nav.tickets')}</h1>
-        <Link to={projectKey ? `/p/${projectKey}/tickets/new` : '/tickets/new'} className="ticket-table__create-btn" data-testid="create-ticket-btn">
-          + {t('ticket.create')}
-        </Link>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            className="ticket-table__export-btn"
+            onClick={async () => {
+              try {
+                const params = new URLSearchParams();
+                if (currentProject?.id) params.set('project', String(currentProject.id));
+                if (statusFilter) params.set('status', statusFilter);
+                if (priorityFilter) params.set('priority', priorityFilter);
+                const res = await apiClient.get(`/tickets/export/csv/?${params}`, {
+                  responseType: 'blob',
+                });
+                const url = window.URL.createObjectURL(new Blob([res.data as BlobPart]));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `tickets_${projectKey || 'all'}_${new Date().toISOString().slice(0, 10)}.csv`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+              } catch {
+                // silent fail
+              }
+            }}
+            data-testid="csv-export-btn"
+          >
+            📥 CSV
+          </button>
+          <Link to={projectKey ? `/p/${projectKey}/tickets/new` : '/tickets/new'} className="ticket-table__create-btn" data-testid="create-ticket-btn">
+            + {t('ticket.create')}
+          </Link>
+        </div>
       </div>
 
       {/* フィルタバー */}
