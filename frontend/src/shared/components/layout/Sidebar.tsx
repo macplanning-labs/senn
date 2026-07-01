@@ -160,8 +160,8 @@ export function Sidebar() {
   const projectNavItems = resolvedProjectKey
     ? [
         { path: `${projectBase}/tickets`, icon: IconTicket, label: t('nav.tickets') },
-        { path: `${projectBase}/board`, icon: IconBoard, label: 'Board' },
-        { path: `${projectBase}/cycles`, icon: IconCycle, label: 'Cycles' },
+        { path: `${projectBase}/board`, icon: IconBoard, label: t('nav.board') },
+        { path: `${projectBase}/cycles`, icon: IconCycle, label: t('nav.cycles') },
         { path: `${projectBase}/gantt`, icon: IconGantt, label: t('nav.gantt') },
         { path: `${projectBase}/wiki`, icon: IconWiki, label: t('nav.wiki') },
       ]
@@ -170,8 +170,8 @@ export function Sidebar() {
   // グローバルナビ項目
   const globalNavItems = [
     { path: '/dashboard', icon: IconDashboard, label: t('nav.dashboard') },
-    { path: '/teams', icon: IconTeam, label: 'Teams' },
-    { path: '/triage', icon: '📋', label: 'Triage' },
+    { path: '/teams', icon: IconTeam, label: t('nav.teams') },
+    { path: '/triage', icon: '📋', label: t('nav.triage') },
     { path: '/notifications', icon: IconNotification, label: t('nav.notifications') },
   ];
 
@@ -213,7 +213,7 @@ export function Sidebar() {
               <span className="sidebar__project-name">
                 {projectsLoading
                   ? '...'
-                  : currentProject?.name ?? 'プロジェクトを選択'}
+                  : currentProject?.name ?? t('sidebar.selectProject')}
               </span>
               <IconChevronDown />
             </>
@@ -241,7 +241,7 @@ export function Sidebar() {
               </button>
             ))}
             {projectList.length === 0 && !projectsLoading && (
-              <div className="sidebar__project-empty">プロジェクトがありません</div>
+              <div className="sidebar__project-empty">{t('sidebar.noProjects')}</div>
             )}
 
             {/* 新規プロジェクト作成 */}
@@ -253,7 +253,7 @@ export function Sidebar() {
                     e.preventDefault();
                     setCreateError('');
                     if (!newProjectName.trim() || !newProjectPrefix.trim()) {
-                      setCreateError('名前とプレフィックスを入力してください');
+                      setCreateError(t('sidebar.createValidation'));
                       return;
                     }
                     try {
@@ -268,13 +268,13 @@ export function Sidebar() {
                       setNewProjectPrefix('');
                       setProjectDropdownOpen(false);
                     } catch {
-                      setCreateError('作成に失敗しました');
+                      setCreateError(t('sidebar.createError'));
                     }
                   }}
                 >
                   <input
                     className="sidebar__create-input"
-                    placeholder="プロジェクト名"
+                    placeholder={t('sidebar.projectName')}
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}
                     autoFocus
@@ -290,13 +290,13 @@ export function Sidebar() {
                     <div className="sidebar__create-error">{createError}</div>
                   )}
                   <div className="sidebar__create-actions">
-                    <button type="submit" className="sidebar__create-submit">作成</button>
+                    <button type="submit" className="sidebar__create-submit">{t('common.save')}</button>
                     <button
                       type="button"
                       className="sidebar__create-cancel"
                       onClick={() => { setShowCreateForm(false); setCreateError(''); }}
                     >
-                      キャンセル
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </form>
@@ -306,8 +306,8 @@ export function Sidebar() {
                   onClick={() => setShowCreateForm(true)}
                   data-testid="create-project-btn"
                 >
-                  <span className="sidebar__project-add-icon">+</span>
-                  新規プロジェクト
+                   <span className="sidebar__project-add-icon">+</span>
+                   {t('sidebar.newProject')}
                 </button>
               )}
             </div>
@@ -321,7 +321,7 @@ export function Sidebar() {
         {projectNavItems.length > 0 && (
           <>
             {sidebarOpen && (
-              <div className="sidebar__nav-label">プロジェクト</div>
+              <div className="sidebar__nav-label">{t('sidebar.project')}</div>
             )}
             {projectNavItems.map(({ path, icon: Icon, label }) => (
               <NavLink
@@ -345,7 +345,7 @@ export function Sidebar() {
 
         {/* グローバルナビ */}
         {sidebarOpen && (
-          <div className="sidebar__nav-label">グローバル</div>
+          <div className="sidebar__nav-label">{t('sidebar.global')}</div>
         )}
         {globalNavItems.map(({ path, icon: Icon, label }) => (
           <NavLink
@@ -385,7 +385,7 @@ export function Sidebar() {
           </span>
           {sidebarOpen && (
             <span className="sidebar__label">
-              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              {theme === 'dark' ? t('sidebar.lightMode') : t('sidebar.darkMode')}
             </span>
           )}
         </button>
