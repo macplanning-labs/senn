@@ -218,6 +218,7 @@ function GeneralSettings() {
 }
 
 export function ProjectSettingsPage() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>('general');
   const { currentProject } = useProject();
 
@@ -225,7 +226,7 @@ export function ProjectSettingsPage() {
     return (
       <div className="settings-empty">
         <div className="settings-empty__icon">⚙️</div>
-        <div className="settings-empty__text">プロジェクトが選択されていません</div>
+        <div className="settings-empty__text">{t('settings.noProject')}</div>
       </div>
     );
   }

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useCreateTeam, useUpdateTeam } from '../hooks/useTeams';
 import type { Team } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { useTranslation } from 'react-i18next';
 
 // 絵文字候補
 const EMOJI_OPTIONS = ['👥', '🛠️', '🎨', '🔧', '📊', '🚀', '💻', '🔒', '📋', '⚙️', '🧪', '📦'];
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function TeamDetailModal({ team, onClose }: Props) {
+  const { t } = useTranslation();
   const createTeam = useCreateTeam();
   const updateTeam = useUpdateTeam();
   const { addToast } = useToastStore();
@@ -136,7 +138,7 @@ export function TeamDetailModal({ team, onClose }: Props) {
               className="teams-modal__textarea"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="チームの説明（任意）"
+              placeholder={t("team.descriptionPlaceholder")}
               rows={3}
             />
           </div>
@@ -149,7 +151,7 @@ export function TeamDetailModal({ team, onClose }: Props) {
               type="url"
               value={slackWebhookUrl}
               onChange={(e) => setSlackWebhookUrl(e.target.value)}
-              placeholder="Slack / Google Chat / Teams の Webhook URL"
+              placeholder={t("team.webhookPlaceholder")}
             />
           </div>
 

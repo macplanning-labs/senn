@@ -307,7 +307,7 @@ export function TicketTable() {
           {showPresetMenu && (
             <div className="ticket-table__preset-menu">
               {presets.length === 0 ? (
-                <div className="ticket-table__preset-empty">保存済みプリセットなし</div>
+                <div className="ticket-table__preset-empty">{t('common.noPresets')}</div>
               ) : (
                 presets.map((p, i) => (
                   <div key={i} className="ticket-table__preset-item">

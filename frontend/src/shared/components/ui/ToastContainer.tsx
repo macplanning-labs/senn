@@ -8,8 +8,10 @@
 import { useToastStore } from '@/shared/stores/toastStore';
 import type { Toast } from '@/shared/stores/toastStore';
 import './ToastContainer.css';
+import { useTranslation } from 'react-i18next';
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+  const { t } = useTranslation();
   const icons: Record<Toast['type'], string> = {
     success: '✓',
     error: '✕',
@@ -23,7 +25,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       <button
         className="toast__dismiss"
         onClick={onDismiss}
-        aria-label="閉じる"
+        aria-label={t("common.close")}
       >
         ×
       </button>

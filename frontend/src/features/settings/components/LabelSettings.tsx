@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useTranslation } from 'react-i18next';
 
 // ─── 型定義 ─────────────────────────────────────
 interface Label {
@@ -49,6 +50,7 @@ function getTextColor(bgColor: string): string {
 // ─── コンポーネント ──────────────────────────────
 
 export function LabelSettings({ projectId }: LabelSettingsProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLabel, setEditingLabel] = useState<Label | null>(null);
@@ -77,7 +79,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
       closeModal();
     },
-    onError: () => setError('作成に失敗しました'),
+    onError: () => setError(t('common.createFailed')),
   });
 
   // --- 更新 ---
@@ -88,7 +90,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
       closeModal();
     },
-    onError: () => setError('更新に失敗しました'),
+    onError: () => setError(t('common.updateFailed')),
   });
 
   // --- 削除 ---
@@ -98,7 +100,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
       setDeleteConfirm(null);
     },
-    onError: () => setError('削除に失敗しました'),
+    onError: () => setError(t('common.deleteFailed')),
   });
 
   // --- モーダル制御 ---
@@ -138,7 +140,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   if (isLoading) {
-    return <div className="settings-empty"><div className="settings-empty__text">読み込み中...</div></div>;
+    return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
   }
 
   return (
@@ -307,7 +309,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
         <div className="settings-modal__overlay" onClick={() => setDeleteConfirm(null)}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
-              <h3 className="settings-modal__title">ラベルを削除</h3>
+              <h3 className="settings-modal__title">{t('settings.deleteLabel')}</h3>
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">

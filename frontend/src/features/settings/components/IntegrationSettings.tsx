@@ -11,12 +11,14 @@ import { apiClient } from '@/shared/api/client';
 import type { GitIntegration, GitProvider } from '@/shared/api/types';
 import { useToast } from '@/shared/stores/toastStore';
 import './IntegrationSettings.css';
+import { useTranslation } from 'react-i18next';
 
 interface IntegrationSettingsProps {
   projectId: number;
 }
 
 export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -44,10 +46,10 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
       setShowAddForm(false);
       setFormData({ provider: 'github', repository_url: '', webhook_secret: '' });
-      toast.success('Git連携を追加しました');
+      toast.success(t('integration.added'));
     },
     onError: () => {
-      toast.error('Git連携の追加に失敗しました');
+      toast.error(t('integration.addFailed'));
     },
   });
 
@@ -57,7 +59,7 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
-      toast.success('Git連携を削除しました');
+      toast.success(t('integration.deleted'));
     },
   });
 
@@ -70,7 +72,7 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
 
   const handleCopy = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
-    toast.success(`${label}をコピーしました`);
+    toast.success(t('common.copied', { label }));
   };
 
   const toggleSecret = (id: number) => {
@@ -112,7 +114,7 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
           </button>
         </div>
         <p className="integration-info__help">
-          GitHubリポジトリの Settings → Webhooks に上記URLを設定してください。
+          {t('integration.webhookHint')}
           Content type は <code>application/json</code>、イベントは <code>push</code> と <code>pull_request</code> を選択してください。
         </p>
       </div>
@@ -164,9 +166,9 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
       {integrations.length === 0 && !showAddForm ? (
         <div className="integration-empty">
           <div className="integration-empty__icon">🔗</div>
-          <p>Git連携が設定されていません</p>
+          <p>{t('integration.noIntegrations')}</p>
           <p className="integration-empty__hint">
-            GitHub/GitLab リポジトリと連携して、コミットやPRをチケットに自動リンクできます。
+            {t('integration.noIntegrationsHint')}
           </p>
         </div>
       ) : (
@@ -217,7 +219,7 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
                 <button
                   className="integration-card__delete"
                   onClick={() => {
-                    if (window.confirm('この連携を削除しますか？')) {
+                    if (window.confirm(t('integration.deleteConfirm'))) {
                       deleteMutation.mutate(integration.id);
                     }
                   }}

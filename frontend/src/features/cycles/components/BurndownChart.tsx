@@ -8,6 +8,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import './BurndownChart.css';
+import { useTranslation } from 'react-i18next';
 
 interface BurndownPoint {
   date: string;
@@ -20,6 +21,7 @@ const CHART_HEIGHT = 240;
 const PADDING = { top: 20, right: 30, bottom: 50, left: 50 };
 
 export function BurndownChart({ cycleId }: { cycleId: number }) {
+  const { t } = useTranslation();
   const { data: points = [] } = useQuery<BurndownPoint[]>({
     queryKey: ['burndown', cycleId],
     queryFn: async () => {
@@ -34,7 +36,7 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
       <div className="burndown-chart burndown-chart--empty">
         <h3 className="burndown-chart__title">バーンダウン</h3>
         <p className="burndown-chart__hint">
-          サイクルにチケットを割り当てると、バーンダウンチャートが表示されます。
+          {t('cycle.burndownEmpty')}
         </p>
       </div>
     );

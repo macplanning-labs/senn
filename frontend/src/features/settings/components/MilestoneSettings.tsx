@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useTranslation } from 'react-i18next';
 
 // ─── 型定義 ─────────────────────────────────────
 interface Milestone {
@@ -56,6 +57,7 @@ function calcProgress(open: number, closed: number): number {
 // ─── コンポーネント ──────────────────────────────
 
 export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
@@ -90,7 +92,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['milestones', projectId] });
       closeModal();
     },
-    onError: () => setError('作成に失敗しました'),
+    onError: () => setError(t('common.createFailed')),
   });
 
   // --- 更新 ---
@@ -105,7 +107,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['milestones', projectId] });
       closeModal();
     },
-    onError: () => setError('更新に失敗しました'),
+    onError: () => setError(t('common.updateFailed')),
   });
 
   // --- 削除 ---
@@ -115,7 +117,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['milestones', projectId] });
       setDeleteConfirm(null);
     },
-    onError: () => setError('削除に失敗しました'),
+    onError: () => setError(t('common.deleteFailed')),
   });
 
   // --- モーダル制御 ---
@@ -159,7 +161,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   if (isLoading) {
-    return <div className="settings-empty"><div className="settings-empty__text">読み込み中...</div></div>;
+    return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
   }
 
   return (
@@ -284,7 +286,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
                   className="settings-form__textarea"
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="マイルストーンの目標・スコープを記載"
+                  placeholder={t("settings.milestonePlaceholder")}
                   data-testid="milestone-desc-input"
                 />
               </div>
@@ -318,7 +320,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
         <div className="settings-modal__overlay" onClick={() => setDeleteConfirm(null)}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
-              <h3 className="settings-modal__title">マイルストーンを削除</h3>
+              <h3 className="settings-modal__title">{t('settings.deleteMilestone')}</h3>
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">

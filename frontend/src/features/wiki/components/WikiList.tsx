@@ -228,7 +228,7 @@ export function WikiList() {
         <div className="wiki__drop-overlay">
           <div className="wiki__drop-message">
             <span className="wiki__drop-icon">📥</span>
-            <span className="wiki__drop-text">MDファイルをドロップしてインポート</span>
+            <span className="wiki__drop-text">{t('wikiPage.dropImport')}</span>
             <span className="wiki__drop-hint">.md / .markdown / .txt</span>
           </div>
         </div>
@@ -382,8 +382,8 @@ export function WikiList() {
           ) : (
             <div className="wiki__placeholder">
               <div className="wiki__placeholder-icon">📥</div>
-              <div className="wiki__placeholder-text">ページを選択するか、新しいページを作成してください</div>
-              <div className="wiki__placeholder-hint">MDファイルをドラッグ＆ドロップしてインポートもできます</div>
+              <div className="wiki__placeholder-text">{t('wikiPage.placeholder')}</div>
+              <div className="wiki__placeholder-hint">{t('wikiPage.placeholderHint')}</div>
             </div>
           )}
         </main>

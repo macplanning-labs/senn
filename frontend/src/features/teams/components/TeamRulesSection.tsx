@@ -9,12 +9,14 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { TeamRule } from '@/shared/api/types';
+import { useTranslation } from 'react-i18next';
 
 interface TeamRulesSectionProps {
   teamId: number;
 }
 
 export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [showEditor, setShowEditor] = useState(false);
   const [editingRule, setEditingRule] = useState<TeamRule | null>(null);
@@ -216,7 +218,7 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
                     ✏️
                   </button>
                   <button
-                    onClick={() => { if (confirm('削除しますか？')) deleteMutation.mutate(rule.id); }}
+                    onClick={() => { if (confirm(t('team.deleteRuleConfirm'))) deleteMutation.mutate(rule.id); }}
                     style={{
                       padding: '2px 8px', background: 'var(--color-bg-tertiary)',
                       border: '1px solid var(--color-border-default)',

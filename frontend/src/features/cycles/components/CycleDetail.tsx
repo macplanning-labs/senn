@@ -8,6 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useCycle, useCycleProgress } from '../hooks/useCycles';
 import { BurndownChart } from './BurndownChart';
 import './CycleDetail.css';
+import { useTranslation } from 'react-i18next';
 
 const statusLabels: Record<string, string> = {
   planned: '計画中',
@@ -16,6 +17,7 @@ const statusLabels: Record<string, string> = {
 };
 
 export function CycleDetail() {
+  const { t } = useTranslation();
   const { cycleId } = useParams<{ cycleId: string }>();
   const navigate = useNavigate();
   const { data: cycle, isLoading: cycleLoading } = useCycle(
@@ -26,7 +28,7 @@ export function CycleDetail() {
   );
 
   if (cycleLoading || !cycle) {
-    return <div className="cycle-detail__loading">読み込み中...</div>;
+    return <div className="cycle-detail__loading">{t('common.loading')}</div>;
   }
 
   const completionPct = progress?.completionRate ?? 0;
@@ -121,7 +123,7 @@ export function CycleDetail() {
 
       {/* チケット一覧への誘導 */}
       <div className="cycle-detail__tickets-hint">
-        <p>このサイクルのチケットはチケット一覧でフィルタして確認できます。</p>
+        <p>{t('cycle.ticketHint')}</p>
       </div>
     </div>
   );

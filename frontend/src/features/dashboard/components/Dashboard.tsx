@@ -597,7 +597,7 @@ export function Dashboard() {
                   className="dashboard__tab-delete"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (confirm(`"${d.name}" を削除しますか？`)) {
+                    if (confirm(t('dashboard.deleteConfirm', { name: d.name }))) {
                       deleteMutation.mutate(d.id);
                     }
                   }}

@@ -10,12 +10,14 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { Team, UserSummary, TeamRole } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   team: Team;
 }
 
 export function TeamMembersSection({ team }: Props) {
+  const { t } = useTranslation();
   const { data: members, isLoading } = useTeamMembers(team.id);
   const addMember = useAddTeamMember();
   const removeMember = useRemoveTeamMember();
@@ -56,10 +58,10 @@ export function TeamMembersSection({ team }: Props) {
   };
 
   const handleRemove = async (userId: number, name: string) => {
-    if (!confirm(`${name} をチームから削除しますか？`)) return;
+    if (!confirm(t('team.removeMemberConfirm', { name }))) return;
     try {
       await removeMember.mutateAsync({ teamId: team.id, userId });
-      addToast({ message: `${name} を削除しました`, type: 'success' });
+      addToast({ message: t('team.memberRemoved', { name }), type: 'success' });
     } catch {
       addToast({ message: 'メンバーの削除に失敗しました', type: 'error' });
     }
@@ -90,7 +92,7 @@ export function TeamMembersSection({ team }: Props) {
             onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : '')}
             data-testid="member-user-select"
           >
-            <option value="">ユーザーを選択...</option>
+            <option value="">{t('team.selectUser')}</option>
             {availableUsers.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.displayName || u.username}
@@ -119,7 +121,7 @@ export function TeamMembersSection({ team }: Props) {
 
       {/* メンバー一覧 */}
       {isLoading ? (
-        <div className="team-members__loading">読み込み中...</div>
+        <div className="team-members__loading">{t('common.loading')}</div>
       ) : members && members.length > 0 ? (
         <div className="team-members__list">
           {members.map((membership) => (

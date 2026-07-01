@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useTranslation } from 'react-i18next';
 
 // ─── 型定義 ─────────────────────────────────────
 interface Category {
@@ -42,6 +43,7 @@ const COLOR_PRESETS = [
 // ─── コンポーネント ──────────────────────────────
 
 export function CategorySettings({ projectId: _projectId }: CategorySettingsProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -72,7 +74,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
       void queryClient.invalidateQueries({ queryKey: ['categories'] });
       closeModal();
     },
-    onError: () => setError('作成に失敗しました'),
+    onError: () => setError(t('common.createFailed')),
   });
 
   // --- 更新 ---
@@ -83,7 +85,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
       void queryClient.invalidateQueries({ queryKey: ['categories'] });
       closeModal();
     },
-    onError: () => setError('更新に失敗しました'),
+    onError: () => setError(t('common.updateFailed')),
   });
 
   // --- 削除 ---
@@ -93,7 +95,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
       void queryClient.invalidateQueries({ queryKey: ['categories'] });
       setDeleteConfirm(null);
     },
-    onError: () => setError('削除に失敗しました。子カテゴリーまたはチケットが紐付いている可能性があります。'),
+    onError: () => setError(t('common.deleteFailed')),
   });
 
   // --- モーダル制御 ---
@@ -136,7 +138,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   if (isLoading) {
-    return <div className="settings-empty"><div className="settings-empty__text">読み込み中...</div></div>;
+    return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
   }
 
   return (
@@ -271,7 +273,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                       ...prev, parent: e.target.value ? Number(e.target.value) : null,
                     }))}
                   >
-                    <option value="">選択してください</option>
+                    <option value="">{t('common.selectPlaceholder')}</option>
                     {level1Categories.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
@@ -295,7 +297,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
               </div>
 
               <div className="settings-form__group">
-                <label className="settings-form__label">並び順</label>
+                <label className="settings-form__label">{t('settings.sortOrder')}</label>
                 <input
                   className="settings-form__input"
                   type="number"

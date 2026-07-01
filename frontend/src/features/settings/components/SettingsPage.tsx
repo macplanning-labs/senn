@@ -42,10 +42,10 @@ export function SettingsPage() {
     },
     onSuccess: (enabled) => {
       setEmailEnabled(enabled);
-      toast.success(enabled ? 'メール通知を有効にしました' : 'メール通知を無効にしました');
+      toast.success(enabled ? t('settings.emailEnabled') : t('settings.emailDisabled'));
     },
     onError: () => {
-      toast.error('設定の更新に失敗しました');
+      toast.error(t('settings.updateFailed'));
     },
   });
 

@@ -11,6 +11,7 @@ import { useCycles, useCreateCycle, useDeleteCycle, useCompleteCycle } from '../
 import { VelocityChart } from './VelocityChart';
 import type { Cycle } from '@/shared/api/types';
 import './CycleList.css';
+import { useTranslation } from 'react-i18next';
 
 const statusLabels: Record<string, string> = {
   planned: '計画中',
@@ -25,6 +26,7 @@ const statusColors: Record<string, string> = {
 };
 
 export function CycleList() {
+  const { t } = useTranslation();
   const { currentProject: project } = useProject();
   const { data: cycles = [], isLoading } = useCycles(project?.id);
   const createMutation = useCreateCycle();
@@ -69,7 +71,7 @@ export function CycleList() {
   };
 
   if (isLoading) {
-    return <div className="cycle-loading">読み込み中...</div>;
+    return <div className="cycle-loading">{t('common.loading')}</div>;
   }
 
   return (
@@ -80,7 +82,7 @@ export function CycleList() {
           className="cycle-list__add-btn"
           onClick={() => setShowForm(true)}
         >
-          + 新しいサイクル
+          {t('cycle.newCycle')}
         </button>
       </div>
 
@@ -183,7 +185,7 @@ export function CycleList() {
       {/* 完了済み */}
       {completedCycles.length > 0 && (
         <div className="cycle-section">
-          <h3 className="cycle-section__title">完了済み</h3>
+          <h3 className="cycle-section__title">{t('cycle.completed')}</h3>
           {completedCycles.map(cycle => (
             <CycleRow
               key={cycle.id}
@@ -196,8 +198,8 @@ export function CycleList() {
 
       {cycles.length === 0 && !showForm && (
         <div className="cycle-empty">
-          <p>サイクルがまだありません。</p>
-          <p>「+ 新しいサイクル」をクリックして最初のスプリントを作成しましょう。</p>
+          <p>{t('cycle.noCycles')}</p>
+          <p>「{t('cycle.newCycle')}」をクリックして最初のスプリントを作成しましょう。</p>
         </div>
       )}
     </div>

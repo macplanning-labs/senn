@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../shared/api/client';
 import './ChangeLogTimeline.css';
+import { useTranslation } from 'react-i18next';
 
 interface ChangeLog {
   id: number;
@@ -59,6 +60,7 @@ function truncateValue(value: string, maxLen = 40): string {
 }
 
 export default function ChangeLogTimeline({ ticketId }: ChangeLogTimelineProps) {
+  const { t } = useTranslation();
   const { data: logs, isLoading } = useQuery<ChangeLog[]>({
     queryKey: ['tickets', ticketId, 'change-logs'],
     queryFn: async () => {
@@ -81,7 +83,7 @@ export default function ChangeLogTimeline({ ticketId }: ChangeLogTimelineProps) 
     return (
       <div className="changelog-timeline changelog-timeline--empty">
         <span className="changelog-timeline__empty-icon">📋</span>
-        <span>変更履歴はありません</span>
+        <span>{t('common.noChangeLog')}</span>
       </div>
     );
   }

@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useTranslation } from 'react-i18next';
 
 // ─── 型定義 ─────────────────────────────────────
 interface UserSummary {
@@ -68,6 +69,7 @@ function getStatusBadge(membership: Membership): { text: string; className: stri
 // ─── コンポーネント ──────────────────────────────
 
 export function MemberSettings({ projectId }: MemberSettingsProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Membership | null>(null);
@@ -133,7 +135,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       void queryClient.invalidateQueries({ queryKey: ['memberships', projectId] });
       setDeleteConfirm(null);
     },
-    onError: () => setError('メンバーの削除に失敗しました'),
+    onError: () => setError(t('settings.memberDeleteFailed')),
   });
 
   // --- モーダル制御 ---
@@ -164,7 +166,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
   }, [formData, addMutation]);
 
   if (isLoading) {
-    return <div className="settings-empty"><div className="settings-empty__text">読み込み中...</div></div>;
+    return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
   }
 
   return (
@@ -264,7 +266,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
         <div className="settings-modal__overlay" onClick={closeModal}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
-              <h3 className="settings-modal__title">メンバーを追加</h3>
+              <h3 className="settings-modal__title">{t('settings.addMember')}</h3>
               <button className="settings-modal__close" onClick={closeModal}>×</button>
             </div>
 
@@ -277,7 +279,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
                   onChange={(e) => setFormData(prev => ({ ...prev, user: Number(e.target.value) }))}
                   data-testid="member-user-select"
                 >
-                  <option value={0}>選択してください</option>
+                  <option value={0}>{t('settings.selectUser')}</option>
                   {availableUsers.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.displayName || u.username} ({u.email})
@@ -316,7 +318,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
                   className="settings-form__textarea"
                   value={formData.note}
                   onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
-                  placeholder="役割やメモを記載"
+                  placeholder={t("settings.rolePlaceholder")}
                   data-testid="member-note-input"
                 />
               </div>
@@ -350,7 +352,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
         <div className="settings-modal__overlay" onClick={() => setDeleteConfirm(null)}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
-              <h3 className="settings-modal__title">メンバーを削除</h3>
+              <h3 className="settings-modal__title">{t('settings.deleteMember')}</h3>
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">

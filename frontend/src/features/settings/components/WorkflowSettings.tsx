@@ -14,6 +14,7 @@ import {
 } from '../hooks/useWorkflowStatuses';
 import type { WorkflowStatus, StatusCategory } from '@/shared/api/types';
 import './WorkflowSettings.css';
+import { useTranslation } from 'react-i18next';
 
 const CATEGORY_OPTIONS: { value: StatusCategory; label: string; color: string }[] = [
   { value: 'backlog', label: 'バックログ', color: '#666666' },
@@ -24,6 +25,7 @@ const CATEGORY_OPTIONS: { value: StatusCategory; label: string; color: string }[
 ];
 
 export function WorkflowSettings() {
+  const { t } = useTranslation();
   const { currentProject } = useProject();
   const { data: statuses = [], isLoading } = useWorkflowStatuses(currentProject?.id);
   const createMutation = useCreateWorkflowStatus();
@@ -37,7 +39,7 @@ export function WorkflowSettings() {
   const [editingId, setEditingId] = useState<number | null>(null);
 
   if (!currentProject) {
-    return <p className="workflow-settings__empty">プロジェクトを選択してください</p>;
+    return <p className="workflow-settings__empty">{t('settings.selectProject')}</p>;
   }
 
   const handleCreate = () => {

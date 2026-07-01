@@ -13,8 +13,10 @@ import { TeamRulesSection } from './TeamRulesSection';
 import type { Team } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
 import './TeamsPage.css';
+import { useTranslation } from 'react-i18next';
 
 export function TeamsPage() {
+  const { t } = useTranslation();
   const { data: teams, isLoading } = useTeams();
   const deleteTeam = useDeleteTeam();
   const { addToast } = useToastStore();
@@ -142,7 +144,7 @@ export function TeamsPage() {
           ) : (
             <div className="teams-page__empty">
               <span className="teams-page__empty-icon">👥</span>
-              <p>チームがまだありません</p>
+              <p>{t('team.noTeams')}</p>
               <button className="teams-page__create-btn" onClick={handleCreate}>
                 最初のチームを作成
               </button>
@@ -171,7 +173,7 @@ export function TeamsPage() {
       {deleteConfirm !== null && (
         <div className="teams-dialog-overlay" onClick={() => setDeleteConfirm(null)}>
           <div className="teams-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="teams-dialog__title">チームを削除しますか？</h3>
+            <h3 className="teams-dialog__title">{t('team.deleteConfirm')}</h3>
             <p className="teams-dialog__message">
               この操作は取り消せません。チームのメンバーシップも削除されます。
             </p>
