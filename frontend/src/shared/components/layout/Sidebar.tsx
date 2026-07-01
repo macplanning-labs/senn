@@ -92,6 +92,17 @@ function IconCycle() {
   );
 }
 
+function IconTeam() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="5" r="2.5" />
+      <path d="M1.5 14c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" />
+      <circle cx="12" cy="5" r="1.5" />
+      <path d="M12 9c1.5 0 3 1 3 3" />
+    </svg>
+  );
+}
+
 function IconCollapse() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -159,6 +170,8 @@ export function Sidebar() {
   // グローバルナビ項目
   const globalNavItems = [
     { path: '/dashboard', icon: IconDashboard, label: t('nav.dashboard') },
+    { path: '/teams', icon: IconTeam, label: 'Teams' },
+    { path: '/triage', icon: '📋', label: 'Triage' },
     { path: '/notifications', icon: IconNotification, label: t('nav.notifications') },
   ];
 

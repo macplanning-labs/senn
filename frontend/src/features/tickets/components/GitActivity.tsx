@@ -99,11 +99,11 @@ export function GitActivity({ ticketId }: GitActivityProps) {
                       <span
                         className="git-event__pr-badge"
                         style={{
-                          background: PR_STATE_STYLES[event.prState].bg,
-                          color: PR_STATE_STYLES[event.prState].color,
+                          background: PR_STATE_STYLES[event.prState]!.bg,
+                          color: PR_STATE_STYLES[event.prState]!.color,
                         }}
                       >
-                        {PR_STATE_STYLES[event.prState].label}
+                        {PR_STATE_STYLES[event.prState]!.label}
                       </span>
                     )}
                   </>

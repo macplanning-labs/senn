@@ -21,6 +21,8 @@ import { WikiList } from '@/features/wiki/components/WikiList';
 import { SettingsPage } from '@/features/settings/components/SettingsPage';
 import { ProjectSettingsPage } from '@/features/settings/components/ProjectSettingsPage';
 import { NotificationsPage } from '@/features/notifications/components/NotificationsPage';
+import { TeamsPage } from '@/features/teams/components/TeamsPage';
+import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
 import { ToastContainer } from '@/shared/components/ui/ToastContainer';
 import { useAuthStore } from '@/shared/stores/authStore';
@@ -136,6 +138,8 @@ export default function App() {
           >
             {/* グローバルページ */}
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/teams" element={<TeamsPage />} />
+            <Route path="/triage" element={<TriageRequestsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
 

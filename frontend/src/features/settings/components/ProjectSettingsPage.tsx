@@ -13,6 +13,10 @@ import { useTranslation } from 'react-i18next';
 import { useProject } from '@/shared/hooks/useProject';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/shared/api/client';
+import { useTeams } from '@/features/teams/hooks/useTeams';
+import { useToastStore } from '@/shared/stores/toastStore';
 import { LabelSettings } from './LabelSettings';
 import { CategorySettings } from './CategorySettings';
 import { MilestoneSettings } from './MilestoneSettings';
@@ -50,9 +54,65 @@ function GeneralSettings() {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useUIStore();
   const { user } = useAuthStore();
+  const { currentProject } = useProject();
+  const { data: teams } = useTeams();
+  const { addToast } = useToastStore();
+  const queryClient = useQueryClient();
+
+  const updateOwnerTeam = useMutation({
+    mutationFn: async (ownerTeamId: number | null) => {
+      await apiClient.patch(`/projects/${currentProject?.id}/`, {
+        owner_team: ownerTeamId,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      addToast({ message: 'オーナーチームを更新しました', type: 'success' });
+    },
+    onError: () => {
+      addToast({ message: 'オーナーチームの更新に失敗しました', type: 'error' });
+    },
+  });
 
   return (
     <div>
+      {/* オーナーチーム */}
+      {currentProject && (
+        <>
+          <div className="settings-section__header">
+            <h2 className="settings-section__title">Owner Team</h2>
+          </div>
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            <select
+              className="settings-form__select"
+              value={(currentProject as any).ownerTeam?.id ?? ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                updateOwnerTeam.mutate(val ? Number(val) : null);
+              }}
+              data-testid="owner-team-select"
+              style={{
+                width: '100%',
+                maxWidth: 320,
+                padding: 'var(--space-2) var(--space-3)',
+                background: 'var(--color-bg-elevated)',
+                border: '1px solid var(--color-border-default)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)',
+              }}
+            >
+              <option value="">— None</option>
+              {(teams ?? []).map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.icon} {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+
       {/* プロフィール */}
       <div className="settings-section__header">
         <h2 className="settings-section__title">Profile</h2>

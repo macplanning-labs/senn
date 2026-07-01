@@ -1,0 +1,742 @@
+/**
+ * TeamsPage.css — チーム管理ページのスタイル
+ *
+ * ダーク/ライトテーマ対応。CSS変数ベース。
+ */
+
+/* ─── ページレイアウト ─── */
+
+.teams-page {
+  padding: var(--space-6);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.teams-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.teams-page__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-1) 0;
+}
+
+.teams-page__subtitle {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.teams-page__create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.teams-page__create-btn:hover {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.teams-page__create-icon {
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.teams-page__content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .teams-page__content {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── チームカード ─── */
+
+.teams-page__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.teams-card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.teams-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.teams-card--selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg, rgba(99, 102, 241, 0.05));
+}
+
+.teams-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.teams-card__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.teams-card__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.teams-card__name {
+  display: block;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-base);
+}
+
+.teams-card__slug {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.teams-card__actions {
+  display: flex;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.teams-card:hover .teams-card__actions {
+  opacity: 1;
+}
+
+.teams-card__action-btn {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.1s;
+}
+
+.teams-card__action-btn:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.teams-card__action-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.teams-card__desc {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.teams-card__stats {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.teams-card__stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.teams-card__stat-icon {
+  font-size: 12px;
+}
+
+.teams-card__inactive-badge {
+  display: inline-block;
+  margin-top: var(--space-2);
+  padding: 2px var(--space-2);
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ─── 空状態 ─── */
+
+.teams-page__empty {
+  text-align: center;
+  padding: var(--space-8);
+  color: var(--color-text-tertiary);
+}
+
+.teams-page__empty-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+/* ─── ローディング ─── */
+
+.teams-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.teams-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── メンバー管理パネル ─── */
+
+.teams-page__detail {
+  position: sticky;
+  top: var(--space-4);
+}
+
+.team-members {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.team-members__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.team-members__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.team-members__add-btn {
+  padding: var(--space-1) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.team-members__add-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.team-members__add-form {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+}
+
+.team-members__select {
+  flex: 1;
+  padding: var(--space-2);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.team-members__select--role {
+  flex: 0 0 120px;
+}
+
+.team-members__submit-btn {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.team-members__submit-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.team-members__submit-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.team-members__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.team-member-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  transition: background 0.1s;
+}
+
+.team-member-item:hover {
+  background: var(--color-bg-primary);
+}
+
+.team-member-item__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  flex-shrink: 0;
+}
+
+.team-member-item__info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.team-member-item__name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.team-member-item__role {
+  font-size: var(--font-size-xs);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font-weight: var(--font-weight-medium);
+}
+
+.team-member-item__role--leader {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.team-member-item__role--member {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--color-primary);
+}
+
+.team-member-item__remove {
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.team-member-item:hover .team-member-item__remove {
+  opacity: 1;
+}
+
+.team-member-item__remove:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.team-members__empty,
+.team-members__loading {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* ─── モーダル ─── */
+
+.teams-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+}
+
+.teams-modal {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.teams-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.teams-modal__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.teams-modal__close {
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 18px;
+  border-radius: var(--radius-sm);
+  transition: all 0.1s;
+}
+
+.teams-modal__close:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.teams-modal__form {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.teams-modal__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.teams-modal__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.teams-modal__field--toggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.teams-modal__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.teams-modal__input,
+.teams-modal__textarea {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+
+.teams-modal__input:focus,
+.teams-modal__textarea:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.teams-modal__textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+/* 絵文字選択 */
+.teams-modal__emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.teams-modal__emoji {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-primary);
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.teams-modal__emoji:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.teams-modal__emoji--selected {
+  border-color: var(--color-primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+/* カラー選択 */
+.teams-modal__color-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.teams-modal__color-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.teams-modal__color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.teams-modal__color-swatch--selected {
+  border-color: var(--color-text-primary);
+  box-shadow: 0 0 0 2px var(--color-bg-secondary);
+}
+
+/* トグル */
+.teams-modal__toggle {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--color-bg-tertiary);
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.teams-modal__toggle--on {
+  background: var(--color-primary);
+}
+
+.teams-modal__toggle-knob {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.2s;
+}
+
+.teams-modal__toggle--on .teams-modal__toggle-knob {
+  transform: translateX(20px);
+}
+
+.teams-modal__error {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.teams-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.teams-modal__btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+}
+
+.teams-modal__btn--cancel {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.teams-modal__btn--cancel:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.teams-modal__btn--submit {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.teams-modal__btn--submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.teams-modal__btn--submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── 削除確認ダイアログ ─── */
+
+.teams-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  backdrop-filter: blur(4px);
+}
+
+.teams-dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+}
+
+.teams-dialog__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.teams-dialog__message {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-5);
+}
+
+.teams-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.teams-dialog__btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.teams-dialog__btn--cancel {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.teams-dialog__btn--cancel:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.teams-dialog__btn--danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.teams-dialog__btn--danger:hover {
+  background: #dc2626;
+}

@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeams } from '@/features/teams/hooks/useTeams';
 import './TicketForm.css';
 
 // Zodバリデーションスキーマ
@@ -38,6 +39,7 @@ interface TicketEditData {
   milestone: { id: number; name: string } | null;
   start_date: string | null;
   due_date: string | null;
+  story_points: number | null;
 }
 
 interface UserOption {
@@ -155,6 +157,7 @@ export function TicketForm() {
     ticket_type: 'issue',
     due_date: null,
     start_date: null,
+    story_points: null,
   });
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [milestoneId, setMilestoneId] = useState<string>('');
@@ -162,6 +165,7 @@ export function TicketForm() {
   const [selectedLabels, setSelectedLabels] = useState<number[]>([]);
   const [parentId, setParentId] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
+  const [teamId, setTeamId] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isInitialized, setIsInitialized] = useState(!isEditing);
 
@@ -175,6 +179,7 @@ export function TicketForm() {
       ticket_type: existingTicket.ticket_type as TicketFormData['ticket_type'],
       due_date: existingTicket.due_date,
       start_date: existingTicket.start_date,
+      story_points: existingTicket.story_points ?? null,
     });
     setAssigneeIds(existingTicket.assignees?.map((a) => a.id) ?? []);
     setMilestoneId(existingTicket.milestone ? String(existingTicket.milestone.id) : '');
@@ -189,6 +194,8 @@ export function TicketForm() {
     const ext = existingTicket as unknown as { parent?: { id: number } | null; category?: { id: number } | null };
     setParentId(ext.parent ? String(ext.parent.id) : '');
     setCategoryId(ext.category ? String(ext.category.id) : '');
+    const teamExt = existingTicket as unknown as { assigned_team?: { id: number } | null };
+    setTeamId(teamExt.assigned_team ? String(teamExt.assigned_team.id) : '');
     setIsInitialized(true);
   }
 
@@ -202,6 +209,7 @@ export function TicketForm() {
         labels: selectedLabels,
         parent: parentId ? Number(parentId) : null,
         category: categoryId ? Number(categoryId) : null,
+        assigned_team: teamId ? Number(teamId) : null,
         project: currentProject?.id,
       };
       if (isEditing) {
@@ -500,6 +508,9 @@ export function TicketForm() {
           </div>
         </div>
 
+        {/* 担当チーム */}
+        <TeamSelect teamId={teamId} onTeamChange={setTeamId} />
+
         {/* ラベル */}
         <div className="ticket-form__field">
           <label className="ticket-form__label">
@@ -564,6 +575,32 @@ export function TicketForm() {
           </div>
         )}
       </form>
+    </div>
+  );
+}
+
+/** 担当チームセレクト（TicketForm内サブコンポーネント） */
+function TeamSelect({ teamId, onTeamChange }: { teamId: string; onTeamChange: (v: string) => void }) {
+  const { data: teams } = useTeams();
+  return (
+    <div className="ticket-form__field">
+      <label htmlFor="assigned_team" className="ticket-form__label">
+        Team
+      </label>
+      <select
+        id="assigned_team"
+        className="ticket-form__select"
+        value={teamId}
+        onChange={(e) => onTeamChange(e.target.value)}
+        data-testid="ticket-team-input"
+      >
+        <option value="">— None</option>
+        {(teams ?? []).map((team) => (
+          <option key={team.id} value={team.id}>
+            {team.icon} {team.name}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

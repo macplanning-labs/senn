@@ -35,6 +35,7 @@ interface TicketData {
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  storyPoints: number | null;
   commentCount: number;
   childCount: number;
   comments: CommentData[];
@@ -124,6 +125,21 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     },
     invalidateKeys: [['tickets']],
     errorMessage: '優先度変更に失敗しました。元に戻しました。',
+  });
+
+  // 楽観的ストーリーポイント変更
+  const storyPointsMutation = useOptimisticMutation<void, number | null>({
+    mutationFn: async (points) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { story_points: points });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, points) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, storyPoints: points };
+    },
+    invalidateKeys: [['tickets']],
+    errorMessage: 'ストーリーポイント変更に失敗しました。',
   });
 
   // 楽観的コメント追加 — 投稿ボタン押下で即スレッドに表示
@@ -262,6 +278,35 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               ? new Date(ticket.dueDate).toLocaleDateString()
               : '—'}
           </span>
+        </div>
+
+        {/* ストーリーポイント */}
+        <div className="detail-panel__field">
+          <span className="detail-panel__field-label">Story Points</span>
+          <select
+            value={ticket.storyPoints ?? ''}
+            onChange={(e) => {
+              const val = e.target.value === '' ? null : Number(e.target.value);
+              storyPointsMutation.mutate(val);
+            }}
+            style={{
+              padding: '2px 6px',
+              background: 'var(--color-bg-tertiary)',
+              border: '1px solid var(--color-border-default)',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-sm)',
+              cursor: 'pointer',
+            }}
+            data-testid="story-points-input"
+          >
+            <option value="">—</option>
+            <option value="1">1 — 瞬殺 / No-brainer</option>
+            <option value="2">2 — 普通 / Straightforward</option>
+            <option value="3">3 — ちょい重 / Moderate</option>
+            <option value="5">5 — 時の運 / Risky</option>
+            <option value="8">8 — 泥沼 / Here be dragons 🐉</option>
+          </select>
         </div>
 
         {/* カテゴリ */}

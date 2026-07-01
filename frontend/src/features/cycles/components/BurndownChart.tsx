@@ -59,7 +59,7 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
     .join(' ');
 
   // 実績線（今日以降は表示しない）
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0] ?? '';
   const actualPoints = points.filter(p => p.date <= today);
   const actualPath = actualPoints
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(p.actual)}`)
@@ -137,7 +137,7 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
             {/* 最新ポイントのドット */}
             <circle
               cx={toX(actualPoints.length - 1)}
-              cy={toY(lastActual.actual)}
+              cy={toY(lastActual!.actual)}
               r="4"
               fill={isDelayed ? 'var(--color-error)' : 'var(--color-accent)'}
             />

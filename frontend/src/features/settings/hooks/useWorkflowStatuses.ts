@@ -41,7 +41,7 @@ export function useUpdateWorkflowStatus() {
       const { data } = await apiClient.patch(`/workflow-statuses/${id}/`, payload);
       return data as WorkflowStatus;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (_data, _variables) => {
       void qc.invalidateQueries({ queryKey: ['workflow-statuses'] });
     },
   });

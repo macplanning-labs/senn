@@ -184,6 +184,8 @@ pub async fn toggle_watch(
 #[derive(Deserialize)]
 pub struct CommentForm {
     pub body: String,
+    /// コメント送信と同時にステータスを変更（オプション）
+    pub status: Option<String>,
 }
 
 pub async fn add_comment(
@@ -193,6 +195,12 @@ pub async fn add_comment(
     Form(form): Form<CommentForm>,
 ) -> Redirect {
     let _ = comment_repo::create(&state.pool, id, user.user_id, &form.body).await;
+    // ステータス変更が指定されていれば同時に実行
+    if let Some(ref status) = form.status {
+        if !status.is_empty() {
+            let _ = ticket_service::change_status(&state.pool, id, status, user.user_id).await;
+        }
+    }
     Redirect::to(&format!("/tickets/{}", id))
 }
 

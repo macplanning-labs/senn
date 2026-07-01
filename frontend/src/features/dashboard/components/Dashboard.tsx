@@ -215,6 +215,7 @@ function MyTicketsWidget({ data }: WidgetProps) {
     priority: string;
     due_date: string | null;
     updated_at: string;
+    project_key?: string;
   }>;
 
   if (!tickets?.length) {

@@ -131,7 +131,7 @@ export function useCompleteCycle() {
 export function useDeleteCycle() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, projectId }: { id: number; projectId: number }) => {
+    mutationFn: async ({ id, projectId: _projectId }: { id: number; projectId: number }) => {
       await apiClient.delete(`/cycles/${id}/`);
     },
     onSuccess: (_data, variables) => {

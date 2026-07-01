@@ -37,6 +37,7 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+  assignedTeam: TeamSummary | null;
   cycle: number | null;
   cycleName: string | null;
 }
@@ -61,6 +62,7 @@ export interface TicketListItem {
   cycle: number | null;
   cycleName: string | null;
   totalTimeSpent: number;
+  assignedTeam: TeamSummary | null;
 }
 
 // ============================================================
@@ -102,6 +104,7 @@ export interface Project {
   targetEndDate: string | null;
   isActive: boolean;
   gracePeriodDays: number;
+  ownerTeam: TeamSummary | null;
   createdAt: string;
 }
 
@@ -330,5 +333,87 @@ export interface EmailPreferences {
   notifyOnCommented: boolean;
   notifyOnStatusChanged: boolean;
   notifyOnDueSoon: boolean;
+}
+
+// ============================================================
+// チーム
+// ============================================================
+
+export interface TeamSummary {
+  id: number;
+  name: string;
+  slug: string;
+  icon: string;
+  color: string;
+}
+
+export interface Team {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  icon: string;
+  color: string;
+  slackWebhookUrl: string;
+  isActive: boolean;
+  memberCount: number;
+  projectCount: number;
+  createdAt: string;
+}
+
+export type TeamRole = 'leader' | 'member';
+
+export interface TeamMembership {
+  id: number;
+  team: number;
+  user: UserSummary;
+  role: TeamRole;
+  joinedAt: string;
+}
+
+// ============================================================
+// Phase 3: 運用系
+// ============================================================
+
+export interface TaskPointHistory {
+  id: number;
+  old_points: number | null;
+  new_points: number | null;
+  changedBy: UserSummary | null;
+  reason: string;
+  changedAt: string;
+}
+
+export type TriageStatus = 'pending' | 'approved' | 'rejected';
+export type ChangeType = 'text_request' | 'master_change';
+
+export interface TriageRequest {
+  id: number;
+  title: string;
+  description: string;
+  changeType: ChangeType;
+  changePayload: Record<string, unknown>;
+  status: TriageStatus;
+  ticket: number | null;
+  ticketKey: string | null;
+  requestedBy: UserSummary;
+  reviewedBy: UserSummary | null;
+  reviewedAt: string | null;
+  reviewComment: string;
+  createdAt: string;
+}
+
+export interface TeamRule {
+  id: number;
+  team: number | null;
+  teamName: string | null;
+  title: string;
+  content: string;
+  category: string;
+  sort_order: number;
+  is_active: boolean;
+  createdBy: UserSummary | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
