@@ -10,17 +10,20 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import './WikiList.css';
-
+import { QuickCreateTicketButton } from '@/features/tickets/components/QuickCreateTicketButton';
+import type { LinkedTicketSummary } from '@/shared/api/types';
 interface WikiPage {
   id: number;
   title: string;
   slug: string;
   category: string;
+  project?: number;
   content: string;
   renderedContent: string;
   author: { id: number; displayName: string; username: string };
   lastEditor: { id: number; displayName: string; username: string } | null;
   updatedAt: string;
+  linkedTickets?: LinkedTicketSummary[];
 }
 
 interface WikiListItem {
@@ -121,6 +124,22 @@ export function WikiList() {
     },
   });
 
+  // 削除
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.delete(`/wiki/${id}/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['wiki-pages'] });
+      setSelectedId(null);
+      setIsEditing(false);
+      setIsCreating(false);
+    },
+    onError: () => {
+      alert(t('common.error'));
+    },
+  });
+
   const pageList = pages?.results ?? [];
 
   function startEdit() {
@@ -149,6 +168,12 @@ export function WikiList() {
     } else {
       updateMutation.mutate(data);
     }
+  }
+
+  function handleDelete() {
+    if (!selectedId || !selectedPage) return;
+    if (!window.confirm(t('wiki.deleteConfirm', { title: selectedPage.title }))) return;
+    deleteMutation.mutate(selectedId);
   }
 
   // --- D&D ハンドラー ---
@@ -362,13 +387,23 @@ export function WikiList() {
             <div className="wiki__viewer">
               <div className="wiki__viewer-header">
                 <h2 className="wiki__viewer-title">{selectedPage.title}</h2>
-                <button
-                  className="wiki__edit-btn"
-                  onClick={startEdit}
-                  data-testid="wiki-edit-btn"
-                >
-                  ✏️ {t('wiki.edit')}
-                </button>
+                <div className="wiki__viewer-actions">
+                  <button
+                    className="wiki__edit-btn"
+                    onClick={startEdit}
+                    data-testid="wiki-edit-btn"
+                  >
+                    ✏️ {t('wiki.edit')}
+                  </button>
+                  <button
+                    className="wiki__delete-btn"
+                    onClick={handleDelete}
+                    disabled={deleteMutation.isPending}
+                    data-testid="wiki-delete-btn"
+                  >
+                    🗑️ {t('common.delete')}
+                  </button>
+                </div>
               </div>
               <div className="wiki__viewer-meta">
                 Last edited by {selectedPage.lastEditor?.displayName ?? selectedPage.author.displayName} · {timeAgo(selectedPage.updatedAt)}
@@ -378,6 +413,62 @@ export function WikiList() {
                 dangerouslySetInnerHTML={{ __html: selectedPage.renderedContent }}
                 data-testid="wiki-rendered"
               />
+
+              {/* 紐付きチケット + ワンクリック起票 */}
+              <div className="wiki__linked-section" style={{
+                marginTop: '1.5rem', paddingTop: '1rem',
+                borderTop: '1px solid var(--color-border, #e0e0e0)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
+                    🎫 紐付きチケット
+                    {selectedPage.linkedTickets && selectedPage.linkedTickets.length > 0
+                      ? ` (${selectedPage.linkedTickets.length})`
+                      : ''
+                    }
+                  </h4>
+                  <QuickCreateTicketButton
+                    defaultTitle={`[Wiki] ${selectedPage.title}`}
+                    defaultDescription={`Wikiページ「${selectedPage.title}」から起票\n\n---\n\n${selectedPage.content?.slice(0, 500) ?? ''}`}
+                    projectId={selectedPage.project ?? 0}
+                    wikiPageId={selectedPage.id}
+                    label="⚡ チケット起票"
+                  />
+                </div>
+                {selectedPage.linkedTickets && selectedPage.linkedTickets.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                    {selectedPage.linkedTickets.map((t: { id: number; ticketKey: string; title: string; status: string }) => (
+                      <a
+                        key={t.id}
+                        href={`/p/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.id}`}
+                        style={{
+                          padding: '0.5rem 0.625rem', borderRadius: '6px',
+                          background: 'var(--color-surface-secondary, #f5f5f5)',
+                          border: '1px solid var(--color-border, #e0e0e0)',
+                          color: 'var(--color-text-primary)',
+                          fontSize: '0.8125rem', textDecoration: 'none',
+                          display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, opacity: 0.7 }}>{t.ticketKey}</span>
+                        <span>{t.title}</span>
+                        <span style={{
+                          marginLeft: 'auto', fontSize: '0.75rem',
+                          padding: '0.125rem 0.375rem', borderRadius: '4px',
+                          background: t.status === 'closed' ? 'rgba(107,114,128,0.15)' : 'rgba(59,130,246,0.15)',
+                          color: t.status === 'closed' ? '#6b7280' : '#3b82f6',
+                        }}>
+                          {t.status}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: '0.8125rem', opacity: 0.5, margin: 0 }}>
+                    紐付きチケットはありません
+                  </p>
+                )}
+              </div>
             </div>
           ) : (
             <div className="wiki__placeholder">

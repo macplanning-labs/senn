@@ -7,7 +7,7 @@
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { MainLayout } from '@/shared/components/layout/MainLayout';
 import { LoginForm } from '@/features/auth/components/LoginForm';
 import { Dashboard } from '@/features/dashboard/components/Dashboard';
@@ -28,10 +28,25 @@ import { CommandPalette } from '@/shared/components/ui/CommandPalette';
 import { ToastContainer } from '@/shared/components/ui/ToastContainer';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { getLastProjectKey } from '@/shared/hooks/useProject';
+import { useToastStore } from '@/shared/stores/toastStore';
 import { useEffect } from 'react';
+import type { AxiosError } from 'axios';
+
+// グローバル MutationCache — 全 mutation のエラーをトースト表示
+const mutationCache = new MutationCache({
+  onError: (error: Error) => {
+    const axiosError = error as AxiosError<{ detail?: string }>;
+    const detail =
+      axiosError.response?.data?.detail ??
+      axiosError.message ??
+      'エラーが発生しました';
+    useToastStore.getState().addToast({ type: 'error', message: detail });
+  },
+});
 
 // TanStack Query クライアント
 const queryClient = new QueryClient({
+  mutationCache,
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5分間キャッシュ

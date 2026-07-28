@@ -2,7 +2,10 @@
  * WikiList.css — Wiki画面のスタイル
  */
 
-.wiki { max-width: 1200px; }
+.wiki {
+  max-width: 1200px;
+  overflow: hidden;
+}
 
 .wiki__header {
   display: flex;
@@ -143,6 +146,8 @@
   padding: var(--space-6);
   background-color: var(--color-bg-elevated);
   min-height: 400px;
+  min-width: 0;       /* grid子要素のオーバーフロー防止 */
+  overflow: hidden;
 }
 
 .wiki__placeholder {
@@ -159,12 +164,17 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-3);
   margin-bottom: var(--space-2);
 }
 
 .wiki__viewer-title {
   font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-bold);
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .wiki__edit-btn {
@@ -175,11 +185,41 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-fast);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .wiki__edit-btn:hover {
   color: var(--color-text-link);
   border-color: var(--color-text-link);
+}
+
+.wiki__viewer-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.wiki__delete-btn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  background: transparent;
+}
+
+.wiki__delete-btn:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.wiki__delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .wiki__viewer-meta {
@@ -192,6 +232,9 @@
   font-size: var(--font-size-base);
   line-height: 1.8;
   color: var(--color-text-secondary);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
 }
 
 .wiki__viewer-body h1,
@@ -214,6 +257,8 @@
   background-color: var(--color-bg-tertiary);
   border-radius: var(--radius-md);
   overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .wiki__viewer-body table {

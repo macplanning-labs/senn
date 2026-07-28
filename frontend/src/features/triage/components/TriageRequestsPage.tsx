@@ -6,12 +6,14 @@
  */
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   useTriageRequests,
   useCreateTriageRequest,
   useApproveTriageRequest,
   useRejectTriageRequest,
 } from '../hooks/useTriageRequests';
+import { apiClient } from '@/shared/api/client';
 import type { TriageRequest, TriageStatus } from '@/shared/api/types';
 
 const STATUS_BADGES: Record<TriageStatus, { label: string; color: string; bg: string }> = {
@@ -36,10 +38,19 @@ export function TriageRequestsPage() {
   const approveMutation = useApproveTriageRequest();
   const rejectMutation = useRejectTriageRequest();
 
-  // 新規作成フォーム
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newType, setNewType] = useState('text_request');
+  const [approveProjectId, setApproveProjectId] = useState<number | null>(null);
+
+  // プロジェクト一覧取得
+  const { data: projects } = useQuery<{ id: number; name: string; key: string }[]>({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ id: number; name: string; key: string }[]>('/projects/');
+      return Array.isArray(res) ? res : (res as { results?: { id: number; name: string; key: string }[] }).results ?? [];
+    },
+  });
 
   function handleCreate() {
     if (!newTitle.trim()) return;
@@ -56,8 +67,16 @@ export function TriageRequestsPage() {
   }
 
   function handleApprove(id: number) {
-    approveMutation.mutate({ id, comment: reviewComment }, {
-      onSuccess: () => { setReviewingId(null); setReviewComment(''); },
+    approveMutation.mutate({
+      id,
+      comment: reviewComment,
+      project_id: approveProjectId ?? undefined,
+    }, {
+      onSuccess: () => {
+        setReviewingId(null);
+        setReviewComment('');
+        setApproveProjectId(null);
+      },
     });
   }
 
@@ -258,6 +277,21 @@ export function TriageRequestsPage() {
                         💬 {req.reviewComment}
                       </div>
                     )}
+                    {/* 承認済み→チケットリンク */}
+                    {req.status === 'approved' && req.ticketKey && (
+                      <div style={{
+                        marginTop: 'var(--space-2)', padding: 'var(--space-2)',
+                        background: 'rgba(16,185,129,0.08)', borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-sm)',
+                      }}>
+                        🎫 <a
+                          href={`/p/${req.ticketKey.split('-')[0]}/tickets/${req.ticketId}`}
+                          style={{ color: 'var(--color-accent-primary)', fontWeight: 600 }}
+                        >
+                          {req.ticketKey}
+                        </a> が自動生成されました
+                      </div>
+                    )}
                   </div>
 
                   {/* 承認/却下ボタン */}
@@ -275,12 +309,29 @@ export function TriageRequestsPage() {
                               borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', width: 160,
                             }}
                           />
+                          <select
+                            value={approveProjectId ?? ''}
+                            onChange={(e) => setApproveProjectId(e.target.value ? Number(e.target.value) : null)}
+                            style={{
+                              padding: '4px 8px', fontSize: 'var(--font-size-xs)',
+                              background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border-default)',
+                              borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', width: 160,
+                            }}
+                          >
+                            <option value="">起票先プロジェクト</option>
+                            {(projects ?? []).map((p) => (
+                              <option key={p.id} value={p.id}>{p.key} — {p.name}</option>
+                            ))}
+                          </select>
                           <div style={{ display: 'flex', gap: 4 }}>
                             <button
                               onClick={() => handleApprove(req.id)}
+                              disabled={!approveProjectId}
                               style={{
-                                padding: '2px 8px', background: '#10b981', color: 'white',
-                                border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontSize: '0.75rem',
+                                padding: '2px 8px', background: approveProjectId ? '#10b981' : '#888',
+                                color: 'white',
+                                border: 'none', borderRadius: 'var(--radius-sm)', cursor: approveProjectId ? 'pointer' : 'not-allowed',
+                                fontSize: '0.75rem',
                               }}
                             >
                               ✓ 承認

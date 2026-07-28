@@ -34,12 +34,17 @@ interface TicketEditData {
   description: string;
   status: string;
   priority: string;
-  ticket_type: string;
+  ticketType: string;
   assignees: { id: number; username: string; displayName: string }[];
   milestone: { id: number; name: string } | null;
-  start_date: string | null;
-  due_date: string | null;
-  story_points: number | null;
+  parent: number | null;
+  category: { id: number; name: string } | null;
+  cycle: number | null;
+  labels: { id: number }[];
+  assignedTeam: { id: number; name: string } | null;
+  startDate: string | null;
+  dueDate: string | null;
+  storyPoints: number | null;
 }
 
 interface UserOption {
@@ -176,26 +181,18 @@ export function TicketForm() {
       description: existingTicket.description,
       status: existingTicket.status as TicketFormData['status'],
       priority: existingTicket.priority as TicketFormData['priority'],
-      ticket_type: existingTicket.ticket_type as TicketFormData['ticket_type'],
-      due_date: existingTicket.due_date,
-      start_date: existingTicket.start_date,
-      story_points: existingTicket.story_points ?? null,
+      ticket_type: existingTicket.ticketType as TicketFormData['ticket_type'],
+      due_date: existingTicket.dueDate,
+      start_date: existingTicket.startDate,
+      story_points: existingTicket.storyPoints ?? null,
     });
     setAssigneeIds(existingTicket.assignees?.map((a) => a.id) ?? []);
     setMilestoneId(existingTicket.milestone ? String(existingTicket.milestone.id) : '');
-    setCycleId(
-      (existingTicket as unknown as { cycle?: number | null }).cycle
-        ? String((existingTicket as unknown as { cycle: number }).cycle)
-        : ''
-    );
-    setSelectedLabels(
-      (existingTicket as unknown as { labels?: { id: number }[] }).labels?.map((l) => l.id) ?? []
-    );
-    const ext = existingTicket as unknown as { parent?: { id: number } | null; category?: { id: number } | null };
-    setParentId(ext.parent ? String(ext.parent.id) : '');
-    setCategoryId(ext.category ? String(ext.category.id) : '');
-    const teamExt = existingTicket as unknown as { assigned_team?: { id: number } | null };
-    setTeamId(teamExt.assigned_team ? String(teamExt.assigned_team.id) : '');
+    setCycleId(existingTicket.cycle != null ? String(existingTicket.cycle) : '');
+    setSelectedLabels(existingTicket.labels?.map((l) => l.id) ?? []);
+    setParentId(existingTicket.parent != null ? String(existingTicket.parent) : '');
+    setCategoryId(existingTicket.category ? String(existingTicket.category.id) : '');
+    setTeamId(existingTicket.assignedTeam ? String(existingTicket.assignedTeam.id) : '');
     setIsInitialized(true);
   }
 

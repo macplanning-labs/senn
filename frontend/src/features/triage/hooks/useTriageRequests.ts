@@ -49,15 +49,16 @@ export function useCreateTriageRequest() {
 export function useApproveTriageRequest() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, comment }: { id: number; comment?: string }) => {
+    mutationFn: async ({ id, comment, project_id }: { id: number; comment?: string; project_id?: number }) => {
       const res = await apiClient.post<TriageRequest>(
         `/triage-requests/${id}/approve/`,
-        { comment: comment ?? '' },
+        { comment: comment ?? '', project_id },
       );
       return res.data;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['triage-requests'] });
+      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
     },
   });
 }

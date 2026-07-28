@@ -15,6 +15,8 @@ import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { TimeTracker } from './TimeTracker';
 import { GitActivity } from './GitActivity';
 import ChangeLogTimeline from './ChangeLogTimeline';
+import { AIAnalysisPanel } from '@/features/ai/components/AIAnalysisPanel';
+import { CloseAnalysisDialog } from '@/features/ai/components/CloseAnalysisDialog';
 import './TicketDetailPanel.css';
 
 interface TicketData {
@@ -40,6 +42,7 @@ interface TicketData {
   commentCount: number;
   childCount: number;
   comments: CommentData[];
+  linkedWikiPages?: { id: number; title: string; slug: string; category: string }[];
 }
 
 interface CommentData {
@@ -88,6 +91,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const [commentText, setCommentText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<{ suggested_points: number; confidence_score: number; reason: string } | null>(null);
+  const [showCloseAnalysis, setShowCloseAnalysis] = useState(false);
 
   const ticketQueryKey = ['ticket', ticketId];
 
@@ -115,6 +119,14 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     invalidateKeys: [['tickets']],
     errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
   });
+
+  // ステータス変更ハンドラ — closed/resolved 時にクローズ分析を起動
+  const handleStatusChange = (newStatus: string) => {
+    statusMutation.mutate(newStatus);
+    if (newStatus === 'closed' || newStatus === 'resolved') {
+      setShowCloseAnalysis(true);
+    }
+  };
 
   // 楽観的優先度変更
   const priorityMutation = useOptimisticMutation<void, string>({
@@ -230,7 +242,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           <select
             className="detail-panel__field-select"
             value={ticket.status}
-            onChange={(e) => statusMutation.mutate(e.target.value)}
+            onChange={(e) => handleStatusChange(e.target.value)}
             style={{ color: currentStatus?.color }}
           >
             {STATUS_OPTIONS.map((s) => (
@@ -437,6 +449,43 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
       {/* 変更履歴タイムライン */}
       <ChangeLogTimeline ticketId={ticket.id} />
+
+      {/* 紐付きWikiページ */}
+      {ticket.linkedWikiPages && ticket.linkedWikiPages.length > 0 && (
+        <div style={{ marginTop: '1rem' }}>
+          <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, margin: '0 0 0.5rem', opacity: 0.7 }}>
+            📖 紐付きWiki ({ticket.linkedWikiPages.length})
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {ticket.linkedWikiPages.map((wp: { id: number; title: string; slug: string; category: string }) => (
+              <a
+                key={wp.id}
+                href={`/wiki?page=${wp.id}`}
+                style={{
+                  padding: '0.375rem 0.5rem', borderRadius: '4px',
+                  background: 'var(--surface-secondary, #f5f5f5)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: '0.8125rem', textDecoration: 'none',
+                  display: 'block',
+                }}
+              >
+                📄 {wp.title}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AIコンテキスト分析 */}
+      <AIAnalysisPanel ticketId={ticket.id} />
+
+      {/* クローズ分析ダイアログ */}
+      <CloseAnalysisDialog
+        ticketId={ticket.id}
+        projectId={ticket.project ?? 0}
+        isOpen={showCloseAnalysis}
+        onClose={() => setShowCloseAnalysis(false)}
+      />
     </div>
   );
 }

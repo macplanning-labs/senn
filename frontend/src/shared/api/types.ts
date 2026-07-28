@@ -394,13 +394,30 @@ export interface TriageRequest {
   changeType: ChangeType;
   changePayload: Record<string, unknown>;
   status: TriageStatus;
+  project: number | null;
   ticket: number | null;
   ticketKey: string | null;
+  ticketId: number | null;
   requestedBy: UserSummary;
   reviewedBy: UserSummary | null;
   reviewedAt: string | null;
   reviewComment: string;
   createdAt: string;
+}
+
+export interface LinkedWikiPage {
+  id: number;
+  title: string;
+  slug: string;
+  category: string;
+}
+
+export interface LinkedTicketSummary {
+  id: number;
+  ticketKey: string;
+  title: string;
+  status: string;
+  priority: string;
 }
 
 export interface TeamRule {
@@ -417,3 +434,39 @@ export interface TeamRule {
   updatedAt: string;
 }
 
+export interface TeamRuleSummary {
+  id: number;
+  title: string;
+  category: string;
+  teamName: string | null;
+}
+
+// --- AI 分析 ---
+
+export interface RuleViolation {
+  rule_title: string;
+  warning: string;
+}
+
+export interface ContextAnalysisResult {
+  context_loaded: boolean;
+  rule_violations: RuleViolation[];
+  implementation_hint: string;
+}
+
+export interface WikiDraft {
+  category: string;
+  title: string;
+  content_markdown: string;
+}
+
+export interface SuggestedBacklogTicket {
+  title: string;
+  description: string;
+}
+
+export interface CloseAnalysisResult {
+  has_future_challenges: boolean;
+  wiki_draft: WikiDraft | null;
+  suggested_backlog_tickets: SuggestedBacklogTicket[];
+}
