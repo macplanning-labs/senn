@@ -164,7 +164,8 @@ pub async fn login(
         // MFA必須
         let mfa_token = match jwt_service::issue_mfa_token(user.id, &state.config.jwt_secret) {
             Ok(token) => token,
-            Err(_) => {
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"detail": "トークン発行エラー"})),
@@ -182,7 +183,8 @@ pub async fn login(
         // MFA不要
         let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
             Ok(pair) => pair,
-            Err(_) => {
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"detail": "トークン発行エラー"})),
@@ -253,7 +255,8 @@ pub async fn login_verify(
     // トークンペア発行
     let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
         Ok(pair) => pair,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"detail": "トークン発行エラー"})),
@@ -310,12 +313,15 @@ pub async fn token_refresh(
     // 古いトークンをブラックリスト登録
     let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
         .unwrap_or_else(|| chrono::Utc::now());
-    let _ = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await;
+    if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await {
+        tracing::error!("failed to blacklist refresh token: {:?}", e);
+    }
 
     // 新しいトークンペア発行
     let token_pair = match jwt_service::issue_token_pair(claims.user_id, &state.config.jwt_secret) {
         Ok(pair) => pair,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"detail": "トークン発行エラー"})),
@@ -372,7 +378,9 @@ pub async fn logout(
         if let Ok(claims) = jwt_service::decode_token(&refresh_token, &state.config.jwt_secret) {
             let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
                 .unwrap_or_else(|| chrono::Utc::now());
-            let _ = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await;
+            if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await {
+                tracing::error!("failed to blacklist refresh token on logout: {:?}", e);
+            }
         }
     }
 
@@ -395,7 +403,8 @@ pub async fn register(
     // パスワードハッシュ化
     let password_hash = match auth_service::hash_password(&body.password) {
         Ok(hash) => hash,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"detail": "パスワードハッシュエラー"})),
@@ -437,7 +446,8 @@ pub async fn register(
     // トークンペア発行
     let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
         Ok(pair) => pair,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"detail": "トークン発行エラー"})),
@@ -472,7 +482,8 @@ pub async fn list_users(
 ) -> impl IntoResponse {
     let users = match user_repo::find_all(&state.pool).await {
         Ok(users) => users,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"detail": "ユーザー一覧取得エラー"})),

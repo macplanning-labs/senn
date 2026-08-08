@@ -125,7 +125,8 @@ pub async fn list(
     // リポジトリ呼び出し(一覧+件数を両方取得してDjangoのPageNumberPagination形式に合わせる)
     let tickets = match ticket_repo::api_find_all(&state.pool, &filter, sort, search, page).await {
         Ok(t) => t,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -137,7 +138,8 @@ pub async fn list(
     };
     let count = match ticket_repo::api_count_all(&state.pool, &filter, search).await {
         Ok(c) => c,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -202,13 +204,16 @@ pub async fn detail(
             }),
         )
             .into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                detail: "サーバーエラーが発生しました".to_string(),
-            }),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -234,7 +239,8 @@ pub async fn create(
     // トランザクション開始
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -250,7 +256,7 @@ pub async fn create(
         Ok(id) => id,
         Err(e) => {
             tracing::error!("api_create failed: {:?}", e);
-            let _ = tx.rollback().await;
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -262,7 +268,8 @@ pub async fn create(
     };
 
     // コミット
-    if let Err(_) = tx.commit().await {
+    if let Err(e) = tx.commit().await {
+            tracing::error!("transaction commit failed: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -331,7 +338,8 @@ pub async fn update(
     // トランザクション開始
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(_) => {
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -346,7 +354,7 @@ pub async fn update(
     match ticket_repo::api_update(&mut tx, &ticket_key, &body, auth.user_id).await {
         Err(e) => {
             tracing::error!("api_update failed: {:?}", e);
-            let _ = tx.rollback().await;
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -357,7 +365,8 @@ pub async fn update(
         }
         Ok(Some(_)) => {
             // コミット
-            if let Err(_) = tx.commit().await {
+            if let Err(e) = tx.commit().await {
+            tracing::error!("transaction commit failed: {:?}", e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -380,7 +389,7 @@ pub async fn update(
             }
         }
         Ok(None) => {
-            let _ = tx.rollback().await;
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
             (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -407,13 +416,16 @@ pub async fn delete(
             }),
         )
             .into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                detail: "サーバーエラーが発生しました".to_string(),
-            }),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -453,13 +465,16 @@ pub async fn add_comment(
     match ticket_repo::api_add_comment(&state.pool, ticket_id, auth.user_id, &body.body).await
     {
         Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                detail: "サーバーエラーが発生しました".to_string(),
-            }),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -575,13 +590,16 @@ pub async fn change_logs(
     // 変更ログ取得
     match ticket_repo::api_find_change_logs(&state.pool, ticket_id).await {
         Ok(logs) => (StatusCode::OK, Json(logs)).into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                detail: "サーバーエラーが発生しました".to_string(),
-            }),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
 }
 
@@ -619,12 +637,15 @@ pub async fn point_history(
     // ポイント履歴取得
     match ticket_repo::api_find_point_history(&state.pool, ticket_id).await {
         Ok(history) => (StatusCode::OK, Json(history)).into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                detail: "サーバーエラーが発生しました".to_string(),
-            }),
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
     }
 }
