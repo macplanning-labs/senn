@@ -181,12 +181,34 @@ pub async fn update_team(pool: &PgPool, id: i32, input: &TeamWriteIn) -> anyhow:
 }
 
 pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // m_team_rule は on_delete=CASCADE、そのチームルールを参照するチケットの
+    // linked_rules(M2M)も先に削除する必要がある
+    sqlx::query(
+        "DELETE FROM tickets_ticket_linked_rules WHERE teamrulemodel_id IN
+         (SELECT id FROM m_team_rule WHERE team_id = $1)"
+    ).bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM m_team_rule WHERE team_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // t_team_membership は on_delete=CASCADE
+    sqlx::query("DELETE FROM t_team_membership WHERE team_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // tickets_project.owner_team / tickets_ticket.assigned_team は on_delete=SET_NULL
+    sqlx::query("UPDATE tickets_project SET owner_team_id = NULL WHERE owner_team_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE tickets_ticket SET assigned_team_id = NULL WHERE assigned_team_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
     let rows_affected = sqlx::query("DELETE FROM m_team WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
 
+    tx.commit().await?;
     Ok(rows_affected > 0)
 }
 

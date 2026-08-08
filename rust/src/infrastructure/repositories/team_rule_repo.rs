@@ -375,11 +375,18 @@ pub async fn partial_update_team_rule(
 }
 
 pub async fn delete_team_rule(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // tickets_ticket_linked_rules はM2M中間テーブル(DjangoのManyToManyField削除はjoin行を自動除去)
+    sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE teamrulemodel_id = $1")
+        .bind(id as i64).execute(&mut *tx).await?;
+
     let rows_affected = sqlx::query("DELETE FROM m_team_rule WHERE id = $1")
         .bind(id as i64)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
 
+    tx.commit().await?;
     Ok(rows_affected > 0)
 }

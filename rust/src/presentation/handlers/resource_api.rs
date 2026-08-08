@@ -248,12 +248,20 @@ pub async fn project_delete(
     Extension(_auth): Extension<AuthUser>,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    use resource_repo::DeleteProjectResult;
     match resource_repo::delete_project(&state.pool, id).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (
+        Ok(DeleteProjectResult::Deleted) => StatusCode::NO_CONTENT.into_response(),
+        Ok(DeleteProjectResult::NotFound) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
                 detail: "見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Ok(DeleteProjectResult::HasTickets) => (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                detail: "チケットが存在するプロジェクトは削除できません".to_string(),
             }),
         )
             .into_response(),
