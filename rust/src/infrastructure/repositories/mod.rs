@@ -10,3 +10,4 @@ pub mod user_repo;
 pub mod holiday_repo;
 pub mod history_repo;
 pub mod jwt_blacklist_repo;
+pub mod resource_repo;

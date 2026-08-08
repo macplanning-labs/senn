@@ -14,3 +14,4 @@ pub mod categories;
 pub mod holidays;
 pub mod api;
 pub mod health;
+pub mod resource_api;

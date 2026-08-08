@@ -15,7 +15,7 @@ use crate::presentation::{
     handlers::{
         auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
         milestones, projects, notifications, wiki, categories,
-        holidays, api, health,
+        holidays, api, health, resource_api,
     },
 };
 
@@ -113,6 +113,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/tickets/{ticket_key}/comments/", get(tickets_api::list_comments).post(tickets_api::add_comment))
         .route("/api/v1/tickets/{ticket_key}/change-logs/", get(tickets_api::change_logs))
         .route("/api/v1/tickets/{ticket_key}/point-history/", get(tickets_api::point_history))
+        // JSON リソース API (Phase 3)
+        .route("/api/v1/projects/", get(resource_api::project_list).post(resource_api::project_create))
+        .route("/api/v1/projects/{id}/", get(resource_api::project_detail).put(resource_api::project_update).delete(resource_api::project_delete))
+        .route("/api/v1/categories/", get(resource_api::category_list).post(resource_api::category_create))
+        .route("/api/v1/categories/{id}/", get(resource_api::category_detail).put(resource_api::category_update).delete(resource_api::category_delete))
+        .route("/api/v1/milestones/", get(resource_api::milestone_list).post(resource_api::milestone_create))
+        .route("/api/v1/milestones/{id}/", get(resource_api::milestone_detail).put(resource_api::milestone_update).delete(resource_api::milestone_delete))
+        .route("/api/v1/labels/", get(resource_api::label_list).post(resource_api::label_create))
+        .route("/api/v1/labels/{id}/", get(resource_api::label_detail).put(resource_api::label_update).delete(resource_api::label_delete))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
