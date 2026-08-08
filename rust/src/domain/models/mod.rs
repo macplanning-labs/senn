@@ -7,6 +7,8 @@ pub mod milestone;
 pub mod comment;
 pub mod attachment;
 pub mod notification;
+pub mod notification_api;
 pub mod wiki;
 pub mod user;
 pub mod holiday;
+pub mod cycle_api;
