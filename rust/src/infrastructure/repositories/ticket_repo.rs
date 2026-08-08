@@ -3,9 +3,11 @@
 /// sqlx を使用した t_tickets テーブルの CRUD 操作。
 /// JOINでユーザー名・カテゴリー名等を取得する。
 
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
+use chrono::{NaiveDate, Utc};
 
 use crate::domain::models::ticket::{Ticket, TicketStatusHistory};
+use crate::domain::models::ticket_api::*;
 
 /// チケットフィルタ条件
 pub struct TicketFilter {
@@ -375,4 +377,1492 @@ pub async fn find_watchers(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<
     .fetch_all(pool)
     .await?;
     Ok(ids.into_iter().map(|(id,)| id).collect())
+}
+
+// =============================================================================
+// JSON API 専用関数(Phase 2, /api/v1/tickets/*)
+// API側の新規スキーマ(tickets_ticket等)を使用。既存関数とは別。
+// =============================================================================
+
+/// チケットフィルタ条件(JSON API用)
+#[derive(Debug, Default)]
+pub struct ApiTicketFilter {
+    pub status: Option<Vec<String>>,
+    pub priority: Option<Vec<String>>,
+    pub assignees: Option<i32>,
+    pub project: Option<i32>,
+    pub project_prefix: Option<String>,
+    pub milestone: Option<i32>,
+    pub category: Option<i32>,
+    pub labels: Option<i32>,
+    pub parent: Option<i32>,
+    pub parent_isnull: Option<bool>,
+    pub due_date_gte: Option<NaiveDate>,
+    pub due_date_lte: Option<NaiveDate>,
+    pub due_date_isnull: Option<bool>,
+}
+
+/// チケット一覧取得(JSON API用)
+pub async fn api_find_all(
+    pool: &PgPool,
+    filter: &ApiTicketFilter,
+    sort: &str,
+    search: Option<&str>,
+    page: i64,
+) -> anyhow::Result<Vec<TicketListOut>> {
+    // DjangoのDEFAULT_PAGINATION_CLASS(PageNumberPagination, PAGE_SIZE=50)と一致させる
+    const PAGE_SIZE: i64 = 50;
+    let page = page.max(1);
+    let offset = (page - 1) * PAGE_SIZE;
+    // 標準化されたソート値
+    let order_clause = match sort {
+        "created_at" => "t.created_at ASC",
+        "-created_at" => "t.created_at DESC",
+        "updated_at" => "t.updated_at ASC",
+        "-updated_at" => "t.updated_at DESC",
+        "due_date" => "t.due_date ASC",
+        "-due_date" => "t.due_date DESC",
+        "priority" => "t.priority ASC",
+        "-priority" => "t.priority DESC",
+        "gantt_order" => "t.gantt_order ASC",
+        "-gantt_order" => "t.gantt_order DESC",
+        _ => "t.updated_at DESC", // デフォルト
+    };
+
+    // 基本クエリ：チケット+スカラー値
+    let mut query = String::from(
+        "SELECT
+            t.id::int4, t.ticket_key, t.title, t.status, t.priority, t.ticket_type,
+            t.author_id::int4, t.category_id::int4, t.project_id::int4, t.milestone_id::int4, t.parent_id::int4,
+            t.start_date, t.due_date, t.story_points, t.cycle_id::int4, t.assigned_team_id::int4,
+            t.gantt_order, t.created_at, t.updated_at,
+            au.id::int4 as author_id_2, au.username as author_username, au.email as author_email, au.display_name as author_display_name,
+            cat.id::int4 as cat_id, cat.name as cat_name, cat.slug as cat_slug, cat.level as cat_level, cat.parent_id::int4 as cat_parent, cat.sort_order as cat_sort, cat.color as cat_color,
+            ms.id::int4 as ms_id, ms.name as ms_name, ms.due_date as ms_due_date, ms.description as ms_desc, ms.project_id::int4 as ms_project, ms.created_at as ms_created,
+            proj.id::int4 as proj_id,
+            tc.name as cycle_name,
+            tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color,
+            (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
+            (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
+            COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent
+         FROM tickets_ticket t
+         LEFT JOIN accounts_user au ON t.author_id = au.id
+         LEFT JOIN tickets_category cat ON t.category_id = cat.id
+         LEFT JOIN milestones_milestone ms ON t.milestone_id = ms.id
+         LEFT JOIN tickets_project proj ON t.project_id = proj.id
+         LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
+         LEFT JOIN m_team tm ON t.assigned_team_id = tm.id
+         WHERE 1=1"
+    );
+
+    // フィルタ条件を動的に追加
+    let mut param_count = 1;
+
+    // status フィルタ
+    if let Some(ref statuses) = filter.status {
+        if !statuses.is_empty() {
+            if statuses.len() == 1 {
+                query.push_str(&format!(" AND t.status = ${}", param_count));
+                param_count += 1;
+            } else {
+                let placeholders = (0..statuses.len())
+                    .map(|i| format!("${}", param_count + i))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                query.push_str(&format!(" AND t.status = ANY(ARRAY[{}]::text[])", placeholders));
+                param_count += statuses.len();
+            }
+        }
+    }
+
+    // priority フィルタ
+    if let Some(ref priorities) = filter.priority {
+        if !priorities.is_empty() {
+            if priorities.len() == 1 {
+                query.push_str(&format!(" AND t.priority = ${}", param_count));
+                param_count += 1;
+            } else {
+                let placeholders = (0..priorities.len())
+                    .map(|i| format!("${}", param_count + i))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                query.push_str(&format!(" AND t.priority = ANY(ARRAY[{}]::text[])", placeholders));
+                param_count += priorities.len();
+            }
+        }
+    }
+
+    // assignees フィルタ (EXISTS)
+    if let Some(assignee_id) = filter.assignees {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+
+    // project フィルタ
+    if let Some(proj_id) = filter.project {
+        query.push_str(&format!(" AND t.project_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // project__prefix フィルタ
+    if let Some(ref prefix) = filter.project_prefix {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+
+    // milestone フィルタ
+    if let Some(ms_id) = filter.milestone {
+        query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // category フィルタ
+    if let Some(cat_id) = filter.category {
+        query.push_str(&format!(" AND t.category_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // labels フィルタ (EXISTS)
+    if let Some(label_id) = filter.labels {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+
+    // parent フィルタ
+    if let Some(parent_id) = filter.parent {
+        query.push_str(&format!(" AND t.parent_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // parent_isnull フィルタ
+    if let Some(is_null) = filter.parent_isnull {
+        if is_null {
+            query.push_str(" AND t.parent_id IS NULL");
+        } else {
+            query.push_str(" AND t.parent_id IS NOT NULL");
+        }
+    }
+
+    // due_date gte
+    if let Some(due_gte) = filter.due_date_gte {
+        query.push_str(&format!(" AND t.due_date >= ${}", param_count));
+        param_count += 1;
+    }
+
+    // due_date lte
+    if let Some(due_lte) = filter.due_date_lte {
+        query.push_str(&format!(" AND t.due_date <= ${}", param_count));
+        param_count += 1;
+    }
+
+    // due_date_isnull
+    if let Some(is_null) = filter.due_date_isnull {
+        if is_null {
+            query.push_str(" AND t.due_date IS NULL");
+        } else {
+            query.push_str(" AND t.due_date IS NOT NULL");
+        }
+    }
+
+    // 全文検索
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            let search_pattern = format!("%{}%", search_term);
+            query.push_str(&format!(
+                " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
+                param_count,
+                param_count + 1,
+                param_count + 2
+            ));
+            param_count += 3;
+        }
+    }
+
+    // ソート追加 + ページネーション(Django PageNumberPagination相当)
+    query.push_str(&format!(
+        " ORDER BY {} LIMIT ${} OFFSET ${}",
+        order_clause,
+        param_count,
+        param_count + 1
+    ));
+
+    // パラメータをバインド
+    let mut sql_query = sqlx::query(&query);
+
+    if let Some(ref statuses) = filter.status {
+        for status in statuses {
+            sql_query = sql_query.bind(status.as_str());
+        }
+    }
+    if let Some(ref priorities) = filter.priority {
+        for priority in priorities {
+            sql_query = sql_query.bind(priority.as_str());
+        }
+    }
+    if let Some(assignee_id) = filter.assignees {
+        sql_query = sql_query.bind(assignee_id);
+    }
+    if let Some(proj_id) = filter.project {
+        sql_query = sql_query.bind(proj_id);
+    }
+    if let Some(ref prefix) = filter.project_prefix {
+        sql_query = sql_query.bind(prefix.as_str());
+    }
+    if let Some(ms_id) = filter.milestone {
+        sql_query = sql_query.bind(ms_id);
+    }
+    if let Some(cat_id) = filter.category {
+        sql_query = sql_query.bind(cat_id);
+    }
+    if let Some(label_id) = filter.labels {
+        sql_query = sql_query.bind(label_id);
+    }
+    if let Some(parent_id) = filter.parent {
+        sql_query = sql_query.bind(parent_id);
+    }
+    if let Some(due_gte) = filter.due_date_gte {
+        sql_query = sql_query.bind(due_gte);
+    }
+    if let Some(due_lte) = filter.due_date_lte {
+        sql_query = sql_query.bind(due_lte);
+    }
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            let pattern = format!("%{}%", search_term);
+            sql_query = sql_query.bind(pattern.clone());
+            sql_query = sql_query.bind(pattern.clone());
+            sql_query = sql_query.bind(pattern);
+        }
+    }
+    sql_query = sql_query.bind(PAGE_SIZE).bind(offset);
+
+    let rows = sql_query.fetch_all(pool).await?;
+
+    // ticket_id のリストを集める
+    let ticket_ids: Vec<i32> = rows.iter().map(|row| row.get::<i32, _>(0)).collect();
+
+    // assignees をまとめて取得
+    let assignees_map: std::collections::HashMap<i32, Vec<UserSummaryOut>> =
+        if !ticket_ids.is_empty() {
+            let assignees_rows = sqlx::query(
+                "SELECT ta.ticketmodel_id::int4, u.id::int4, u.username, u.email, u.display_name
+                 FROM tickets_ticket_assignees ta
+                 JOIN accounts_user u ON ta.user_id = u.id
+                 WHERE ta.ticketmodel_id = ANY($1)
+                 ORDER BY u.id"
+            )
+            .bind(&ticket_ids)
+            .fetch_all(pool)
+            .await?;
+
+            let mut map: std::collections::HashMap<i32, Vec<UserSummaryOut>> =
+                std::collections::HashMap::new();
+            for row in assignees_rows {
+                let ticket_id: i32 = row.get(0);
+                let user = UserSummaryOut {
+                    id: row.get(1),
+                    username: row.get(2),
+                    email: row.get(3),
+                    display_name: row.get(4),
+                };
+                map.entry(ticket_id).or_insert_with(Vec::new).push(user);
+            }
+            map
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    // labels をまとめて取得
+    let labels_map: std::collections::HashMap<i32, Vec<LabelOut>> =
+        if !ticket_ids.is_empty() {
+            let labels_rows = sqlx::query(
+                "SELECT tl.ticketmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at
+                 FROM tickets_ticket_labels tl
+                 JOIN m_label l ON tl.labelmodel_id = l.id
+                 WHERE tl.ticketmodel_id = ANY($1)
+                 ORDER BY l.id"
+            )
+            .bind(&ticket_ids)
+            .fetch_all(pool)
+            .await?;
+
+            let mut map: std::collections::HashMap<i32, Vec<LabelOut>> =
+                std::collections::HashMap::new();
+            for row in labels_rows {
+                let ticket_id: i32 = row.get(0);
+                let label = LabelOut {
+                    id: row.get(1),
+                    name: row.get(2),
+                    color: row.get(3),
+                    project: row.get(4),
+                    created_at: row.get(5),
+                };
+                map.entry(ticket_id).or_insert_with(Vec::new).push(label);
+            }
+            map
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    // milestones のカウント取得
+    let milestone_counts_map: std::collections::HashMap<
+        i32,
+        (i64, i64),
+    > = if !ticket_ids.is_empty() {
+        let milestone_ids: Vec<i32> = rows
+            .iter()
+            .filter_map(|row| row.get::<Option<i32>, _>(14))
+            .collect();
+
+        if !milestone_ids.is_empty() {
+            let counts_rows = sqlx::query(
+                "SELECT milestone_id::int4,
+                        COUNT(CASE WHEN status != 'closed' THEN 1 END) as open_count,
+                        COUNT(CASE WHEN status = 'closed' THEN 1 END) as closed_count
+                 FROM tickets_ticket
+                 WHERE milestone_id = ANY($1)
+                 GROUP BY milestone_id"
+            )
+            .bind(&milestone_ids)
+            .fetch_all(pool)
+            .await?;
+
+            let mut map: std::collections::HashMap<i32, (i64, i64)> =
+                std::collections::HashMap::new();
+            for row in counts_rows {
+                let ms_id: i32 = row.get(0);
+                let open: i64 = row.get(1);
+                let closed: i64 = row.get(2);
+                map.insert(ms_id, (open, closed));
+            }
+            map
+        } else {
+            std::collections::HashMap::new()
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    // レスポンス構築
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let ticket_id: i32 = row.get(0);
+            let ticket_key: String = row.get(1);
+            let title: String = row.get(2);
+            let status: String = row.get(3);
+            let priority: String = row.get(4);
+            let ticket_type: String = row.get(5);
+
+            let author_id: i32 = row.get(6);
+            let author_username: String = row.get(20);
+            let author_email: String = row.get(21);
+            let author_display_name: String = row.get(22);
+
+            let category_id_opt: Option<i32> = row.get(7);
+            let milestone_id_opt: Option<i32> = row.get(9);
+            let project_id: i32 = row.get(8);
+            let parent_id: Option<i32> = row.get(10);
+
+            let start_date: Option<NaiveDate> = row.get(11);
+            let due_date: Option<NaiveDate> = row.get(12);
+            let story_points: Option<i16> = row.get(13);
+            let cycle_id: Option<i32> = row.get(14);
+            let assigned_team_id_opt: Option<i32> = row.get(15);
+
+            let gantt_order: i32 = row.get(16);
+            let created_at: chrono::DateTime<chrono::Utc> = row.get(17);
+            let updated_at: chrono::DateTime<chrono::Utc> = row.get(18);
+
+            let comment_count: i64 = row.get(43);
+            let child_count: i64 = row.get(44);
+            let total_time_spent: i64 = row.get(45);
+
+            // Author
+            let author = UserSummaryOut {
+                id: author_id,
+                username: author_username,
+                email: author_email,
+                display_name: author_display_name,
+            };
+
+            // Category
+            let category = if let Some(cat_id) = category_id_opt {
+                row.get::<Option<i32>, _>(23).and_then(|_| {
+                    Some(CategoryOut {
+                        id: cat_id,
+                        name: row.get(24),
+                        slug: row.get(25),
+                        level: row.get(26),
+                        parent: row.get(27),
+                        sort_order: row.get(28),
+                        color: row.get(29),
+                    })
+                })
+            } else {
+                None
+            };
+
+            // Milestone
+            let milestone = if let Some(ms_id) = milestone_id_opt {
+                row.get::<Option<i32>, _>(30).and_then(|_| {
+                    let (open_count, closed_count) = milestone_counts_map
+                        .get(&ms_id)
+                        .copied()
+                        .unwrap_or((0, 0));
+
+                    Some(MilestoneOut {
+                        id: ms_id,
+                        name: row.get(31),
+                        due_date: row.get(32),
+                        description: row.get(33),
+                        project: row.get(34),
+                        open_ticket_count: open_count,
+                        closed_ticket_count: closed_count,
+                        created_at: row.get(35),
+                    })
+                })
+            } else {
+                None
+            };
+
+            // Cycle name
+            let cycle_name: Option<String> = row.get(37);
+
+            // Assigned Team
+            let assigned_team = if let Some(team_id) = assigned_team_id_opt {
+                row.get::<Option<i32>, _>(38).and_then(|_| {
+                    Some(TeamSummaryOut {
+                        id: team_id,
+                        name: row.get(39),
+                        slug: row.get(40),
+                        icon: row.get(41),
+                        color: row.get(42),
+                    })
+                })
+            } else {
+                None
+            };
+
+            // Assignees
+            let assignees = assignees_map
+                .get(&ticket_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Labels
+            let labels = labels_map.get(&ticket_id).cloned().unwrap_or_default();
+
+            TicketListOut {
+                id: ticket_id,
+                ticket_key,
+                title,
+                status,
+                priority,
+                ticket_type,
+                assignees,
+                author,
+                category,
+                milestone,
+                project: project_id,
+                parent: parent_id,
+                labels,
+                start_date,
+                due_date,
+                story_points,
+                cycle: cycle_id,
+                cycle_name,
+                assigned_team,
+                comment_count,
+                child_count,
+                total_time_spent,
+                gantt_order,
+                created_at,
+                updated_at,
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+/// チケット件数取得(JSON API一覧用。api_find_allと同じフィルタ条件をLIMIT/OFFSET無しで
+/// 数えるだけ。DjangoのPageNumberPaginationのcountフィールドと一致させるために必要)
+pub async fn api_count_all(
+    pool: &PgPool,
+    filter: &ApiTicketFilter,
+    search: Option<&str>,
+) -> anyhow::Result<i64> {
+    let mut query = String::from("SELECT COUNT(*) FROM tickets_ticket t WHERE 1=1");
+    let mut param_count = 1;
+
+    if let Some(ref statuses) = filter.status {
+        if !statuses.is_empty() {
+            if statuses.len() == 1 {
+                query.push_str(&format!(" AND t.status = ${}", param_count));
+                param_count += 1;
+            } else {
+                let placeholders = (0..statuses.len())
+                    .map(|i| format!("${}", param_count + i))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                query.push_str(&format!(" AND t.status = ANY(ARRAY[{}]::text[])", placeholders));
+                param_count += statuses.len();
+            }
+        }
+    }
+    if let Some(ref priorities) = filter.priority {
+        if !priorities.is_empty() {
+            if priorities.len() == 1 {
+                query.push_str(&format!(" AND t.priority = ${}", param_count));
+                param_count += 1;
+            } else {
+                let placeholders = (0..priorities.len())
+                    .map(|i| format!("${}", param_count + i))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                query.push_str(&format!(" AND t.priority = ANY(ARRAY[{}]::text[])", placeholders));
+                param_count += priorities.len();
+            }
+        }
+    }
+    if filter.assignees.is_some() {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+    if filter.project.is_some() {
+        query.push_str(&format!(" AND t.project_id = ${}", param_count));
+        param_count += 1;
+    }
+    if filter.project_prefix.is_some() {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+    if filter.milestone.is_some() {
+        query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
+        param_count += 1;
+    }
+    if filter.category.is_some() {
+        query.push_str(&format!(" AND t.category_id = ${}", param_count));
+        param_count += 1;
+    }
+    if filter.labels.is_some() {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+    if filter.parent.is_some() {
+        query.push_str(&format!(" AND t.parent_id = ${}", param_count));
+        param_count += 1;
+    }
+    if let Some(is_null) = filter.parent_isnull {
+        query.push_str(if is_null { " AND t.parent_id IS NULL" } else { " AND t.parent_id IS NOT NULL" });
+    }
+    if filter.due_date_gte.is_some() {
+        query.push_str(&format!(" AND t.due_date >= ${}", param_count));
+        param_count += 1;
+    }
+    if filter.due_date_lte.is_some() {
+        query.push_str(&format!(" AND t.due_date <= ${}", param_count));
+        param_count += 1;
+    }
+    if let Some(is_null) = filter.due_date_isnull {
+        query.push_str(if is_null { " AND t.due_date IS NULL" } else { " AND t.due_date IS NOT NULL" });
+    }
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            query.push_str(&format!(
+                " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
+                param_count, param_count + 1, param_count + 2
+            ));
+        }
+    }
+
+    let mut sql_query = sqlx::query_scalar::<_, i64>(&query);
+    if let Some(ref statuses) = filter.status {
+        for status in statuses {
+            sql_query = sql_query.bind(status.as_str());
+        }
+    }
+    if let Some(ref priorities) = filter.priority {
+        for priority in priorities {
+            sql_query = sql_query.bind(priority.as_str());
+        }
+    }
+    if let Some(assignee_id) = filter.assignees {
+        sql_query = sql_query.bind(assignee_id);
+    }
+    if let Some(proj_id) = filter.project {
+        sql_query = sql_query.bind(proj_id);
+    }
+    if let Some(ref prefix) = filter.project_prefix {
+        sql_query = sql_query.bind(prefix.as_str());
+    }
+    if let Some(ms_id) = filter.milestone {
+        sql_query = sql_query.bind(ms_id);
+    }
+    if let Some(cat_id) = filter.category {
+        sql_query = sql_query.bind(cat_id);
+    }
+    if let Some(label_id) = filter.labels {
+        sql_query = sql_query.bind(label_id);
+    }
+    if let Some(parent_id) = filter.parent {
+        sql_query = sql_query.bind(parent_id);
+    }
+    if let Some(due_gte) = filter.due_date_gte {
+        sql_query = sql_query.bind(due_gte);
+    }
+    if let Some(due_lte) = filter.due_date_lte {
+        sql_query = sql_query.bind(due_lte);
+    }
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            let pattern = format!("%{}%", search_term);
+            sql_query = sql_query.bind(pattern.clone());
+            sql_query = sql_query.bind(pattern.clone());
+            sql_query = sql_query.bind(pattern);
+        }
+    }
+
+    let count = sql_query.fetch_one(pool).await?;
+    Ok(count)
+}
+
+/// チケット詳細取得(JSON API用)
+pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<TicketDetailOut>> {
+    // 基本的なチケット情報を取得
+    let base_query_result = sqlx::query(
+        "SELECT
+            t.id::int4, t.ticket_key, t.title, t.description, t.status, t.priority, t.ticket_type,
+            t.author_id::int4, t.category_id::int4, t.project_id::int4, t.milestone_id::int4, t.parent_id::int4,
+            t.start_date, t.due_date, t.story_points, t.cycle_id::int4, t.assigned_team_id::int4,
+            t.gantt_order, t.created_at, t.updated_at, t.closed_at,
+            au.id::int4 as author_id_2, au.username as author_username, au.email as author_email, au.display_name as author_display_name,
+            cat.id::int4 as cat_id, cat.name as cat_name, cat.slug as cat_slug, cat.level as cat_level, cat.parent_id::int4 as cat_parent, cat.sort_order as cat_sort, cat.color as cat_color,
+            ms.id::int4 as ms_id, ms.name as ms_name, ms.due_date as ms_due_date, ms.description as ms_desc, ms.project_id::int4 as ms_project, ms.created_at as ms_created,
+            proj.id::int4 as proj_id,
+            tc.name as cycle_name,
+            tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color,
+            (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
+            (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
+            COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent
+         FROM tickets_ticket t
+         LEFT JOIN accounts_user au ON t.author_id = au.id
+         LEFT JOIN tickets_category cat ON t.category_id = cat.id
+         LEFT JOIN milestones_milestone ms ON t.milestone_id = ms.id
+         LEFT JOIN tickets_project proj ON t.project_id = proj.id
+         LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
+         LEFT JOIN m_team tm ON t.assigned_team_id = tm.id
+         WHERE t.ticket_key = $1"
+    )
+    .bind(ticket_key)
+    .fetch_optional(pool)
+    .await?;
+
+    let row = match base_query_result {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+
+    let ticket_id: i32 = row.get(0);
+
+    // Assignees
+    let assignees_rows = sqlx::query(
+        "SELECT ta.user_id::int4, u.id::int4, u.username, u.email, u.display_name
+         FROM tickets_ticket_assignees ta
+         JOIN accounts_user u ON ta.user_id = u.id
+         WHERE ta.ticketmodel_id = $1
+         ORDER BY u.id"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let assignees: Vec<UserSummaryOut> = assignees_rows
+        .into_iter()
+        .map(|r| UserSummaryOut {
+            id: r.get(1),
+            username: r.get(2),
+            email: r.get(3),
+            display_name: r.get(4),
+        })
+        .collect();
+
+    // Labels
+    let labels_rows = sqlx::query(
+        "SELECT tl.labelmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at
+         FROM tickets_ticket_labels tl
+         JOIN m_label l ON tl.labelmodel_id = l.id
+         WHERE tl.ticketmodel_id = $1
+         ORDER BY l.id"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let labels: Vec<LabelOut> = labels_rows
+        .into_iter()
+        .map(|r| LabelOut {
+            id: r.get(1),
+            name: r.get(2),
+            color: r.get(3),
+            project: r.get(4),
+            created_at: r.get(5),
+        })
+        .collect();
+
+    // Comments
+    let comments_rows = sqlx::query(
+        "SELECT c.id::int4, c.body, c.created_at, c.author_id::int4, u.id::int4, u.username, u.email, u.display_name
+         FROM tickets_comment c
+         LEFT JOIN accounts_user u ON c.author_id = u.id
+         WHERE c.ticket_id = $1
+         ORDER BY c.created_at ASC"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let comments: Vec<CommentOut> = comments_rows
+        .into_iter()
+        .map(|r| {
+            let author_id: i32 = r.get(4);
+            let author = UserSummaryOut {
+                id: author_id,
+                username: r.get(5),
+                email: r.get(6),
+                display_name: r.get(7),
+            };
+            CommentOut {
+                id: r.get(0),
+                body: r.get(1),
+                author,
+                created_at: r.get(2),
+            }
+        })
+        .collect();
+
+    // Linked Rules
+    let linked_rules_rows = sqlx::query(
+        "SELECT tr.id::int4, tr.title, tr.category, tm.name
+         FROM tickets_ticket_linked_rules ttlr
+         LEFT JOIN m_team_rule tr ON ttlr.teamrulemodel_id = tr.id
+         LEFT JOIN m_team tm ON tr.team_id = tm.id
+         WHERE ttlr.ticketmodel_id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let linked_rules: Vec<TeamRuleSummaryOut> = linked_rules_rows
+        .into_iter()
+        .map(|r| TeamRuleSummaryOut {
+            id: r.get(0),
+            title: r.get(1),
+            category: r.get(2),
+            team_name: r.get(3),
+        })
+        .collect();
+
+    // Linked Wiki Pages
+    let linked_wiki_rows = sqlx::query(
+        "SELECT w.id::int4, w.title, w.slug, w.category
+         FROM wiki_page_linked_tickets wplt
+         LEFT JOIN wiki_page w ON wplt.wikipage_id = w.id
+         WHERE wplt.ticketmodel_id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let linked_wiki_pages: Vec<LinkedWikiPageOut> = linked_wiki_rows
+        .into_iter()
+        .map(|r| LinkedWikiPageOut {
+            id: r.get(0),
+            title: r.get(1),
+            slug: r.get(2),
+            category: r.get(3),
+        })
+        .collect();
+
+    // Milestone counts
+    let milestone_id_opt: Option<i32> = row.get(10);
+    let (open_count, closed_count) = if let Some(ms_id) = milestone_id_opt {
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT
+                COUNT(CASE WHEN status != 'closed' THEN 1 END),
+                COUNT(CASE WHEN status = 'closed' THEN 1 END)
+             FROM tickets_ticket
+             WHERE milestone_id = $1"
+        )
+        .bind(ms_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or((0, 0));
+        counts
+    } else {
+        (0, 0)
+    };
+
+    // Build base TicketListOut
+    let author_id: i32 = row.get(7);
+    let author_username: String = row.get(22);
+    let author_email: String = row.get(23);
+    let author_display_name: String = row.get(24);
+
+    let category_id_opt: Option<i32> = row.get(8);
+    let category = if let Some(cat_id) = category_id_opt {
+        row.get::<Option<i32>, _>(25).and_then(|_| {
+            Some(CategoryOut {
+                id: cat_id,
+                name: row.get(26),
+                slug: row.get(27),
+                level: row.get(28),
+                parent: row.get(29),
+                sort_order: row.get(30),
+                color: row.get(31),
+            })
+        })
+    } else {
+        None
+    };
+
+    let milestone = if let Some(ms_id) = milestone_id_opt {
+        row.get::<Option<i32>, _>(32).and_then(|_| {
+            Some(MilestoneOut {
+                id: ms_id,
+                name: row.get(33),
+                due_date: row.get(34),
+                description: row.get(35),
+                project: row.get(36),
+                open_ticket_count: open_count,
+                closed_ticket_count: closed_count,
+                created_at: row.get(37),
+            })
+        })
+    } else {
+        None
+    };
+
+    let project_id: i32 = row.get(9);
+    let parent_id: Option<i32> = row.get(11);
+    let assigned_team_id_opt: Option<i32> = row.get(16);
+    let assigned_team = if let Some(team_id) = assigned_team_id_opt {
+        row.get::<Option<i32>, _>(40).and_then(|_| {
+            Some(TeamSummaryOut {
+                id: team_id,
+                name: row.get(41),
+                slug: row.get(42),
+                icon: row.get(43),
+                color: row.get(44),
+            })
+        })
+    } else {
+        None
+    };
+
+    let base = TicketListOut {
+        id: ticket_id,
+        ticket_key: row.get(1),
+        title: row.get(2),
+        status: row.get(4),
+        priority: row.get(5),
+        ticket_type: row.get(6),
+        assignees,
+        author: UserSummaryOut {
+            id: author_id,
+            username: author_username,
+            email: author_email,
+            display_name: author_display_name,
+        },
+        category,
+        milestone,
+        project: project_id,
+        parent: parent_id,
+        labels,
+        start_date: row.get(12),
+        due_date: row.get(13),
+        story_points: row.get(14),
+        cycle: row.get(15),
+        cycle_name: row.get(39),
+        assigned_team,
+        comment_count: row.get(45),
+        child_count: row.get(46),
+        total_time_spent: row.get(47),
+        gantt_order: row.get(17),
+        created_at: row.get(18),
+        updated_at: row.get(19),
+    };
+
+    Ok(Some(TicketDetailOut {
+        base,
+        description: row.get(3),
+        comments,
+        closed_at: row.get(20),
+        linked_rules,
+        linked_wiki_pages,
+    }))
+}
+
+/// チケットキー採番(JSON API用、トランザクション必須)
+pub async fn api_generate_ticket_key(
+    conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    project_id: i32,
+) -> anyhow::Result<String> {
+    // プロジェクトから prefix を取得
+    let prefix: String = sqlx::query_scalar(
+        "SELECT COALESCE(prefix, 'TICKET') FROM tickets_project WHERE id = $1"
+    )
+    .bind(project_id)
+    .fetch_optional(conn.as_mut())
+    .await?
+    .unwrap_or_else(|| "TICKET".to_string());
+
+    // アドバイザリロック (hashtext は PostgreSQL 内置関数)
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(&prefix)
+        .execute(conn.as_mut())
+        .await?;
+
+    // 既存の最大キーを取得
+    let pattern = format!("{}-%", prefix);
+    let max_key: Option<String> = sqlx::query_scalar(
+        "SELECT ticket_key FROM tickets_ticket WHERE ticket_key LIKE $1 ORDER BY id DESC LIMIT 1"
+    )
+    .bind(&pattern)
+    .fetch_optional(conn.as_mut())
+    .await?;
+
+    let num = if let Some(key) = max_key {
+        // ticket_key の最後の `-` 以降をパース
+        if let Some(last_dash_idx) = key.rfind('-') {
+            let num_part = &key[last_dash_idx + 1..];
+            num_part.parse::<i32>().unwrap_or(0) + 1
+        } else {
+            1
+        }
+    } else {
+        1
+    };
+
+    Ok(format!("{}-{:06}", prefix, num))
+}
+
+/// コメント追加(JSON API用)
+pub async fn api_add_comment(
+    pool: &PgPool,
+    ticket_id: i32,
+    author_id: i32,
+    body: &str,
+) -> anyhow::Result<CommentOut> {
+    let comment_row = sqlx::query(
+        "INSERT INTO tickets_comment (body, author_id, ticket_id, created_at)
+         VALUES ($1, $2, $3, NOW())
+         RETURNING id::int4, body, created_at, author_id::int4"
+    )
+    .bind(body)
+    .bind(author_id)
+    .bind(ticket_id)
+    .fetch_one(pool)
+    .await?;
+
+    let comment_id: i32 = comment_row.get(0);
+    let comment_body: String = comment_row.get(1);
+    let created_at: chrono::DateTime<Utc> = comment_row.get(2);
+
+    // 作成者情報を取得
+    let author = sqlx::query_as::<_, UserSummaryOut>(
+        "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1"
+    )
+    .bind(author_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CommentOut {
+        id: comment_id,
+        body: comment_body,
+        author,
+        created_at,
+    })
+}
+
+/// 変更ログ取得(JSON API用)
+pub async fn api_find_change_logs(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<Vec<ChangeLogOut>> {
+    let rows = sqlx::query(
+        "SELECT cl.id::int4, cl.field_name, cl.old_value, cl.new_value, cl.changed_at,
+                cl.changed_by_id::int4, u.id::int4, u.username, u.email, u.display_name
+         FROM tickets_change_log cl
+         LEFT JOIN accounts_user u ON cl.changed_by_id = u.id
+         WHERE cl.ticket_id = $1
+         ORDER BY cl.changed_at DESC
+         LIMIT 50"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let changed_by = row
+                .get::<Option<i32>, _>(6)
+                .and_then(|_| {
+                    Some(UserSummaryOut {
+                        id: row.get(6),
+                        username: row.get(7),
+                        email: row.get(8),
+                        display_name: row.get(9),
+                    })
+                });
+
+            ChangeLogOut {
+                id: row.get(0),
+                field_name: row.get(1),
+                old_value: row.get(2),
+                new_value: row.get(3),
+                changed_by,
+                changed_at: row.get(4),
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+/// ポイント履歴取得(JSON API用)
+pub async fn api_find_point_history(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<Vec<PointHistoryOut>> {
+    let rows = sqlx::query(
+        "SELECT ph.id::int4, ph.old_points, ph.new_points, ph.reason, ph.changed_at,
+                ph.changed_by_id::int4, u.id::int4, u.username, u.email, u.display_name
+         FROM h_task_point_history ph
+         LEFT JOIN accounts_user u ON ph.changed_by_id = u.id
+         WHERE ph.ticket_id = $1
+         ORDER BY ph.changed_at DESC
+         LIMIT 50"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let result = rows
+        .into_iter()
+        .map(|row| {
+            let changed_by = row
+                .get::<Option<i32>, _>(6)
+                .and_then(|_| {
+                    Some(UserSummaryOut {
+                        id: row.get(6),
+                        username: row.get(7),
+                        email: row.get(8),
+                        display_name: row.get(9),
+                    })
+                });
+
+            PointHistoryOut {
+                id: row.get(0),
+                old_points: row.get(1),
+                new_points: row.get(2),
+                reason: row.get(3),
+                changed_by,
+                changed_at: row.get(4),
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+/// チケット削除(JSON API用)
+pub async fn api_delete(pool: &PgPool, ticket_key: &str) -> anyhow::Result<bool> {
+    let result = sqlx::query("DELETE FROM tickets_ticket WHERE ticket_key = $1")
+        .bind(ticket_key)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// チケット作成(JSON API用、トランザクション必須)
+pub async fn api_create(
+    conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    input: &TicketWriteIn,
+    author_id: i32,
+) -> anyhow::Result<i32> {
+    // ticket_key を生成
+    let ticket_key = api_generate_ticket_key(conn, input.project).await?;
+
+    // gantt_order を決定
+    let gantt_order: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1"
+    )
+    .bind(input.project)
+    .fetch_one(conn.as_mut())
+    .await?;
+
+    // チケットをINSERT
+    let ticket_id: i32 = sqlx::query_scalar(
+        "INSERT INTO tickets_ticket (
+            ticket_key, title, description, status, priority, ticket_type,
+            author_id, category_id, project_id, milestone_id, parent_id,
+            start_date, due_date, story_points, cycle_id, assigned_team_id,
+            gantt_order, created_at, updated_at
+         ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, $10, $11,
+            $12, $13, $14, $15, $16,
+            $17, NOW(), NOW()
+         )
+         RETURNING id::int4"
+    )
+    .bind(&ticket_key)
+    .bind(&input.title)
+    .bind(&input.description)
+    .bind(&input.status)
+    .bind(&input.priority)
+    .bind(&input.ticket_type)
+    .bind(author_id)
+    .bind(input.category)
+    .bind(input.project)
+    .bind(input.milestone)
+    .bind(input.parent)
+    .bind(input.start_date)
+    .bind(input.due_date)
+    .bind(input.story_points)
+    .bind(input.cycle)
+    .bind(input.assigned_team)
+    .bind(gantt_order)
+    .fetch_one(conn.as_mut())
+    .await?;
+
+    // Assignees を追加
+    for &assignee_id in &input.assignees {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING"
+        )
+        .bind(ticket_id)
+        .bind(assignee_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // Labels を追加
+    for &label_id in &input.labels {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING"
+        )
+        .bind(ticket_id)
+        .bind(label_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // Linked Rules を追加
+    for &rule_id in &input.linked_rules {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_linked_rules (ticketmodel_id, teamrulemodel_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING"
+        )
+        .bind(ticket_id)
+        .bind(rule_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    Ok(ticket_id)
+}
+
+/// チケット更新(JSON API用、トランザクション必須)
+pub async fn api_update(
+    conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ticket_key: &str,
+    input: &TicketWriteIn,
+    user_id: i32,
+) -> anyhow::Result<Option<()>> {
+    // チケットID取得
+    let ticket_id_opt: Option<i32> = sqlx::query_scalar(
+        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+    )
+    .bind(ticket_key)
+    .fetch_optional(conn.as_mut())
+    .await?;
+
+    let ticket_id = match ticket_id_opt {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    // 更新前のスナップショット(9項目)
+    let old_row = sqlx::query(
+        "SELECT title, status, priority, ticket_type, category_id::int4, milestone_id::int4,
+                description, start_date, due_date, story_points
+         FROM tickets_ticket WHERE id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_one(conn.as_mut())
+    .await?;
+
+    let old_title: String = old_row.get(0);
+    let old_status: String = old_row.get(1);
+    let old_priority: String = old_row.get(2);
+    let old_ticket_type: String = old_row.get(3);
+    let old_category_id: Option<i32> = old_row.get(4);
+    let old_milestone_id: Option<i32> = old_row.get(5);
+    let old_description: String = old_row.get(6);
+    let old_start_date: Option<NaiveDate> = old_row.get(7);
+    let old_due_date: Option<NaiveDate> = old_row.get(8);
+    let old_story_points: Option<i16> = old_row.get(9);
+
+    // 更新前の assignees
+    let old_assignees: Vec<i32> = sqlx::query_scalar(
+        "SELECT user_id::int4 FROM tickets_ticket_assignees WHERE ticketmodel_id = $1 ORDER BY user_id"
+    )
+    .bind(ticket_id)
+    .fetch_all(conn.as_mut())
+    .await?;
+
+    // UPDATE チケット本体
+    sqlx::query(
+        "UPDATE tickets_ticket SET
+            title = $1, status = $2, priority = $3, ticket_type = $4,
+            category_id = $5, milestone_id = $6,
+            description = $7, start_date = $8, due_date = $9,
+            story_points = $10, updated_at = NOW()
+         WHERE id = $11"
+    )
+    .bind(&input.title)
+    .bind(&input.status)
+    .bind(&input.priority)
+    .bind(&input.ticket_type)
+    .bind(input.category)
+    .bind(input.milestone)
+    .bind(&input.description)
+    .bind(input.start_date)
+    .bind(input.due_date)
+    .bind(input.story_points)
+    .bind(ticket_id)
+    .execute(conn.as_mut())
+    .await?;
+
+    // 中間テーブル全削除→再INSERT
+    sqlx::query("DELETE FROM tickets_ticket_assignees WHERE ticketmodel_id = $1")
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    for &assignee_id in &input.assignees {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)"
+        )
+        .bind(ticket_id)
+        .bind(assignee_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    sqlx::query("DELETE FROM tickets_ticket_labels WHERE ticketmodel_id = $1")
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    for &label_id in &input.labels {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)"
+        )
+        .bind(ticket_id)
+        .bind(label_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE ticketmodel_id = $1")
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    for &rule_id in &input.linked_rules {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_linked_rules (ticketmodel_id, teamrulemodel_id) VALUES ($1, $2)"
+        )
+        .bind(ticket_id)
+        .bind(rule_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // ステータス変更ログ
+    if old_status != input.status {
+        sqlx::query(
+            "INSERT INTO tickets_status_history (old_status, new_status, changed_by_id, changed_at, ticket_id)
+             VALUES ($1, $2, $3, NOW(), $4)"
+        )
+        .bind(&old_status)
+        .bind(&input.status)
+        .bind(user_id)
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // 変更ログ(9項目)
+    let changes = [
+        ("title", old_title.clone(), input.title.clone()),
+        ("status", old_status.clone(), input.status.clone()),
+        ("priority", old_priority.clone(), input.priority.clone()),
+        ("ticket_type", old_ticket_type.clone(), input.ticket_type.clone()),
+        (
+            "category_id",
+            old_category_id.map_or(String::new(), |id| id.to_string()),
+            input.category.map_or(String::new(), |id| id.to_string()),
+        ),
+        (
+            "milestone_id",
+            old_milestone_id.map_or(String::new(), |id| id.to_string()),
+            input.milestone.map_or(String::new(), |id| id.to_string()),
+        ),
+        ("description", old_description.clone(), input.description.clone()),
+        (
+            "start_date",
+            old_start_date.map_or(String::new(), |d| d.to_string()),
+            input.start_date.map_or(String::new(), |d| d.to_string()),
+        ),
+        (
+            "due_date",
+            old_due_date.map_or(String::new(), |d| d.to_string()),
+            input.due_date.map_or(String::new(), |d| d.to_string()),
+        ),
+    ];
+
+    for (field, old_val, new_val) in &changes {
+        if old_val != new_val {
+            // field_name をタイトルケースに変換
+            let field_name = format_field_name(field);
+
+            sqlx::query(
+                "INSERT INTO tickets_change_log (field_name, old_value, new_value, changed_by_id, changed_at, ticket_id)
+                 VALUES ($1, $2, $3, $4, NOW(), $5)"
+            )
+            .bind(&field_name)
+            .bind(old_val.as_str())
+            .bind(new_val.as_str())
+            .bind(user_id)
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    // Assignees変更ログ
+    // Django側は集合(set)として比較しているため、順序の違いだけでは変更とみなさない。
+    // old_assigneesはORDER BY user_idで取得済みなのでinput側もソートして比較する。
+    let mut sorted_new_assignees = input.assignees.clone();
+    sorted_new_assignees.sort_unstable();
+    sorted_new_assignees.dedup();
+    if old_assignees != sorted_new_assignees {
+        let old_usernames = if !old_assignees.is_empty() {
+            let usernames: Vec<String> = sqlx::query_scalar(
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+            )
+            .bind(&old_assignees)
+            .fetch_all(conn.as_mut())
+            .await?;
+            if usernames.is_empty() {
+                "(なし)".to_string()
+            } else {
+                usernames.join(", ")
+            }
+        } else {
+            "(なし)".to_string()
+        };
+
+        let new_usernames = if !input.assignees.is_empty() {
+            let usernames: Vec<String> = sqlx::query_scalar(
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+            )
+            .bind(&input.assignees)
+            .fetch_all(conn.as_mut())
+            .await?;
+            if usernames.is_empty() {
+                "(なし)".to_string()
+            } else {
+                usernames.join(", ")
+            }
+        } else {
+            "(なし)".to_string()
+        };
+
+        sqlx::query(
+            "INSERT INTO tickets_change_log (field_name, old_value, new_value, changed_by_id, changed_at, ticket_id)
+             VALUES ($1, $2, $3, $4, NOW(), $5)"
+        )
+        .bind("Assignees")
+        .bind(&old_usernames)
+        .bind(&new_usernames)
+        .bind(user_id)
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // story_points変更ログ
+    if old_story_points != input.story_points {
+        let old_points_str = old_story_points.map_or(String::new(), |p| p.to_string());
+        let new_points_str = input.story_points.map_or(String::new(), |p| p.to_string());
+
+        sqlx::query(
+            "INSERT INTO h_task_point_history (old_points, new_points, reason, changed_by_id, changed_at, ticket_id)
+             VALUES ($1, $2, $3, $4, NOW(), $5)"
+        )
+        .bind(old_story_points)
+        .bind(input.story_points)
+        .bind("")
+        .bind(user_id)
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    Ok(Some(()))
+}
+
+/// field_name をタイトルケースに変換(Pythonの.title()相当)
+fn format_field_name(field: &str) -> String {
+    field
+        .replace("_id", "")
+        .replace("_", " ")
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => {
+                    let rest: String = chars.collect();
+                    first.to_uppercase().collect::<String>() + &rest
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

@@ -1,4 +1,5 @@
 pub mod ticket;
+pub mod ticket_api;
 pub mod category;
 pub mod project;
 pub mod milestone;

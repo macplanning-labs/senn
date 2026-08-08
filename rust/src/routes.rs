@@ -13,7 +13,7 @@ use crate::presentation::{
     state::AppState,
     middleware::{auth::require_auth, jwt_auth},
     handlers::{
-        auth, auth_api, dashboard, tickets, gantt, burndown, export,
+        auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
         milestones, projects, notifications, wiki, categories,
         holidays, api, health,
     },
@@ -107,6 +107,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/me/", get(auth_api::me))
         .route("/api/v1/auth/logout/", post(auth_api::logout))
         .route("/api/v1/users/", get(auth_api::list_users))
+        // JSON チケット API
+        .route("/api/v1/tickets/", get(tickets_api::list).post(tickets_api::create))
+        .route("/api/v1/tickets/{ticket_key}/", get(tickets_api::detail).put(tickets_api::update).delete(tickets_api::delete))
+        .route("/api/v1/tickets/{ticket_key}/comments/", get(tickets_api::list_comments).post(tickets_api::add_comment))
+        .route("/api/v1/tickets/{ticket_key}/change-logs/", get(tickets_api::change_logs))
+        .route("/api/v1/tickets/{ticket_key}/point-history/", get(tickets_api::point_history))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
