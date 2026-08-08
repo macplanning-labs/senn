@@ -1513,12 +1513,68 @@ pub async fn api_find_point_history(
 }
 
 /// チケット削除(JSON API用)
+/// チケット削除(JSON API用)。
+///
+/// DjangoのFK制約はDB上NO ACTIONで、on_delete=CASCADE/SET_NULLはDjango ORMの
+/// アプリケーション層collectorが担っている(DB自体には自動cascadeが無い)。
+/// tickets_ticket.parent は自己参照CASCADEのため、子孫チケットも再帰的に
+/// 収集してまとめて削除する(Djangoの削除挙動と一致させる)。
 pub async fn api_delete(pool: &PgPool, ticket_key: &str) -> anyhow::Result<bool> {
-    let result = sqlx::query("DELETE FROM tickets_ticket WHERE ticket_key = $1")
-        .bind(ticket_key)
-        .execute(pool)
+    let mut tx = pool.begin().await?;
+
+    let root_id: Option<i32> = sqlx::query_scalar(
+        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+    )
+    .bind(ticket_key)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let root_id = match root_id {
+        Some(id) => id,
+        None => return Ok(false),
+    };
+
+    // 自身+子孫チケット(再帰、parent_idはon_delete=CASCADE)のIDを収集
+    let ids: Vec<i32> = sqlx::query_scalar(
+        "WITH RECURSIVE descendants AS (
+            SELECT id FROM tickets_ticket WHERE id = $1::int4
+            UNION ALL
+            SELECT t.id FROM tickets_ticket t
+            JOIN descendants d ON t.parent_id = d.id
+         )
+         SELECT id::int4 FROM descendants"
+    )
+    .bind(root_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // 直接の子(on_delete=CASCADE、M2M中間テーブルはDjangoが自動除去)
+    sqlx::query("DELETE FROM tickets_comment WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_attachment WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_status_history WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_ticket_watchers WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_ticket_labels WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_change_log WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_ticket_assignees WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_task_dependency WHERE from_task_id = ANY($1) OR to_task_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_time_entry WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_git_event WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM notifications_log WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM notifications_notification WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM notifications_user_read_state WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM h_task_point_history WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+
+    // on_delete=SET_NULL
+    sqlx::query("UPDATE t_triage_request SET ticket_id = NULL WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+
+    let result = sqlx::query("DELETE FROM tickets_ticket WHERE id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
         .await?;
 
+    tx.commit().await?;
     Ok(result.rows_affected() > 0)
 }
 
