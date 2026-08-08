@@ -31,9 +31,11 @@ async fn main() -> anyhow::Result<()> {
     // マイグレーション実行
     //
     // ⚠ このDBはDjangoの実スキーマ(accounts_user, tickets_ticket等)を共有している。
-    // rust/migrations/ 配下のマイグレーションはDjangoスキーマとは無関係な旧プロトタイプ用
-    // テーブル(m_users等)を作るものなので、明示的にRUST_RUN_MIGRATIONS=trueを指定した
-    // 場合のみ実行する(デフォルトはスキップ)。
+    // rust/migrations/ 配下の各マイグレーションはDjango側のテーブルと衝突しないよう
+    // 個別にレビューした上で追加する運用のため、事故防止のため明示的に
+    // RUST_RUN_MIGRATIONS=trueを指定した場合のみ実行する(デフォルトはスキップ)。
+    // 旧プロトタイプ時代のDjangoと無関係な並行スキーマ用マイグレーション
+    // (20260623000000_init.sql、m_users等)は2026-08-08に削除済み。
     if std::env::var("RUST_RUN_MIGRATIONS").as_deref() == Ok("true") {
         tracing::warn!("RUST_RUN_MIGRATIONS=true — マイグレーションを実行します");
         sqlx::migrate!().run(&pool).await?;
