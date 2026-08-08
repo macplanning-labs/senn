@@ -226,3 +226,137 @@ pub async fn delete(
         }
     }
 }
+
+// =============================================================================
+// 高度アクション(progress / complete / velocity / burndown)
+// =============================================================================
+
+#[derive(Deserialize)]
+pub struct VelocityQuery {
+    pub project: Option<i32>,
+}
+
+/// GET /api/v1/cycles/{id}/progress/ — サイクル進捗
+pub async fn progress(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    match cycle_repo::get_cycle_progress(&state.pool, id).await {
+        Ok(Some(data)) => (StatusCode::OK, Json(data)).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "サイクルが見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /api/v1/cycles/{id}/complete/ — サイクル手動完了
+pub async fn complete(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+    Json(body): Json<crate::domain::models::cycle_api::CompleteCycleIn>,
+) -> impl IntoResponse {
+    use cycle_repo::CompleteCycleResult;
+    match cycle_repo::complete_cycle(&state.pool, id, body.carry_over_to).await {
+        Ok(CompleteCycleResult::Success(data)) => (StatusCode::OK, Json(data)).into_response(),
+        Ok(CompleteCycleResult::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "サイクルが見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Ok(CompleteCycleResult::AlreadyCompleted) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"completed": false, "error": "Already completed"})),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/cycles/velocity/?project=<id> — 直近6サイクルのベロシティデータ
+pub async fn velocity(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Query(params): Query<VelocityQuery>,
+) -> impl IntoResponse {
+    let project_id = match params.project {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "project パラメータが必要です。".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match cycle_repo::get_velocity_data(&state.pool, project_id, 6).await {
+        Ok(data) => (StatusCode::OK, Json(data)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/cycles/{id}/burndown/ — バーンダウンチャートデータ
+pub async fn burndown(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    match cycle_repo::get_burndown_data(&state.pool, id).await {
+        Ok(Some(data)) => (StatusCode::OK, Json(data)).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "サイクルが見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
