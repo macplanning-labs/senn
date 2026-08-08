@@ -13,3 +13,8 @@ pub mod history_repo;
 pub mod jwt_blacklist_repo;
 pub mod resource_repo;
 pub mod cycle_repo;
+pub mod team_repo;
+pub mod membership_repo;
+pub mod team_rule_repo;
+pub mod workflow_status_repo;
+pub mod time_entry_repo;

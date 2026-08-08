@@ -16,6 +16,7 @@ use crate::presentation::{
         auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
         milestones, projects, notifications, notification_api2, wiki, categories,
         holidays, api, health, resource_api, cycle_api,
+        team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
     },
 };
 
@@ -130,6 +131,25 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/milestones/{id}/", get(resource_api::milestone_detail).put(resource_api::milestone_update).delete(resource_api::milestone_delete))
         .route("/api/v1/labels/", get(resource_api::label_list).post(resource_api::label_create))
         .route("/api/v1/labels/{id}/", get(resource_api::label_detail).put(resource_api::label_update).delete(resource_api::label_delete))
+
+        .route("/api/v1/teams/", get(team_api::team_list).post(team_api::team_create))
+        .route("/api/v1/teams/{id}/", get(team_api::team_detail).put(team_api::team_update).delete(team_api::team_delete))
+        .route("/api/v1/teams/{id}/members/", get(team_api::team_members_list).post(team_api::team_members_add))
+        .route("/api/v1/teams/{team_id}/members/{user_id}/", axum::routing::delete(team_api::team_members_remove))
+
+        .route("/api/v1/memberships/", get(membership_api::membership_list).post(membership_api::membership_create))
+        .route("/api/v1/memberships/{id}/", get(membership_api::membership_detail).patch(membership_api::membership_update).delete(membership_api::membership_delete))
+
+        .route("/api/v1/team-rules/", get(team_rule_api::team_rule_list).post(team_rule_api::team_rule_create))
+        .route("/api/v1/team-rules/{id}/", get(team_rule_api::team_rule_detail).put(team_rule_api::team_rule_update).patch(team_rule_api::team_rule_update).delete(team_rule_api::team_rule_delete))
+
+        .route("/api/v1/workflow-statuses/", get(workflow_status_api::workflow_status_list).post(workflow_status_api::workflow_status_create))
+        .route("/api/v1/workflow-statuses/reorder/", post(workflow_status_api::workflow_status_reorder))
+        .route("/api/v1/workflow-statuses/{id}/", get(workflow_status_api::workflow_status_detail).put(workflow_status_api::workflow_status_update).patch(workflow_status_api::workflow_status_partial_update).delete(workflow_status_api::workflow_status_delete))
+
+        .route("/api/v1/time-entries/", get(time_entry_api::time_entry_list).post(time_entry_api::time_entry_create))
+        .route("/api/v1/time-entries/my-today/", get(time_entry_api::time_entry_my_today))
+        .route("/api/v1/time-entries/{id}/", axum::routing::delete(time_entry_api::time_entry_delete))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
