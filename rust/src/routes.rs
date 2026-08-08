@@ -11,9 +11,9 @@ use axum::{
 use tower_http::services::ServeDir;
 use crate::presentation::{
     state::AppState,
-    middleware::auth::require_auth,
+    middleware::{auth::require_auth, jwt_auth},
     handlers::{
-        auth, dashboard, tickets, gantt, burndown, export,
+        auth, auth_api, dashboard, tickets, gantt, burndown, export,
         milestones, projects, notifications, wiki, categories,
         holidays, api, health,
     },
@@ -27,7 +27,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/auth/webauthn", get(auth::webauthn_page))
         .route("/health", get(health::check))
         // REST API（APIキー認証 = セッション不要）
-        .route("/api/tickets", get(api::list_tickets).post(api::create_ticket));
+        .route("/api/tickets", get(api::list_tickets).post(api::create_ticket))
+        // JSON認証API（公開、認証不要）
+        .route("/api/v1/auth/login/", post(auth_api::login))
+        .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
+        .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
+        .route("/api/v1/auth/register/", post(auth_api::register));
 
     // 認証必須ルート
     let protected_routes = Router::new()
@@ -42,13 +47,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/tickets", get(tickets::list))
         .route("/tickets/create", get(tickets::create_page).post(tickets::create_submit))
         .route("/tickets/export", get(export::ticket_excel))
-        .route("/tickets/:key", get(tickets::detail))
-        .route("/tickets/:id/edit", get(tickets::edit_page).post(tickets::edit_submit))
-        .route("/tickets/:id/status", post(tickets::update_status))
-        .route("/tickets/:id/delete", post(tickets::delete))
-        .route("/tickets/:id/watch", post(tickets::toggle_watch))
-        .route("/tickets/:id/comment", post(tickets::add_comment))
-        .route("/comments/:id/delete", post(tickets::delete_comment))
+        .route("/tickets/{key}", get(tickets::detail))
+        .route("/tickets/{id}/edit", get(tickets::edit_page).post(tickets::edit_submit))
+        .route("/tickets/{id}/status", post(tickets::update_status))
+        .route("/tickets/{id}/delete", post(tickets::delete))
+        .route("/tickets/{id}/watch", post(tickets::toggle_watch))
+        .route("/tickets/{id}/comment", post(tickets::add_comment))
+        .route("/comments/{id}/delete", post(tickets::delete_comment))
         // ガントチャート
         .route("/tickets/gantt", get(gantt::page))
         .route("/tickets/gantt/reorder", post(gantt::reorder))
@@ -59,47 +64,55 @@ pub fn create_router(state: AppState) -> Router {
         // マイルストーン
         .route("/milestones", get(milestones::list))
         .route("/milestones/create", post(milestones::create))
-        .route("/milestones/:id/edit", post(milestones::edit))
-        .route("/milestones/:id/delete", post(milestones::delete))
+        .route("/milestones/{id}/edit", post(milestones::edit))
+        .route("/milestones/{id}/delete", post(milestones::delete))
         // プロジェクト
         .route("/tickets/projects", get(projects::list))
         .route("/tickets/projects/create", post(projects::create))
-        .route("/tickets/projects/:id/edit", post(projects::edit))
-        .route("/tickets/projects/:id/delete", post(projects::delete))
+        .route("/tickets/projects/{id}/edit", post(projects::edit))
+        .route("/tickets/projects/{id}/delete", post(projects::delete))
         .route("/tickets/projects/switch", post(projects::switch))
         // 通知
         .route("/notifications", get(notifications::list))
-        .route("/notifications/read/:id", get(notifications::mark_read))
+        .route("/notifications/read/{id}", get(notifications::mark_read))
         .route("/notifications/read-all", post(notifications::mark_all_read))
         .route("/notifications/unread-count", get(notifications::unread_count))
         .route("/notifications/dropdown", get(notifications::dropdown))
         .route("/notifications/settings", post(notifications::update_settings))
         // Wiki
         .route("/wiki/shared", get(wiki::shared_list))
-        .route("/wiki/shared/:slug/export", get(wiki::shared_export))
-        .route("/wiki/:project_id", get(wiki::project_list))
-        .route("/wiki/:project_id/new", get(wiki::create_page).post(wiki::create_submit))
-        .route("/wiki/:project_id/export-all", get(wiki::export_all))
-        .route("/wiki/:project_id/:slug", get(wiki::detail))
-        .route("/wiki/:project_id/:slug/edit", get(wiki::edit_page).post(wiki::edit_submit))
-        .route("/wiki/:project_id/:slug/delete", post(wiki::delete))
-        .route("/wiki/:project_id/:slug/history", get(wiki::history))
-        .route("/wiki/:project_id/:slug/revision/:rev_id", get(wiki::revision))
-        .route("/wiki/:project_id/:slug/export", get(wiki::export))
+        .route("/wiki/shared/{slug}/export", get(wiki::shared_export))
+        .route("/wiki/{project_id}", get(wiki::project_list))
+        .route("/wiki/{project_id}/new", get(wiki::create_page).post(wiki::create_submit))
+        .route("/wiki/{project_id}/export-all", get(wiki::export_all))
+        .route("/wiki/{project_id}/{slug}", get(wiki::detail))
+        .route("/wiki/{project_id}/{slug}/edit", get(wiki::edit_page).post(wiki::edit_submit))
+        .route("/wiki/{project_id}/{slug}/delete", post(wiki::delete))
+        .route("/wiki/{project_id}/{slug}/history", get(wiki::history))
+        .route("/wiki/{project_id}/{slug}/revision/{rev_id}", get(wiki::revision))
+        .route("/wiki/{project_id}/{slug}/export", get(wiki::export))
         // 管理
         .route("/admin/categories", get(categories::list))
         .route("/admin/categories/create", post(categories::create))
-        .route("/admin/categories/:id/edit", post(categories::edit))
-        .route("/admin/categories/:id/delete", post(categories::delete))
+        .route("/admin/categories/{id}/edit", post(categories::edit))
+        .route("/admin/categories/{id}/delete", post(categories::delete))
         .route("/tickets/holidays", get(holidays::list))
         .route("/tickets/holidays/bulk-add", post(holidays::bulk_add))
-        .route("/tickets/holidays/:id/delete", post(holidays::delete))
+        .route("/tickets/holidays/{id}/delete", post(holidays::delete))
         // 認証ミドルウェア適用
         .layer(axum_middleware::from_fn(require_auth));
+
+    // JWT保護ルート
+    let jwt_protected_routes = Router::new()
+        .route("/api/v1/auth/me/", get(auth_api::me))
+        .route("/api/v1/auth/logout/", post(auth_api::logout))
+        .route("/api/v1/users/", get(auth_api::list_users))
+        .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
+        .merge(jwt_protected_routes)
         // 静的ファイル
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/media", ServeDir::new("media"))

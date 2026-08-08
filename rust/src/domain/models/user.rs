@@ -1,6 +1,6 @@
 /// domain/models/user.rs — ユーザーモデル
 ///
-/// カスタムユーザー（display_name, must_change_password, email_notifications_enabled）。
+/// Djangoの accounts_user テーブルに対応する(created_at/updated_at列は存在しない)。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -12,12 +12,12 @@ pub struct User {
     pub password_hash: String,
     pub display_name: String,
     pub email: String,
+    pub first_name: String,
+    pub last_name: String,
     pub is_active: bool,
     pub is_staff: bool,
     pub must_change_password: bool,
     pub email_notifications_enabled: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 impl User {

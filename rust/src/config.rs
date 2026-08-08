@@ -18,13 +18,15 @@ pub struct AppConfig {
     pub smtp_password: Option<String>,
     pub webauthn_rp_id: String,
     pub webauthn_rp_origin: String,
+    /// JWT署名鍵。DjangoのSECRET_KEY(DJANGO_SECRET_KEY)と同一の値を使うことで、
+    /// Rustが発行したトークンをDjangoのJWTAuthenticationが検証でき、その逆も可能になる。
+    pub jwt_secret: String,
 }
 
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
-            database_url: std::env::var("DATABASE_URL")
-                .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?,
+            database_url: crate::infrastructure::db::resolve_database_url()?,
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8150".to_string())
                 .parse()?,
@@ -53,6 +55,11 @@ impl AppConfig {
                 .unwrap_or_else(|_| "localhost".to_string()),
             webauthn_rp_origin: std::env::var("WEBAUTHN_RP_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:8150".to_string()),
+            // config/settings.py の SECRET_KEY と同じフォールバック値
+            // (DJANGO_SECRET_KEY未設定時はDjango側もこの値を使う)
+            jwt_secret: std::env::var("DJANGO_SECRET_KEY").unwrap_or_else(|_| {
+                "django-insecure-t)!aocxrf)m)b4sh!jcuthbr6_*em#x%chw@a7976ehs!ct=qb".to_string()
+            }),
         })
     }
 }

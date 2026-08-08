@@ -9,3 +9,4 @@ pub mod wiki_repo;
 pub mod user_repo;
 pub mod holiday_repo;
 pub mod history_repo;
+pub mod jwt_blacklist_repo;

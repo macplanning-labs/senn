@@ -10,13 +10,20 @@ use sqlx::PgPool;
 use crate::infrastructure::repositories::user_repo;
 
 /// パスワードを Argon2 でハッシュ化
+///
+/// DjangoのArgon2PasswordHasher.encode()は `"argon2" + <PHC文字列>` という
+/// 独自フォーマットでDBに保存する(例: `argon2$argon2id$v=19$...`)。
+/// argon2クレートの`hash.to_string()`は素のPHC文字列(`$argon2id$...`、先頭が"argon2"
+/// ではなく"$")を返すため、そのまま保存するとDjango側のidentify_hasher()が
+/// `encoded.split("$", 1)[0]`で空文字列を得てハッシュ方式を特定できずログイン不能になる。
+/// そのためDjangoと同じ"argon2"プレフィックスを付けて保存する。
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
         .hash_password(password.as_bytes(), &salt)
         .map_err(|e| anyhow::anyhow!("パスワードハッシュエラー: {}", e))?;
-    Ok(hash.to_string())
+    Ok(format!("argon2{hash}"))
 }
 
 /// パスワード検証
@@ -42,7 +49,10 @@ pub async fn verify_password(
     }
 
     // Argon2 ハッシュ検証
-    let parsed_hash = PasswordHash::new(stored_hash)
+    // DjangoのArgon2PasswordHasher形式("argon2"+PHC文字列)で保存されているため、
+    // argon2クレートが解釈できる素のPHC文字列に戻すため先頭の"argon2"を取り除く。
+    let phc_str = stored_hash.strip_prefix("argon2").unwrap_or(stored_hash);
+    let parsed_hash = PasswordHash::new(phc_str)
         .map_err(|e| anyhow::anyhow!("ハッシュ解析エラー: {}", e))?;
     let result = Argon2::default().verify_password(password.as_bytes(), &parsed_hash);
     Ok(result.is_ok())
@@ -84,10 +94,16 @@ fn verify_django_pbkdf2(password: &str, stored: &str) -> anyhow::Result<bool> {
 }
 
 /// TOTP コード検証
+///
+/// DB保存されているsecretはpyotp.random_base32()が生成するBase32エンコード済み
+/// 文字列(Djangoの apps/mfa/views.py, apps/api/views/auth.py がpyotp.TOTP(device.secret)
+/// と直接渡している値と同じ)。Secret::Rawだと文字列のバイト列をそのまま秘密鍵として
+/// 扱ってしまいBase32デコードされず、pyotp側と異なる鍵で検証することになり必ず失敗する
+/// ため、Secret::Encodedで正しくBase32デコードする。
 pub fn verify_totp(secret: &str, code: &str) -> anyhow::Result<bool> {
     use totp_rs::{Algorithm, TOTP, Secret};
 
-    let secret_bytes = Secret::Raw(secret.as_bytes().to_vec()).to_bytes()
+    let secret_bytes = Secret::Encoded(secret.to_string()).to_bytes()
         .map_err(|e| anyhow::anyhow!("TOTP secret error: {}", e))?;
 
     let totp = TOTP::new(
