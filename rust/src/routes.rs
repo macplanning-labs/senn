@@ -11,9 +11,9 @@ use axum::{
 use tower_http::services::ServeDir;
 use crate::presentation::{
     state::AppState,
-    middleware::auth::require_auth,
+    middleware::{auth::require_auth, jwt_auth},
     handlers::{
-        auth, dashboard, tickets, gantt, burndown, export,
+        auth, auth_api, dashboard, tickets, gantt, burndown, export,
         milestones, projects, notifications, wiki, categories,
         holidays, api, health,
     },
@@ -27,7 +27,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/auth/webauthn", get(auth::webauthn_page))
         .route("/health", get(health::check))
         // REST API（APIキー認証 = セッション不要）
-        .route("/api/tickets", get(api::list_tickets).post(api::create_ticket));
+        .route("/api/tickets", get(api::list_tickets).post(api::create_ticket))
+        // JSON認証API（公開、認証不要）
+        .route("/api/v1/auth/login/", post(auth_api::login))
+        .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
+        .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
+        .route("/api/v1/auth/register/", post(auth_api::register));
 
     // 認証必須ルート
     let protected_routes = Router::new()
@@ -97,9 +102,17 @@ pub fn create_router(state: AppState) -> Router {
         // 認証ミドルウェア適用
         .layer(axum_middleware::from_fn(require_auth));
 
+    // JWT保護ルート
+    let jwt_protected_routes = Router::new()
+        .route("/api/v1/auth/me/", get(auth_api::me))
+        .route("/api/v1/auth/logout/", post(auth_api::logout))
+        .route("/api/v1/users/", get(auth_api::list_users))
+        .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
+
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
+        .merge(jwt_protected_routes)
         // 静的ファイル
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/media", ServeDir::new("media"))
