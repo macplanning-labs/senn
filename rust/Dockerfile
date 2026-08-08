@@ -14,6 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
+
+# 依存クレートだけを先にビルドしてDockerレイヤーキャッシュに載せる
+# (開発標準書 8.1 のDockerビルド時の懸念「イメージが巨大化。ビルドキャッシュ効かない」対策)。
+# Cargo.toml/Cargo.lockが変わらない限り、ソースだけの変更ではこの層は再実行されない。
+RUN mkdir -p src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release
+RUN rm -rf src
+
 COPY src ./src
 COPY migrations ./migrations
 COPY templates ./templates
