@@ -23,8 +23,7 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
-            database_url: std::env::var("DATABASE_URL")
-                .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?,
+            database_url: crate::infrastructure::db::resolve_database_url()?,
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8150".to_string())
                 .parse()?,

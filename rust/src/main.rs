@@ -29,7 +29,17 @@ async fn main() -> anyhow::Result<()> {
     let pool = infrastructure::db::create_pool().await?;
 
     // マイグレーション実行
-    sqlx::migrate!().run(&pool).await?;
+    //
+    // ⚠ このDBはDjangoの実スキーマ(accounts_user, tickets_ticket等)を共有している。
+    // rust/migrations/ 配下のマイグレーションはDjangoスキーマとは無関係な旧プロトタイプ用
+    // テーブル(m_users等)を作るものなので、明示的にRUST_RUN_MIGRATIONS=trueを指定した
+    // 場合のみ実行する(デフォルトはスキップ)。
+    if std::env::var("RUST_RUN_MIGRATIONS").as_deref() == Ok("true") {
+        tracing::warn!("RUST_RUN_MIGRATIONS=true — マイグレーションを実行します");
+        sqlx::migrate!().run(&pool).await?;
+    } else {
+        tracing::info!("マイグレーションをスキップ(RUST_RUN_MIGRATIONS=trueで有効化)");
+    }
 
     // メール送信者
     let mail_sender = MailSender::new(&config);
