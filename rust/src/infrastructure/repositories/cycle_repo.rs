@@ -321,3 +321,247 @@ pub async fn delete_cycle(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     tx.commit().await?;
     Ok(result.rows_affected() > 0)
 }
+
+// =============================================================================
+// 高度アクション(progress / complete / velocity / burndown)
+// Django: apps/tickets/domain/cycle_service.py の移植。
+// 現行Django実装はチケットの"現在の"story_pointsを都度集計するのみで、
+// h_task_point_history(ポイント変更履歴)は参照していない。Rust側もまずは
+// Djangoと同一の挙動で移植する。
+// =============================================================================
+
+use crate::domain::models::cycle_api::{
+    BurndownPointOut, CompleteCycleOut, CycleProgressOut, VelocityEntryOut,
+};
+
+/// サイクル進捗集計。存在しないサイクルはNoneを返す。
+pub async fn get_cycle_progress(pool: &PgPool, cycle_id: i32) -> anyhow::Result<Option<CycleProgressOut>> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM t_cycle WHERE id = $1::int4)")
+        .bind(cycle_id)
+        .fetch_one(pool)
+        .await?;
+    if !exists {
+        return Ok(None);
+    }
+
+    let row = sqlx::query(
+        "SELECT
+            COUNT(*)::int8 AS ticket_count,
+            COUNT(*) FILTER (WHERE status IN ('closed','resolved'))::int8 AS completed_count,
+            COUNT(*) FILTER (WHERE status = 'in_progress')::int8 AS in_progress_count,
+            COALESCE(SUM(story_points), 0)::int8 AS total_points,
+            COALESCE(SUM(story_points) FILTER (WHERE status IN ('closed','resolved')), 0)::int8 AS completed_points
+         FROM tickets_ticket WHERE cycle_id = $1::int4"
+    )
+    .bind(cycle_id)
+    .fetch_one(pool)
+    .await?;
+
+    let ticket_count: i64 = row.get("ticket_count");
+    let completed_count: i64 = row.get("completed_count");
+    let completion_rate = if ticket_count > 0 {
+        let value = completed_count as f64 / ticket_count as f64 * 100.0;
+        (value * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    Ok(Some(CycleProgressOut {
+        ticket_count,
+        completed_count,
+        in_progress_count: row.get("in_progress_count"),
+        total_points: row.get("total_points"),
+        completed_points: row.get("completed_points"),
+        completion_rate,
+    }))
+}
+
+/// 直近limit件の完了サイクルのベロシティデータ(古い順)。
+pub async fn get_velocity_data(pool: &PgPool, project_id: i32, limit: i64) -> anyhow::Result<Vec<VelocityEntryOut>> {
+    let cycles = sqlx::query(
+        "SELECT id::int4, number, name FROM t_cycle
+         WHERE project_id = $1::int4 AND status = 'completed'
+         ORDER BY number DESC LIMIT $2"
+    )
+    .bind(project_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    let mut result = Vec::new();
+
+    // Djangoは reversed(list(completed_cycles)) で古い順に並び替えて返す
+    for row in cycles.into_iter().rev() {
+        let cycle_id: i32 = row.get("id");
+
+        let stats = sqlx::query(
+            "SELECT
+                COUNT(*) FILTER (WHERE status IN ('closed','resolved'))::int8 AS completed,
+                COALESCE(SUM(story_points) FILTER (WHERE status IN ('closed','resolved')), 0)::int8 AS completed_points,
+                COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved','canceled'))::int8 AS carry_over
+             FROM tickets_ticket WHERE cycle_id = $1::int4"
+        )
+        .bind(cycle_id)
+        .fetch_one(pool)
+        .await?;
+
+        result.push(VelocityEntryOut {
+            cycle_id,
+            cycle_number: row.get("number"),
+            cycle_name: row.get("name"),
+            completed_count: stats.get("completed"),
+            completed_points: stats.get("completed_points"),
+            scope_change: 0,
+            carry_over: stats.get("carry_over"),
+        });
+    }
+
+    Ok(result)
+}
+
+pub enum CompleteCycleResult {
+    Success(CompleteCycleOut),
+    NotFound,
+    AlreadyCompleted,
+}
+
+/// サイクルを手動完了し、未完了チケットを任意で次サイクルへ移行する。
+pub async fn complete_cycle(
+    pool: &PgPool,
+    cycle_id: i32,
+    carry_over_to: Option<i32>,
+) -> anyhow::Result<CompleteCycleResult> {
+    let mut tx = pool.begin().await?;
+
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM t_cycle WHERE id = $1::int4")
+        .bind(cycle_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    let status = match status {
+        Some(s) => s,
+        None => return Ok(CompleteCycleResult::NotFound),
+    };
+
+    if status == "completed" {
+        return Ok(CompleteCycleResult::AlreadyCompleted);
+    }
+
+    let carried_over: i64 = if let Some(target) = carry_over_to {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tickets_ticket
+             WHERE cycle_id = $1::int4 AND status NOT IN ('closed','resolved','canceled')"
+        )
+        .bind(cycle_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE tickets_ticket SET cycle_id = $1::int4
+             WHERE cycle_id = $2::int4 AND status NOT IN ('closed','resolved','canceled')"
+        )
+        .bind(target)
+        .bind(cycle_id)
+        .execute(&mut *tx)
+        .await?;
+
+        count
+    } else {
+        0
+    };
+
+    sqlx::query("UPDATE t_cycle SET status = 'completed' WHERE id = $1::int4")
+        .bind(cycle_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(CompleteCycleResult::Success(CompleteCycleOut {
+        completed: true,
+        carried_over,
+    }))
+}
+
+/// バーンダウンチャート用の日次データ。存在しないサイクルはNoneを返す。
+pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<Option<Vec<BurndownPointOut>>> {
+    let cycle_row = sqlx::query("SELECT start_date, end_date FROM t_cycle WHERE id = $1::int4")
+        .bind(cycle_id)
+        .fetch_optional(pool)
+        .await?;
+
+    let cycle_row = match cycle_row {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+
+    let start_date: chrono::NaiveDate = cycle_row.get("start_date");
+    let end_date: chrono::NaiveDate = cycle_row.get("end_date");
+
+    let ticket_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4"
+    )
+    .bind(cycle_id)
+    .fetch_one(pool)
+    .await?;
+
+    if ticket_count == 0 {
+        return Ok(Some(vec![]));
+    }
+
+    let total_points: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket WHERE cycle_id = $1::int4"
+    )
+    .bind(cycle_id)
+    .fetch_one(pool)
+    .await?;
+
+    let duration_days = (end_date - start_date).num_days();
+    if duration_days <= 0 {
+        return Ok(Some(vec![]));
+    }
+
+    // 各チケットの最初の完了日を特定(closed/resolvedへの最初の遷移、サイクル期間内、現在のcycle所属チケットに限る)
+    let completion_rows = sqlx::query(
+        "SELECT DISTINCT ON (h.ticket_id) h.ticket_id::int4, h.changed_at, t.story_points
+         FROM tickets_status_history h
+         JOIN tickets_ticket t ON t.id = h.ticket_id
+         WHERE t.cycle_id = $1::int4
+           AND h.new_status IN ('closed', 'resolved')
+           AND h.changed_at::date >= $2 AND h.changed_at::date <= $3
+         ORDER BY h.ticket_id, h.changed_at ASC"
+    )
+    .bind(cycle_id)
+    .bind(start_date)
+    .bind(end_date)
+    .fetch_all(pool)
+    .await?;
+
+    let mut completion_by_date: std::collections::HashMap<chrono::NaiveDate, i64> = std::collections::HashMap::new();
+    for row in completion_rows {
+        let changed_at: chrono::DateTime<chrono::Utc> = row.get("changed_at");
+        let points: Option<i16> = row.get("story_points");
+        let date = changed_at.date_naive();
+        *completion_by_date.entry(date).or_insert(0) += points.unwrap_or(0) as i64;
+    }
+
+    let mut result = Vec::new();
+    let mut remaining = total_points;
+
+    for day_offset in 0..=duration_days {
+        let current_date = start_date + chrono::Duration::days(day_offset);
+        let ideal = ((total_points as f64) * (1.0 - (day_offset as f64 / duration_days as f64)) * 10.0).round() / 10.0;
+
+        if let Some(completed) = completion_by_date.get(&current_date) {
+            remaining -= completed;
+        }
+
+        result.push(BurndownPointOut {
+            date: current_date.format("%Y-%m-%d").to_string(),
+            ideal,
+            actual: remaining,
+        });
+    }
+
+    Ok(Some(result))
+}

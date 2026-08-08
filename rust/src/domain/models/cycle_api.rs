@@ -44,3 +44,54 @@ pub struct CycleWriteIn {
 fn default_cycle_status() -> String {
     "planned".to_string()
 }
+
+// =============================================================================
+// 高度アクション(progress / complete / velocity / burndown)
+//
+// Django側(apps/tickets/domain/cycle_service.py)はDRFシリアライザを使わず
+// 生のdictをResponse()で返すため、レスポンスキーはcamelCase化されておらず
+// snake_caseのまま。Rust側もDjangoと厳密互換にするため#[serde(rename)]は使わない。
+// また、Django側の現行実装は各チケットの"現在の"story_pointsを都度集計するのみで
+// h_task_point_history(ポイント変更履歴)は参照していない。Rust側もまずは
+// Djangoと同一の挙動で移植する(動的ポイント変更を厳密に履歴ベースで再計算する
+// 設計は、Django側の仕様変更が決まった時点で改めて拡張する)。
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct CycleProgressOut {
+    pub ticket_count: i64,
+    pub completed_count: i64,
+    pub in_progress_count: i64,
+    pub total_points: i64,
+    pub completed_points: i64,
+    pub completion_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VelocityEntryOut {
+    pub cycle_id: i32,
+    pub cycle_number: i32,
+    pub cycle_name: String,
+    pub completed_count: i64,
+    pub completed_points: i64,
+    pub scope_change: i32,
+    pub carry_over: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CompleteCycleIn {
+    pub carry_over_to: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CompleteCycleOut {
+    pub completed: bool,
+    pub carried_over: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BurndownPointOut {
+    pub date: String,
+    pub ideal: f64,
+    pub actual: i64,
+}
