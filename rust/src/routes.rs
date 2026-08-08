@@ -14,8 +14,8 @@ use crate::presentation::{
     middleware::{auth::require_auth, jwt_auth},
     handlers::{
         auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
-        milestones, projects, notifications, wiki, categories,
-        holidays, api, health, resource_api,
+        milestones, projects, notifications, notification_api2, wiki, categories,
+        holidays, api, health, resource_api, cycle_api,
     },
 };
 
@@ -113,6 +113,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/tickets/{ticket_key}/comments/", get(tickets_api::list_comments).post(tickets_api::add_comment))
         .route("/api/v1/tickets/{ticket_key}/change-logs/", get(tickets_api::change_logs))
         .route("/api/v1/tickets/{ticket_key}/point-history/", get(tickets_api::point_history))
+        // JSON 通知 API (Phase 3 第二弾)
+        .route("/api/v1/notifications/", get(notification_api2::list))
+        .route("/api/v1/notifications/{id}/read/", post(notification_api2::mark_read))
+        .route("/api/v1/notifications/read_all/", post(notification_api2::mark_all_read))
+        .route("/api/v1/notifications/unread_count/", get(notification_api2::unread_count))
+        // JSON サイクル API (Phase 3 第二弾)
+        .route("/api/v1/cycles/", get(cycle_api::list).post(cycle_api::create))
+        .route("/api/v1/cycles/{id}/", get(cycle_api::detail).put(cycle_api::update).delete(cycle_api::delete))
         // JSON リソース API (Phase 3)
         .route("/api/v1/projects/", get(resource_api::project_list).post(resource_api::project_create))
         .route("/api/v1/projects/{id}/", get(resource_api::project_detail).put(resource_api::project_update).delete(resource_api::project_delete))
