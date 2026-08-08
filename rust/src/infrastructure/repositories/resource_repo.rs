@@ -119,9 +119,11 @@ pub async fn create_project(pool: &PgPool, input: &ProjectWriteIn) -> anyhow::Re
     let mut tx = pool.begin().await?;
 
     // プロジェクトを作成
+    // grace_period_days はDjangoの ProjectCreateSerializer に含まれず、モデルのdefault=7が
+    // 常に使われる(APIから変更不可)。Rust側も同じ既定値7を使う(0だと猶予なしになりDjangoと乖離する)。
     let project_id: i32 = sqlx::query_scalar(
         "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_team_id)
-         VALUES ($1, $2, $3, NOW(), 0, 'active', $4)
+         VALUES ($1, $2, $3, NOW(), 7, 'active', $4)
          RETURNING id::int4"
     )
     .bind(&input.name)
@@ -180,14 +182,87 @@ pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> a
     Ok(rows_affected > 0)
 }
 
-pub async fn delete_project(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
-    let rows_affected = sqlx::query("DELETE FROM tickets_project WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?
-        .rows_affected();
+pub enum DeleteProjectResult {
+    Deleted,
+    NotFound,
+    HasTickets,
+}
 
-    Ok(rows_affected > 0)
+/// プロジェクト削除。
+///
+/// DjangoのFK制約はDB上NO ACTIONで、実際のcascade/SET_NULLはDjango ORMの
+/// アプリケーション層collectorが担っている(DB自体には自動cascadeが無い)。
+/// そのためRust側も同じ削除順序を手動で再現する必要がある。
+/// tickets_ticket.project は on_delete=PROTECT のため、チケットが1件でも
+/// 存在する場合は削除不可(Djangoと同じ挙動)。
+pub async fn delete_project(pool: &PgPool, id: i32) -> anyhow::Result<DeleteProjectResult> {
+    let mut tx = pool.begin().await?;
+
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_project WHERE id = $1)")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if !exists {
+        return Ok(DeleteProjectResult::NotFound);
+    }
+
+    let ticket_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE project_id = $1")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if ticket_count > 0 {
+        return Ok(DeleteProjectResult::HasTickets);
+    }
+
+    // wiki_page とその子孫(on_delete=CASCADE相当)
+    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE wikipage_id IN (SELECT id FROM wiki_page WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM notifications_notification WHERE wiki_page_id IN (SELECT id FROM wiki_page WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM notifications_user_read_state WHERE wiki_page_id IN (SELECT id FROM wiki_page WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM wiki_revision WHERE page_id IN (SELECT id FROM wiki_page WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM wiki_page WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // m_label とその子孫(M2M中間テーブル)
+    sqlx::query("DELETE FROM tickets_ticket_labels WHERE labelmodel_id IN (SELECT id FROM m_label WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM m_label WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // t_dashboard とその子孫
+    sqlx::query("DELETE FROM t_dashboard_widget WHERE dashboard_id IN (SELECT id FROM t_dashboard WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_dashboard WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // t_git_integration とその子孫
+    sqlx::query("DELETE FROM t_git_event WHERE integration_id IN (SELECT id FROM t_git_integration WHERE project_id = $1)")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_git_integration WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // その他直接の子(on_delete=CASCADE)
+    sqlx::query("DELETE FROM tickets_project_membership WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_cycle WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_workflow_status WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM milestones_milestone WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // on_delete=SET_NULL
+    sqlx::query("UPDATE t_triage_request SET project_id = NULL WHERE project_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    sqlx::query("DELETE FROM tickets_project WHERE id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    tx.commit().await?;
+    Ok(DeleteProjectResult::Deleted)
 }
 
 // =============================================================================
@@ -342,12 +417,19 @@ pub async fn update_category(pool: &PgPool, id: i32, input: &CategoryWriteIn) ->
 }
 
 pub async fn delete_category(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // tickets_ticket.category は on_delete=SET_NULL
+    sqlx::query("UPDATE tickets_ticket SET category_id = NULL WHERE category_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
     let rows_affected = sqlx::query("DELETE FROM tickets_category WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
 
+    tx.commit().await?;
     Ok(rows_affected > 0)
 }
 
@@ -468,12 +550,19 @@ pub async fn update_milestone(pool: &PgPool, id: i32, input: &MilestoneWriteIn) 
 }
 
 pub async fn delete_milestone(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // tickets_ticket.milestone は on_delete=SET_NULL
+    sqlx::query("UPDATE tickets_ticket SET milestone_id = NULL WHERE milestone_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
     let rows_affected = sqlx::query("DELETE FROM milestones_milestone WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
 
+    tx.commit().await?;
     Ok(rows_affected > 0)
 }
 
@@ -561,11 +650,18 @@ pub async fn update_label(pool: &PgPool, id: i32, input: &LabelWriteIn) -> anyho
 }
 
 pub async fn delete_label(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // tickets_ticket_labels はM2M中間テーブル(DjangoのManyToManyField削除はjoin行を自動除去)
+    sqlx::query("DELETE FROM tickets_ticket_labels WHERE labelmodel_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
     let rows_affected = sqlx::query("DELETE FROM m_label WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?
         .rows_affected();
 
+    tx.commit().await?;
     Ok(rows_affected > 0)
 }

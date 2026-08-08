@@ -307,10 +307,17 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
 
 /// サイクル削除。
 pub async fn delete_cycle(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+
+    // tickets_ticket.cycle は on_delete=SET_NULL
+    sqlx::query("UPDATE tickets_ticket SET cycle_id = NULL WHERE cycle_id = $1::int4")
+        .bind(id).execute(&mut *tx).await?;
+
     let result = sqlx::query("DELETE FROM t_cycle WHERE id = $1::int4")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
+    tx.commit().await?;
     Ok(result.rows_affected() > 0)
 }
