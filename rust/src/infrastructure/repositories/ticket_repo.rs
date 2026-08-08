@@ -1322,6 +1322,22 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<
     }))
 }
 
+/// ticket_key から ticket_id を解決する共通ヘルパー(Step 0.5: 識別子体系の統一)。
+///
+/// 対外APIの識別子は原則 ticket_key(文字列)に統一し、dependencies/git-events等
+/// Django側が数値ticket_idベースで実装されているリソースをRustへ移植する際は、
+/// この関数でticket_idへ解決してから内部クエリを行う方針とする。
+pub async fn resolve_ticket_id(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
+    let id: Option<i32> = sqlx::query_scalar(
+        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+    )
+    .bind(ticket_key)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(id)
+}
+
 /// チケットキー採番(JSON API用、トランザクション必須)
 pub async fn api_generate_ticket_key(
     conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
