@@ -17,6 +17,7 @@ use crate::presentation::{
         milestones, projects, notifications, notification_api2, wiki, categories,
         holidays, api, health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
+        triage_api, wiki_api,
     },
 };
 
@@ -154,6 +155,17 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/time-entries/", get(time_entry_api::time_entry_list).post(time_entry_api::time_entry_create))
         .route("/api/v1/time-entries/my-today/", get(time_entry_api::time_entry_my_today))
         .route("/api/v1/time-entries/{id}/", axum::routing::delete(time_entry_api::time_entry_delete))
+
+        .route("/api/v1/triage-requests/", get(triage_api::list).post(triage_api::create))
+        .route("/api/v1/triage-requests/{id}/", get(triage_api::detail).put(triage_api::update).patch(triage_api::update).delete(triage_api::delete))
+        .route("/api/v1/triage-requests/{id}/approve/", post(triage_api::approve))
+        .route("/api/v1/triage-requests/{id}/reject/", post(triage_api::reject))
+
+        .route("/api/v1/wiki/", get(wiki_api::list).post(wiki_api::create))
+        .route("/api/v1/wiki/{id}/", get(wiki_api::detail).put(wiki_api::update).patch(wiki_api::update).delete(wiki_api::delete))
+        .route("/api/v1/wiki/{id}/revisions/", get(wiki_api::revisions))
+        .route("/api/v1/wiki/{id}/link-ticket/", post(wiki_api::link_ticket))
+        .route("/api/v1/wiki/{id}/unlink-ticket/", post(wiki_api::unlink_ticket))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
