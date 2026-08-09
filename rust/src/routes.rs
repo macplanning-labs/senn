@@ -18,6 +18,7 @@ use crate::presentation::{
         holidays, api, health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
         triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api,
+        external_api,
     },
 };
 
@@ -36,7 +37,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
         .route("/api/v1/auth/register/", post(auth_api::register))
         // GitHub Webhook: 認証不要(HMAC-SHA256署名で検証)
-        .route("/api/v1/webhooks/github/", post(integration_api::github_webhook));
+        .route("/api/v1/webhooks/github/", post(integration_api::github_webhook))
+        // 外部API: JWTではなくX-API-Keyヘッダーで認証(ハンドラ内で検証)
+        .route("/api/v1/external/tickets/", post(external_api::create_ticket))
+        .route("/api/v1/external/tickets/{ticket_key}/comments/", post(external_api::create_comment));
 
     // 認証必須ルート
     let protected_routes = Router::new()
