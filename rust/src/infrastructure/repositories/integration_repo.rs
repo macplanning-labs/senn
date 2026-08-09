@@ -257,3 +257,39 @@ pub async fn upsert_pr_event(
         Ok(true)
     }
 }
+
+/// 指定チケットのGitイベント一覧(新しい順)。
+pub async fn find_events_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<GitEventOut>> {
+    let rows = sqlx::query(
+        "SELECT id::int4, event_type, title, url, sha, branch, author_name,
+            author_avatar_url, pr_number::int4, pr_state, created_at
+         FROM t_git_event
+         WHERE ticket_id = $1
+         ORDER BY created_at DESC"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let sha: String = row.get("sha");
+            let sha_short: String = sha.chars().take(7).collect();
+            GitEventOut {
+                id: row.get("id"),
+                event_type: row.get("event_type"),
+                title: row.get("title"),
+                url: row.get("url"),
+                sha,
+                sha_short,
+                branch: row.get("branch"),
+                author_name: row.get("author_name"),
+                author_avatar_url: row.get("author_avatar_url"),
+                pr_number: row.get("pr_number"),
+                pr_state: row.get("pr_state"),
+                created_at: row.get("created_at"),
+            }
+        })
+        .collect())
+}

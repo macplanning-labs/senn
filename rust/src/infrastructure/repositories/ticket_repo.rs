@@ -2171,3 +2171,91 @@ pub async fn delete_dependency(pool: &PgPool, dep_id: i32, ticket_id: i32) -> an
     sqlx::query("DELETE FROM t_task_dependency WHERE id = $1").bind(dep_id).execute(pool).await?;
     Ok(DeleteDependencyResult::Deleted)
 }
+
+// =============================================================================
+// CSVエクスポート — ステップ4
+// =============================================================================
+
+pub struct TicketCsvRow {
+    pub ticket_key: String,
+    pub title: String,
+    pub status: String,
+    pub priority: String,
+    pub ticket_type: String,
+    pub assignees: String,
+    pub category: String,
+    pub milestone: String,
+    pub labels: String,
+    pub start_date: String,
+    pub due_date: String,
+    pub story_points: String,
+    pub cycle: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub async fn find_tickets_for_csv_export(pool: &PgPool, project_id: i32) -> anyhow::Result<Vec<TicketCsvRow>> {
+    let rows = sqlx::query(
+        "SELECT
+            t.id::int4, t.ticket_key, t.title, t.status, t.priority, t.ticket_type,
+            t.start_date, t.due_date, t.story_points, t.created_at, t.updated_at,
+            cat.name as category_name, ms.name as milestone_name, cy.name as cycle_name
+         FROM tickets_ticket t
+         LEFT JOIN tickets_category cat ON t.category_id = cat.id
+         LEFT JOIN milestones_milestone ms ON t.milestone_id = ms.id
+         LEFT JOIN t_cycle cy ON t.cycle_id = cy.id
+         WHERE t.project_id = $1
+         ORDER BY t.ticket_key"
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut result = Vec::new();
+    for row in &rows {
+        let ticket_id: i32 = row.get("id");
+
+        let assignees: Vec<String> = sqlx::query_scalar(
+            "SELECT COALESCE(NULLIF(u.display_name, ''), u.username)
+             FROM tickets_ticket_assignees ta JOIN accounts_user u ON ta.user_id = u.id
+             WHERE ta.ticketmodel_id = $1"
+        )
+        .bind(ticket_id)
+        .fetch_all(pool)
+        .await?;
+
+        let labels: Vec<String> = sqlx::query_scalar(
+            "SELECT l.name FROM tickets_ticket_labels tl JOIN m_label l ON tl.labelmodel_id = l.id
+             WHERE tl.ticketmodel_id = $1"
+        )
+        .bind(ticket_id)
+        .fetch_all(pool)
+        .await?;
+
+        let start_date: Option<chrono::NaiveDate> = row.get("start_date");
+        let due_date: Option<chrono::NaiveDate> = row.get("due_date");
+        let story_points: Option<i16> = row.get("story_points");
+        let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
+        let updated_at: chrono::DateTime<chrono::Utc> = row.get("updated_at");
+
+        result.push(TicketCsvRow {
+            ticket_key: row.get("ticket_key"),
+            title: row.get("title"),
+            status: row.get("status"),
+            priority: row.get("priority"),
+            ticket_type: row.get("ticket_type"),
+            assignees: assignees.join(", "),
+            category: row.get::<Option<String>, _>("category_name").unwrap_or_default(),
+            milestone: row.get::<Option<String>, _>("milestone_name").unwrap_or_default(),
+            labels: labels.join(", "),
+            start_date: start_date.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
+            due_date: due_date.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
+            story_points: story_points.map(|p| p.to_string()).unwrap_or_default(),
+            cycle: row.get::<Option<String>, _>("cycle_name").unwrap_or_default(),
+            created_at: created_at.format("%Y-%m-%d %H:%M").to_string(),
+            updated_at: updated_at.format("%Y-%m-%d %H:%M").to_string(),
+        });
+    }
+
+    Ok(result)
+}
