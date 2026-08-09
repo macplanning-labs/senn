@@ -66,3 +66,6 @@ base64 = "0.22"
 pbkdf2 = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
+
+# 正規表現(Git Webhook のチケットキー抽出等)
+regex = "1"

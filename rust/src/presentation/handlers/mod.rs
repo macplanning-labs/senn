@@ -23,6 +23,7 @@ pub mod team_rule_api;
 pub mod workflow_status_api;
 pub mod time_entry_api;
 pub mod triage_api;
+pub mod integration_api;
 pub mod wiki_api;
 pub mod search_api;
 pub mod reports_api;

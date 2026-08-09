@@ -17,7 +17,7 @@ use crate::presentation::{
         milestones, projects, notifications, notification_api2, wiki, categories,
         holidays, api, health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
-        triage_api, wiki_api, search_api, reports_api, dashboard_api,
+        triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api,
     },
 };
 
@@ -34,7 +34,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/login/", post(auth_api::login))
         .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
         .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
-        .route("/api/v1/auth/register/", post(auth_api::register));
+        .route("/api/v1/auth/register/", post(auth_api::register))
+        // GitHub Webhook: 認証不要(HMAC-SHA256署名で検証)
+        .route("/api/v1/webhooks/github/", post(integration_api::github_webhook));
 
     // 認証必須ルート
     let protected_routes = Router::new()
@@ -182,6 +184,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/dashboard/add-widget/", post(dashboard_api::add_widget))
         .route("/api/v1/dashboard/remove-widget/", axum::routing::delete(dashboard_api::remove_widget))
         .route("/api/v1/dashboard/reorder-widgets/", post(dashboard_api::reorder_widgets))
+
+        .route("/api/v1/integrations/", get(integration_api::list).post(integration_api::create))
+        .route("/api/v1/integrations/{id}/", axum::routing::patch(integration_api::update).delete(integration_api::delete))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
