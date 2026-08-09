@@ -7,3 +7,4 @@ pub mod burndown_service;
 pub mod export_service;
 pub mod auth_service;
 pub mod jwt_service;
+pub mod git_webhook_service;
