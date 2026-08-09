@@ -2031,3 +2031,143 @@ pub async fn api_create_external(
         status: "open".to_string(),
     }))
 }
+
+// =============================================================================
+// タスク依存関係(dependencies) — ステップ4
+// =============================================================================
+
+const DEPENDENCY_SELECT: &str = "
+    SELECT
+        d.id::int4, d.from_task_id::int4, d.to_task_id::int4, d.dependency_type, d.created_at,
+        ft.ticket_key as from_key, ft.title as from_title,
+        tt.ticket_key as to_key, tt.title as to_title,
+        cb.id::int4 as cb_id, cb.username as cb_username, cb.email as cb_email, cb.display_name as cb_display_name
+     FROM t_task_dependency d
+     JOIN tickets_ticket ft ON d.from_task_id = ft.id
+     JOIN tickets_ticket tt ON d.to_task_id = tt.id
+     LEFT JOIN accounts_user cb ON d.created_by_id = cb.id
+";
+
+fn row_to_dependency(row: &sqlx::postgres::PgRow) -> crate::domain::models::dependency_api::TaskDependencyOut {
+    use crate::domain::models::dependency_api::TaskDependencyOut;
+    let cb_id: Option<i32> = row.get("cb_id");
+    TaskDependencyOut {
+        id: row.get("id"),
+        from_task: row.get("from_task_id"),
+        from_task_key: row.get("from_key"),
+        from_task_title: row.get("from_title"),
+        to_task: row.get("to_task_id"),
+        to_task_key: row.get("to_key"),
+        to_task_title: row.get("to_title"),
+        dependency_type: row.get("dependency_type"),
+        created_by: cb_id.map(|_| UserSummaryOut {
+            id: row.get("cb_id"),
+            username: row.get("cb_username"),
+            email: row.get("cb_email"),
+            display_name: row.get("cb_display_name"),
+        }),
+        created_at: row.get("created_at"),
+    }
+}
+
+/// 指定チケットに関連する依存関係一覧(outgoing + incoming、新しい順)。
+pub async fn find_dependencies_for_ticket(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<Vec<crate::domain::models::dependency_api::TaskDependencyOut>> {
+    let query = format!("{DEPENDENCY_SELECT} WHERE d.from_task_id = $1 OR d.to_task_id = $1 ORDER BY d.created_at DESC");
+    let rows = sqlx::query(&query).bind(ticket_id).fetch_all(pool).await?;
+    Ok(rows.iter().map(row_to_dependency).collect())
+}
+
+pub enum CreateDependencyResult {
+    Success(i32),
+    SelfReference,
+    Duplicate,
+    ToTaskNotFound,
+}
+
+/// 依存関係を作成する。自己参照・重複チェックはDjangoと同じくアプリ層で行う
+/// (DB制約でも二重に保護されている: unique_task_dependency, no_self_dependency)。
+pub async fn create_dependency(
+    pool: &PgPool,
+    from_task_id: i32,
+    to_task_id: i32,
+    dependency_type: &str,
+    created_by: i32,
+) -> anyhow::Result<CreateDependencyResult> {
+    if from_task_id == to_task_id {
+        return Ok(CreateDependencyResult::SelfReference);
+    }
+
+    let to_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
+        .bind(to_task_id)
+        .fetch_one(pool)
+        .await?;
+    if !to_exists {
+        return Ok(CreateDependencyResult::ToTaskNotFound);
+    }
+
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM t_task_dependency WHERE from_task_id = $1 AND to_task_id = $2)"
+    )
+    .bind(from_task_id)
+    .bind(to_task_id)
+    .fetch_one(pool)
+    .await?;
+    if exists {
+        return Ok(CreateDependencyResult::Duplicate);
+    }
+
+    let id: i32 = sqlx::query_scalar(
+        "INSERT INTO t_task_dependency (from_task_id, to_task_id, dependency_type, created_by_id, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         RETURNING id::int4"
+    )
+    .bind(from_task_id)
+    .bind(to_task_id)
+    .bind(dependency_type)
+    .bind(created_by)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CreateDependencyResult::Success(id))
+}
+
+pub async fn find_dependency_by_id(
+    pool: &PgPool,
+    dep_id: i32,
+) -> anyhow::Result<Option<crate::domain::models::dependency_api::TaskDependencyOut>> {
+    let query = format!("{DEPENDENCY_SELECT} WHERE d.id = $1");
+    let row = sqlx::query(&query).bind(dep_id).fetch_optional(pool).await?;
+    Ok(row.map(|r| row_to_dependency(&r)))
+}
+
+/// 依存関係を削除する。ticket_idがfrom/toどちらにも一致しない場合はNotRelatedを返す
+/// (Django側の「対象チケットに関連する依存のみ削除可能」というセキュリティチェックを踏襲)。
+pub enum DeleteDependencyResult {
+    Deleted,
+    NotFound,
+    NotRelated,
+}
+
+pub async fn delete_dependency(pool: &PgPool, dep_id: i32, ticket_id: i32) -> anyhow::Result<DeleteDependencyResult> {
+    let row = sqlx::query("SELECT from_task_id::int4, to_task_id::int4 FROM t_task_dependency WHERE id = $1")
+        .bind(dep_id)
+        .fetch_optional(pool)
+        .await?;
+
+    let row = match row {
+        Some(r) => r,
+        None => return Ok(DeleteDependencyResult::NotFound),
+    };
+
+    let from_task_id: i32 = row.get(0);
+    let to_task_id: i32 = row.get(1);
+    if from_task_id != ticket_id && to_task_id != ticket_id {
+        return Ok(DeleteDependencyResult::NotRelated);
+    }
+
+    sqlx::query("DELETE FROM t_task_dependency WHERE id = $1").bind(dep_id).execute(pool).await?;
+    Ok(DeleteDependencyResult::Deleted)
+}

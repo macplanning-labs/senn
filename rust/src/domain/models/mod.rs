@@ -19,4 +19,5 @@ pub mod workflow_status_api;
 pub mod time_entry_api;
 pub mod triage_api;
 pub mod integration_api;
+pub mod dependency_api;
 pub mod wiki_api;
