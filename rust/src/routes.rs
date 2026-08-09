@@ -17,7 +17,7 @@ use crate::presentation::{
         milestones, projects, notifications, notification_api2, wiki, categories,
         holidays, api, health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
-        triage_api, wiki_api,
+        triage_api, wiki_api, search_api, reports_api, dashboard_api,
     },
 };
 
@@ -166,6 +166,22 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/wiki/{id}/revisions/", get(wiki_api::revisions))
         .route("/api/v1/wiki/{id}/link-ticket/", post(wiki_api::link_ticket))
         .route("/api/v1/wiki/{id}/unlink-ticket/", post(wiki_api::unlink_ticket))
+
+        .route("/api/v1/search/", get(search_api::search))
+        .route("/api/v1/reports/workload/", get(reports_api::workload))
+
+        .route("/api/v1/dashboard/stats/", get(dashboard_api::stats))
+        .route("/api/v1/dashboard/my-tickets/", get(dashboard_api::my_tickets))
+        .route("/api/v1/dashboard/activity/", get(dashboard_api::activity))
+        .route("/api/v1/dashboard/default/", get(dashboard_api::default_dashboard))
+        .route("/api/v1/dashboard/list/", get(dashboard_api::list_dashboards))
+        .route("/api/v1/dashboard/detail/{id}/", get(dashboard_api::detail_dashboard))
+        .route("/api/v1/dashboard/create/", post(dashboard_api::create_dashboard))
+        .route("/api/v1/dashboard/update/", axum::routing::patch(dashboard_api::update_dashboard))
+        .route("/api/v1/dashboard/delete/", axum::routing::delete(dashboard_api::delete_dashboard))
+        .route("/api/v1/dashboard/add-widget/", post(dashboard_api::add_widget))
+        .route("/api/v1/dashboard/remove-widget/", axum::routing::delete(dashboard_api::remove_widget))
+        .route("/api/v1/dashboard/reorder-widgets/", post(dashboard_api::reorder_widgets))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
