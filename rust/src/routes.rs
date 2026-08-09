@@ -121,6 +121,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/tickets/{ticket_key}/comments/", get(tickets_api::list_comments).post(tickets_api::add_comment))
         .route("/api/v1/tickets/{ticket_key}/change-logs/", get(tickets_api::change_logs))
         .route("/api/v1/tickets/{ticket_key}/point-history/", get(tickets_api::point_history))
+        .route("/api/v1/tickets/{ticket_key}/dependencies/", get(tickets_api::list_dependencies).post(tickets_api::add_dependency))
+        .route("/api/v1/tickets/{ticket_key}/dependencies/{dep_id}/", axum::routing::delete(tickets_api::delete_dependency))
         // JSON 通知 API (Phase 3 第二弾)
         .route("/api/v1/notifications/", get(notification_api2::list))
         .route("/api/v1/notifications/{id}/read/", post(notification_api2::mark_read))

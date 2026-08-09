@@ -649,3 +649,170 @@ pub async fn point_history(
         }
     }
 }
+
+// =============================================================================
+// タスク依存関係(dependencies) — ステップ4
+//
+// Django側は数値ticket_idベースのURLだが、Rust側は他の/api/v1/tickets/{ticket_key}/*
+// と一貫させるためticket_keyベースにする(ステップ0.5の方針、フロントエンド未使用のため
+// 互換性の懸念なし)。
+// =============================================================================
+
+/// GET /api/v1/tickets/{ticket_key}/dependencies/
+pub async fn list_dependencies(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(ticket_key): Path<String>,
+) -> impl IntoResponse {
+    let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    match ticket_repo::find_dependencies_for_ticket(&state.pool, ticket_id).await {
+        Ok(deps) => (StatusCode::OK, Json(deps)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /api/v1/tickets/{ticket_key}/dependencies/
+pub async fn add_dependency(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(ticket_key): Path<String>,
+    Json(body): Json<crate::domain::models::dependency_api::TaskDependencyCreateIn>,
+) -> impl IntoResponse {
+    use ticket_repo::CreateDependencyResult;
+
+    let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    let to_task = match body.to_task {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { detail: "to_task は必須です".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    let result = ticket_repo::create_dependency(&state.pool, ticket_id, to_task, &body.dependency_type, auth.user_id).await;
+
+    match result {
+        Ok(CreateDependencyResult::Success(id)) => match ticket_repo::find_dependency_by_id(&state.pool, id).await {
+            Ok(Some(dep)) => (StatusCode::CREATED, Json(dep)).into_response(),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response(),
+        },
+        Ok(CreateDependencyResult::SelfReference) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { detail: "自分自身への依存関係は作成できません。".to_string() }),
+        )
+            .into_response(),
+        Ok(CreateDependencyResult::Duplicate) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { detail: "この依存関係は既に存在します。".to_string() }),
+        )
+            .into_response(),
+        Ok(CreateDependencyResult::ToTaskNotFound) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { detail: "指定されたチケットが見つかりません。".to_string() }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// DELETE /api/v1/tickets/{ticket_key}/dependencies/{dep_id}/
+pub async fn delete_dependency(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path((ticket_key, dep_id)): Path<(String, i32)>,
+) -> impl IntoResponse {
+    use ticket_repo::DeleteDependencyResult;
+
+    let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    match ticket_repo::delete_dependency(&state.pool, dep_id, ticket_id).await {
+        Ok(DeleteDependencyResult::Deleted) => StatusCode::NO_CONTENT.into_response(),
+        Ok(DeleteDependencyResult::NotFound) | Ok(DeleteDependencyResult::NotRelated) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse { detail: "この依存関係は指定チケットに関連していません。".to_string() }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response()
+        }
+    }
+}
