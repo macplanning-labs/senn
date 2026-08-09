@@ -1938,3 +1938,96 @@ fn format_field_name(field: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+// =============================================================================
+// 外部API(X-API-Key認証)用
+// =============================================================================
+
+pub struct ExternalTicketResult {
+    pub id: i32,
+    pub ticket_key: String,
+    pub project_name: String,
+    pub status: String,
+}
+
+/// project_prefixで指定したプロジェクトが見つからない場合に返す、利用可能な
+/// プロジェクト一覧(prefix, name)。
+pub async fn list_project_prefixes(pool: &PgPool) -> anyhow::Result<Vec<(String, String)>> {
+    let rows = sqlx::query("SELECT prefix, name FROM tickets_project ORDER BY prefix")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|r| (r.get(0), r.get(1))).collect())
+}
+
+/// 外部API経由のチケット作成。project_prefixで対象プロジェクトを特定する。
+#[allow(clippy::too_many_arguments)]
+pub async fn api_create_external(
+    pool: &PgPool,
+    project_prefix: &str,
+    title: &str,
+    description: &str,
+    priority: &str,
+    ticket_type: &str,
+    due_date: Option<chrono::NaiveDate>,
+    author_id: i32,
+) -> anyhow::Result<Option<ExternalTicketResult>> {
+    let project_row = sqlx::query("SELECT id::int4, name FROM tickets_project WHERE prefix = $1")
+        .bind(project_prefix)
+        .fetch_optional(pool)
+        .await?;
+
+    let project_row = match project_row {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+    let project_id: i32 = project_row.get(0);
+    let project_name: String = project_row.get(1);
+
+    let mut tx = pool.begin().await?;
+
+    let ticket_key = api_generate_ticket_key(&mut tx, project_id).await?;
+
+    let gantt_order: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1"
+    )
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let ticket_id: i32 = sqlx::query_scalar(
+        "INSERT INTO tickets_ticket
+            (ticket_key, title, description, status, priority, ticket_type,
+             author_id, project_id, due_date, gantt_order, created_at, updated_at)
+         VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, NOW(), NOW())
+         RETURNING id::int4"
+    )
+    .bind(&ticket_key)
+    .bind(title)
+    .bind(description)
+    .bind(priority)
+    .bind(ticket_type)
+    .bind(author_id)
+    .bind(project_id)
+    .bind(due_date)
+    .bind(gantt_order)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO tickets_status_history (old_status, new_status, changed_by_id, changed_at, ticket_id)
+         VALUES ('', 'open', $1, NOW(), $2)"
+    )
+    .bind(author_id)
+    .bind(ticket_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Some(ExternalTicketResult {
+        id: ticket_id,
+        ticket_key,
+        project_name,
+        status: "open".to_string(),
+    }))
+}

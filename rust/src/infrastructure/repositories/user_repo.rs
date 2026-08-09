@@ -126,3 +126,10 @@ pub async fn delete_webauthn_credential(pool: &PgPool, id: i32) -> anyhow::Resul
         .bind(id).execute(pool).await?;
     Ok(())
 }
+
+/// 外部API(X-API-Key認証)用: 最初に見つかったstaffユーザーを返す(フォールバック用)。
+pub async fn find_first_staff_user(pool: &PgPool) -> anyhow::Result<Option<User>> {
+    let sql = format!("SELECT {USER_COLUMNS} FROM accounts_user WHERE is_staff = true ORDER BY id LIMIT 1");
+    let user = sqlx::query_as::<_, User>(&sql).fetch_optional(pool).await?;
+    Ok(user)
+}

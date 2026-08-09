@@ -21,6 +21,10 @@ pub struct AppConfig {
     /// JWT署名鍵。DjangoのSECRET_KEY(DJANGO_SECRET_KEY)と同一の値を使うことで、
     /// Rustが発行したトークンをDjangoのJWTAuthenticationが検証でき、その逆も可能になる。
     pub jwt_secret: String,
+    /// 外部API(X-API-Key認証)用の共有キー。DjangoのWIP_API_KEYと同じ値を使う。
+    pub wip_api_key: Option<String>,
+    /// 外部API経由の操作を実行するユーザー名。DjangoのWIP_API_USER相当(デフォルト"管理者")。
+    pub wip_api_user: String,
 }
 
 impl AppConfig {
@@ -60,6 +64,8 @@ impl AppConfig {
             jwt_secret: std::env::var("DJANGO_SECRET_KEY").unwrap_or_else(|_| {
                 "django-insecure-t)!aocxrf)m)b4sh!jcuthbr6_*em#x%chw@a7976ehs!ct=qb".to_string()
             }),
+            wip_api_key: std::env::var("WIP_API_KEY").ok(),
+            wip_api_user: std::env::var("WIP_API_USER").unwrap_or_else(|_| "管理者".to_string()),
         })
     }
 }
