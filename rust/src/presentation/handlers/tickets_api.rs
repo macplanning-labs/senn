@@ -816,3 +816,105 @@ pub async fn delete_dependency(
         }
     }
 }
+
+/// GET /api/v1/tickets/{ticket_key}/git-events/ — ステップ4
+/// dependenciesと同じ理由でticket_keyベースのURLにする(ステップ0.5の方針)。
+pub async fn git_events(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(ticket_key): Path<String>,
+) -> impl IntoResponse {
+    let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    match crate::infrastructure::repositories::integration_repo::find_events_by_ticket(&state.pool, ticket_id).await {
+        Ok(events) => (StatusCode::OK, Json(events)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/tickets/export/csv/?project=<id> — ステップ4
+/// Excel互換のためBOM付きUTF-8で出力する(Django側と同じ)。
+#[derive(Deserialize)]
+pub struct CsvExportQuery {
+    pub project: Option<i32>,
+}
+
+fn csv_escape(field: &str) -> String {
+    if field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r') {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
+    }
+}
+
+pub async fn export_csv(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Query(params): Query<CsvExportQuery>,
+) -> impl IntoResponse {
+    let project_id = match params.project {
+        Some(id) => id,
+        None => {
+            return (StatusCode::BAD_REQUEST, "project parameter required").into_response();
+        }
+    };
+
+    let rows = match ticket_repo::find_tickets_for_csv_export(&state.pool, project_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+
+    let mut csv = String::from("\u{feff}");
+    csv.push_str("Key,Title,Status,Priority,Type,Assignees,Category,Milestone,Labels,Start Date,Due Date,Story Points,Cycle,Created,Updated\r\n");
+
+    for r in &rows {
+        let fields = [
+            r.ticket_key.as_str(), r.title.as_str(), r.status.as_str(), r.priority.as_str(),
+            r.ticket_type.as_str(), r.assignees.as_str(), r.category.as_str(), r.milestone.as_str(),
+            r.labels.as_str(), r.start_date.as_str(), r.due_date.as_str(), r.story_points.as_str(),
+            r.cycle.as_str(), r.created_at.as_str(), r.updated_at.as_str(),
+        ];
+        csv.push_str(&fields.iter().map(|f| csv_escape(f)).collect::<Vec<_>>().join(","));
+        csv.push_str("\r\n");
+    }
+
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "text/csv; charset=utf-8-sig".to_string()),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"tickets_{}.csv\"", project_id),
+            ),
+        ],
+        csv,
+    )
+        .into_response()
+}
