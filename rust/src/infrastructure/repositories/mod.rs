@@ -20,6 +20,7 @@ pub mod workflow_status_repo;
 pub mod time_entry_repo;
 pub mod triage_repo;
 pub mod integration_repo;
+pub mod ai_repo;
 pub mod wiki_api_repo;
 pub mod search_repo;
 pub mod workload_report_repo;

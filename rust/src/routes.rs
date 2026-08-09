@@ -18,7 +18,7 @@ use crate::presentation::{
         holidays, api, health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
         triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api,
-        external_api,
+        external_api, ai_api,
     },
 };
 
@@ -191,6 +191,12 @@ pub fn create_router(state: AppState) -> Router {
 
         .route("/api/v1/integrations/", get(integration_api::list).post(integration_api::create))
         .route("/api/v1/integrations/{id}/", axum::routing::patch(integration_api::update).delete(integration_api::delete))
+
+        .route("/api/v1/ai/suggest-points/", post(ai_api::suggest_points))
+        .route("/api/v1/ai/sprint-health/", post(ai_api::sprint_health))
+        .route("/api/v1/ai/context-analysis/", post(ai_api::context_analysis))
+        .route("/api/v1/ai/close-analysis/", post(ai_api::close_analysis))
+        .route("/api/v1/ai/status/", get(ai_api::ai_status))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
     Router::new()
