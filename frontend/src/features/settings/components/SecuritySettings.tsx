@@ -60,7 +60,6 @@ export function SecuritySettings() {
 
   // Passkey state
   const [passkeyStep, setPasskeyStep] = useState<'idle' | 'registering'>('idle');
-  const [passkeyRegistrationStateJson, setPasskeyRegistrationStateJson] = useState<string>('');
 
   // Passkey list query
   const { data: passkeyListData } = useQuery({
@@ -148,7 +147,6 @@ export function SecuritySettings() {
       return response.data;
     },
     onSuccess: (data) => {
-      setPasskeyRegistrationStateJson(data.registration_state_json);
       setPasskeyStep('registering');
       // ブラウザの WebAuthn API を呼び出す
       handlePasskeyCreate(data);
@@ -171,7 +169,6 @@ export function SecuritySettings() {
     onSuccess: () => {
       toast.success('パスキーを登録しました');
       setPasskeyStep('idle');
-      setPasskeyRegistrationStateJson('');
       // リストをリフレッシュして再取得する
       window.location.reload();
     },
@@ -233,9 +230,13 @@ export function SecuritySettings() {
       const optionsJSON = beginResponse.creation_challenge.publicKey ?? beginResponse.creation_challenge;
       const credential = await startRegistration({ optionsJSON });
 
-      // startRegistrationの戻り値は既にJSON化された形式なのでそのまま送れる
+      // startRegistrationの戻り値は既にJSON化された形式なのでそのまま送れる。
+      // registration_state_jsonはReact stateではなく引数(beginResponse)から
+      // 直接読むこと(setState直後に同じクロージャ内でstateを読むと、更新前の
+      // 古い値になるため。実際にこれが原因で「不正な登録セッション」エラーが
+      // 発生していた)。
       passkeyCompleteMutation.mutate({
-        registration_state_json: passkeyRegistrationStateJson,
+        registration_state_json: beginResponse.registration_state_json,
         credential,
       });
     } catch (error: any) {
