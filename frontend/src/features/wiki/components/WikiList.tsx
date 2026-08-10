@@ -9,6 +9,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { FilterBar } from '@/shared/components/ui/FilterBar';
 import './WikiList.css';
 import { QuickCreateTicketButton } from '@/features/tickets/components/QuickCreateTicketButton';
 import type { LinkedTicketSummary } from '@/shared/api/types';
@@ -288,26 +289,25 @@ export function WikiList() {
       <div className="wiki__layout">
         {/* 左: ページ一覧 */}
         <aside className="wiki__sidebar" data-testid="wiki-sidebar">
-          <input
-            type="text"
-            className="wiki__search"
-            placeholder={t('common.search')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            data-testid="wiki-search"
-          />
-
-          <div className="wiki__categories">
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat.value}
-                className={`wiki__cat-btn ${categoryFilter === cat.value ? 'wiki__cat-btn--active' : ''}`}
-                onClick={() => setCategoryFilter(cat.value)}
-              >
-                {cat.icon} {cat.label}
-              </button>
-            ))}
-          </div>
+          <FilterBar
+            searchValue={search}
+            onSearchChange={setSearch}
+            searchPlaceholder={t('common.search')}
+            testId="wiki-filters"
+          >
+            <div className="wiki__categories">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.value}
+                  className={`wiki__cat-btn ${categoryFilter === cat.value ? 'wiki__cat-btn--active' : ''}`}
+                  onClick={() => setCategoryFilter(cat.value)}
+                  data-testid={`category-filter-${cat.value}`}
+                >
+                  {cat.icon} {cat.label}
+                </button>
+              ))}
+            </div>
+          </FilterBar>
 
           <div className="wiki__page-list">
             {isLoading ? (
@@ -440,7 +440,7 @@ export function WikiList() {
                     {selectedPage.linkedTickets.map((t: { id: number; ticketKey: string; title: string; status: string }) => (
                       <a
                         key={t.id}
-                        href={`/p/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.id}`}
+                        href={`/p/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.ticketKey}`}
                         style={{
                           padding: '0.5rem 0.625rem', borderRadius: '6px',
                           background: 'var(--color-surface-secondary, #f5f5f5)',
