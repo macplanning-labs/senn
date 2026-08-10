@@ -32,7 +32,7 @@ interface TicketData {
  * 対応形式: - [ ] テキスト or - [x] テキスト（先頭の空白はOK）
  */
 function parseMarkdownChecklists(content: string): TicketData[] {
-  const regex = /^\s*-\s*\[[xX \]\]\s*(.+)$/gm;
+  const regex = /^\s*-\s*\[[ xX]\]\s*(.+)$/gm;
   const tickets: TicketData[] = [];
   let match;
 
