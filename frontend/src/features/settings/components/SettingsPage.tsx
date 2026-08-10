@@ -38,7 +38,7 @@ export function SettingsPage() {
 
   const toggleEmailMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      await apiClient.patch('/api/v1/auth/me/', {
+      await apiClient.patch('/auth/me/', {
         email_notifications_enabled: enabled,
       });
       return enabled;

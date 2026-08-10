@@ -32,14 +32,14 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
   const { data: integrations = [], isLoading } = useQuery<GitIntegration[]>({
     queryKey: ['integrations', projectId],
     queryFn: async () => {
-      const res = await apiClient.get(`/api/v1/integrations/?project=${projectId}`);
+      const res = await apiClient.get(`/integrations/?project=${projectId}`);
       return res.data;
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData & { project: number }) => {
-      const res = await apiClient.post('/api/v1/integrations/', data);
+      const res = await apiClient.post('/integrations/', data);
       return res.data;
     },
     onSuccess: () => {
@@ -55,7 +55,7 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await apiClient.delete(`/api/v1/integrations/${id}/`);
+      await apiClient.delete(`/integrations/${id}/`);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
