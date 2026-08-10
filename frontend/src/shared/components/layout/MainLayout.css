@@ -105,7 +105,23 @@
   animation: slideInFromBottom 200ms ease-out;
 }
 
-/* ── レスポンシブ ── */
+/* ── レスポンシブ: タブレット ── */
+@media (max-width: 1024px) {
+  .layout__main--sidebar-open {
+    margin-left: var(--sidebar-collapsed-width);
+  }
+
+  .layout__content > * {
+    padding: var(--space-4) var(--space-4);
+    max-width: none;
+  }
+
+  .layout__header {
+    padding: var(--space-2) var(--space-4);
+  }
+}
+
+/* ── レスポンシブ: モバイル ── */
 @media (max-width: 768px) {
   .layout__main--sidebar-open,
   .layout__main--sidebar-collapsed {

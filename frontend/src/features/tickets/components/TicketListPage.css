@@ -2,6 +2,12 @@
  * TicketListPage.css — チケット一覧 + 右ペインレイアウト
  */
 
+/* このページはレイアウト共通の max-width: 1200px (MainLayout.css) を解除し、画面幅いっぱいを使う */
+.layout__content > .ticket-list-page {
+  max-width: none;
+  width: 100%;
+}
+
 .ticket-list-page {
   display: grid;
   grid-template-columns: 1fr;
@@ -10,7 +16,12 @@
 }
 
 .ticket-list-page--with-panel {
+  /* 実際の幅はusePanelResizeによりinline styleで指定される。ここはフォールバック。 */
   grid-template-columns: 1fr 380px;
+}
+
+.ticket-list-page--resizing {
+  transition: none;
 }
 
 .ticket-list-page__table {
@@ -22,13 +33,27 @@
 .ticket-list-page__panel {
   height: 100%;
   overflow: hidden;
+  min-width: 0;
+  position: relative;
 }
 
-/* パネル表示時: 詳細に表示される情報はテーブルから隠す */
-.ticket-list-page--with-panel .ticket-table__th--assignee,
-.ticket-list-page--with-panel .ticket-table__td--assignee,
-.ticket-list-page--with-panel .ticket-table__th--labels,
-.ticket-list-page--with-panel .ticket-table__td--labels,
+.ticket-list-page__resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.ticket-list-page__resize-handle:hover,
+.ticket-list-page--resizing .ticket-list-page__resize-handle {
+  background: var(--color-accent-primary, #6366f1);
+  opacity: 0.5;
+}
+
+/* パネル表示時: メタ情報のみテーブルから隠す(Assignee/Labelsは常時表示のまま) */
 .ticket-list-page--with-panel .ticket-table__th--meta,
 .ticket-list-page--with-panel .ticket-table__td--meta {
   display: none;
