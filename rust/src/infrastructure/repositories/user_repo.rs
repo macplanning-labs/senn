@@ -165,9 +165,11 @@ pub async fn save_webauthn_credential(
     pool: &PgPool, user_id: i32, credential_id: &[u8],
     public_key: &[u8], name: &str,
 ) -> anyhow::Result<()> {
+    // sign_countはNOT NULL制約があるため、初期値0を明示的に指定する必要がある
+    // (省略するとDB側の"null value in column sign_count"エラーで保存自体が失敗する)。
     sqlx::query(
-        "INSERT INTO mfa_webauthn_credential (user_id, credential_id, public_key, name, created_at)
-         VALUES ($1, $2, $3, $4, NOW())"
+        "INSERT INTO mfa_webauthn_credential (user_id, credential_id, public_key, name, sign_count, created_at)
+         VALUES ($1, $2, $3, $4, 0, NOW())"
     ).bind(user_id).bind(credential_id).bind(public_key).bind(name)
      .execute(pool).await?;
     Ok(())
@@ -177,9 +179,11 @@ pub async fn save_webauthn_credential_with_json(
     pool: &PgPool, user_id: i32, credential_id: &[u8],
     public_key: &[u8], passkey_json: &str, name: &str,
 ) -> anyhow::Result<()> {
+    // sign_countはNOT NULL制約があるため、初期値0を明示的に指定する必要がある
+    // (省略するとDB側の"null value in column sign_count"エラーで保存自体が失敗する)。
     sqlx::query(
-        "INSERT INTO mfa_webauthn_credential (user_id, credential_id, public_key, passkey_json, name, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())"
+        "INSERT INTO mfa_webauthn_credential (user_id, credential_id, public_key, passkey_json, name, sign_count, created_at)
+         VALUES ($1, $2, $3, $4, $5, 0, NOW())"
     ).bind(user_id).bind(credential_id).bind(public_key).bind(passkey_json).bind(name)
      .execute(pool).await?;
     Ok(())
