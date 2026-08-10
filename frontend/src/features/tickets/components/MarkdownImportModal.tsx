@@ -38,7 +38,7 @@ function parseMarkdownChecklists(content: string): TicketData[] {
 
   // eslint-disable-next-line no-cond-assign
   while ((match = regex.exec(content)) !== null) {
-    const text = match[1].trim();
+    const text = (match[1] ?? '').trim();
     if (text) {
       tickets.push({
         title: text.length > 100 ? text.slice(0, 100) : text,

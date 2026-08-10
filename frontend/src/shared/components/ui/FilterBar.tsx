@@ -17,7 +17,7 @@
  *   </FilterBar>
  */
 
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import './FilterBar.css';
 
 interface FilterBarProps {

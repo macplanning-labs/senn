@@ -276,6 +276,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     if (!files || files.length === 0) return;
 
     const file = files[0];
+    if (!file) return;
     const formData = new FormData();
     formData.append('file', file);
 
