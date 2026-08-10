@@ -9,6 +9,8 @@ use axum::http::HeaderMap;
 use url::Url;
 use webauthn_rs::prelude::*;
 use webauthn_rs::WebauthnBuilder;
+// webauthn-rsのpreludeには含まれていないため直接importする
+use webauthn_rs_proto::ResidentKeyRequirement;
 
 /// WebAuthn設定を初期化して Webauthn インスタンスを返す
 ///
@@ -70,13 +72,25 @@ pub fn start_registration(
         .as_ref()
         .map(|creds| creds.iter().map(|c| c.cred_id().clone()).collect::<Vec<_>>());
 
-    webauthn.start_passkey_registration(
+    let (mut ccr, reg_state) = webauthn.start_passkey_registration(
         Uuid::from_u128(user_id as u128),
         username,
         display_name,
         exclude,
     )
-    .map_err(|e| anyhow::anyhow!("パスキー登録開始に失敗: {}", e))
+    .map_err(|e| anyhow::anyhow!("パスキー登録開始に失敗: {}", e))?;
+
+    // start_passkey_registrationはresidentKey: "discouraged"を送るため、
+    // パスワードマネージャー等の認証器が非discoverable(非常駐)なクレデンシャルを
+    // 作成してしまい、ログイン時のdiscoverable認証(start_discoverable_authentication)で
+    // 一切見つからなくなる。ログインにdiscoverable方式を使う以上、登録時に
+    // 明示的にresidentKey: requiredを要求する必要がある。
+    if let Some(sel) = ccr.public_key.authenticator_selection.as_mut() {
+        sel.resident_key = Some(ResidentKeyRequirement::Required);
+        sel.require_resident_key = true;
+    }
+
+    Ok((ccr, reg_state))
 }
 
 /// パスキー登録を完了する

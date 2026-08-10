@@ -449,7 +449,11 @@ pub async fn list_passkeys(
                 PasskeySummary {
                     id: cred.id,
                     name: if cred.name.is_empty() { "パスキー".to_string() } else { cred.name },
-                    created_at: cred.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                    // タイムゾーン情報を保持したRFC3339形式で返す(フロント側でユーザーの
+                    // ローカルタイムゾーンに変換して表示する)。以前は"%Y-%m-%d %H:%M"で
+                    // UTC時刻をそのままフォーマットしており、日本時間のユーザーには
+                    // 9時間ずれた時刻が表示されていた。
+                    created_at: cred.created_at.to_rfc3339(),
                 }
             }).collect();
 

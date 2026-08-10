@@ -404,7 +404,12 @@ export function SecuritySettings() {
                         <li key={pk.id} className="settings__passkey-item">
                           <div className="settings__passkey-info">
                             <span className="settings__passkey-name">{pk.name}</span>
-                            <span className="settings__passkey-date">{pk.created_at}</span>
+                            <span className="settings__passkey-date">
+                              {new Date(pk.created_at).toLocaleString('ja-JP', {
+                                year: 'numeric', month: '2-digit', day: '2-digit',
+                                hour: '2-digit', minute: '2-digit',
+                              })}
+                            </span>
                           </div>
                           <button
                             className="settings__btn settings__btn--danger settings__btn--small"

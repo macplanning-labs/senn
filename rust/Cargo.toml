@@ -49,6 +49,8 @@ thiserror = "2"
 argon2 = "0.5"
 totp-rs = { version = "5", features = ["qr"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+# webauthn-rsのpreludeがResidentKeyRequirementを再エクスポートしていないため直接依存させる
+webauthn-rs-proto = "0.5"
 jsonwebtoken = "9"
 url = "2"
 
