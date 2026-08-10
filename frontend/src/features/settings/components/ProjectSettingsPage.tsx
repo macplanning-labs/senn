@@ -104,6 +104,7 @@ function GeneralSettings() {
     onSuccess: () => {
       addToast({ message: t('settings.projectDeleted'), type: 'success' });
       setDeleteConfirm(false);
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
       navigate('/dashboard');
     },
     onError: (error: unknown) => {
