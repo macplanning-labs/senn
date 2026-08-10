@@ -57,6 +57,13 @@ pub async fn update_password(pool: &PgPool, id: i32, password_hash: &str) -> any
     Ok(())
 }
 
+/// ユーザーの有効/無効を切り替える(Django Admin代替、is_staffのみ呼び出し可能)。
+pub async fn set_active(pool: &PgPool, id: i32, is_active: bool) -> anyhow::Result<()> {
+    sqlx::query("UPDATE accounts_user SET is_active=$2 WHERE id=$1")
+        .bind(id).bind(is_active).execute(pool).await?;
+    Ok(())
+}
+
 /// 新規ユーザー登録(Phase 1: /api/v1/auth/register/)。
 /// username重複はDB側のUNIQUE制約違反(sqlx::Error)として呼び出し元に伝播する。
 pub async fn create_user(
@@ -137,6 +144,18 @@ pub async fn save_webauthn_credential(
         "INSERT INTO mfa_webauthn_credential (user_id, credential_id, public_key, name, created_at)
          VALUES ($1, $2, $3, $4, NOW())"
     ).bind(user_id).bind(credential_id).bind(public_key).bind(name)
+     .execute(pool).await?;
+    Ok(())
+}
+
+pub async fn save_webauthn_credential_with_json(
+    pool: &PgPool, user_id: i32, credential_id: &[u8],
+    public_key: &[u8], passkey_json: &str, name: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO mfa_webauthn_credential (user_id, credential_id, public_key, passkey_json, name, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())"
+    ).bind(user_id).bind(credential_id).bind(public_key).bind(passkey_json).bind(name)
      .execute(pool).await?;
     Ok(())
 }

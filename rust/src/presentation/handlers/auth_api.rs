@@ -543,3 +543,57 @@ pub async fn list_users(
 
     (StatusCode::OK, Json(result)).into_response()
 }
+
+#[derive(serde::Deserialize)]
+pub struct SetActiveIn {
+    pub is_active: bool,
+}
+
+/// ユーザーの有効/無効を切り替える(Django Admin代替)。
+/// 呼び出し元がis_staffであること、自分自身を無効化しないことを必須とする。
+pub async fn set_user_active(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    axum::extract::Path(target_id): axum::extract::Path<i32>,
+    Json(body): Json<SetActiveIn>,
+) -> impl IntoResponse {
+    let caller = match user_repo::find_by_id(&state.pool, auth_user.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    if !caller.is_staff {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "権限がありません"}))).into_response();
+    }
+
+    if target_id == auth_user.user_id && !body.is_active {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"detail": "自分自身を無効化することはできません"})),
+        ).into_response();
+    }
+
+    match user_repo::find_by_id(&state.pool, target_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    }
+
+    if let Err(e) = user_repo::set_active(&state.pool, target_id, body.is_active).await {
+        tracing::error!("DB operation failed: {:?}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
+}
