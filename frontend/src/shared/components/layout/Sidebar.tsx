@@ -134,6 +134,11 @@ export function Sidebar() {
       return match?.[1] ?? getLastProjectKey() ?? null;
     })();
 
+  // プロジェクト表示用：URL由来の currentProject を優先、なければ resolvedProjectKey で projectList から探す
+  const displayProject = currentProject
+    ?? (resolvedProjectKey
+      ? projectList.find(p => p.prefix.toLowerCase() === resolvedProjectKey.toLowerCase())
+      : null);
 
   // プロジェクトセレクタのドロップダウン開閉
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -204,17 +209,17 @@ export function Sidebar() {
           className="sidebar__project-btn"
           onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
           data-testid="project-selector"
-          title={!sidebarOpen ? (currentProject?.name ?? 'Select project') : undefined}
+          title={!sidebarOpen ? (displayProject?.name ?? 'Select project') : undefined}
         >
           <span className="sidebar__project-icon">
-            {currentProject?.prefix?.[0]?.toUpperCase() ?? '?'}
+            {displayProject?.prefix?.[0]?.toUpperCase() ?? '?'}
           </span>
           {sidebarOpen && (
             <>
               <span className="sidebar__project-name">
                 {projectsLoading
                   ? '...'
-                  : currentProject?.name ?? t('sidebar.selectProject')}
+                  : displayProject?.name ?? t('sidebar.selectProject')}
               </span>
               <IconChevronDown />
             </>
