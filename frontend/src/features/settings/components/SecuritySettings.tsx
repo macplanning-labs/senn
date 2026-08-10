@@ -236,7 +236,9 @@ export function SecuritySettings() {
       }
 
       // サーバーから返ってきた challenge をArrayBufferに変換
-      const options = convertCreateOptionsToJSON(beginResponse.creation_challenge);
+      // webauthn-rs の CreationChallengeResponse は { publicKey: {...} } の形で
+      // 1段ラップされてシリアライズされるため、内側を取り出してから変換する。
+      const options = convertCreateOptionsToJSON(beginResponse.creation_challenge.publicKey);
 
       // ブラウザのWebAuthn APIを呼び出す
       const credential = (await navigator.credentials.create({
