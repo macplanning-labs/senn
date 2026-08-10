@@ -2,6 +2,7 @@
  * MemberSettings.tsx — プロジェクトメンバー管理
  *
  * メンバー一覧テーブル（アクティブ/期限切れ表示）＋追加モーダル。
+ * ユーザー作成機能付き。
  * KI「マスタメンテナンス — モーダル編集方式」準拠。
  */
 
@@ -16,6 +17,32 @@ interface UserSummary {
   username: string;
   displayName: string;
   email: string;
+}
+
+interface RegisterRequest {
+  username: string;
+  email: string;
+  password: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+interface UserResponse {
+  id: number;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  isStaff: boolean;
+}
+
+interface RegisterResponse {
+  user: UserResponse;
+  tokens: {
+    access: string;
+    refresh: string;
+  };
 }
 
 interface Membership {
@@ -80,9 +107,18 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Membership | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Membership | null>(null);
+  const [creatingNewUser, setCreatingNewUser] = useState(false);
+  const [newlyCreatedUserId, setNewlyCreatedUserId] = useState<number | null>(null);
   const [formData, setFormData] = useState<MemberFormData>({
     user: 0, project: projectId, start_date: new Date().toISOString().slice(0, 10),
     end_date: '', note: '',
+  });
+  const [registrationData, setRegistrationData] = useState({
+    username: '',
+    email: '',
+    password: '',
+    first_name: '',
+    last_name: '',
   });
   const [error, setError] = useState('');
 
@@ -168,15 +204,51 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     onError: () => setError(t('settings.memberDeleteFailed')),
   });
 
+  // --- ユーザー登録 ---
+  const registerMutation = useMutation({
+    mutationFn: (data: RegisterRequest) =>
+      apiClient.post<RegisterResponse>('/auth/register/', data),
+    onSuccess: (response) => {
+      // 新規作成ユーザーのIDを保持して、メンバーシップ追加へ進む
+      setNewlyCreatedUserId(response.data.user.id);
+      setCreatingNewUser(false);
+      setRegistrationData({
+        username: '',
+        email: '',
+        password: '',
+        first_name: '',
+        last_name: '',
+      });
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as { response?: { data?: Record<string, unknown> } };
+      const detail = axiosErr.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else {
+        setError(t('settings.userCreationFailed'));
+      }
+    },
+  });
+
   // --- モーダル制御 ---
   const openAddModal = useCallback(() => {
     setEditingMember(null);
+    setCreatingNewUser(false);
+    setNewlyCreatedUserId(null);
     setFormData({
       user: availableUsers[0]?.id ?? 0,
       project: projectId,
       start_date: new Date().toISOString().slice(0, 10),
       end_date: '',
       note: '',
+    });
+    setRegistrationData({
+      username: '',
+      email: '',
+      password: '',
+      first_name: '',
+      last_name: '',
     });
     setError('');
     setModalOpen(true);
@@ -198,8 +270,36 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
   const closeModal = useCallback(() => {
     setModalOpen(false);
     setEditingMember(null);
+    setCreatingNewUser(false);
+    setNewlyCreatedUserId(null);
     setError('');
+    setRegistrationData({
+      username: '',
+      email: '',
+      password: '',
+      first_name: '',
+      last_name: '',
+    });
   }, []);
+
+  const handleRegistrationSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (!registrationData.username || !registrationData.email || !registrationData.password) {
+      setError(t('common.error'));
+      return;
+    }
+    if (registrationData.password.length < 8) {
+      setError(t('settings.passwordTooShort'));
+      return;
+    }
+    registerMutation.mutate({
+      username: registrationData.username,
+      email: registrationData.email,
+      password: registrationData.password,
+      first_name: registrationData.first_name || undefined,
+      last_name: registrationData.last_name || undefined,
+    });
+  }, [registrationData, registerMutation, t]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -214,14 +314,15 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       });
       return;
     }
-    if (!formData.user) {
+    const userToAdd = newlyCreatedUserId || formData.user;
+    if (!userToAdd) {
       setError('ユーザーを選択してください');
       return;
     }
-    addMutation.mutate(formData);
-  }, [formData, editingMember, addMutation, updateMutation]);
+    addMutation.mutate({ ...formData, user: userToAdd });
+  }, [formData, newlyCreatedUserId, editingMember, addMutation, updateMutation]);
 
-  const isSaving = addMutation.isPending || updateMutation.isPending;
+  const isSaving = addMutation.isPending || updateMutation.isPending || registerMutation.isPending;
 
   if (isLoading) {
     return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
@@ -330,29 +431,121 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
               <button className="settings-modal__close" onClick={closeModal}>×</button>
             </div>
 
-            <form onSubmit={handleSubmit}>
-              <div className="settings-form__group">
-                <label className="settings-form__label">ユーザー</label>
-                {editingMember ? (
+            <form onSubmit={creatingNewUser ? handleRegistrationSubmit : handleSubmit}>
+              {!editingMember && (
+                <div className="settings-form__group">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                    <label className="settings-form__label" style={{ margin: 0 }}>
+                      {creatingNewUser || newlyCreatedUserId
+                        ? t('settings.createNewUser')
+                        : t('settings.selectExistingUser')}
+                    </label>
+                    {!newlyCreatedUserId && (
+                      <button
+                        type="button"
+                        className="settings-form__btn settings-form__btn--secondary"
+                        style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--font-size-sm)' }}
+                        onClick={() => {
+                          setCreatingNewUser(!creatingNewUser);
+                          setError('');
+                        }}
+                        data-testid="toggle-create-user-btn"
+                      >
+                        {creatingNewUser ? t('settings.selectExistingUser') : t('settings.createNewUser')}
+                      </button>
+                    )}
+                  </div>
+
+                  {creatingNewUser ? (
+                    // User creation form
+                    <>
+                      <div className="settings-form__group">
+                        <label className="settings-form__label">{t('settings.username')}</label>
+                        <input
+                          className="settings-form__input"
+                          type="text"
+                          value={registrationData.username}
+                          onChange={(e) => setRegistrationData(prev => ({ ...prev, username: e.target.value }))}
+                          required
+                          data-testid="registration-username-input"
+                        />
+                      </div>
+
+                      <div className="settings-form__group">
+                        <label className="settings-form__label">{t('settings.email')}</label>
+                        <input
+                          className="settings-form__input"
+                          type="email"
+                          value={registrationData.email}
+                          onChange={(e) => setRegistrationData(prev => ({ ...prev, email: e.target.value }))}
+                          required
+                          data-testid="registration-email-input"
+                        />
+                      </div>
+
+                      <div className="settings-form__group">
+                        <label className="settings-form__label">{t('settings.password')}</label>
+                        <input
+                          className="settings-form__input"
+                          type="password"
+                          value={registrationData.password}
+                          onChange={(e) => setRegistrationData(prev => ({ ...prev, password: e.target.value }))}
+                          required
+                          placeholder="8+ characters"
+                          data-testid="registration-password-input"
+                        />
+                      </div>
+
+                      <div className="settings-form__row">
+                        <div className="settings-form__group">
+                          <label className="settings-form__label">{t('settings.firstName')}</label>
+                          <input
+                            className="settings-form__input"
+                            type="text"
+                            value={registrationData.first_name}
+                            onChange={(e) => setRegistrationData(prev => ({ ...prev, first_name: e.target.value }))}
+                            data-testid="registration-first-name-input"
+                          />
+                        </div>
+                        <div className="settings-form__group">
+                          <label className="settings-form__label">{t('settings.lastName')}</label>
+                          <input
+                            className="settings-form__input"
+                            type="text"
+                            value={registrationData.last_name}
+                            onChange={(e) => setRegistrationData(prev => ({ ...prev, last_name: e.target.value }))}
+                            data-testid="registration-last-name-input"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    // User selection dropdown
+                    <select
+                      className="settings-form__select"
+                      value={formData.user}
+                      onChange={(e) => setFormData(prev => ({ ...prev, user: Number(e.target.value) }))}
+                      data-testid="member-user-select"
+                    >
+                      <option value={0}>{t('settings.selectUser')}</option>
+                      {availableUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName || u.username} ({u.email})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {editingMember && (
+                <div className="settings-form__group">
+                  <label className="settings-form__label">ユーザー</label>
                   <div className="settings-form__input" style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
                     {editingMember.user.displayName || editingMember.user.username} ({editingMember.user.email})
                   </div>
-                ) : (
-                  <select
-                    className="settings-form__select"
-                    value={formData.user}
-                    onChange={(e) => setFormData(prev => ({ ...prev, user: Number(e.target.value) }))}
-                    data-testid="member-user-select"
-                  >
-                    <option value={0}>{t('settings.selectUser')}</option>
-                    {availableUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.displayName || u.username} ({u.email})
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                </div>
+              )}
 
               <div className="settings-form__row">
                 <div className="settings-form__group">
@@ -395,9 +588,16 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
                 <button
                   type="button"
                   className="settings-form__btn settings-form__btn--secondary"
-                  onClick={closeModal}
+                  onClick={() => {
+                    if (creatingNewUser && !newlyCreatedUserId) {
+                      setCreatingNewUser(false);
+                      setError('');
+                    } else {
+                      closeModal();
+                    }
+                  }}
                 >
-                  キャンセル
+                  {creatingNewUser && !newlyCreatedUserId ? t('common.cancel') : t('common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -405,7 +605,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
                   disabled={isSaving}
                   data-testid="member-save-btn"
                 >
-                  {isSaving ? '保存中...' : editingMember ? '更新' : '追加'}
+                  {isSaving ? '保存中...' : creatingNewUser && !newlyCreatedUserId ? 'ユーザーを作成' : editingMember ? '更新' : '追加'}
                 </button>
               </div>
             </form>
