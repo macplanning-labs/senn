@@ -38,13 +38,17 @@ export function CycleList() {
   const [formName, setFormName] = useState('');
   const [formStart, setFormStart] = useState('');
   const [formEnd, setFormEnd] = useState('');
+  const [error, setError] = useState('');
 
   const activeCycle = cycles.find(c => c.status === 'active');
   const plannedCycles = cycles.filter(c => c.status === 'planned');
   const completedCycles = cycles.filter(c => c.status === 'completed');
 
   const handleCreate = () => {
-    if (!project || !formName || !formStart || !formEnd) return;
+    if (!project || !formName || !formStart || !formEnd) {
+      setError('サイクル名・開始日・終了日は必須です');
+      return;
+    }
     createMutation.mutate({
       project: project.id,
       name: formName,
@@ -56,6 +60,21 @@ export function CycleList() {
         setFormName('');
         setFormStart('');
         setFormEnd('');
+        setError('');
+      },
+      onError: (err: unknown) => {
+        const axiosErr = err as { response?: { data?: Record<string, string | string[]> } };
+        const detail = axiosErr.response?.data;
+        if (detail) {
+          const messages = Object.values(detail)
+            .flat()
+            .map(msg => typeof msg === 'string' ? msg : '')
+            .filter(Boolean)
+            .join(', ');
+          setError(messages || 'サイクルの作成に失敗しました');
+        } else {
+          setError('サイクルの作成に失敗しました');
+        }
       },
     });
   };
@@ -93,28 +112,41 @@ export function CycleList() {
             className="cycle-form__input"
             placeholder="サイクル名（例: Sprint 14）"
             value={formName}
-            onChange={e => setFormName(e.target.value)}
+            onChange={e => {
+              setFormName(e.target.value);
+              setError('');
+            }}
           />
           <div className="cycle-form__dates">
             <input
               type="date"
               className="cycle-form__input"
               value={formStart}
-              onChange={e => setFormStart(e.target.value)}
+              onChange={e => {
+                setFormStart(e.target.value);
+                setError('');
+              }}
             />
             <span className="cycle-form__separator">→</span>
             <input
               type="date"
               className="cycle-form__input"
               value={formEnd}
-              onChange={e => setFormEnd(e.target.value)}
+              onChange={e => {
+                setFormEnd(e.target.value);
+                setError('');
+              }}
             />
           </div>
+          {error && <div className="cycle-form__error">{error}</div>}
           <div className="cycle-form__actions">
             <button className="cycle-form__btn cycle-form__btn--primary" onClick={handleCreate}>
               作成
             </button>
-            <button className="cycle-form__btn" onClick={() => setShowForm(false)}>
+            <button className="cycle-form__btn" onClick={() => {
+              setShowForm(false);
+              setError('');
+            }}>
               キャンセル
             </button>
           </div>
