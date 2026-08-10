@@ -9,9 +9,10 @@ use axum::{
     Router,
 };
 use tower_http::services::ServeDir;
+use tower_governor::GovernorLayer;
 use crate::presentation::{
     state::AppState,
-    middleware::{auth::require_auth, jwt_auth},
+    middleware::{auth::require_auth, jwt_auth, rate_limiter},
     handlers::{
         auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
         milestones, projects, notifications, notification_api2, wiki, categories,
@@ -23,30 +24,49 @@ use crate::presentation::{
 };
 
 pub fn create_router(state: AppState) -> Router {
-    // 認証不要ルート
-    let public_routes = Router::new()
+    // ルートのうち率制限なし
+    let basic_public_routes = Router::new()
         .route("/auth/login", get(auth::login_page).post(auth::login_submit))
         .route("/auth/totp", get(auth::totp_page).post(auth::totp_verify))
         .route("/auth/webauthn", get(auth::webauthn_page))
         .route("/health", get(health::check))
         // REST API（APIキー認証 = セッション不要）
         .route("/api/tickets", get(api::list_tickets).post(api::create_ticket))
-        // JSON認証API（公開、認証不要）
+        .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
+        .route("/api/v1/auth/register/", post(auth_api::register));
+
+    // JSON認証API（ログイン）: 20 requests/min per IP
+    let login_routes = Router::new()
         .route("/api/v1/auth/login/", post(auth_api::login))
         .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
-        .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
-        .route("/api/v1/auth/register/", post(auth_api::register))
-        // GitHub Webhook: 認証不要(HMAC-SHA256署名で検証)
+        .layer(GovernorLayer::new(rate_limiter::login_config()).error_handler(rate_limiter::error_response));
+
+    // GitHub Webhook: 60 requests/min per IP
+    let webhook_routes = Router::new()
         .route("/api/v1/webhooks/github/", post(integration_api::github_webhook))
-        // 外部API: JWTではなくX-API-Keyヘッダーで認証(ハンドラ内で検証)
+        .layer(GovernorLayer::new(rate_limiter::webhook_config()).error_handler(rate_limiter::error_response));
+
+    // 外部API: 300 requests/min per IP
+    let external_routes = Router::new()
         .route("/api/v1/external/tickets/", post(external_api::create_ticket))
         .route("/api/v1/external/tickets/{ticket_key}/comments/", post(external_api::create_comment))
-        // AI専用外部API: X-AI-Api-Keyヘッダーで認証(wip_api_keyとは別系統、ハンドラ内で検証)
+        .layer(GovernorLayer::new(rate_limiter::external_api_config()).error_handler(rate_limiter::error_response));
+
+    // AI専用外部API: 300 requests/min per IP
+    let ai_agent_routes = Router::new()
         .route("/api/v1/ai-agent/projects/", post(ai_agent_api::create_project).get(ai_agent_api::list_projects))
         .route("/api/v1/ai-agent/tickets/{ticket_key}/comments/", post(ai_agent_api::add_comment))
         .route("/api/v1/ai-agent/tickets/{ticket_key}/", axum::routing::patch(ai_agent_api::patch_ticket))
         .route("/api/v1/ai-agent/tickets/", post(ai_agent_api::create_ticket).get(ai_agent_api::list_tickets))
-        .route("/api/v1/ai-agent/wiki-pages/", get(ai_agent_api::list_wiki_pages));
+        .route("/api/v1/ai-agent/wiki-pages/", get(ai_agent_api::list_wiki_pages))
+        .layer(GovernorLayer::new(rate_limiter::external_api_config()).error_handler(rate_limiter::error_response));
+
+    // 認証不要ルート（すべてのサブルーターを統合）
+    let public_routes = basic_public_routes
+        .merge(login_routes)
+        .merge(webhook_routes)
+        .merge(external_routes)
+        .merge(ai_agent_routes);
 
     // 認証必須ルート
     let protected_routes = Router::new()

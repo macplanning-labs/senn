@@ -11,6 +11,8 @@ axum-extra = { version = "0.10", features = ["cookie"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
+governor = "0.10"
 
 # テンプレートエンジン
 askama = "0.13"
