@@ -17,6 +17,11 @@ interface User {
   isStaff: boolean;
 }
 
+/** login() の結果。MFA登録済みユーザーは即ログインせずmfaTokenを返す */
+export type LoginResult =
+  | { mfaRequired: false }
+  | { mfaRequired: true; mfaToken: string };
+
 interface AuthState {
   /** 現在のユーザー（未認証時はnull） */
   user: User | null;
@@ -26,10 +31,22 @@ interface AuthState {
   isAuthenticated: boolean;
 
   // アクション
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<LoginResult>;
+  verifyMfa: (mfaToken: string, totpCode: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchUser: () => Promise<void>;
   setUser: (user: User | null) => void;
+}
+
+async function completeLogin(
+  set: (partial: Partial<AuthState>) => void,
+  access: string,
+  refresh: string,
+) {
+  setTokens(access, refresh);
+  set({ isAuthenticated: true });
+  const userRes = await apiClient.get<User>('/auth/me/');
+  set({ user: userRes.data, isLoading: false });
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
@@ -38,16 +55,24 @@ export const useAuthStore = create<AuthState>()((set) => ({
   isAuthenticated: !!getAccessToken(),
 
   login: async (username, password) => {
-    const { data } = await apiClient.post<{ access: string; refresh: string }>(
-      '/auth/login/',
-      { username, password },
-    );
-    setTokens(data.access, data.refresh);
-    set({ isAuthenticated: true });
+    const { data } = await apiClient.post<
+      { access: string; refresh: string } | { mfa_required: true; mfa_token: string }
+    >('/auth/login/', { username, password });
 
-    // ユーザー情報を取得
-    const userRes = await apiClient.get<User>('/auth/me/');
-    set({ user: userRes.data, isLoading: false });
+    if ('mfa_required' in data) {
+      return { mfaRequired: true, mfaToken: data.mfa_token };
+    }
+
+    await completeLogin(set, data.access, data.refresh);
+    return { mfaRequired: false };
+  },
+
+  verifyMfa: async (mfaToken, totpCode) => {
+    const { data } = await apiClient.post<{ access: string; refresh: string }>(
+      '/auth/login/verify/',
+      { mfa_token: mfaToken, totp_code: totpCode },
+    );
+    await completeLogin(set, data.access, data.refresh);
   },
 
   logout: async () => {

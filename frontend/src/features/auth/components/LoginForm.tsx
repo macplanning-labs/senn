@@ -21,11 +21,16 @@ export function LoginForm() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const verifyMfa = useAuthStore((s) => s.verifyMfa);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // MFA（TOTP）2段階目
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -40,13 +45,84 @@ export function LoginForm() {
 
     setIsLoading(true);
     try {
-      await login(username, password);
+      const loginResult = await login(username, password);
+      if (loginResult.mfaRequired) {
+        setMfaToken(loginResult.mfaToken);
+        return;
+      }
       navigate('/dashboard');
     } catch {
       setError(t('auth.loginError', 'Invalid username or password'));
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleMfaSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!mfaToken) return;
+
+    setIsLoading(true);
+    try {
+      await verifyMfa(mfaToken, totpCode);
+      navigate('/dashboard');
+    } catch {
+      setError(t('auth.mfaError', 'Invalid authentication code'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  if (mfaToken) {
+    return (
+      <div className="login" data-testid="login-page">
+        <div className="login__card">
+          <div className="login__header">
+            <h1 className="login__logo">WIP</h1>
+            <p className="login__tagline">{t('auth.mfaPrompt', 'Enter your authenticator code')}</p>
+          </div>
+
+          <form
+            className="login__form"
+            onSubmit={(e) => { void handleMfaSubmit(e); }}
+            data-testid="mfa-verify-form"
+          >
+            {error && (
+              <div className="login__error" data-testid="login-error" role="alert">
+                {error}
+              </div>
+            )}
+
+            <div className="login__field">
+              <label htmlFor="totp-code" className="login__label">
+                {t('auth.totpCode', 'Authentication code')}
+              </label>
+              <input
+                id="totp-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                className="login__input"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                autoFocus
+                data-testid="mfa-code-input"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="login__submit"
+              disabled={isLoading}
+              data-testid="mfa-verify-submit"
+            >
+              {isLoading ? t('common.loading') : t('auth.verify', 'Verify')}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
   }
 
   return (
