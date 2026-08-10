@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-staging
+dist-production
 dist-ssr
 *.local
 
