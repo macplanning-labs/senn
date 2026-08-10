@@ -233,6 +233,15 @@
   border-radius: var(--radius-lg);
 }
 
+/* Responsive: タブレット */
+@media (max-width: 1024px) {
+  .gantt__label-col {
+    width: 160px;
+    min-width: 160px;
+  }
+}
+
+/* Responsive: モバイル */
 @media (max-width: 768px) {
   .gantt__label-col {
     width: 120px;

@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useProject } from '@/shared/hooks/useProject';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
@@ -34,15 +35,17 @@ interface TabDef {
   disabled?: boolean;
 }
 
-const TABS: TabDef[] = [
-  { key: 'general', label: 'General', icon: '⚙️' },
-  { key: 'workflow', label: 'Workflow', icon: '🔄' },
-  { key: 'labels', label: 'Labels', icon: '🏷️' },
-  { key: 'categories', label: 'Categories', icon: '📂' },
-  { key: 'milestones', label: 'Milestones', icon: '🎯' },
-  { key: 'members', label: 'Members', icon: '👥' },
-  { key: 'integrations', label: 'Integrations', icon: '🔗' },
-];
+function getTabs(t: (key: string) => string): TabDef[] {
+  return [
+    { key: 'general', label: t('settings.general'), icon: '⚙️' },
+    { key: 'workflow', label: t('settings.workflow'), icon: '🔄' },
+    { key: 'labels', label: t('settings.labels'), icon: '🏷️' },
+    { key: 'categories', label: t('settings.categories'), icon: '📂' },
+    { key: 'milestones', label: t('settings.milestones'), icon: '🎯' },
+    { key: 'members', label: t('settings.members'), icon: '👥' },
+    { key: 'integrations', label: t('settings.integrations'), icon: '🔗' },
+  ];
+}
 
 const LANGUAGES = [
   { code: 'ja', label: '日本語', flag: '🇯🇵' },
@@ -52,12 +55,16 @@ const LANGUAGES = [
 /** General タブ — 言語・テーマ・プロフィール（旧 SettingsPage の内容を統合） */
 function GeneralSettings() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const { theme, toggleTheme } = useUIStore();
   const { user } = useAuthStore();
   const { currentProject } = useProject();
   const { data: teams } = useTeams();
   const { addToast } = useToastStore();
   const queryClient = useQueryClient();
+  const [descriptionEdit, setDescriptionEdit] = useState(false);
+  const [descriptionValue, setDescriptionValue] = useState(currentProject?.description ?? '');
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const updateOwnerTeam = useMutation({
     mutationFn: async (ownerTeamId: number | null) => {
@@ -71,6 +78,42 @@ function GeneralSettings() {
     },
     onError: () => {
       addToast({ message: 'オーナーチームの更新に失敗しました', type: 'error' });
+    },
+  });
+
+  const updateDescription = useMutation({
+    mutationFn: async (description: string) => {
+      await apiClient.patch(`/projects/${currentProject?.id}/`, {
+        description,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setDescriptionEdit(false);
+      addToast({ message: '説明を更新しました', type: 'success' });
+    },
+    onError: () => {
+      addToast({ message: '説明の更新に失敗しました', type: 'error' });
+    },
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: async () => {
+      await apiClient.delete(`/projects/${currentProject?.id}/`);
+    },
+    onSuccess: () => {
+      addToast({ message: t('settings.projectDeleted'), type: 'success' });
+      setDeleteConfirm(false);
+      navigate('/dashboard');
+    },
+    onError: (error: unknown) => {
+      const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } };
+      if (axiosErr.response?.status === 409) {
+        const message = axiosErr.response.data?.detail || 'チケットが存在するプロジェクトは削除できません';
+        addToast({ message, type: 'error' });
+      } else {
+        addToast({ message: t('settings.deleteProjectFailed'), type: 'error' });
+      }
     },
   });
 
@@ -113,9 +156,87 @@ function GeneralSettings() {
         </>
       )}
 
+      {/* プロジェクト説明 */}
+      {currentProject && (
+        <>
+          <div className="settings-section__header">
+            <h2 className="settings-section__title">{t('settings.description')}</h2>
+          </div>
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            {!descriptionEdit ? (
+              <div
+                onClick={() => {
+                  setDescriptionValue(currentProject.description ?? '');
+                  setDescriptionEdit(true);
+                }}
+                style={{
+                  padding: 'var(--space-3)',
+                  background: 'var(--color-bg-elevated)',
+                  border: '1px solid var(--color-border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  color: currentProject.description ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                  fontSize: 'var(--font-size-sm)',
+                  minHeight: 80,
+                  cursor: 'pointer',
+                  whiteSpace: 'pre-wrap',
+                  wordWrap: 'break-word',
+                }}
+                data-testid="description-display"
+              >
+                {currentProject.description || t('settings.descriptionPlaceholder')}
+              </div>
+            ) : (
+              <div>
+                <textarea
+                  className="settings-form__textarea"
+                  value={descriptionValue}
+                  onChange={(e) => setDescriptionValue(e.target.value)}
+                  placeholder={t('settings.descriptionPlaceholder')}
+                  data-testid="description-input"
+                  style={{
+                    width: '100%',
+                    minHeight: 120,
+                    padding: 'var(--space-3)',
+                    background: 'var(--color-bg-elevated)',
+                    border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-sm)',
+                    fontFamily: 'inherit',
+                  }}
+                />
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 'var(--space-2)',
+                    marginTop: 'var(--space-3)',
+                  }}
+                >
+                  <button
+                    className="settings-form__btn settings-form__btn--secondary"
+                    onClick={() => setDescriptionEdit(false)}
+                    disabled={updateDescription.isPending}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    className="settings-form__btn settings-form__btn--primary"
+                    onClick={() => updateDescription.mutate(descriptionValue)}
+                    disabled={updateDescription.isPending}
+                    data-testid="description-save-btn"
+                  >
+                    {updateDescription.isPending ? t('common.loading') : t('common.save')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* プロフィール */}
       <div className="settings-section__header">
-        <h2 className="settings-section__title">Profile</h2>
+        <h2 className="settings-section__title">{t('common.profile')}</h2>
       </div>
       <div style={{ marginBottom: 'var(--space-6)' }}>
         <div className="settings__card" style={{
@@ -213,6 +334,94 @@ function GeneralSettings() {
           ))}
         </tbody>
       </table>
+
+      {/* 危険エリア — プロジェクト削除 */}
+      {currentProject && (
+        <>
+          <div
+            style={{
+              marginTop: 'var(--space-8)',
+              paddingTop: 'var(--space-6)',
+              borderTop: '1px solid var(--color-border-default)',
+            }}
+          >
+            <div className="settings-section__header">
+              <h2 className="settings-section__title" style={{ color: 'var(--color-danger)' }}>
+                ⚠️ Danger Zone
+              </h2>
+            </div>
+            <div
+              style={{
+                padding: 'var(--space-4)',
+                background: 'var(--color-bg-elevated)',
+                border: '1px solid var(--color-border-danger)',
+                borderRadius: 'var(--radius-md)',
+                marginBottom: 'var(--space-6)',
+              }}
+            >
+              <div style={{ marginBottom: 'var(--space-3)' }}>
+                <h3 style={{ color: 'var(--color-text-primary)', marginBottom: 'var(--space-1)' }}>
+                  {t('settings.deleteProject')}
+                </h3>
+                <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>
+                  プロジェクトを完全に削除します。この操作は取り消せません。
+                </p>
+              </div>
+              <button
+                className="settings-form__btn settings-form__btn--danger"
+                onClick={() => setDeleteConfirm(true)}
+                disabled={deleteProject.isPending}
+                data-testid="delete-project-btn"
+                style={{
+                  background: 'var(--color-danger)',
+                  color: 'white',
+                  border: 'none',
+                  padding: 'var(--space-2) var(--space-3)',
+                  borderRadius: 'var(--radius-md)',
+                  cursor: deleteProject.isPending ? 'not-allowed' : 'pointer',
+                  opacity: deleteProject.isPending ? 0.6 : 1,
+                }}
+              >
+                {deleteProject.isPending ? '削除中...' : t('settings.deleteProject')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* プロジェクト削除確認ダイアログ */}
+      {deleteConfirm && currentProject && (
+        <div className="settings-modal__overlay" onClick={() => setDeleteConfirm(false)}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-modal__header">
+              <h3 className="settings-modal__title">{t('settings.deleteProject')}</h3>
+              <button className="settings-modal__close" onClick={() => setDeleteConfirm(false)}>×</button>
+            </div>
+            <div className="confirm-dialog__message">
+              {t('settings.deleteProjectConfirm', { name: currentProject.name })}
+            </div>
+            <div className="confirm-dialog__warning">
+              ⚠️ {t('settings.deleteProjectWarning')}
+            </div>
+            <div className="settings-form__actions">
+              <button
+                className="settings-form__btn settings-form__btn--secondary"
+                onClick={() => setDeleteConfirm(false)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                className="settings-form__btn settings-form__btn--danger"
+                onClick={() => deleteProject.mutate()}
+                disabled={deleteProject.isPending}
+                data-testid="delete-project-confirm-btn"
+              >
+                {deleteProject.isPending ? '削除中...' : t('settings.deleteProject')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -221,6 +430,7 @@ export function ProjectSettingsPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>('general');
   const { currentProject } = useProject();
+  const tabs = getTabs(t);
 
   if (!currentProject) {
     return (
@@ -236,14 +446,14 @@ export function ProjectSettingsPage() {
       {/* ヘッダー */}
       <div className="project-settings__header">
         <h1 className="project-settings__title">
-          Settings
+          {t('nav.settings')}
           <span className="project-settings__project-name">{currentProject.name}</span>
         </h1>
       </div>
 
       {/* タブ */}
       <div className="project-settings__tabs" role="tablist">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.key}
             role="tab"

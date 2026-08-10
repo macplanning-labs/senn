@@ -257,9 +257,22 @@
   background: var(--color-border-hover);
 }
 
-/* Responsive: scroll on small screens */
+/* Responsive: タブレット */
 @media (max-width: 1024px) {
   .kanban__board {
-    grid-template-columns: repeat(4, minmax(240px, 1fr));
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+    gap: var(--space-2);
+    padding: 0 var(--space-3) var(--space-3);
+  }
+
+  .kanban__column {
+    min-width: auto;
+  }
+}
+
+/* Responsive: モバイル */
+@media (max-width: 768px) {
+  .kanban__board {
+    grid-template-columns: 1fr;
   }
 }

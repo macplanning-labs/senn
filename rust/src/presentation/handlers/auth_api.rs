@@ -4,7 +4,7 @@
 /// Phase 1: access/refresh トークン、MFA (TOTP), ユーザー登録。
 
 use axum::{
-    extract::State,
+    extract::{State, Query},
     response::IntoResponse,
     http::StatusCode,
     Json,
@@ -91,6 +91,11 @@ pub struct UserListResponse {
     pub username: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct ListUsersQuery {
+    pub project: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -479,15 +484,34 @@ pub async fn register(
 pub async fn list_users(
     State(state): State<AppState>,
     Extension(_auth_user): Extension<AuthUser>,
+    Query(params): Query<ListUsersQuery>,
 ) -> impl IntoResponse {
-    let users = match user_repo::find_all(&state.pool).await {
-        Ok(users) => users,
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"detail": "ユーザー一覧取得エラー"})),
-            ).into_response();
+    let users = match params.project {
+        Some(project_id) => {
+            // プロジェクトメンバーのみを返す
+            match user_repo::find_project_members(&state.pool, project_id).await {
+                Ok(users) => users,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"detail": "ユーザー一覧取得エラー"})),
+                    ).into_response();
+                }
+            }
+        }
+        None => {
+            // プロジェクト指定なしなら全is_active=trueユーザーを返す
+            match user_repo::find_all(&state.pool).await {
+                Ok(users) => users,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"detail": "ユーザー一覧取得エラー"})),
+                    ).into_response();
+                }
+            }
         }
     };
 

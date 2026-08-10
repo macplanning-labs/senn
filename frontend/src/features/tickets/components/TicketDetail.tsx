@@ -283,7 +283,7 @@ export function TicketDetail() {
           </div>
 
           {/* 変更履歴タイムライン */}
-          <ChangeLogTimeline ticketId={ticket.id} />
+          <ChangeLogTimeline ticketId={ticket.ticketKey} />
         </div>
 
         {/* ── 右カラム: メタ情報パネル ── */}
@@ -409,7 +409,7 @@ export function TicketDetail() {
           <TimeTracker ticketId={ticket.id} />
 
           {/* Gitアクティビティ */}
-          <GitActivity ticketId={ticket.id} />
+          <GitActivity ticketKey={ticket.ticketKey} />
         </aside>
       </div>
     </div>

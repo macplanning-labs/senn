@@ -1,0 +1,83 @@
+.filter-bar {
+  display: flex;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  margin-bottom: var(--space-4, 16px);
+}
+
+.filter-bar__search {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border: 1px solid var(--color-border-default, #e0e0e0);
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-bg-primary, white);
+  color: var(--color-text-primary, #000);
+  font-size: var(--font-size-sm, 14px);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.filter-bar__search:focus {
+  border-color: var(--color-accent-primary, #3b82f6);
+  box-shadow: 0 0 0 2px var(--color-accent-primary-alpha-10, rgba(59, 130, 246, 0.1));
+}
+
+.filter-bar__search::placeholder {
+  color: var(--color-text-tertiary, #999);
+}
+
+.filter-bar__filters {
+  display: flex;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Support for child selects and buttons */
+.filter-bar__filters select,
+.filter-bar__filters button {
+  padding: var(--space-1, 4px) var(--space-3, 12px);
+  border: 1px solid var(--color-border-default, #e0e0e0);
+  border-radius: var(--radius-md, 6px);
+  background: var(--color-bg-elevated, #f9f9f9);
+  color: var(--color-text-primary, #000);
+  font-size: var(--font-size-sm, 14px);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.filter-bar__filters select:hover,
+.filter-bar__filters button:hover {
+  border-color: var(--color-border-focus, #c0c0c0);
+  background: var(--color-bg-secondary, #f0f0f0);
+}
+
+.filter-bar__filters select:focus,
+.filter-bar__filters button:focus {
+  border-color: var(--color-accent-primary, #3b82f6);
+  box-shadow: 0 0 0 2px var(--color-accent-primary-alpha-10, rgba(59, 130, 246, 0.1));
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .filter-bar__search {
+    background: var(--color-bg-tertiary, #222);
+    color: var(--color-text-primary, #fff);
+    border-color: var(--color-border-default, #444);
+  }
+
+  .filter-bar__filters select,
+  .filter-bar__filters button {
+    background: var(--color-bg-secondary, #333);
+    color: var(--color-text-primary, #fff);
+    border-color: var(--color-border-default, #555);
+  }
+
+  .filter-bar__filters select:hover,
+  .filter-bar__filters button:hover {
+    background: var(--color-bg-tertiary, #444);
+    border-color: var(--color-border-focus, #666);
+  }
+}

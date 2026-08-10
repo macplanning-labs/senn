@@ -73,35 +73,36 @@ const priorityColors: Record<string, string> = {
 
 // ── ヘルパー ─────────────────────────────
 
-function formatRelativeDate(dateStr: string): string {
+function formatRelativeDate(dateStr: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return t('dashboard.justNow');
+  if (diffMins < 60) return t('dashboard.minutesAgo', { count: diffMins });
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return t('dashboard.hoursAgo', { count: diffHours });
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 7) return t('dashboard.daysAgo', { count: diffDays });
   return date.toLocaleDateString();
 }
 
 // ── ウィジェットコンポーネント ─────────────
 
 function StatsCardsWidget({ data }: WidgetProps) {
+  const { t } = useTranslation();
   const d = data as Record<string, number>;
   const items = [
-    { label: 'Open', value: d.open_tickets ?? 0, color: 'var(--color-accent-primary, hsl(220, 80%, 60%))' },
-    { label: 'Overdue', value: d.overdue_tickets ?? 0, color: 'var(--color-error, hsl(0, 70%, 60%))' },
-    { label: 'Done (7d)', value: d.completed_this_week ?? 0, color: 'var(--color-success, hsl(140, 60%, 55%))' },
-    { label: 'Due Soon', value: d.due_soon_tickets ?? 0, color: 'var(--color-warning, hsl(45, 80%, 55%))' },
-    { label: 'Projects', value: d.total_projects ?? 0, color: 'var(--color-text-secondary)' },
+    { key: 'openTickets', label: t('dashboard.openTickets'), value: d.open_tickets ?? 0, color: 'var(--color-accent-primary, hsl(220, 80%, 60%))' },
+    { key: 'overdue', label: t('dashboard.overdue'), value: d.overdue_tickets ?? 0, color: 'var(--color-error, hsl(0, 70%, 60%))' },
+    { key: 'done7d', label: t('dashboard.done7d'), value: d.completed_this_week ?? 0, color: 'var(--color-success, hsl(140, 60%, 55%))' },
+    { key: 'dueSoon', label: t('dashboard.dueSoon'), value: d.due_soon_tickets ?? 0, color: 'var(--color-warning, hsl(45, 80%, 55%))' },
+    { key: 'projects', label: t('dashboard.totalProjects'), value: d.total_projects ?? 0, color: 'var(--color-text-secondary)' },
   ];
   return (
     <div className="stats-cards">
       {items.map((item) => (
-        <div key={item.label} className="stats-cards__item">
+        <div key={item.key} className="stats-cards__item">
           <div className="stats-cards__value" style={{ color: item.color }}>
             {item.value}
           </div>
@@ -113,13 +114,14 @@ function StatsCardsWidget({ data }: WidgetProps) {
 }
 
 function TicketOverviewWidget({ data }: WidgetProps) {
+  const { t } = useTranslation();
   const d = data as { open: number; in_progress: number; resolved: number; closed: number; total: number };
   const total = d.total || 1;
   const segments = [
-    { key: 'open', label: 'Open', count: d.open, color: 'hsl(210, 70%, 55%)' },
-    { key: 'in_progress', label: 'In Progress', count: d.in_progress, color: 'hsl(45, 80%, 55%)' },
-    { key: 'resolved', label: 'Resolved', count: d.resolved, color: 'hsl(150, 60%, 50%)' },
-    { key: 'closed', label: 'Closed', count: d.closed, color: 'hsl(220, 10%, 50%)' },
+    { key: 'open', label: t('ticket.status.open'), count: d.open, color: 'hsl(210, 70%, 55%)' },
+    { key: 'in_progress', label: t('ticket.status.in_progress'), count: d.in_progress, color: 'hsl(45, 80%, 55%)' },
+    { key: 'resolved', label: t('ticket.status.resolved'), count: d.resolved, color: 'hsl(150, 60%, 50%)' },
+    { key: 'closed', label: t('ticket.status.closed'), count: d.closed, color: 'hsl(220, 10%, 50%)' },
   ];
 
   // conic-gradient を生成
@@ -154,6 +156,7 @@ function TicketOverviewWidget({ data }: WidgetProps) {
 }
 
 function RecentActivityWidget({ data }: WidgetProps) {
+  const { t } = useTranslation();
   const activities = data as Array<{
     id: number;
     ticket_id: number | null;
@@ -167,7 +170,7 @@ function RecentActivityWidget({ data }: WidgetProps) {
   }>;
 
   if (!activities?.length) {
-    return <div className="widget-list__empty">📋 No recent activity</div>;
+    return <div className="widget-list__empty">📋 {t('dashboard.noRecentActivity')}</div>;
   }
 
   return (
@@ -177,8 +180,8 @@ function RecentActivityWidget({ data }: WidgetProps) {
           <span className="widget-list__icon">🔄</span>
           <span className="widget-list__text">
             <strong>{a.changed_by}</strong>{' '}
-            {a.ticket_id && a.project_key ? (
-              <Link to={`/p/${a.project_key}/tickets/${a.ticket_id}`} className="widget-list__link">
+            {a.ticket_key && a.project_key ? (
+              <Link to={`/p/${a.project_key}/tickets/${a.ticket_key}`} className="widget-list__link">
                 {a.ticket_key}
               </Link>
             ) : (
@@ -200,7 +203,7 @@ function RecentActivityWidget({ data }: WidgetProps) {
               {a.new_status.replace('_', ' ')}
             </span>
           </span>
-          <span className="widget-list__meta">{formatRelativeDate(a.changed_at)}</span>
+          <span className="widget-list__meta">{formatRelativeDate(a.changed_at, t)}</span>
         </div>
       ))}
     </div>
@@ -208,6 +211,7 @@ function RecentActivityWidget({ data }: WidgetProps) {
 }
 
 function MyTicketsWidget({ data }: WidgetProps) {
+  const { t } = useTranslation();
   const tickets = data as Array<{
     id: number;
     ticket_key: string;
@@ -220,13 +224,13 @@ function MyTicketsWidget({ data }: WidgetProps) {
   }>;
 
   if (!tickets?.length) {
-    return <div className="widget-list__empty">🎉 No open tickets!</div>;
+    return <div className="widget-list__empty">🎉 {t('dashboard.noOpenTickets')}</div>;
   }
 
   return (
     <div className="widget-list">
       {tickets.map((t) => (
-        <Link key={t.id} to={`/p/${t.project_key || '_'}/tickets/${t.id}`} className="widget-list__item">
+        <Link key={t.id} to={`/p/${t.project_key || '_'}/tickets/${t.ticket_key}`} className="widget-list__item">
           <span
             className="widget-priority"
             style={{ color: priorityColors[t.priority] }}
@@ -259,6 +263,7 @@ function MyTicketsWidget({ data }: WidgetProps) {
 }
 
 function RecentWikiWidget({ data }: WidgetProps) {
+  const { t } = useTranslation();
   const pages = data as Array<{
     id: number;
     title: string;
@@ -269,7 +274,7 @@ function RecentWikiWidget({ data }: WidgetProps) {
   }>;
 
   if (!pages?.length) {
-    return <div className="widget-list__empty">📖 No wiki pages yet</div>;
+    return <div className="widget-list__empty">📖 {t('dashboard.noWikiPages')}</div>;
   }
 
   return (
@@ -280,7 +285,7 @@ function RecentWikiWidget({ data }: WidgetProps) {
           <span className="widget-list__text">{p.title}</span>
           <span className="widget-list__meta">
             {p.lastEditor && `${p.lastEditor} · `}
-            {formatRelativeDate(p.updatedAt)}
+            {formatRelativeDate(p.updatedAt, t)}
           </span>
         </Link>
       ))}
@@ -289,6 +294,7 @@ function RecentWikiWidget({ data }: WidgetProps) {
 }
 
 function UnreadNotificationsWidget({ data }: WidgetProps) {
+  const { t } = useTranslation();
   const d = data as {
     count: number;
     items: Array<{
@@ -302,7 +308,7 @@ function UnreadNotificationsWidget({ data }: WidgetProps) {
   };
 
   if (!d?.items?.length) {
-    return <div className="widget-list__empty">✅ All caught up!</div>;
+    return <div className="widget-list__empty">✅ {t('dashboard.allCaughtUp')}</div>;
   }
 
   const categoryIcons: Record<string, string> = {
@@ -315,7 +321,7 @@ function UnreadNotificationsWidget({ data }: WidgetProps) {
   return (
     <div className="widget-list">
       <div className="widget-list__item" style={{ justifyContent: 'space-between', borderBottom: 'none' }}>
-        <span>Unread</span>
+        <span>{t('dashboard.unread')}</span>
         <span className="widget-notif-badge">{d.count}</span>
       </div>
       {d.items.map((n) => (
@@ -326,7 +332,7 @@ function UnreadNotificationsWidget({ data }: WidgetProps) {
         >
           <span className="widget-list__icon">{categoryIcons[n.category] || '🔔'}</span>
           <span className="widget-list__text">{n.title}</span>
-          <span className="widget-list__meta">{formatRelativeDate(n.createdAt)}</span>
+          <span className="widget-list__meta">{formatRelativeDate(n.createdAt, t)}</span>
         </Link>
       ))}
     </div>
@@ -345,15 +351,17 @@ const WIDGET_REGISTRY: Record<string, React.FC<WidgetProps>> = {
   sprint_health: SprintHealthWidget,
 };
 
-const WIDGET_META: Record<string, { icon: string; label: string; desc: string }> = {
-  stats_cards: { icon: '📊', label: 'Stats Cards', desc: 'KPI summary cards' },
-  ticket_overview: { icon: '🍩', label: 'Ticket Overview', desc: 'Status breakdown donut' },
-  recent_activity: { icon: '📰', label: 'Recent Activity', desc: 'Status change timeline' },
-  my_tickets: { icon: '📝', label: 'My Tickets', desc: 'Your open tickets' },
-  recent_wiki: { icon: '📖', label: 'Recent Wiki', desc: 'Recently updated pages' },
-  unread_notifications: { icon: '🔔', label: 'Notifications', desc: 'Unread notifications' },
-  sprint_health: { icon: '🤖', label: 'Sprint Health', desc: 'AI-powered sprint analysis' },
-};
+function getWidgetMeta(t: (key: string) => string): Record<string, { icon: string; label: string; desc: string }> {
+  return {
+    stats_cards: { icon: '📊', label: t('dashboard.statsCards'), desc: t('dashboard.statsCardsDesc') },
+    ticket_overview: { icon: '🍩', label: t('dashboard.ticketOverview'), desc: t('dashboard.ticketOverviewDesc') },
+    recent_activity: { icon: '📰', label: t('dashboard.recentActivity'), desc: t('dashboard.recentActivityDesc') },
+    my_tickets: { icon: '📝', label: t('dashboard.myTickets'), desc: t('dashboard.myTickets') },
+    recent_wiki: { icon: '📖', label: t('dashboard.recentWiki'), desc: t('dashboard.recentWikiDesc') },
+    unread_notifications: { icon: '🔔', label: t('dashboard.notificationsWidget'), desc: t('dashboard.notificationsDesc') },
+    sprint_health: { icon: '🤖', label: t('dashboard.sprintHealth'), desc: t('dashboard.sprintHealthDesc') },
+  };
+}
 
 // ── AddWidgetModal ────────────────────────
 
@@ -361,20 +369,24 @@ function AddWidgetModal({
   visibleTypes,
   onAdd,
   onClose,
+  widgetMeta,
+  t,
 }: {
   visibleTypes: string[];
   onAdd: (type: string) => void;
   onClose: () => void;
+  widgetMeta: Record<string, { icon: string; label: string; desc: string }>;
+  t: (key: string) => string;
 }) {
-  const allTypes = Object.keys(WIDGET_META);
+  const allTypes = Object.keys(widgetMeta);
 
   return (
     <div className="add-widget-overlay" onClick={onClose}>
       <div className="add-widget-modal" onClick={(e) => e.stopPropagation()}>
-        <h3 className="add-widget-modal__title">Add Widget</h3>
+        <h3 className="add-widget-modal__title">{t('dashboard.addWidget')}</h3>
         <div className="add-widget-modal__list">
           {allTypes.map((type) => {
-            const meta = WIDGET_META[type];
+            const meta = widgetMeta[type];
             if (!meta) return null;
             const alreadyVisible = visibleTypes.includes(type);
             return (
@@ -397,7 +409,7 @@ function AddWidgetModal({
           })}
         </div>
         <button className="add-widget-modal__close" onClick={onClose}>
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     </div>
@@ -559,6 +571,7 @@ export function Dashboard() {
 
   const widgets = dashboard?.widgets ?? [];
   const visibleTypes = widgets.map((w) => w.widgetType);
+  const widgetMeta = getWidgetMeta(t);
 
   return (
     <div className="dashboard" data-testid="dashboard-page">
@@ -604,7 +617,7 @@ export function Dashboard() {
                       deleteMutation.mutate(d.id);
                     }
                   }}
-                  title="Delete dashboard"
+                  title={t('dashboard.deleteDashboard')}
                 >
                   ×
                 </button>
@@ -615,7 +628,7 @@ export function Dashboard() {
             <div className="dashboard__tab dashboard__tab--new">
               <input
                 className="dashboard__tab-input"
-                placeholder="Dashboard name..."
+                placeholder={t('dashboard.dashboardName')}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
@@ -629,7 +642,7 @@ export function Dashboard() {
             <button
               className="dashboard__tab dashboard__tab--add"
               onClick={() => setIsCreating(true)}
-              title="New dashboard"
+              title={t('dashboard.newDashboard')}
             >
               +
             </button>
@@ -644,7 +657,7 @@ export function Dashboard() {
             {dashboard?.name || t('dashboard.title')}
           </h1>
           <p className="dashboard__greeting">
-            {user ? `Welcome back, ${user.firstName || user.username}` : ''}
+            {user ? t('dashboard.welcomeBack', { name: user.firstName || user.username }) : ''}
           </p>
         </div>
         <button
@@ -652,7 +665,7 @@ export function Dashboard() {
           onClick={() => setShowAddModal(true)}
           data-testid="add-widget-btn"
         >
-          + Add Widget
+          + {t('dashboard.addWidget')}
         </button>
       </div>
 
@@ -660,7 +673,7 @@ export function Dashboard() {
       <div className="dashboard__grid">
         {widgets.map((w, i) => {
           const Widget = WIDGET_REGISTRY[w.widgetType];
-          const meta = WIDGET_META[w.widgetType];
+          const meta = widgetMeta[w.widgetType];
           if (!Widget) return null;
           return (
             <div
@@ -679,13 +692,13 @@ export function Dashboard() {
               <button
                 className="widget-card__remove"
                 onClick={() => removeMutation.mutate(w.id)}
-                title="Remove widget"
+                title={t('dashboard.removeWidget')}
                 data-testid={`remove-${w.widgetType}`}
               >
                 ×
               </button>
               <div className="widget-card__header">
-                <span className="widget-card__drag-handle" title="Drag to reorder">⠿</span>
+                <span className="widget-card__drag-handle" title={t('dashboard.dragToReorder')}>⠿</span>
                 <span className="widget-card__icon">{meta?.icon}</span>
                 <span className="widget-card__title">{meta?.label}</span>
               </div>
@@ -701,6 +714,8 @@ export function Dashboard() {
           visibleTypes={visibleTypes}
           onAdd={(type) => addMutation.mutate(type)}
           onClose={() => setShowAddModal(false)}
+          widgetMeta={widgetMeta}
+          t={t}
         />
       )}
     </div>

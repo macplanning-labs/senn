@@ -18,12 +18,14 @@ const LANGUAGES = [
   { code: 'en', label: 'English' },
 ] as const;
 
-const NOTIFICATION_CATEGORIES = [
-  { key: 'assigned', label: 'Assigned to me', icon: '👤' },
-  { key: 'commented', label: 'Comments on my tickets', icon: '💬' },
-  { key: 'status_changed', label: 'Status changes', icon: '🔄' },
-  { key: 'due_soon', label: 'Due date reminders', icon: '⏰' },
-] as const;
+function getNotificationCategories(t: (key: string) => string) {
+  return [
+    { key: 'assigned', label: t('settings.assignedToMe'), icon: '👤' },
+    { key: 'commented', label: t('settings.commentsOnTickets'), icon: '💬' },
+    { key: 'status_changed', label: t('settings.statusChanges'), icon: '🔄' },
+    { key: 'due_soon', label: t('settings.dueReminders'), icon: '⏰' },
+  ] as const;
+}
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -49,13 +51,15 @@ export function SettingsPage() {
     },
   });
 
+  const notificationCategories = getNotificationCategories(t);
+
   return (
     <div className="settings" data-testid="settings-page">
       <h1 className="settings__title">{t('nav.settings', 'Settings')}</h1>
 
       {/* プロフィール */}
       <section className="settings__section">
-        <h2 className="settings__section-title">Profile</h2>
+        <h2 className="settings__section-title">{t('common.profile')}</h2>
         <div className="settings__card">
           <div className="settings__profile">
             <span className="settings__avatar">
@@ -103,13 +107,13 @@ export function SettingsPage() {
               className={`settings__theme-btn ${theme === 'dark' ? 'settings__theme-btn--active' : ''}`}
               onClick={() => { if (theme !== 'dark') toggleTheme(); }}
             >
-              🌙 Dark
+              🌙 {t('common.dark')}
             </button>
             <button
               className={`settings__theme-btn ${theme === 'light' ? 'settings__theme-btn--active' : ''}`}
               onClick={() => { if (theme !== 'light') toggleTheme(); }}
             >
-              ☀️ Light
+              ☀️ {t('common.light')}
             </button>
           </div>
         </div>
@@ -117,14 +121,14 @@ export function SettingsPage() {
 
       {/* メール通知設定 */}
       <section className="settings__section">
-        <h2 className="settings__section-title">📧 Email Notifications</h2>
+        <h2 className="settings__section-title">📧 {t('settings.emailNotifications')}</h2>
         <div className="settings__card">
           <div className="settings__notification-master">
             <div className="settings__notification-row">
               <div>
-                <div className="settings__notification-label">Email notifications</div>
+                <div className="settings__notification-label">{t('settings.emailNotifications')}</div>
                 <div className="settings__notification-desc">
-                  Receive email notifications for ticket updates
+                  {t('settings.emailNotificationsDesc')}
                 </div>
               </div>
               <label className="settings__toggle">
@@ -140,7 +144,7 @@ export function SettingsPage() {
 
           {emailEnabled && (
             <div className="settings__notification-categories">
-              {NOTIFICATION_CATEGORIES.map((cat) => (
+              {notificationCategories.map((cat) => (
                 <div key={cat.key} className="settings__notification-row">
                   <div>
                     <div className="settings__notification-label">

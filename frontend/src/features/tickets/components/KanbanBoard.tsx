@@ -55,9 +55,9 @@ const priorityColors: Record<string, string> = {
 export function KanbanBoard() {
   const navigate = useNavigate();
   const { projectKey, currentProject } = useProject();
-  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
-  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   // プロジェクト固有ワークフローステータスを取得
   const { data: workflowStatuses = [] } = useWorkflowStatuses(currentProject?.id);
@@ -87,18 +87,18 @@ export function KanbanBoard() {
   const tickets = data?.results ?? [];
 
   // 楽観的ステータス更新 — D&D時にカードが即座に移動先カラムに表示（0ms）
-  const statusMutation = useOptimisticMutation<void, { id: number; status: string }>({
-    mutationFn: async ({ id, status }) => {
-      await apiClient.patch(`/tickets/${id}/`, { status });
+  const statusMutation = useOptimisticMutation<void, { ticketKey: string; status: string }>({
+    mutationFn: async ({ ticketKey, status }) => {
+      await apiClient.patch(`/tickets/${ticketKey}/`, { status });
     },
     queryKey,
-    updater: (currentData, { id, status }) => {
+    updater: (currentData, { ticketKey, status }) => {
       const data = currentData as { results: KanbanTicket[] } | undefined;
       if (!data?.results) return currentData;
       return {
         ...data,
         results: data.results.map((t) =>
-          t.id === id ? { ...t, status } : t,
+          t.ticketKey === ticketKey ? { ...t, status } : t,
         ),
       };
     },
@@ -116,10 +116,10 @@ export function KanbanBoard() {
   );
 
   // Drag handlers
-  function handleDragStart(e: React.DragEvent, ticketId: number) {
-    e.dataTransfer.setData('ticketId', String(ticketId));
+  function handleDragStart(e: React.DragEvent, ticketKey: string) {
+    e.dataTransfer.setData('ticketKey', ticketKey);
     e.dataTransfer.effectAllowed = 'move';
-    setDraggingId(ticketId);
+    setDraggingId(ticketKey);
   }
 
   function handleDragEnd() {
@@ -140,10 +140,10 @@ export function KanbanBoard() {
   function handleDrop(e: React.DragEvent, newStatus: string) {
     e.preventDefault();
     setDragOverColumn(null);
-    const ticketId = Number(e.dataTransfer.getData('ticketId'));
-    const ticket = tickets.find((t) => t.id === ticketId);
+    const ticketKey = e.dataTransfer.getData('ticketKey');
+    const ticket = tickets.find((t) => t.ticketKey === ticketKey);
     if (ticket && ticket.status !== newStatus) {
-      statusMutation.mutate({ id: ticketId, status: newStatus });
+      statusMutation.mutate({ ticketKey, status: newStatus });
     }
   }
 
@@ -201,14 +201,14 @@ export function KanbanBoard() {
                 {ticketsByStatus[col.status]?.map((ticket) => (
                   <div
                     key={ticket.id}
-                    className={`kanban__card ${draggingId === ticket.id ? 'kanban__card--dragging' : ''}`}
+                    className={`kanban__card ${draggingId === ticket.ticketKey ? 'kanban__card--dragging' : ''}`}
                     draggable
-                    onDragStart={(e) => handleDragStart(e, ticket.id)}
+                    onDragStart={(e) => handleDragStart(e, ticket.ticketKey)}
                     onDragEnd={handleDragEnd}
                     onClick={() => {
-                      setSelectedTicketId(ticket.id);
+                      setSelectedTicketId(ticket.ticketKey);
                       if (projectKey) {
-                        navigate(`/p/${projectKey}/board/${ticket.id}`);
+                        navigate(`/p/${projectKey}/board/${ticket.ticketKey}`);
                       }
                     }}
                     data-testid={`kanban-card-${ticket.ticketKey}`}
@@ -280,7 +280,7 @@ export function KanbanBoard() {
       {/* Detail panel */}
       {selectedTicketId && (
         <TicketDetailPanel
-          ticketId={String(selectedTicketId)}
+          ticketId={selectedTicketId}
           onClose={handleClosePanel}
         />
       )}

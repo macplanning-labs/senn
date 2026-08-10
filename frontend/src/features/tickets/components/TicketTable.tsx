@@ -16,6 +16,8 @@ import { useKeyboardNav } from '@/shared/hooks/useKeyboardNav';
 import { InlineEdit } from '@/shared/components/ui/InlineEdit';
 import { LabelList } from '@/shared/components/ui/LabelBadge';
 import type { Label } from '@/shared/components/ui/LabelBadge';
+import { FilterBar } from '@/shared/components/ui/FilterBar';
+import { MarkdownImportModal } from './MarkdownImportModal';
 import './TicketTable.css';
 import { useColumnResize } from '@/shared/hooks/useColumnResize';
 import type { ColumnDef } from '@/shared/hooks/useColumnResize';
@@ -146,6 +148,7 @@ export function TicketTable() {
 
   // --- バルク操作 ---
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [markdownImportOpen, setMarkdownImportOpen] = useState(false);
 
   const toggleSelect = (id: number) => {
     setSelectedIds(prev => {
@@ -233,7 +236,7 @@ export function TicketTable() {
     onOpen: (index) => {
       const ticket = tickets[index];
       if (ticket && projectKey) {
-        navigate(`/p/${projectKey}/tickets/${ticket.id}`);
+        navigate(`/p/${projectKey}/tickets/${ticket.ticketKey}`);
       }
     },
     onClose: () => {
@@ -282,22 +285,27 @@ export function TicketTable() {
           >
             📥 CSV
           </button>
+          <button
+            className="ticket-table__import-btn"
+            onClick={() => setMarkdownImportOpen(true)}
+            data-testid="markdown-import-btn"
+            title="Markdownからインポート"
+          >
+            📄 MD
+          </button>
           <Link to={projectKey ? `/p/${projectKey}/tickets/new` : '/tickets/new'} className="ticket-table__create-btn" data-testid="create-ticket-btn">
             + {t('ticket.create')}
           </Link>
         </div>
       </div>
 
-      {/* フィルタバー */}
-      <div className="ticket-table__filters" data-testid="ticket-filters">
-        <input
-          type="text"
-          className="ticket-table__search"
-          placeholder={t('common.search')}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          data-testid="ticket-search"
-        />
+      {/* フィルタバー（共有コンポーネント） */}
+      <FilterBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('common.search')}
+        testId="ticket-filters"
+      >
         <select
           className="ticket-table__filter-select"
           value={statusFilter}
@@ -354,7 +362,7 @@ export function TicketTable() {
             </div>
           )}
         </div>
-      </div>
+      </FilterBar>
 
       {/* バルクアクションバー */}
       {selectedIds.size > 0 && (
@@ -449,7 +457,7 @@ export function TicketTable() {
                   className={`ticket-table__row ${index === selectedIndex ? 'ticket-table__row--selected' : ''}`}
                   data-testid={`ticket-row-${ticket.ticketKey}`}
                   onClick={() => {
-                    if (projectKey) navigate(`/p/${projectKey}/tickets/${ticket.id}`);
+                    if (projectKey) navigate(`/p/${projectKey}/tickets/${ticket.ticketKey}`);
                   }}
                   style={{ cursor: 'pointer' }}
                 >
@@ -474,7 +482,7 @@ export function TicketTable() {
 
                   {/* キー */}
                   <td className="ticket-table__td ticket-table__td--key">
-                    <Link to={projectKey ? `/p/${projectKey}/tickets/${ticket.id}` : `/tickets/${ticket.id}`} className="ticket-table__key-link">
+                    <Link to={projectKey ? `/p/${projectKey}/tickets/${ticket.ticketKey}` : `/tickets/${ticket.ticketKey}`} className="ticket-table__key-link">
                       {ticket.ticketKey}
                     </Link>
                   </td>
@@ -573,6 +581,16 @@ export function TicketTable() {
           </table>
         )}
       </div>
+
+      {/* Markdownインポートモーダル */}
+      <MarkdownImportModal
+        isOpen={markdownImportOpen}
+        onClose={() => setMarkdownImportOpen(false)}
+        onSuccess={() => {
+          setMarkdownImportOpen(false);
+          // TicketTableは自動的に再レンダリングされ、クエリが再実行される
+        }}
+      />
     </div>
   );
 }

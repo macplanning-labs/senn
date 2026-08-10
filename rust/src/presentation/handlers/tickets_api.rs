@@ -236,6 +236,33 @@ pub async fn create(
         }
     }
 
+    // assignees のプロジェクトメンバーバリデーション
+    if !body.assignees.is_empty() {
+        match ticket_repo::validate_assignees_are_members(&state.pool, body.project, &body.assignees).await {
+            Ok(non_members) => {
+                if !non_members.is_empty() {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            detail: "指定されたユーザーはプロジェクトのメンバーではありません".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+            Err(e) => {
+                tracing::error!("Assignee validation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     // トランザクション開始
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
@@ -335,6 +362,56 @@ pub async fn update(
         }
     }
 
+    // assignees のプロジェクトメンバーバリデーション
+    if !body.assignees.is_empty() {
+        // チケットのプロジェクトIDを取得
+        let project_id_opt: Option<i32> = match sqlx::query_scalar(
+            "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+        )
+        .bind(&ticket_key)
+        .fetch_optional(&state.pool)
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        if let Some(project_id) = project_id_opt {
+            match ticket_repo::validate_assignees_are_members(&state.pool, project_id, &body.assignees).await {
+                Ok(non_members) => {
+                    if !non_members.is_empty() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                detail: "指定されたユーザーはプロジェクトのメンバーではありません".to_string(),
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Assignee validation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            detail: "サーバーエラーが発生しました".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
     // トランザクション開始
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
@@ -377,6 +454,142 @@ pub async fn update(
             }
 
             // 更新後の詳細を取得
+            match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
+                Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(None) => {
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// チケット部分更新 PATCH /api/v1/tickets/{ticket_key}/
+///
+/// 詳細パネルからのインライン編集用。指定したフィールドのみ更新する。
+/// (PUT /api/v1/tickets/{ticket_key}/ は全項目必須のフォーム編集用、こちらは部分更新用で用途が異なる)
+pub async fn patch(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(ticket_key): Path<String>,
+    Json(body): Json<TicketPatchIn>,
+) -> impl IntoResponse {
+    if let Some(Some(points)) = body.story_points {
+        if !FIBONACCI_POINTS.contains(&points) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "ストーリーポイントはフィボナッチ数列(1, 2, 3, 5, 8, 13, 21)のいずれかを指定してください。".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    // assignees のプロジェクトメンバーバリデーション（Someの場合のみ）
+    if let Some(assignees) = &body.assignees {
+        if !assignees.is_empty() {
+            // チケットのプロジェクトIDを取得
+            let project_id_opt: Option<i32> = match sqlx::query_scalar(
+                "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+            )
+            .bind(&ticket_key)
+            .fetch_optional(&state.pool)
+            .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            detail: "サーバーエラーが発生しました".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            };
+
+            if let Some(project_id) = project_id_opt {
+                match ticket_repo::validate_assignees_are_members(&state.pool, project_id, assignees).await {
+                    Ok(non_members) => {
+                        if !non_members.is_empty() {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(ErrorResponse {
+                                    detail: "指定されたユーザーはプロジェクトのメンバーではありません".to_string(),
+                                }),
+                            )
+                                .into_response();
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Assignee validation failed: {:?}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                detail: "サーバーエラーが発生しました".to_string(),
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
+    }
+
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match ticket_repo::api_patch(&mut tx, &ticket_key, &body, auth.user_id).await {
+        Err(e) => {
+            tracing::error!("api_patch failed: {:?}", e);
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        Ok(Some(_)) => {
+            if let Err(e) = tx.commit().await {
+                tracing::error!("transaction commit failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+
             match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
                 _ => (
@@ -915,6 +1128,95 @@ pub async fn export_csv(
             ),
         ],
         csv,
+    )
+        .into_response()
+}
+
+/// バルクインポート POST /api/v1/tickets/bulk-import/
+pub async fn bulk_import(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<BulkImportIn>,
+) -> impl IntoResponse {
+    let mut imported = 0;
+    let mut errors: Vec<BulkImportError> = Vec::new();
+
+    // トランザクション開始
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("DB transaction begin failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BulkImportOut {
+                    imported: 0,
+                    errors: vec![BulkImportError {
+                        index: 0,
+                        error: "サーバーエラーが発生しました".to_string(),
+                    }],
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // 各チケットをインポート
+    for (idx, ticket_data) in body.tickets.iter().enumerate() {
+        // BulkImportTicketInからTicketWriteInに変換
+        let ticket_write_in = TicketWriteIn {
+            title: ticket_data.title.clone(),
+            description: ticket_data.description.clone(),
+            status: ticket_data.status.clone(),
+            priority: ticket_data.priority.clone(),
+            ticket_type: "task".to_string(), // デフォルト値
+            assignees: vec![],
+            category: None,
+            project: ticket_data.project,
+            milestone: None,
+            parent: None,
+            start_date: None,
+            due_date: None,
+            labels: vec![],
+            story_points: None,
+            cycle: None,
+            assigned_team: None,
+            linked_rules: vec![],
+        };
+
+        // チケット作成を試みる
+        match ticket_repo::api_create(&mut tx, &ticket_write_in, auth.user_id).await {
+            Ok(_ticket_id) => {
+                imported += 1;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to create ticket at index {}: {:?}", idx, e);
+                errors.push(BulkImportError {
+                    index: idx,
+                    error: format!("{}", e),
+                });
+            }
+        }
+    }
+
+    // コミット
+    if let Err(e) = tx.commit().await {
+        tracing::error!("Transaction commit failed: {:?}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(BulkImportOut {
+                imported: 0,
+                errors: vec![BulkImportError {
+                    index: 0,
+                    error: "トランザクションコミット失敗".to_string(),
+                }],
+            }),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::CREATED,
+        Json(BulkImportOut { imported, errors }),
     )
         .into_response()
 }

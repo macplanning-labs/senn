@@ -14,6 +14,7 @@ import {
   useRejectTriageRequest,
 } from '../hooks/useTriageRequests';
 import { apiClient } from '@/shared/api/client';
+import { FilterBar } from '@/shared/components/ui/FilterBar';
 import type { TriageRequest, TriageStatus } from '@/shared/api/types';
 
 const STATUS_BADGES: Record<TriageStatus, { label: string; color: string; bg: string }> = {
@@ -29,6 +30,7 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
 
 export function TriageRequestsPage() {
   const [filter, setFilter] = useState<TriageStatus | ''>('');
+  const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [reviewComment, setReviewComment] = useState('');
@@ -110,8 +112,13 @@ export function TriageRequestsPage() {
         </button>
       </div>
 
-      {/* フィルタ */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+      {/* フィルタバー（共有コンポーネント） */}
+      <FilterBar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="依頼を検索..."
+        testId="triage-filters"
+      >
         {(['', 'pending', 'approved', 'rejected'] as const).map((s) => (
           <button
             key={s}
@@ -125,11 +132,12 @@ export function TriageRequestsPage() {
               cursor: 'pointer',
               fontSize: 'var(--font-size-sm)',
             }}
+            data-testid={`status-filter-${s}`}
           >
             {s === '' ? 'すべて' : STATUS_BADGES[s].label}
           </button>
         ))}
-      </div>
+      </FilterBar>
 
       {/* 作成モーダル */}
       {showCreate && (
@@ -207,13 +215,21 @@ export function TriageRequestsPage() {
         <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-tertiary)' }}>
           読み込み中...
         </div>
-      ) : (requests ?? []).length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-tertiary)' }}>
-          📋 依頼はありません
-        </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          {(requests ?? []).map((req: TriageRequest) => {
+        (() => {
+          // Frontend search filtering
+          const filteredRequests = (requests ?? []).filter(req =>
+            !search ||
+            req.title.toLowerCase().includes(search.toLowerCase()) ||
+            (req.description?.toLowerCase() ?? '').includes(search.toLowerCase())
+          );
+          return filteredRequests.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-tertiary)' }}>
+              📋 {search ? `「${search}」に一致する依頼はありません` : '依頼はありません'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              {filteredRequests.map((req: TriageRequest) => {
             const badge = STATUS_BADGES[req.status];
             return (
               <div
@@ -285,7 +301,7 @@ export function TriageRequestsPage() {
                         fontSize: 'var(--font-size-sm)',
                       }}>
                         🎫 <a
-                          href={`/p/${req.ticketKey.split('-')[0]}/tickets/${req.ticketId}`}
+                          href={`/p/${req.ticketKey.split('-')[0]}/tickets/${req.ticketKey}`}
                           style={{ color: 'var(--color-accent-primary)', fontWeight: 600 }}
                         >
                           {req.ticketKey}
@@ -364,9 +380,11 @@ export function TriageRequestsPage() {
                   )}
                 </div>
               </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          );
+        })()
       )}
     </div>
   );

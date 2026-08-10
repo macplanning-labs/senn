@@ -184,7 +184,7 @@ export function GanttChart() {
               >
                 {/* 左: ラベル */}
                 <div className="gantt__label-col">
-                  <Link to={`/tickets/${ticket.id}`} className="gantt__ticket-link">
+                  <Link to={projectKey ? `/p/${projectKey}/tickets/${ticket.ticketKey}` : `/tickets/${ticket.ticketKey}`} className="gantt__ticket-link">
                     <span className="gantt__ticket-key">{ticket.ticketKey}</span>
                     <span className="gantt__ticket-title">{ticket.title}</span>
                   </Link>

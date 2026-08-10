@@ -28,8 +28,8 @@ pub struct MembershipOut {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MembershipCreateIn {
+    #[serde(rename = "user")]
     pub user_id: i32,
     pub project: i32,
     pub start_date: NaiveDate,

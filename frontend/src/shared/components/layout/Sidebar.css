@@ -415,3 +415,34 @@
 .sidebar__logout:hover {
   color: var(--color-error);
 }
+
+/* ── レスポンシブ: タブレット ── */
+@media (max-width: 1024px) {
+  .sidebar--open {
+    width: var(--sidebar-collapsed-width);
+  }
+
+  .sidebar--open .sidebar__label,
+  .sidebar--open .sidebar__project-name,
+  .sidebar--open .sidebar__user-name {
+    display: none;
+  }
+
+  .sidebar--open .sidebar__project-icon,
+  .sidebar--open .sidebar__avatar {
+    margin: 0 auto;
+  }
+
+  .sidebar--open .sidebar__project-btn {
+    justify-content: center;
+  }
+
+  .sidebar--open .sidebar__link {
+    justify-content: center;
+    padding: var(--space-2);
+  }
+
+  .sidebar--open .sidebar__icon {
+    margin: 0;
+  }
+}

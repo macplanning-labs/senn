@@ -25,6 +25,11 @@ pub struct AppConfig {
     pub wip_api_key: Option<String>,
     /// 外部API経由の操作を実行するユーザー名。DjangoのWIP_API_USER相当(デフォルト"管理者")。
     pub wip_api_user: String,
+    /// AI専用外部API(X-AI-Api-Key認証)用の共有キー。wip_api_keyとは別系統のキーとして扱い、
+    /// AIエージェントによる操作を人間/他システムの操作(wip_api_key)と区別できるようにする。
+    pub wip_ai_api_key: Option<String>,
+    /// AI専用外部API経由の操作を実行するユーザー名。未存在ならauthenticate時に自動作成する。
+    pub wip_ai_api_user: String,
     pub ollama_url: String,
     pub ollama_model: String,
     pub ollama_timeout_secs: u64,
@@ -72,6 +77,8 @@ impl AppConfig {
             }),
             wip_api_key: std::env::var("WIP_API_KEY").ok(),
             wip_api_user: std::env::var("WIP_API_USER").unwrap_or_else(|_| "管理者".to_string()),
+            wip_ai_api_key: std::env::var("WIP_AI_API_KEY").ok().filter(|s| !s.is_empty()),
+            wip_ai_api_user: std::env::var("WIP_AI_API_USER").unwrap_or_else(|_| "ai_agent".to_string()),
             ollama_url: std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string()),
             ollama_model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5:7b".to_string()),
             ollama_timeout_secs: std::env::var("OLLAMA_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(30),
