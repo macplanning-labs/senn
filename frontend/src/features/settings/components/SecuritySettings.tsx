@@ -1,14 +1,15 @@
 /**
- * SecuritySettings.tsx — セキュリティ設定（TOTP多要素認証）
+ * SecuritySettings.tsx — セキュリティ設定（MFA: TOTP + Passkey/WebAuthn）
  *
- * TOTP（ワンタイムパスワード）の登録・無効化。
+ * TOTP（ワンタイムパスワード）とパスキー（WebAuthn）の登録・管理。
  */
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
+import { convertCreateOptionsToJSON, convertCredentialToJSON } from '@/shared/utils/base64url';
 
 interface BeginResponse {
   secret_b64: string;
@@ -24,16 +25,53 @@ interface DisableResponse {
   ok: boolean;
 }
 
+// Passkey/WebAuthn interfaces
+interface PasskeyBeginResponse {
+  creation_challenge: any;
+  registration_state_json: string;
+}
+
+interface PasskeyRegisterCompleteResponse {
+  ok: boolean;
+  message: string;
+}
+
+interface PasskeySummary {
+  id: number;
+  name: string;
+  created_at: string;
+}
+
+interface PasskeyListResponse {
+  passkeys: PasskeySummary[];
+}
+
 export function SecuritySettings() {
   const { t } = useTranslation();
   const toast = useToast();
 
+  // TOTP state
   const [step, setStep] = useState<'idle' | 'setup' | 'confirm'>('idle');
   const [qrCode, setQrCode] = useState<string>('');
   const [secretBase32, setSecretBase32] = useState<string>('');
   const [secretB64, setSecretB64] = useState<string>('');
   const [confirmCode, setConfirmCode] = useState<string>('');
   const [isEnabled, setIsEnabled] = useState(false);
+
+  // Passkey state
+  const [passkeyStep, setPasskeyStep] = useState<'idle' | 'registering'>('idle');
+  const [passkeyRegistrationStateJson, setPasskeyRegistrationStateJson] = useState<string>('');
+
+  // Passkey list query
+  const { data: passkeyListData } = useQuery({
+    queryKey: ['passkeys'],
+    queryFn: async () => {
+      const response = await apiClient.get<PasskeyListResponse>(
+        '/api/v1/settings/security/passkeys/'
+      );
+      return response.data;
+    },
+  });
 
   // TOTP 設定開始
   const beginMutation = useMutation({
@@ -100,6 +138,68 @@ export function SecuritySettings() {
     },
   });
 
+  // Passkey 登録開始
+  const passkeyBeginMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.post<PasskeyBeginResponse>(
+        '/api/v1/settings/security/passkey/register/begin/',
+        {}
+      );
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setPasskeyRegistrationStateJson(data.registration_state_json);
+      setPasskeyStep('registering');
+      // ブラウザの WebAuthn API を呼び出す
+      handlePasskeyCreate(data);
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(detail || t('common.error') || 'エラーが発生しました');
+    },
+  });
+
+  // Passkey 登録完了
+  const passkeyCompleteMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const response = await apiClient.post<PasskeyRegisterCompleteResponse>(
+        '/api/v1/settings/security/passkey/register/complete/',
+        payload
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      toast.success('パスキーを登録しました');
+      setPasskeyStep('idle');
+      setPasskeyRegistrationStateJson('');
+      // リストをリフレッシュして再取得する
+      window.location.reload();
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(detail || t('common.error') || 'パスキー登録に失敗しました');
+      setPasskeyStep('idle');
+    },
+  });
+
+  // Passkey 削除
+  const passkeyDeleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return await apiClient.post(
+        `/api/v1/settings/security/passkey/${id}/delete/`,
+        {}
+      );
+    },
+    onSuccess: () => {
+      toast.success('パスキーを削除しました');
+      window.location.reload();
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(detail || t('common.error') || 'パスキー削除に失敗しました');
+    },
+  });
+
   const handleBegin = () => {
     beginMutation.mutate();
   };
@@ -121,6 +221,54 @@ export function SecuritySettings() {
       return;
     }
     disableMutation.mutate(password);
+  };
+
+  const handlePasskeyBegin = () => {
+    passkeyBeginMutation.mutate();
+  };
+
+  const handlePasskeyCreate = async (beginResponse: PasskeyBeginResponse) => {
+    try {
+      if (!navigator.credentials) {
+        toast.error('このブラウザはWebAuthnに対応していません');
+        setPasskeyStep('idle');
+        return;
+      }
+
+      // サーバーから返ってきた challenge をArrayBufferに変換
+      const options = convertCreateOptionsToJSON(beginResponse.creation_challenge);
+
+      // ブラウザのWebAuthn APIを呼び出す
+      const credential = (await navigator.credentials.create({
+        publicKey: options,
+      })) as any;
+
+      if (!credential) {
+        toast.error('パスキー作成がキャンセルされました');
+        setPasskeyStep('idle');
+        return;
+      }
+
+      // credential をJSON形式に変換
+      const credentialJSON = convertCredentialToJSON(credential);
+
+      // サーバーに送信
+      passkeyCompleteMutation.mutate({
+        registration_state_json: passkeyRegistrationStateJson,
+        credential: credentialJSON,
+      });
+    } catch (error: any) {
+      console.error('WebAuthn error:', error);
+      toast.error(error.message || 'パスキー作成に失敗しました');
+      setPasskeyStep('idle');
+    }
+  };
+
+  const handlePasskeyDelete = (id: number) => {
+    if (!window.confirm('このパスキーを削除してもよろしいですか？')) {
+      return;
+    }
+    passkeyDeleteMutation.mutate(id);
   };
 
   return (
@@ -239,6 +387,71 @@ export function SecuritySettings() {
             </div>
           </div>
         )}
+
+        {/* パスキー（WebAuthn）セクション */}
+        <div className="settings__passkey-section">
+          <div className="settings__passkey-idle">
+            <div className="settings__passkey-status">
+              <span className="settings__passkey-label">
+                🔑 パスキー（Passkey / WebAuthn）
+              </span>
+              <span className="settings__passkey-state">
+                {(passkeyListData?.passkeys?.length ?? 0) > 0 ? (
+                  <span className="settings__passkey-enabled">✓ {passkeyListData?.passkeys?.length} 登録済み</span>
+                ) : (
+                  <span className="settings__passkey-disabled">✗ 未登録</span>
+                )}
+              </span>
+            </div>
+            <p className="settings__passkey-desc">
+              パスキーを使用して、より安全でかつ簡単にログインできます。
+            </p>
+
+            {passkeyStep === 'idle' && (
+              <>
+                {(passkeyListData?.passkeys?.length ?? 0) > 0 && (
+                  <div className="settings__passkey-list">
+                    <h4>登録済みパスキー</h4>
+                    <ul className="settings__passkey-items">
+                      {passkeyListData?.passkeys?.map((pk) => (
+                        <li key={pk.id} className="settings__passkey-item">
+                          <div className="settings__passkey-info">
+                            <span className="settings__passkey-name">{pk.name}</span>
+                            <span className="settings__passkey-date">{pk.created_at}</span>
+                          </div>
+                          <button
+                            className="settings__btn settings__btn--danger settings__btn--small"
+                            onClick={() => handlePasskeyDelete(pk.id)}
+                            disabled={passkeyDeleteMutation.isPending}
+                          >
+                            削除
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="settings__passkey-actions">
+                  <button
+                    className="settings__btn settings__btn--primary"
+                    onClick={handlePasskeyBegin}
+                    disabled={passkeyBeginMutation.isPending}
+                  >
+                    {passkeyBeginMutation.isPending ? '登録中...' : 'パスキーを登録'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {passkeyStep === 'registering' && (
+              <div className="settings__passkey-registering">
+                <p>パスキーを設定中です...</p>
+                <p>デバイスの認証（指紋認証など）を完了してください。</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );

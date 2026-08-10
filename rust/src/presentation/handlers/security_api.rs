@@ -3,7 +3,7 @@
 /// TOTP多要素認証の設定・確認・無効化。
 
 use axum::{
-    extract::State,
+    extract::{State, Path},
     response::IntoResponse,
     http::StatusCode,
     Json,
@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::user_repo;
-use crate::domain::services::{totp_service, auth_service};
+use crate::domain::services::{totp_service, auth_service, webauthn_service};
+use webauthn_rs::prelude::*;
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -46,6 +47,44 @@ pub struct TotpDisableRequest {
 #[derive(Serialize)]
 pub struct TotpDisableResponse {
     pub ok: bool,
+}
+
+// =============================================================================
+// パスキー（WebAuthn）リクエスト・レスポンス
+// =============================================================================
+
+#[derive(Serialize)]
+pub struct PasskeyRegisterBeginResponse {
+    /// CreationChallengeResponse（navigator.credentials.create() に渡す）
+    pub creation_challenge: CreationChallengeResponse,
+    /// PasskeyRegistration state をクライアントが echo-back するための JSON
+    pub registration_state_json: String,
+}
+
+#[derive(Deserialize)]
+pub struct PasskeyRegisterCompleteRequest {
+    /// クライアントが echo-back する registration state（JSON 文字列）
+    pub registration_state_json: String,
+    /// ブラウザが返した RegisterPublicKeyCredential（JSON）
+    pub credential: RegisterPublicKeyCredential,
+}
+
+#[derive(Serialize)]
+pub struct PasskeyRegisterCompleteResponse {
+    pub ok: bool,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+pub struct PasskeySummary {
+    pub id: i32,
+    pub name: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize)]
+pub struct PasskeyListResponse {
+    pub passkeys: Vec<PasskeySummary>,
 }
 
 // =============================================================================
@@ -238,4 +277,234 @@ pub async fn totp_disable(
     }
 
     (StatusCode::OK, Json(TotpDisableResponse { ok: true })).into_response()
+}
+
+// =============================================================================
+// パスキー（WebAuthn）ハンドラー実装
+// =============================================================================
+
+/// POST /api/v1/settings/security/passkey/register/begin
+/// パスキー登録を開始する。
+/// Webauthn instance をリクエストヘッダーから建てて、
+/// CreationChallengeResponse と PasskeyRegistration state を返す。
+/// state はクライアントが echo-back するための JSON として返される（stateless パターン）。
+pub async fn passkey_register_begin(
+    Extension(auth_user): Extension<AuthUser>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    // リクエストヘッダーから WebAuthn インスタンスを構築
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::error!("WebAuthn初期化エラー: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": "WebAuthn初期化エラー"})),
+            ).into_response();
+        }
+    };
+
+    // 既存パスキーを取得（exclude list 構築用）
+    // NOTE: WIP の DB schema では credential_id と public_key をバイナリで保存するため、
+    // 完全な Passkey を復元することはできない。exclude list は省略（同じ端末から複数登録可能）。
+    let existing_credentials = None;
+
+    // パスキー登録を開始
+    match webauthn_service::start_registration(
+        &webauthn,
+        auth_user.user_id,
+        &auth_user.user_id.to_string(),
+        &format!("パスキー_{}", auth_user.user_id),
+        existing_credentials,
+    ) {
+        Ok((challenge_response, reg_state)) => {
+            // PasskeyRegistration state を JSON 文字列にシリアライズ
+            let reg_state_json = match webauthn_service::registration_state_to_json_string(&reg_state) {
+                Ok(json) => json,
+                Err(e) => {
+                    tracing::error!("Registration state JSON化エラー: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"detail": "Registration state の保存に失敗"})),
+                    ).into_response();
+                }
+            };
+
+            (
+                StatusCode::OK,
+                Json(PasskeyRegisterBeginResponse {
+                    creation_challenge: challenge_response,
+                    registration_state_json: reg_state_json,
+                }),
+            ).into_response()
+        }
+        Err(e) => {
+            tracing::error!("パスキー登録開始エラー: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": format!("{}", e)})),
+            ).into_response()
+        }
+    }
+}
+
+/// POST /api/v1/settings/security/passkey/register/complete
+/// パスキー登録を完了する。
+/// クライアントが echo-back した registration state とブラウザのクレデンシャルレスポンスを受け取り、
+/// 登録を確認して DB に保存。
+pub async fn passkey_register_complete(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<PasskeyRegisterCompleteRequest>,
+) -> impl IntoResponse {
+    // リクエストヘッダーから WebAuthn インスタンスを構築
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::error!("WebAuthn初期化エラー: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": "WebAuthn初期化エラー"})),
+            ).into_response();
+        }
+    };
+
+    // クライアントが echo-back した registration state を復元
+    let reg_state = match webauthn_service::registration_state_from_json_string(&body.registration_state_json) {
+        Ok(state) => state,
+        Err(e) => {
+            tracing::error!("Registration state 復元エラー: {:?}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"detail": "不正な登録セッション"})),
+            ).into_response();
+        }
+    };
+
+    // 登録完了（WebAuthn の暗号検証が実行される）
+    let passkey = match webauthn_service::finish_registration(&webauthn, &reg_state, &body.credential) {
+        Ok(pk) => pk,
+        Err(e) => {
+            tracing::error!("パスキー登録完了エラー: {:?}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"detail": "パスキーの検証に失敗しました"})),
+            ).into_response();
+        }
+    };
+
+    // credential_id をバイナリで抽出
+    let credential_id = webauthn_service::credential_id_from_passkey(&passkey);
+
+    // Passkey 全体を JSON 文字列にシリアライズ
+    let passkey_json_str = match webauthn_service::passkey_to_json_string(&passkey) {
+        Ok(json) => json,
+        Err(e) => {
+            tracing::error!("Passkey JSON シリアライズエラー: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": "クレデンシャル処理エラー"})),
+            ).into_response();
+        }
+    };
+
+    // credential_id のバイナリ表現（WIP schema では public_key として保存、実際の public key は JSON に含まれる）
+    let public_key_bin = credential_id.clone();
+
+    // DB に保存
+    if let Err(e) = user_repo::save_webauthn_credential_with_json(
+        &state.pool,
+        auth_user.user_id,
+        &credential_id,
+        &public_key_bin,
+        &passkey_json_str,
+        "パスキー",
+    ).await {
+        tracing::error!("WebAuthnCredential 保存エラー: {:?}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"detail": "パスキーの保存に失敗しました"})),
+        ).into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(PasskeyRegisterCompleteResponse {
+            ok: true,
+            message: "パスキーを登録しました".to_string(),
+        }),
+    ).into_response()
+}
+
+/// GET /api/v1/settings/security/passkeys/
+/// ユーザーの登録済みパスキー一覧を返す。
+pub async fn list_passkeys(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+) -> impl IntoResponse {
+    match user_repo::find_webauthn_credentials(&state.pool, auth_user.user_id).await {
+        Ok(creds) => {
+            let passkeys = creds.into_iter().map(|cred| {
+                PasskeySummary {
+                    id: cred.id,
+                    name: if cred.name.is_empty() { "パスキー".to_string() } else { cred.name },
+                    created_at: cred.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                }
+            }).collect();
+
+            (
+                StatusCode::OK,
+                Json(PasskeyListResponse { passkeys }),
+            ).into_response()
+        }
+        Err(e) => {
+            tracing::error!("パスキー一覧取得エラー: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": "パスキー一覧の取得に失敗しました"})),
+            ).into_response()
+        }
+    }
+}
+
+/// POST /api/v1/settings/security/passkey/{id}/delete
+/// パスキーを削除する（本人のものであることを確認してから削除）。
+pub async fn delete_passkey(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Path(passkey_id): Path<i32>,
+) -> impl IntoResponse {
+    // パスキーが本人のものであることを確認
+    match user_repo::find_webauthn_credentials(&state.pool, auth_user.user_id).await {
+        Ok(creds) => {
+            if !creds.iter().any(|c| c.id == passkey_id) {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({"detail": "このパスキーを削除する権限がありません"})),
+                ).into_response();
+            }
+        }
+        Err(e) => {
+            tracing::error!("パスキー確認エラー: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": "パスキーの確認に失敗しました"})),
+            ).into_response();
+        }
+    }
+
+    // 削除
+    if let Err(e) = user_repo::delete_webauthn_credential(&state.pool, passkey_id).await {
+        tracing::error!("パスキー削除エラー: {:?}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"detail": "パスキーの削除に失敗しました"})),
+        ).into_response();
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"ok": true, "message": "パスキーを削除しました"})),
+    ).into_response()
 }

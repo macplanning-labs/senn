@@ -141,6 +141,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/me/", get(auth_api::me))
         .route("/api/v1/auth/logout/", post(auth_api::logout))
         .route("/api/v1/users/", get(auth_api::list_users))
+        .route("/api/v1/users/{id}/active/", axum::routing::patch(auth_api::set_user_active))
         // JSON チケット API
         .route("/api/v1/tickets/", get(tickets_api::list).post(tickets_api::create))
         .route("/api/v1/tickets/bulk-import/", post(tickets_api::bulk_import))
@@ -229,6 +230,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/settings/security/totp/begin/", post(security_api::totp_begin))
         .route("/api/v1/settings/security/totp/confirm/", post(security_api::totp_confirm))
         .route("/api/v1/settings/security/totp/disable/", post(security_api::totp_disable))
+        // セキュリティ設定（パスキー/WebAuthn）
+        .route("/api/v1/settings/security/passkey/register/begin/", post(security_api::passkey_register_begin))
+        .route("/api/v1/settings/security/passkey/register/complete/", post(security_api::passkey_register_complete))
+        .route("/api/v1/settings/security/passkeys/", get(security_api::list_passkeys))
+        .route("/api/v1/settings/security/passkey/{id}/delete/", post(security_api::delete_passkey))
 
         .route("/api/v1/ai/suggest-points/", post(ai_api::suggest_points))
         .route("/api/v1/ai/sprint-health/", post(ai_api::sprint_health))

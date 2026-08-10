@@ -50,6 +50,7 @@ argon2 = "0.5"
 totp-rs = { version = "5", features = ["qr"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 jsonwebtoken = "9"
+url = "2"
 
 # TOTP秘密鍵の暗号化保存
 aes-gcm = "0.10"
