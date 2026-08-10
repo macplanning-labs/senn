@@ -11,6 +11,7 @@ import { useAuthStore } from '@/shared/stores/authStore';
 import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
+import { SecuritySettings } from './SecuritySettings';
 import './SettingsPage.css';
 
 const LANGUAGES = [
@@ -161,6 +162,9 @@ export function SettingsPage() {
           )}
         </div>
       </section>
+
+      {/* セキュリティ設定 */}
+      <SecuritySettings />
 
       {/* キーボードショートカット */}
       <section className="settings__section">

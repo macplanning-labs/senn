@@ -32,3 +32,4 @@ pub mod search_api;
 pub mod reports_api;
 pub mod dashboard_api;
 pub mod attachment_api;
+pub mod security_api;

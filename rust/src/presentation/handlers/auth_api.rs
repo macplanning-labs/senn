@@ -15,7 +15,7 @@ use chrono::DateTime;
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo};
-use crate::domain::services::{jwt_service, auth_service};
+use crate::domain::services::{jwt_service, auth_service, totp_service};
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -244,8 +244,25 @@ pub async fn login_verify(
         }
     };
 
-    // TOTPコード検証
-    let totp_valid = match auth_service::verify_totp(&totp_device.secret, &body.totp_code) {
+    // TOTPコード検証（秘密鍵が暗号化されている場合は復号）
+    let secret_to_verify = if totp_device.secret.len() > 32 && !totp_device.secret.contains("$") {
+        // 暗号化された秘密鍵の可能性（Base64 blob、Base32 secretよりも長い）
+        match totp_service::decrypt_secret(&totp_device.secret, &state.config.jwt_secret) {
+            Ok(secret_bytes) => {
+                // 復号化した raw bytes を Base32 に変換
+                totp_service::secret_to_base32(&secret_bytes)
+            }
+            Err(_) => {
+                // 復号失敗 → 平文の Base32 秘密鍵として扱う
+                totp_device.secret.clone()
+            }
+        }
+    } else {
+        // 平文の Base32 秘密鍵（pyotpやDjango由来）
+        totp_device.secret.clone()
+    };
+
+    let totp_valid = match auth_service::verify_totp(&secret_to_verify, &body.totp_code) {
         Ok(valid) => valid,
         Err(_) => false,
     };

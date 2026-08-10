@@ -9,3 +9,4 @@ pub mod auth_service;
 pub mod jwt_service;
 pub mod git_webhook_service;
 pub mod ai_service;
+pub mod totp_service;

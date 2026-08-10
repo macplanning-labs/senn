@@ -49,6 +49,9 @@ totp-rs = { version = "5", features = ["qr"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 jsonwebtoken = "9"
 
+# TOTP秘密鍵の暗号化保存
+aes-gcm = "0.10"
+
 # メール
 lettre = { version = "0.11", features = ["tokio1-native-tls"] }
 
