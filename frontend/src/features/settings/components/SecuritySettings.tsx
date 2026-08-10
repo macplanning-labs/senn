@@ -67,7 +67,7 @@ export function SecuritySettings() {
     queryKey: ['passkeys'],
     queryFn: async () => {
       const response = await apiClient.get<PasskeyListResponse>(
-        '/api/v1/settings/security/passkeys/'
+        '/settings/security/passkeys/'
       );
       return response.data;
     },
@@ -77,7 +77,7 @@ export function SecuritySettings() {
   const beginMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.post<BeginResponse>(
-        '/api/v1/settings/security/totp/begin/',
+        '/settings/security/totp/begin/',
         {}
       );
       return response;
@@ -98,7 +98,7 @@ export function SecuritySettings() {
   const confirmMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.post<ConfirmResponse>(
-        '/api/v1/settings/security/totp/confirm/',
+        '/settings/security/totp/confirm/',
         {
           secret_b64: secretB64,
           code: confirmCode,
@@ -122,7 +122,7 @@ export function SecuritySettings() {
   const disableMutation = useMutation({
     mutationFn: async (password: string) => {
       const response = await apiClient.post<DisableResponse>(
-        '/api/v1/settings/security/totp/disable/',
+        '/settings/security/totp/disable/',
         { password }
       );
       return response;
@@ -142,7 +142,7 @@ export function SecuritySettings() {
   const passkeyBeginMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.post<PasskeyBeginResponse>(
-        '/api/v1/settings/security/passkey/register/begin/',
+        '/settings/security/passkey/register/begin/',
         {}
       );
       return response.data;
@@ -163,7 +163,7 @@ export function SecuritySettings() {
   const passkeyCompleteMutation = useMutation({
     mutationFn: async (payload: any) => {
       const response = await apiClient.post<PasskeyRegisterCompleteResponse>(
-        '/api/v1/settings/security/passkey/register/complete/',
+        '/settings/security/passkey/register/complete/',
         payload
       );
       return response.data;
@@ -186,7 +186,7 @@ export function SecuritySettings() {
   const passkeyDeleteMutation = useMutation({
     mutationFn: async (id: number) => {
       return await apiClient.post(
-        `/api/v1/settings/security/passkey/${id}/delete/`,
+        `/settings/security/passkey/${id}/delete/`,
         {}
       );
     },
