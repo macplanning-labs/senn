@@ -12,11 +12,13 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { TicketTable } from './TicketTable';
 import { TicketDetailPanel } from './TicketDetailPanel';
+import { usePanelResize } from '@/shared/hooks/usePanelResize';
 import './TicketListPage.css';
 
 export function TicketListPage() {
   const { projectKey, ticketId } = useParams<{ projectKey: string; ticketId: string }>();
   const navigate = useNavigate();
+  const { width: panelWidth, onResizeStart, isResizing } = usePanelResize('ticket-detail', 380);
 
   const handleClosePanel = () => {
     if (projectKey) {
@@ -25,12 +27,21 @@ export function TicketListPage() {
   };
 
   return (
-    <div className={`ticket-list-page ${ticketId ? 'ticket-list-page--with-panel' : ''}`} data-testid="ticket-list-page">
+    <div
+      className={`ticket-list-page ${ticketId ? 'ticket-list-page--with-panel' : ''} ${isResizing ? 'ticket-list-page--resizing' : ''}`}
+      data-testid="ticket-list-page"
+      style={ticketId ? { gridTemplateColumns: `1fr ${panelWidth}px` } : undefined}
+    >
       <div className="ticket-list-page__table">
         <TicketTable />
       </div>
       {ticketId && (
         <div className="ticket-list-page__panel">
+          <div
+            className="ticket-list-page__resize-handle"
+            onMouseDown={onResizeStart}
+            data-testid="panel-resize-handle"
+          />
           <TicketDetailPanel ticketId={ticketId} onClose={handleClosePanel} />
         </div>
       )}

@@ -23,7 +23,7 @@ interface ChangeLog {
 }
 
 interface ChangeLogTimelineProps {
-  ticketId: number;
+  ticketId: string;
 }
 
 const FIELD_ICONS: Record<string, string> = {

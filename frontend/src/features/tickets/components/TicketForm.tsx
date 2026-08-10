@@ -97,11 +97,14 @@ export function TicketForm() {
 
   // ユーザー一覧取得（アサイン用）
   const { data: users } = useQuery<UserOption[]>({
-    queryKey: ['users'],
+    queryKey: ['users', currentProject?.id],
     queryFn: async () => {
-      const res = await apiClient.get<{ results?: UserOption[]; } & UserOption[]>('/users/');
+      const res = await apiClient.get<{ results?: UserOption[]; } & UserOption[]>('/users/', {
+        params: { project: currentProject?.id },
+      });
       return res.data.results ?? res.data;
     },
+    enabled: !!currentProject?.id,
   });
 
   // マイルストーン一覧取得
@@ -164,6 +167,7 @@ export function TicketForm() {
     start_date: null,
     story_points: null,
   });
+  const [linkCopied, setLinkCopied] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [milestoneId, setMilestoneId] = useState<string>('');
   const [cycleId, setCycleId] = useState<string>('');
@@ -263,8 +267,25 @@ export function TicketForm() {
 
   return (
     <div className="ticket-form" data-testid="ticket-form-page">
-      <h1 className="ticket-form__title">
+      <h1 className="ticket-form__title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {isEditing ? t('ticket.edit') : t('ticket.create')}
+        {isEditing && (
+          <button
+            type="button"
+            className="detail-panel__edit-btn"
+            onClick={() => {
+              const url = `${window.location.origin}/p/${projectKey}/tickets/${ticketId}`;
+              void navigator.clipboard.writeText(url);
+              setLinkCopied(true);
+              setTimeout(() => setLinkCopied(false), 1500);
+            }}
+            aria-label="Copy ticket link"
+            title={linkCopied ? 'コピーしました' : 'リンクをコピー'}
+            data-testid="copy-link-btn-edit"
+          >
+            {linkCopied ? '✅' : '🔗'}
+          </button>
+        )}
       </h1>
 
       <form className="ticket-form__form" onSubmit={(e) => { void handleSubmit(e); }}>
@@ -428,7 +449,7 @@ export function TicketForm() {
             data-testid="ticket-parent-input"
           >
             <option value="">— None (Top-level)</option>
-            {(parentTickets?.results ?? []).filter((t) => String(t.id) !== ticketId).map((t) => (
+            {(parentTickets?.results ?? []).filter((t) => t.ticketKey !== ticketId).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.ticketKey} {t.title}
               </option>

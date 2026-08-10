@@ -685,7 +685,7 @@ pub async fn api_find_all(
     let labels_map: std::collections::HashMap<i32, Vec<LabelOut>> =
         if !ticket_ids.is_empty() {
             let labels_rows = sqlx::query(
-                "SELECT tl.ticketmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at
+                "SELECT tl.ticketmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at, l.description, l.category, l.is_ai_enabled
                  FROM tickets_ticket_labels tl
                  JOIN m_label l ON tl.labelmodel_id = l.id
                  WHERE tl.ticketmodel_id = ANY($1)
@@ -705,6 +705,9 @@ pub async fn api_find_all(
                     color: row.get(3),
                     project: row.get(4),
                     created_at: row.get(5),
+                    description: row.get(6),
+                    category: row.get(7),
+                    is_ai_enabled: row.get(8),
                 };
                 map.entry(ticket_id).or_insert_with(Vec::new).push(label);
             }
@@ -1108,7 +1111,7 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<
 
     // Labels
     let labels_rows = sqlx::query(
-        "SELECT tl.labelmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at
+        "SELECT tl.labelmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at, l.description, l.category, l.is_ai_enabled
          FROM tickets_ticket_labels tl
          JOIN m_label l ON tl.labelmodel_id = l.id
          WHERE tl.ticketmodel_id = $1
@@ -1126,6 +1129,9 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<
             color: r.get(3),
             project: r.get(4),
             created_at: r.get(5),
+            description: r.get(6),
+            category: r.get(7),
+            is_ai_enabled: r.get(8),
         })
         .collect();
 
@@ -1332,6 +1338,18 @@ pub async fn resolve_ticket_id(pool: &PgPool, ticket_key: &str) -> anyhow::Resul
         "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
     )
     .bind(ticket_key)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(id)
+}
+
+/// project_prefix から project_id を解決する共通ヘルパー(api_create_externalと同じ検索をAI用外部APIでも再利用)。
+pub async fn resolve_project_id_by_prefix(pool: &PgPool, project_prefix: &str) -> anyhow::Result<Option<i32>> {
+    let id: Option<i32> = sqlx::query_scalar(
+        "SELECT id::int4 FROM tickets_project WHERE prefix = $1"
+    )
+    .bind(project_prefix)
     .fetch_optional(pool)
     .await?;
 
@@ -1919,6 +1937,311 @@ pub async fn api_update(
     Ok(Some(()))
 }
 
+/// チケット部分更新(詳細パネルからのインライン編集用)。
+/// TicketPatchInで指定されたフィールドのみを更新する(未指定フィールドは触らない)。
+pub async fn api_patch(
+    conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ticket_key: &str,
+    input: &TicketPatchIn,
+    user_id: i32,
+) -> anyhow::Result<Option<()>> {
+    let ticket_id_opt: Option<i32> = sqlx::query_scalar(
+        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+    )
+    .bind(ticket_key)
+    .fetch_optional(conn.as_mut())
+    .await?;
+
+    let ticket_id = match ticket_id_opt {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+
+    let old_row = sqlx::query(
+        "SELECT title, status, priority, ticket_type, category_id::int4, milestone_id::int4,
+                description, start_date, due_date, story_points
+         FROM tickets_ticket WHERE id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_one(conn.as_mut())
+    .await?;
+
+    let old_title: String = old_row.get(0);
+    let old_status: String = old_row.get(1);
+    let old_priority: String = old_row.get(2);
+    let old_ticket_type: String = old_row.get(3);
+    let old_category_id: Option<i32> = old_row.get(4);
+    let old_milestone_id: Option<i32> = old_row.get(5);
+    let old_description: String = old_row.get(6);
+    let old_start_date: Option<NaiveDate> = old_row.get(7);
+    let old_due_date: Option<NaiveDate> = old_row.get(8);
+    let old_story_points: Option<i16> = old_row.get(9);
+
+    let old_assignees: Vec<i32> = sqlx::query_scalar(
+        "SELECT user_id::int4 FROM tickets_ticket_assignees WHERE ticketmodel_id = $1 ORDER BY user_id"
+    )
+    .bind(ticket_id)
+    .fetch_all(conn.as_mut())
+    .await?;
+
+    // 動的UPDATE(指定されたフィールドのみSETに含める)
+    let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE tickets_ticket SET updated_at = NOW()");
+    let mut has_column_update = false;
+
+    if let Some(title) = &input.title {
+        builder.push(", title = ").push_bind(title.clone());
+        has_column_update = true;
+    }
+    if let Some(description) = &input.description {
+        builder.push(", description = ").push_bind(description.clone());
+        has_column_update = true;
+    }
+    if let Some(status) = &input.status {
+        builder.push(", status = ").push_bind(status.clone());
+        has_column_update = true;
+    }
+    if let Some(priority) = &input.priority {
+        builder.push(", priority = ").push_bind(priority.clone());
+        has_column_update = true;
+    }
+    if let Some(ticket_type) = &input.ticket_type {
+        builder.push(", ticket_type = ").push_bind(ticket_type.clone());
+        has_column_update = true;
+    }
+    if let Some(category) = input.category {
+        builder.push(", category_id = ").push_bind(category);
+        has_column_update = true;
+    }
+    if let Some(milestone) = input.milestone {
+        builder.push(", milestone_id = ").push_bind(milestone);
+        has_column_update = true;
+    }
+    if let Some(start_date) = input.start_date {
+        builder.push(", start_date = ").push_bind(start_date);
+        has_column_update = true;
+    }
+    if let Some(story_points) = input.story_points {
+        builder.push(", story_points = ").push_bind(story_points);
+        has_column_update = true;
+    }
+    if let Some(due_date) = input.due_date {
+        builder.push(", due_date = ").push_bind(due_date);
+        has_column_update = true;
+    }
+
+    if has_column_update {
+        builder.push(" WHERE id = ").push_bind(ticket_id);
+        builder.build().execute(conn.as_mut()).await?;
+    }
+
+    // 中間テーブル全置換(キーが指定された場合のみ)
+    if let Some(assignees) = &input.assignees {
+        sqlx::query("DELETE FROM tickets_ticket_assignees WHERE ticketmodel_id = $1")
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        for &assignee_id in assignees {
+            sqlx::query(
+                "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)"
+            )
+            .bind(ticket_id)
+            .bind(assignee_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    if let Some(labels) = &input.labels {
+        sqlx::query("DELETE FROM tickets_ticket_labels WHERE ticketmodel_id = $1")
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        for &label_id in labels {
+            sqlx::query(
+                "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)"
+            )
+            .bind(ticket_id)
+            .bind(label_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    if let Some(linked_rules) = &input.linked_rules {
+        sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE ticketmodel_id = $1")
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        for &rule_id in linked_rules {
+            sqlx::query(
+                "INSERT INTO tickets_ticket_linked_rules (ticketmodel_id, teamrulemodel_id) VALUES ($1, $2)"
+            )
+            .bind(ticket_id)
+            .bind(rule_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    // ステータス変更ログ
+    if let Some(new_status) = &input.status {
+        if &old_status != new_status {
+            sqlx::query(
+                "INSERT INTO tickets_status_history (old_status, new_status, changed_by_id, changed_at, ticket_id)
+                 VALUES ($1, $2, $3, NOW(), $4)"
+            )
+            .bind(&old_status)
+            .bind(new_status)
+            .bind(user_id)
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    // 変更ログ(指定されたフィールドのみ、実際に値が変わった場合のみ)
+    let mut changes: Vec<(&str, String, String)> = Vec::new();
+    if let Some(title) = &input.title {
+        if &old_title != title {
+            changes.push(("title", old_title.clone(), title.clone()));
+        }
+    }
+    if let Some(description) = &input.description {
+        if &old_description != description {
+            changes.push(("description", old_description.clone(), description.clone()));
+        }
+    }
+    if let Some(status) = &input.status {
+        if &old_status != status {
+            changes.push(("status", old_status.clone(), status.clone()));
+        }
+    }
+    if let Some(priority) = &input.priority {
+        if &old_priority != priority {
+            changes.push(("priority", old_priority.clone(), priority.clone()));
+        }
+    }
+    if let Some(ticket_type) = &input.ticket_type {
+        if &old_ticket_type != ticket_type {
+            changes.push(("ticket_type", old_ticket_type.clone(), ticket_type.clone()));
+        }
+    }
+    if let Some(category) = input.category {
+        if old_category_id != category {
+            changes.push((
+                "category_id",
+                old_category_id.map_or(String::new(), |id| id.to_string()),
+                category.map_or(String::new(), |id| id.to_string()),
+            ));
+        }
+    }
+    if let Some(milestone) = input.milestone {
+        if old_milestone_id != milestone {
+            changes.push((
+                "milestone_id",
+                old_milestone_id.map_or(String::new(), |id| id.to_string()),
+                milestone.map_or(String::new(), |id| id.to_string()),
+            ));
+        }
+    }
+    if let Some(start_date) = input.start_date {
+        if old_start_date != start_date {
+            changes.push((
+                "start_date",
+                old_start_date.map_or(String::new(), |d| d.to_string()),
+                start_date.map_or(String::new(), |d| d.to_string()),
+            ));
+        }
+    }
+    if let Some(due_date) = input.due_date {
+        if old_due_date != due_date {
+            changes.push((
+                "due_date",
+                old_due_date.map_or(String::new(), |d| d.to_string()),
+                due_date.map_or(String::new(), |d| d.to_string()),
+            ));
+        }
+    }
+
+    for (field, old_val, new_val) in &changes {
+        let field_name = format_field_name(field);
+        sqlx::query(
+            "INSERT INTO tickets_change_log (field_name, old_value, new_value, changed_by_id, changed_at, ticket_id)
+             VALUES ($1, $2, $3, $4, NOW(), $5)"
+        )
+        .bind(&field_name)
+        .bind(old_val.as_str())
+        .bind(new_val.as_str())
+        .bind(user_id)
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // Assignees変更ログ(集合として比較、順序違いは無視)
+    if let Some(assignees) = &input.assignees {
+        let mut sorted_new_assignees = assignees.clone();
+        sorted_new_assignees.sort_unstable();
+        sorted_new_assignees.dedup();
+        if old_assignees != sorted_new_assignees {
+            let old_usernames = if !old_assignees.is_empty() {
+                let usernames: Vec<String> = sqlx::query_scalar(
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                )
+                .bind(&old_assignees)
+                .fetch_all(conn.as_mut())
+                .await?;
+                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+            } else {
+                "(なし)".to_string()
+            };
+
+            let new_usernames = if !assignees.is_empty() {
+                let usernames: Vec<String> = sqlx::query_scalar(
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                )
+                .bind(assignees)
+                .fetch_all(conn.as_mut())
+                .await?;
+                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+            } else {
+                "(なし)".to_string()
+            };
+
+            sqlx::query(
+                "INSERT INTO tickets_change_log (field_name, old_value, new_value, changed_by_id, changed_at, ticket_id)
+                 VALUES ($1, $2, $3, $4, NOW(), $5)"
+            )
+            .bind("Assignees")
+            .bind(&old_usernames)
+            .bind(&new_usernames)
+            .bind(user_id)
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    // story_points変更ログ(サイクルのvelocity/burndown集計が参照する)
+    if let Some(story_points) = input.story_points {
+        if old_story_points != story_points {
+            sqlx::query(
+                "INSERT INTO h_task_point_history (old_points, new_points, reason, changed_by_id, changed_at, ticket_id)
+                 VALUES ($1, $2, $3, $4, NOW(), $5)"
+            )
+            .bind(old_story_points)
+            .bind(story_points)
+            .bind("")
+            .bind(user_id)
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    Ok(Some(()))
+}
+
 /// field_name をタイトルケースに変換(Pythonの.title()相当)
 fn format_field_name(field: &str) -> String {
     field
@@ -2258,4 +2581,43 @@ pub async fn find_tickets_for_csv_export(pool: &PgPool, project_id: i32) -> anyh
     }
 
     Ok(result)
+}
+
+// =============================================================================
+// バリデーション関数
+// =============================================================================
+
+/// 指定されたassignee_idsがプロジェクトの有効なメンバーであるかを検証
+/// メンバーでないuser_idのベクトルを返す（空なら全員メンバー）
+pub async fn validate_assignees_are_members(
+    pool: &PgPool,
+    project_id: i32,
+    assignee_ids: &[i32],
+) -> anyhow::Result<Vec<i32>> {
+    if assignee_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // プロジェクトメンバーかつis_activeかつメンバーシップが有効期限内のuser_idを取得
+    let member_ids: Vec<i32> = sqlx::query_scalar(
+        "SELECT DISTINCT u.id::int4
+         FROM accounts_user u
+         INNER JOIN tickets_project_membership m ON u.id = m.user_id
+         INNER JOIN tickets_project p ON m.project_id = p.id
+         WHERE u.is_active = true
+           AND m.project_id = $1
+           AND (m.end_date IS NULL OR (m.end_date + (p.grace_period_days || ' days')::interval) >= CURRENT_DATE)"
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+
+    // assignee_idsのうち、member_idsに含まれないものを見つける
+    let non_members: Vec<i32> = assignee_ids
+        .iter()
+        .copied()
+        .filter(|id| !member_ids.contains(id))
+        .collect();
+
+    Ok(non_members)
 }

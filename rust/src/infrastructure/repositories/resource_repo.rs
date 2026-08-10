@@ -572,7 +572,7 @@ pub async fn delete_milestone(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
 pub async fn find_all_labels(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<LabelOut>> {
     let rows = sqlx::query(
-        "SELECT id::int4, name, color, created_at, project_id::int4
+        "SELECT id::int4, name, color, created_at, project_id::int4, description, category, is_ai_enabled
          FROM m_label
          WHERE ($1::int4 IS NULL OR project_id = $1::int4)
          ORDER BY created_at DESC
@@ -590,6 +590,9 @@ pub async fn find_all_labels(pool: &PgPool, project_id: Option<i32>) -> anyhow::
             color: row.get(2),
             created_at: row.get(3),
             project: row.get(4),
+            description: row.get(5),
+            category: row.get(6),
+            is_ai_enabled: row.get(7),
         })
         .collect();
 
@@ -598,7 +601,7 @@ pub async fn find_all_labels(pool: &PgPool, project_id: Option<i32>) -> anyhow::
 
 pub async fn find_label_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<LabelOut>> {
     let row_opt = sqlx::query(
-        "SELECT id::int4, name, color, created_at, project_id::int4
+        "SELECT id::int4, name, color, created_at, project_id::int4, description, category, is_ai_enabled
          FROM m_label
          WHERE id = $1"
     )
@@ -612,20 +615,56 @@ pub async fn find_label_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<L
         color: row.get(2),
         created_at: row.get(3),
         project: row.get(4),
+        description: row.get(5),
+        category: row.get(6),
+        is_ai_enabled: row.get(7),
     });
 
     Ok(label)
 }
 
+/// プロジェクト内で名前一致するラベルを探し、無ければ作成してIDを返す。
+/// AI経由のチケット作成など、呼び出し側がラベルIDではなく名前しか持たない場合に使う。
+pub async fn find_or_create_label(pool: &PgPool, project_id: i32, name: &str) -> anyhow::Result<i32> {
+    if let Some(id) = sqlx::query_scalar::<_, i32>(
+        "SELECT id::int4 FROM m_label WHERE project_id = $1 AND name = $2"
+    )
+    .bind(project_id)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(id);
+    }
+
+    // 既定色: AIが指定しなかった場合の汎用グレー
+    const DEFAULT_LABEL_COLOR: &str = "#6B7280";
+    let label_id: i32 = sqlx::query_scalar(
+        "INSERT INTO m_label (name, color, created_at, project_id, description, category, is_ai_enabled)
+         VALUES ($1, $2, NOW(), $3, NULL, NULL, false)
+         RETURNING id::int4"
+    )
+    .bind(name)
+    .bind(DEFAULT_LABEL_COLOR)
+    .bind(project_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(label_id)
+}
+
 pub async fn create_label(pool: &PgPool, input: &LabelWriteIn) -> anyhow::Result<i32> {
     let label_id: i32 = sqlx::query_scalar(
-        "INSERT INTO m_label (name, color, created_at, project_id)
-         VALUES ($1, $2, NOW(), $3)
+        "INSERT INTO m_label (name, color, created_at, project_id, description, category, is_ai_enabled)
+         VALUES ($1, $2, NOW(), $3, $4, $5, $6)
          RETURNING id::int4"
     )
     .bind(&input.name)
     .bind(&input.color)
     .bind(input.project)
+    .bind(&input.description)
+    .bind(&input.category)
+    .bind(input.is_ai_enabled)
     .fetch_one(pool)
     .await?;
 
@@ -635,12 +674,15 @@ pub async fn create_label(pool: &PgPool, input: &LabelWriteIn) -> anyhow::Result
 pub async fn update_label(pool: &PgPool, id: i32, input: &LabelWriteIn) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE m_label
-         SET name = $1, color = $2, project_id = $3
-         WHERE id = $4"
+         SET name = $1, color = $2, project_id = $3, description = $4, category = $5, is_ai_enabled = $6
+         WHERE id = $7"
     )
     .bind(&input.name)
     .bind(&input.color)
     .bind(input.project)
+    .bind(&input.description)
+    .bind(&input.category)
+    .bind(input.is_ai_enabled)
     .bind(id)
     .execute(pool)
     .await?

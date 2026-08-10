@@ -11,7 +11,7 @@ import type { GitEvent } from '@/shared/api/types';
 import './GitActivity.css';
 
 interface GitActivityProps {
-  ticketId: number;
+  ticketKey: string;
 }
 
 function formatTimeAgo(dateStr: string): string {
@@ -36,11 +36,11 @@ const PR_STATE_STYLES: Record<string, { bg: string; color: string; label: string
   closed: { bg: 'rgba(248, 81, 73, 0.15)', color: '#f85149', label: 'Closed' },
 };
 
-export function GitActivity({ ticketId }: GitActivityProps) {
+export function GitActivity({ ticketKey }: GitActivityProps) {
   const { data: events = [], isLoading } = useQuery<GitEvent[]>({
-    queryKey: ['git-events', ticketId],
+    queryKey: ['git-events', ticketKey],
     queryFn: async () => {
-      const res = await apiClient.get(`/api/v1/tickets/${ticketId}/git-events/`);
+      const res = await apiClient.get(`/tickets/${ticketKey}/git-events/`);
       return res.data;
     },
     staleTime: 30_000,

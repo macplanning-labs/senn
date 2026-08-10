@@ -40,6 +40,12 @@ interface MemberFormData {
   note: string;
 }
 
+interface MemberUpdateData {
+  start_date: string;
+  end_date: string;
+  note: string;
+}
+
 interface MemberSettingsProps {
   projectId: number;
 }
@@ -72,6 +78,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<Membership | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Membership | null>(null);
   const [formData, setFormData] = useState<MemberFormData>({
     user: 0, project: projectId, start_date: new Date().toISOString().slice(0, 10),
@@ -128,6 +135,29 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     },
   });
 
+  // --- 更新 ---
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: MemberUpdateData }) =>
+      apiClient.patch(`/memberships/${id}/`, {
+        ...data,
+        end_date: data.end_date || null,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memberships', projectId] });
+      closeModal();
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as { response?: { data?: Record<string, string[]> } };
+      const detail = axiosErr.response?.data;
+      if (detail) {
+        const messages = Object.values(detail).flat().join(', ');
+        setError(messages || 'メンバーの更新に失敗しました');
+      } else {
+        setError('メンバーの更新に失敗しました');
+      }
+    },
+  });
+
   // --- 削除 ---
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/memberships/${id}/`),
@@ -140,6 +170,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
 
   // --- モーダル制御 ---
   const openAddModal = useCallback(() => {
+    setEditingMember(null);
     setFormData({
       user: availableUsers[0]?.id ?? 0,
       project: projectId,
@@ -151,19 +182,46 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     setModalOpen(true);
   }, [availableUsers, projectId]);
 
+  const openEditModal = useCallback((m: Membership) => {
+    setEditingMember(m);
+    setFormData({
+      user: m.user.id,
+      project: projectId,
+      start_date: m.startDate,
+      end_date: m.endDate ?? '',
+      note: m.note,
+    });
+    setError('');
+    setModalOpen(true);
+  }, [projectId]);
+
   const closeModal = useCallback(() => {
     setModalOpen(false);
+    setEditingMember(null);
     setError('');
   }, []);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
+    if (editingMember) {
+      updateMutation.mutate({
+        id: editingMember.id,
+        data: {
+          start_date: formData.start_date,
+          end_date: formData.end_date,
+          note: formData.note,
+        },
+      });
+      return;
+    }
     if (!formData.user) {
       setError('ユーザーを選択してください');
       return;
     }
     addMutation.mutate(formData);
-  }, [formData, addMutation]);
+  }, [formData, editingMember, addMutation, updateMutation]);
+
+  const isSaving = addMutation.isPending || updateMutation.isPending;
 
   if (isLoading) {
     return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
@@ -204,7 +262,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
             {members.map((m) => {
               const status = getStatusBadge(m);
               return (
-                <tr key={m.id}>
+                <tr key={m.id} onClick={() => openEditModal(m)}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                       <span style={{
@@ -240,7 +298,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
                     <div className="settings-table__actions" style={{ opacity: 1 }}>
                       <button
                         className="settings-table__action-btn settings-table__action-btn--danger"
-                        onClick={() => setDeleteConfirm(m)}
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(m); }}
                         title="削除"
                       >
                         🗑
@@ -261,31 +319,39 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
         </div>
       )}
 
-      {/* 追加モーダル */}
+      {/* 追加・編集モーダル */}
       {modalOpen && (
         <div className="settings-modal__overlay" onClick={closeModal}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
-              <h3 className="settings-modal__title">{t('settings.addMember')}</h3>
+              <h3 className="settings-modal__title">
+                {editingMember ? 'メンバーを編集' : t('settings.addMember')}
+              </h3>
               <button className="settings-modal__close" onClick={closeModal}>×</button>
             </div>
 
             <form onSubmit={handleSubmit}>
               <div className="settings-form__group">
                 <label className="settings-form__label">ユーザー</label>
-                <select
-                  className="settings-form__select"
-                  value={formData.user}
-                  onChange={(e) => setFormData(prev => ({ ...prev, user: Number(e.target.value) }))}
-                  data-testid="member-user-select"
-                >
-                  <option value={0}>{t('settings.selectUser')}</option>
-                  {availableUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.displayName || u.username} ({u.email})
-                    </option>
-                  ))}
-                </select>
+                {editingMember ? (
+                  <div className="settings-form__input" style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
+                    {editingMember.user.displayName || editingMember.user.username} ({editingMember.user.email})
+                  </div>
+                ) : (
+                  <select
+                    className="settings-form__select"
+                    value={formData.user}
+                    onChange={(e) => setFormData(prev => ({ ...prev, user: Number(e.target.value) }))}
+                    data-testid="member-user-select"
+                  >
+                    <option value={0}>{t('settings.selectUser')}</option>
+                    {availableUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.displayName || u.username} ({u.email})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="settings-form__row">
@@ -336,10 +402,10 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
                 <button
                   type="submit"
                   className="settings-form__btn settings-form__btn--primary"
-                  disabled={addMutation.isPending}
+                  disabled={isSaving}
                   data-testid="member-save-btn"
                 >
-                  {addMutation.isPending ? '追加中...' : '追加'}
+                  {isSaving ? '保存中...' : editingMember ? '更新' : '追加'}
                 </button>
               </div>
             </form>

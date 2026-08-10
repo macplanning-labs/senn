@@ -11,22 +11,47 @@ import { apiClient } from '@/shared/api/client';
 import { useTranslation } from 'react-i18next';
 
 // ─── 型定義 ─────────────────────────────────────
+type LabelCategory = 'type' | 'severity' | 'cause' | 'scope' | 'custom';
+
 interface Label {
   id: number;
   name: string;
   color: string;
   project: number;
   createdAt: string;
+  description: string | null;
+  category: string | null;
+  isAiEnabled: boolean;
 }
 
 interface LabelFormData {
   name: string;
   color: string;
+  description: string;
+  category: LabelCategory | '';
+  isAiEnabled: boolean;
 }
 
 interface LabelSettingsProps {
   projectId: number;
 }
+
+// ─── カテゴリ選択肢(プレフィックス自動補完用) ──────
+const CATEGORY_OPTIONS: { value: LabelCategory; label: string; prefix: string | null }[] = [
+  { value: 'type', label: 'Type (種別)', prefix: 'type:' },
+  { value: 'severity', label: 'Severity (重度)', prefix: 'severity:' },
+  { value: 'cause', label: 'Cause (原因)', prefix: 'cause:' },
+  { value: 'scope', label: 'Scope (領域)', prefix: 'scope:' },
+  { value: 'custom', label: 'Custom (カスタム)', prefix: null },
+];
+
+const EMPTY_FORM_DATA: LabelFormData = {
+  name: '',
+  color: '#6366f1',
+  description: '',
+  category: '',
+  isAiEnabled: true,
+};
 
 // ─── カラーパレット ──────────────────────────────
 const COLOR_PRESETS = [
@@ -55,7 +80,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLabel, setEditingLabel] = useState<Label | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Label | null>(null);
-  const [formData, setFormData] = useState<LabelFormData>({ name: '', color: '#6366f1' });
+  const [formData, setFormData] = useState<LabelFormData>(EMPTY_FORM_DATA);
   const [error, setError] = useState('');
 
   // --- データ取得 ---
@@ -71,10 +96,19 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
 
   const labels = data?.results ?? [];
 
+  // --- APIへ送るペイロードへ変換(空文字のcategoryはnullにする) ---
+  const toPayload = (data: LabelFormData) => ({
+    name: data.name,
+    color: data.color,
+    project: projectId,
+    description: data.description || null,
+    category: data.category || null,
+    isAiEnabled: data.isAiEnabled,
+  });
+
   // --- 作成 ---
   const createMutation = useMutation({
-    mutationFn: (data: LabelFormData) =>
-      apiClient.post('/labels/', { ...data, project: projectId }),
+    mutationFn: (data: LabelFormData) => apiClient.post('/labels/', toPayload(data)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
       closeModal();
@@ -85,7 +119,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   // --- 更新 ---
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: LabelFormData }) =>
-      apiClient.put(`/labels/${id}/`, { ...data, project: projectId }),
+      apiClient.put(`/labels/${id}/`, toPayload(data)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
       closeModal();
@@ -106,16 +140,39 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   // --- モーダル制御 ---
   const openCreateModal = useCallback(() => {
     setEditingLabel(null);
-    setFormData({ name: '', color: '#6366f1' });
+    setFormData(EMPTY_FORM_DATA);
     setError('');
     setModalOpen(true);
   }, []);
 
   const openEditModal = useCallback((label: Label) => {
     setEditingLabel(label);
-    setFormData({ name: label.name, color: label.color });
+    setFormData({
+      name: label.name,
+      color: label.color,
+      description: label.description ?? '',
+      category: (label.category as LabelCategory) ?? '',
+      isAiEnabled: label.isAiEnabled,
+    });
     setError('');
     setModalOpen(true);
+  }, []);
+
+  // --- カテゴリ選択時、ラベル名にプレフィックスを自動補完 ---
+  const handleCategoryChange = useCallback((category: LabelCategory | '') => {
+    setFormData((prev) => {
+      const prevOption = CATEGORY_OPTIONS.find((o) => o.value === prev.category);
+      const nextOption = CATEGORY_OPTIONS.find((o) => o.value === category);
+      let name = prev.name;
+      // 直前のプレフィックスを除去してから、新しいプレフィックスを付与する
+      if (prevOption?.prefix && name.startsWith(prevOption.prefix)) {
+        name = name.slice(prevOption.prefix.length);
+      }
+      if (nextOption?.prefix && !name.startsWith(nextOption.prefix)) {
+        name = `${nextOption.prefix}${name}`;
+      }
+      return { ...prev, category, name };
+    });
   }, []);
 
   const closeModal = useCallback(() => {
@@ -166,7 +223,9 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
           <thead>
             <tr>
               <th>ラベル</th>
+              <th>カテゴリ</th>
               <th>カラー</th>
+              <th style={{ width: 60, textAlign: 'center' }}>AI</th>
               <th style={{ width: 100, textAlign: 'right' }}>アクション</th>
             </tr>
           </thead>
@@ -180,9 +239,15 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
                       background: label.color,
                       color: getTextColor(label.color),
                     }}
+                    title={label.description ?? undefined}
                   >
                     {label.name}
                   </span>
+                </td>
+                <td>
+                  {label.category
+                    ? CATEGORY_OPTIONS.find((o) => o.value === label.category)?.label ?? label.category
+                    : '—'}
                 </td>
                 <td>
                   <div className="settings-table__color-cell">
@@ -193,6 +258,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
                     <span>{label.color}</span>
                   </div>
                 </td>
+                <td style={{ textAlign: 'center' }}>{label.isAiEnabled ? '✓' : '—'}</td>
                 <td>
                   <div className="settings-table__actions">
                     <button
@@ -230,6 +296,21 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
 
             <form onSubmit={handleSubmit}>
               <div className="settings-form__group">
+                <label className="settings-form__label">カテゴリ</label>
+                <select
+                  className="settings-form__input"
+                  value={formData.category}
+                  onChange={(e) => handleCategoryChange(e.target.value as LabelCategory | '')}
+                  data-testid="label-category-select"
+                >
+                  <option value="">— 未設定</option>
+                  {CATEGORY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="settings-form__group">
                 <label className="settings-form__label">ラベル名</label>
                 <input
                   className="settings-form__input"
@@ -239,6 +320,30 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
                   autoFocus
                   data-testid="label-name-input"
                 />
+              </div>
+
+              <div className="settings-form__group">
+                <label className="settings-form__label">説明 / AI判定ルール</label>
+                <textarea
+                  className="settings-form__input"
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="このラベルの概要と、AIが自動付与する際の判定基準を記述してください"
+                  data-testid="label-description-input"
+                />
+              </div>
+
+              <div className="settings-form__group">
+                <label className="settings-form__checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={formData.isAiEnabled}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isAiEnabled: e.target.checked }))}
+                    data-testid="label-ai-enabled-checkbox"
+                  />
+                  AI自動ラベリング対象にする
+                </label>
               </div>
 
               <div className="settings-form__group">

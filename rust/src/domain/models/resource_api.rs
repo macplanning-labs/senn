@@ -78,4 +78,14 @@ pub struct LabelWriteIn {
     pub name: String,
     pub color: String,
     pub project: i32,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default = "default_is_ai_enabled", rename = "isAiEnabled")]
+    pub is_ai_enabled: bool,
+}
+
+fn default_is_ai_enabled() -> bool {
+    true
 }
