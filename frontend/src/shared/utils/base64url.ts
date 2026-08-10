@@ -13,7 +13,7 @@ export function base64urlToArrayBuffer(str: string): ArrayBuffer {
   const paddingLength = (4 - (str.length % 4)) % 4;
   const padding = '='.repeat(paddingLength);
   const base64 = (str + padding)
-    .replace(/\-/g, '+')
+    .replace(/-/g, '+')
     .replace(/_/g, '/');
 
   const binaryString = atob(base64);
