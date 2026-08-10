@@ -347,7 +347,7 @@ function GeneralSettings() {
             }}
           >
             <div className="settings-section__header">
-              <h2 className="settings-section__title" style={{ color: 'var(--color-danger)' }}>
+              <h2 className="settings-section__title" style={{ color: 'var(--color-error)' }}>
                 ⚠️ Danger Zone
               </h2>
             </div>
@@ -355,7 +355,7 @@ function GeneralSettings() {
               style={{
                 padding: 'var(--space-4)',
                 background: 'var(--color-bg-elevated)',
-                border: '1px solid var(--color-border-danger)',
+                border: '1px solid var(--color-error)',
                 borderRadius: 'var(--radius-md)',
                 marginBottom: 'var(--space-6)',
               }}
@@ -374,7 +374,7 @@ function GeneralSettings() {
                 disabled={deleteProject.isPending}
                 data-testid="delete-project-btn"
                 style={{
-                  background: 'var(--color-danger)',
+                  background: 'var(--color-error)',
                   color: 'white',
                   border: 'none',
                   padding: 'var(--space-2) var(--space-3)',

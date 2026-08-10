@@ -48,9 +48,12 @@ fn default_cycle_status() -> String {
 // =============================================================================
 // 高度アクション(progress / complete / velocity / burndown)
 //
-// Django側(apps/tickets/domain/cycle_service.py)はDRFシリアライザを使わず
-// 生のdictをResponse()で返すため、レスポンスキーはcamelCase化されておらず
-// snake_caseのまま。Rust側もDjangoと厳密互換にするため#[serde(rename)]は使わない。
+// CycleProgressOut/VelocityEntryOutはフロントエンドがcamelCaseで参照している
+// ため#[serde(rename_all = "camelCase")]を付与(Django版はDRFシリアライザを
+// 使わずsnake_caseのdictをそのまま返していたが、Django削除に伴い当時の
+// 「互換優先」方針は前提から外れたため、フロントエンドの実際の期待値に合わせた)。
+// CompleteCycleOut/BurndownPointOutはフロントエンド側でレスポンスの個別
+// フィールドを参照していないため、現状は変更不要。
 // また、Django側の現行実装は各チケットの"現在の"story_pointsを都度集計するのみで
 // h_task_point_history(ポイント変更履歴)は参照していない。Rust側もまずは
 // Djangoと同一の挙動で移植する(動的ポイント変更を厳密に履歴ベースで再計算する
@@ -58,6 +61,7 @@ fn default_cycle_status() -> String {
 // =============================================================================
 
 #[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct CycleProgressOut {
     pub ticket_count: i64,
     pub completed_count: i64,
@@ -68,6 +72,7 @@ pub struct CycleProgressOut {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VelocityEntryOut {
     pub cycle_id: i32,
     pub cycle_number: i32,
