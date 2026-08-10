@@ -64,6 +64,30 @@ pub async fn set_active(pool: &PgPool, id: i32, is_active: bool) -> anyhow::Resu
     Ok(())
 }
 
+/// ユーザーのプロフィール(メールアドレス・氏名)を更新する(Django Admin代替、
+/// is_staffのみ呼び出し可能)。emailのUNIQUE制約違反はsqlx::Errorとして
+/// 呼び出し元に伝播する(create_userと同じ扱い)。
+pub async fn update_profile(
+    pool: &PgPool,
+    id: i32,
+    email: &str,
+    first_name: &str,
+    last_name: &str,
+) -> anyhow::Result<User> {
+    let sql = format!(
+        "UPDATE accounts_user SET email=$2, first_name=$3, last_name=$4 WHERE id=$1
+         RETURNING {USER_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, User>(&sql)
+        .bind(id)
+        .bind(email)
+        .bind(first_name)
+        .bind(last_name)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
 /// 新規ユーザー登録(Phase 1: /api/v1/auth/register/)。
 /// username重複はDB側のUNIQUE制約違反(sqlx::Error)として呼び出し元に伝播する。
 pub async fn create_user(

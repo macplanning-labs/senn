@@ -597,3 +597,80 @@ pub async fn set_user_active(
 
     (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
 }
+
+#[derive(serde::Deserialize)]
+pub struct UpdateProfileIn {
+    pub email: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+}
+
+/// ユーザーのプロフィール(メールアドレス・氏名)を更新する(Django Admin代替)。
+/// 呼び出し元がis_staffであることを必須とする。
+pub async fn update_user_profile(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    axum::extract::Path(target_id): axum::extract::Path<i32>,
+    Json(body): Json<UpdateProfileIn>,
+) -> impl IntoResponse {
+    let caller = match user_repo::find_by_id(&state.pool, auth_user.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    if !caller.is_staff {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"detail": "権限がありません"}))).into_response();
+    }
+
+    if body.email.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "メールアドレスは必須です"}))).into_response();
+    }
+
+    let target = match user_repo::find_by_id(&state.pool, target_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    let first_name = body.first_name.unwrap_or(target.first_name);
+    let last_name = body.last_name.unwrap_or(target.last_name);
+
+    let updated = match user_repo::update_profile(&state.pool, target_id, &body.email, &first_name, &last_name).await {
+        Ok(u) => u,
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("duplicate key") || err_str.contains("unique") || err_str.contains("23505") {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"detail": "このメールアドレスは既に使用されています"})),
+                ).into_response();
+            }
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(UserResponse {
+            id: updated.id,
+            username: updated.username,
+            email: updated.email,
+            first_name: updated.first_name,
+            last_name: updated.last_name,
+            display_name: updated.display_name,
+            is_staff: updated.is_staff,
+        }),
+    ).into_response()
+}

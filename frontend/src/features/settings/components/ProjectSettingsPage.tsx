@@ -24,9 +24,10 @@ import { MilestoneSettings } from './MilestoneSettings';
 import { MemberSettings } from './MemberSettings';
 import { WorkflowSettings } from './WorkflowSettings';
 import { IntegrationSettings } from './IntegrationSettings';
+import { SecuritySettings } from './SecuritySettings';
 import './ProjectSettings.css';
 
-type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'members' | 'integrations';
+type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'members' | 'integrations' | 'security';
 
 interface TabDef {
   key: TabKey;
@@ -44,6 +45,7 @@ function getTabs(t: (key: string) => string): TabDef[] {
     { key: 'milestones', label: t('settings.milestones'), icon: '🎯' },
     { key: 'members', label: t('settings.members'), icon: '👥' },
     { key: 'integrations', label: t('settings.integrations'), icon: '🔗' },
+    { key: 'security', label: t('settings.security'), icon: '🔒' },
   ];
 }
 
@@ -491,6 +493,7 @@ export function ProjectSettingsPage() {
         {activeTab === 'integrations' && (
           <IntegrationSettings projectId={currentProject.id} />
         )}
+        {activeTab === 'security' && <SecuritySettings />}
       </div>
     </div>
   );

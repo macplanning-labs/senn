@@ -142,6 +142,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/logout/", post(auth_api::logout))
         .route("/api/v1/users/", get(auth_api::list_users))
         .route("/api/v1/users/{id}/active/", axum::routing::patch(auth_api::set_user_active))
+        .route("/api/v1/users/{id}/", axum::routing::patch(auth_api::update_user_profile))
         // JSON チケット API
         .route("/api/v1/tickets/", get(tickets_api::list).post(tickets_api::create))
         .route("/api/v1/tickets/bulk-import/", post(tickets_api::bulk_import))

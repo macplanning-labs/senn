@@ -109,6 +109,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<Membership | null>(null);
   const [creatingNewUser, setCreatingNewUser] = useState(false);
   const [newlyCreatedUserId, setNewlyCreatedUserId] = useState<number | null>(null);
+  const [editEmail, setEditEmail] = useState('');
   const [formData, setFormData] = useState<MemberFormData>({
     user: 0, project: projectId, start_date: new Date().toISOString().slice(0, 10),
     end_date: '', note: '',
@@ -178,10 +179,6 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
         ...data,
         end_date: data.end_date || null,
       }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['memberships', projectId] });
-      closeModal();
-    },
     onError: (err: unknown) => {
       const axiosErr = err as { response?: { data?: Record<string, string[]> } };
       const detail = axiosErr.response?.data;
@@ -191,6 +188,16 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       } else {
         setError('メンバーの更新に失敗しました');
       }
+    },
+  });
+
+  // --- メールアドレス更新(Django Admin代替) ---
+  const updateEmailMutation = useMutation({
+    mutationFn: ({ id, email }: { id: number; email: string }) =>
+      apiClient.patch(`/users/${id}/`, { email }),
+    onError: (err: unknown) => {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setError(axiosErr.response?.data?.detail || 'メールアドレスの更新に失敗しました');
     },
   });
 
@@ -263,6 +270,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       end_date: m.endDate ?? '',
       note: m.note,
     });
+    setEditEmail(m.user.email);
     setError('');
     setModalOpen(true);
   }, [projectId]);
@@ -272,6 +280,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     setEditingMember(null);
     setCreatingNewUser(false);
     setNewlyCreatedUserId(null);
+    setEditEmail('');
     setError('');
     setRegistrationData({
       username: '',
@@ -301,17 +310,27 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     });
   }, [registrationData, registerMutation, t]);
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingMember) {
-      updateMutation.mutate({
-        id: editingMember.id,
-        data: {
-          start_date: formData.start_date,
-          end_date: formData.end_date,
-          note: formData.note,
-        },
-      });
+      try {
+        await updateMutation.mutateAsync({
+          id: editingMember.id,
+          data: {
+            start_date: formData.start_date,
+            end_date: formData.end_date,
+            note: formData.note,
+          },
+        });
+        if (editEmail && editEmail !== editingMember.user.email) {
+          await updateEmailMutation.mutateAsync({ id: editingMember.user.id, email: editEmail });
+        }
+        void queryClient.invalidateQueries({ queryKey: ['memberships', projectId] });
+        void queryClient.invalidateQueries({ queryKey: ['users'] });
+        closeModal();
+      } catch {
+        // エラー内容は各mutationのonErrorでsetError済み。モーダルは開いたままにする。
+      }
       return;
     }
     const userToAdd = newlyCreatedUserId || formData.user;
@@ -320,9 +339,9 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       return;
     }
     addMutation.mutate({ ...formData, user: userToAdd });
-  }, [formData, newlyCreatedUserId, editingMember, addMutation, updateMutation]);
+  }, [formData, newlyCreatedUserId, editingMember, editEmail, addMutation, updateMutation, updateEmailMutation, queryClient, projectId, closeModal]);
 
-  const isSaving = addMutation.isPending || updateMutation.isPending || registerMutation.isPending;
+  const isSaving = addMutation.isPending || updateMutation.isPending || registerMutation.isPending || updateEmailMutation.isPending;
 
   if (isLoading) {
     return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
@@ -539,12 +558,25 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
               )}
 
               {editingMember && (
-                <div className="settings-form__group">
-                  <label className="settings-form__label">ユーザー</label>
-                  <div className="settings-form__input" style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
-                    {editingMember.user.displayName || editingMember.user.username} ({editingMember.user.email})
+                <>
+                  <div className="settings-form__group">
+                    <label className="settings-form__label">ユーザー</label>
+                    <div className="settings-form__input" style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
+                      {editingMember.user.displayName || editingMember.user.username}
+                    </div>
                   </div>
-                </div>
+                  <div className="settings-form__group">
+                    <label className="settings-form__label">{t('settings.email')}</label>
+                    <input
+                      className="settings-form__input"
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      required
+                      data-testid="edit-member-email-input"
+                    />
+                  </div>
+                </>
               )}
 
               <div className="settings-form__row">
