@@ -43,6 +43,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/external/tickets/{ticket_key}/comments/", post(external_api::create_comment))
         // AI専用外部API: X-AI-Api-Keyヘッダーで認証(wip_api_keyとは別系統、ハンドラ内で検証)
         .route("/api/v1/ai-agent/projects/", post(ai_agent_api::create_project).get(ai_agent_api::list_projects))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/comments/", post(ai_agent_api::add_comment))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/", axum::routing::patch(ai_agent_api::patch_ticket))
         .route("/api/v1/ai-agent/tickets/", post(ai_agent_api::create_ticket).get(ai_agent_api::list_tickets))
         .route("/api/v1/ai-agent/wiki-pages/", get(ai_agent_api::list_wiki_pages));
 

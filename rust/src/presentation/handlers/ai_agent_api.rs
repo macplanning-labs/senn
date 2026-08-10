@@ -6,7 +6,7 @@
 /// 対象: プロジェクト作成、チケット作成(ラベル・担当者は名前/ユーザー名指定)。
 
 use axum::{
-    extract::{State, Query},
+    extract::{State, Query, Path},
     response::IntoResponse,
     http::{StatusCode, HeaderMap},
     Json,
@@ -17,7 +17,7 @@ use serde_json::json;
 
 use crate::presentation::state::AppState;
 use crate::domain::models::resource_api::ProjectWriteIn;
-use crate::domain::models::ticket_api::TicketWriteIn;
+use crate::domain::models::ticket_api::{TicketWriteIn, TicketPatchIn};
 use crate::domain::models::membership_api::MembershipCreateIn;
 use crate::infrastructure::repositories::{resource_repo, ticket_repo, user_repo, membership_repo, wiki_repo};
 
@@ -437,6 +437,136 @@ pub async fn list_tickets(
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// チケット更新(ステータス・優先度等)
+// ---------------------------------------------------------------------------
+
+/// PATCH /api/v1/ai-agent/tickets/{ticket_key}/
+/// チケットの状態(status, priority等)を更新する。
+pub async fn patch_ticket(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(ticket_key): Path<String>,
+    Json(body): Json<TicketPatchIn>,
+) -> impl IntoResponse {
+    let ai_user_id = match authenticate_ai(&state, &headers).await {
+        Ok(id) => id,
+        Err((status, payload)) => return (status, Json(payload)).into_response(),
+    };
+
+    let _ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
+
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
+
+    match ticket_repo::api_patch(&mut tx, &ticket_key, &body, ai_user_id).await {
+        Err(e) => {
+            tracing::error!("api_patch failed: {:?}", e);
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
+        }
+        Ok(Some(_)) => {
+            if let Err(e) = tx.commit().await {
+                tracing::error!("transaction commit failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
+            }
+
+            match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
+                Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(None) => {
+            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
+            (
+                StatusCode::NOT_FOUND,
+                Json(err("見つかりません")),
+            )
+                .into_response()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// コメント追加
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct AddAiCommentIn {
+    pub body: String,
+}
+
+/// POST /api/v1/ai-agent/tickets/{ticket_key}/comments/
+/// チケットにコメント(解決ノート等)を追加する。
+pub async fn add_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(ticket_key): Path<String>,
+    Json(body): Json<AddAiCommentIn>,
+) -> impl IntoResponse {
+    let ai_user_id = match authenticate_ai(&state, &headers).await {
+        Ok(id) => id,
+        Err((status, payload)) => return (status, Json(payload)).into_response(),
+    };
+
+    let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
+
+    match ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &body.body).await {
+        Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
