@@ -18,7 +18,7 @@ use crate::presentation::{
         holidays, api, health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
         triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api,
-        external_api, ai_api,
+        external_api, ai_api, ai_agent_api, attachment_api,
     },
 };
 
@@ -40,7 +40,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/webhooks/github/", post(integration_api::github_webhook))
         // 外部API: JWTではなくX-API-Keyヘッダーで認証(ハンドラ内で検証)
         .route("/api/v1/external/tickets/", post(external_api::create_ticket))
-        .route("/api/v1/external/tickets/{ticket_key}/comments/", post(external_api::create_comment));
+        .route("/api/v1/external/tickets/{ticket_key}/comments/", post(external_api::create_comment))
+        // AI専用外部API: X-AI-Api-Keyヘッダーで認証(wip_api_keyとは別系統、ハンドラ内で検証)
+        .route("/api/v1/ai-agent/projects/", post(ai_agent_api::create_project).get(ai_agent_api::list_projects))
+        .route("/api/v1/ai-agent/tickets/", post(ai_agent_api::create_ticket).get(ai_agent_api::list_tickets))
+        .route("/api/v1/ai-agent/wiki-pages/", get(ai_agent_api::list_wiki_pages));
 
     // 認証必須ルート
     let protected_routes = Router::new()
@@ -117,13 +121,16 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/users/", get(auth_api::list_users))
         // JSON チケット API
         .route("/api/v1/tickets/", get(tickets_api::list).post(tickets_api::create))
-        .route("/api/v1/tickets/{ticket_key}/", get(tickets_api::detail).put(tickets_api::update).delete(tickets_api::delete))
+        .route("/api/v1/tickets/bulk-import/", post(tickets_api::bulk_import))
+        .route("/api/v1/tickets/{ticket_key}/", get(tickets_api::detail).put(tickets_api::update).patch(tickets_api::patch).delete(tickets_api::delete))
         .route("/api/v1/tickets/{ticket_key}/comments/", get(tickets_api::list_comments).post(tickets_api::add_comment))
         .route("/api/v1/tickets/{ticket_key}/change-logs/", get(tickets_api::change_logs))
         .route("/api/v1/tickets/{ticket_key}/point-history/", get(tickets_api::point_history))
         .route("/api/v1/tickets/{ticket_key}/dependencies/", get(tickets_api::list_dependencies).post(tickets_api::add_dependency))
         .route("/api/v1/tickets/{ticket_key}/dependencies/{dep_id}/", axum::routing::delete(tickets_api::delete_dependency))
         .route("/api/v1/tickets/{ticket_key}/git-events/", get(tickets_api::git_events))
+        .route("/api/v1/tickets/{ticket_key}/attachments/", post(attachment_api::upload_attachment).get(attachment_api::list_attachments))
+        .route("/api/v1/tickets/{ticket_key}/attachments/{attachment_id}/", axum::routing::delete(attachment_api::delete_attachment))
         .route("/api/v1/tickets/export/csv/", get(tickets_api::export_csv))
         // JSON 通知 API (Phase 3 第二弾)
         .route("/api/v1/notifications/", get(notification_api2::list))

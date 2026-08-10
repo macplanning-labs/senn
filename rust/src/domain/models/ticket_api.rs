@@ -57,6 +57,10 @@ pub struct LabelOut {
     pub project: i32,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    #[serde(rename = "isAiEnabled")]
+    pub is_ai_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,3 +230,93 @@ fn default_priority() -> String {
 
 /// story_pointsに許容されるフィボナッチ数列(apps/tickets/domain/value_objects.py FIBONACCI_POINTS)
 pub const FIBONACCI_POINTS: [i16; 7] = [1, 2, 3, 5, 8, 13, 21];
+
+// ---------------------------------------------------------------------------
+// 部分更新リクエスト(詳細パネルからのインライン編集。指定したフィールドのみ更新)
+// ---------------------------------------------------------------------------
+
+/// JSONキーが存在する場合のみ Some(...) に包む(存在しない場合は #[serde(default)] で None)。
+/// story_points/due_date のような「nullを送って明示的にクリアする」フィールドで、
+/// 「キー自体が無い(=触らない)」と「値がnull(=クリアする)」を区別するために使う。
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(deserializer).map(Some)
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct TicketPatchIn {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub ticket_type: Option<String>,
+    /// 内側のOptionはDB上の値(NULL可)、外側のOptionは「このリクエストで指定されたか」。
+    /// TicketForm.tsx(編集フォーム)は全項目を毎回PATCHで送るため、詳細パネルの
+    /// 単項目インライン編集(部分送信)と両方を同じエンドポイントで正しく扱う必要がある。
+    #[serde(default, deserialize_with = "deserialize_present")]
+    pub category: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    pub milestone: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    pub start_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    pub due_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    pub story_points: Option<Option<i16>>,
+    /// 空配列を送ると全解除、キー自体が無ければ触らない
+    #[serde(default)]
+    pub assignees: Option<Vec<i32>>,
+    #[serde(default)]
+    pub labels: Option<Vec<i32>>,
+    #[serde(default)]
+    pub linked_rules: Option<Vec<i32>>,
+}
+
+// ---------------------------------------------------------------------------
+// バルクインポート用リクエスト (Markdownインポート等)
+// ---------------------------------------------------------------------------
+
+/// 個別チケット (バルクインポート用 - ticket_typeなしの簡略版)
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BulkImportTicketIn {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default = "default_backlog_status")]
+    pub status: String,
+    #[serde(default = "default_priority")]
+    pub priority: String,
+    pub project: i32,
+}
+
+fn default_backlog_status() -> String {
+    "backlog".to_string()
+}
+
+/// バルクインポートリクエスト
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct BulkImportIn {
+    pub tickets: Vec<BulkImportTicketIn>,
+}
+
+/// バルクインポート結果
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BulkImportOut {
+    pub imported: i32,
+    pub errors: Vec<BulkImportError>,
+}
+
+/// バルクインポート時のエラー情報
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BulkImportError {
+    pub index: usize,
+    pub error: String,
+}
