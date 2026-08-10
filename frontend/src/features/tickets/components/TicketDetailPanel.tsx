@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
@@ -42,7 +42,15 @@ interface TicketData {
   commentCount: number;
   childCount: number;
   comments: CommentData[];
+  attachments: AttachmentData[];
   linkedWikiPages?: { id: number; title: string; slug: string; category: string }[];
+  labels: { id: number; name: string; color: string }[];
+}
+
+interface LabelOption {
+  id: number;
+  name: string;
+  color: string;
 }
 
 interface CommentData {
@@ -50,6 +58,17 @@ interface CommentData {
   body: string;
   author: { id: number; username: string; displayName: string };
   createdAt: string;
+}
+
+interface AttachmentData {
+  id: number;
+  filename: string;
+  fileSize: number;
+  sizeDisplay: string;
+  isImage: boolean;
+  createdAt: string;
+  uploader: { id: number; username: string; displayName: string };
+  fileUrl: string;
 }
 
 const STATUS_OPTIONS = [
@@ -67,6 +86,16 @@ const PRIORITY_OPTIONS = [
   { value: 'medium', label: 'Medium', icon: '▮▮' },
   { value: 'low', label: 'Low', icon: '▮' },
 ] as const;
+
+/** ラベルの背景色からテキスト色を計算(LabelSettings.tsxと同じロジック) */
+function getLabelTextColor(bgColor: string): string {
+  const hex = bgColor.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.5 ? '#1a1a2e' : '#ffffff';
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -88,10 +117,14 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { projectKey } = useProject();
+  const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<{ suggested_points: number; confidence_score: number; reason: string } | null>(null);
   const [showCloseAnalysis, setShowCloseAnalysis] = useState(false);
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
 
   const ticketQueryKey = ['ticket', ticketId];
 
@@ -104,6 +137,19 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     },
     enabled: !!ticketId,
   });
+
+  // プロジェクトで使えるラベル一覧(ピッカー表示用)
+  const { data: labelOptionsData } = useQuery<{ results: LabelOption[] }>({
+    queryKey: ['labels', ticket?.project],
+    queryFn: async () => {
+      const res = await apiClient.get<{ results: LabelOption[] }>('/labels/', {
+        params: { project: ticket?.project },
+      });
+      return res.data;
+    },
+    enabled: !!ticket?.project && labelPickerOpen,
+  });
+  const labelOptions = labelOptionsData?.results ?? [];
 
   // 楽観的ステータス変更 — ドロップダウン変更の瞬間にパネルが即更新（0ms）
   const statusMutation = useOptimisticMutation<void, string>({
@@ -158,6 +204,43 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: 'ストーリーポイント変更に失敗しました。',
   });
 
+  // 楽観的期限変更
+  const dueDateMutation = useOptimisticMutation<void, string | null>({
+    mutationFn: async (dueDate) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { due_date: dueDate });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, dueDate) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, dueDate };
+    },
+    invalidateKeys: [['tickets']],
+    errorMessage: '期限の変更に失敗しました。',
+  });
+
+  // 楽観的ラベル変更(全置換)
+  const labelsMutation = useOptimisticMutation<void, LabelOption[]>({
+    mutationFn: async (labels) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { labels: labels.map((l) => l.id) });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, labels) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, labels };
+    },
+    invalidateKeys: [['tickets']],
+    errorMessage: 'ラベルの変更に失敗しました。',
+  });
+
+  const toggleLabel = (label: LabelOption) => {
+    const current = ticket?.labels ?? [];
+    const exists = current.some((l) => l.id === label.id);
+    const next = exists ? current.filter((l) => l.id !== label.id) : [...current, label];
+    labelsMutation.mutate(next);
+  };
+
   // 楽観的コメント追加 — 投稿ボタン押下で即スレッドに表示
   const commentMutation = useOptimisticMutation<void, string>({
     mutationFn: async (body) => {
@@ -187,6 +270,58 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: 'コメントの追加に失敗しました。',
   });
 
+  // 添付ファイルアップロード
+  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setAttachmentUploading(true);
+    try {
+      const res = await apiClient.post<AttachmentData>(`/tickets/${ticketId}/attachments/`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      // キャッシュを更新
+      const currentTicket = ticket;
+      if (currentTicket) {
+        const updatedTicket = {
+          ...currentTicket,
+          attachments: [...currentTicket.attachments, res.data],
+        };
+        queryClient.setQueryData(ticketQueryKey, updatedTicket);
+      }
+    } catch (error) {
+      console.error('ファイルアップロード失敗:', error);
+      alert('ファイルのアップロードに失敗しました。');
+    } finally {
+      setAttachmentUploading(false);
+      e.currentTarget.value = ''; // フォームをリセット
+    }
+  };
+
+  // 添付ファイル削除
+  const handleDeleteAttachment = async (attachmentId: number) => {
+    if (!window.confirm('このファイルを削除しますか？')) return;
+
+    try {
+      // DELETE /api/v1/tickets/{ticket_id}/attachments/{attachment_id}/
+      await apiClient.delete(`/tickets/${ticket?.id}/attachments/${attachmentId}/`);
+      if (ticket) {
+        const updatedTicket = {
+          ...ticket,
+          attachments: ticket.attachments.filter((a) => a.id !== attachmentId),
+        };
+        queryClient.setQueryData(ticketQueryKey, updatedTicket);
+      }
+    } catch (error) {
+      console.error('ファイル削除失敗:', error);
+      alert('ファイルの削除に失敗しました。');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="detail-panel detail-panel--loading" data-testid="detail-panel">
@@ -211,8 +346,22 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           <button
             className="detail-panel__edit-btn"
             onClick={() => {
+              const url = `${window.location.origin}/p/${projectKey}/tickets/${ticket.ticketKey}`;
+              void navigator.clipboard.writeText(url);
+              setLinkCopied(true);
+              setTimeout(() => setLinkCopied(false), 1500);
+            }}
+            aria-label="Copy ticket link"
+            title={linkCopied ? 'コピーしました' : 'リンクをコピー'}
+            data-testid="copy-link-btn"
+          >
+            {linkCopied ? '✅' : '🔗'}
+          </button>
+          <button
+            className="detail-panel__edit-btn"
+            onClick={() => {
               if (projectKey) {
-                navigate(`/p/${projectKey}/tickets/${ticket.id}/edit`);
+                navigate(`/p/${projectKey}/tickets/${ticket.ticketKey}/edit`);
               }
             }}
             aria-label="Edit ticket"
@@ -289,11 +438,85 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         {/* 期限 */}
         <div className="detail-panel__field">
           <span className="detail-panel__field-label">Due date</span>
-          <span className={`detail-panel__field-value ${ticket.dueDate && new Date(ticket.dueDate) < new Date() ? 'detail-panel__overdue' : ''}`}>
-            {ticket.dueDate
-              ? new Date(ticket.dueDate).toLocaleDateString()
-              : '—'}
-          </span>
+          <input
+            type="date"
+            className={`detail-panel__field-select ${ticket.dueDate && new Date(ticket.dueDate) < new Date() ? 'detail-panel__overdue' : ''}`}
+            value={ticket.dueDate ? ticket.dueDate.slice(0, 10) : ''}
+            onChange={(e) => dueDateMutation.mutate(e.target.value || null)}
+            data-testid="due-date-input"
+          />
+        </div>
+
+        {/* ラベル */}
+        <div className="detail-panel__field">
+          <span className="detail-panel__field-label">Labels</span>
+          <div style={{ position: 'relative' }}>
+            <div
+              className="detail-panel__field-value"
+              style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center', cursor: 'pointer', minHeight: '22px' }}
+              onClick={() => setLabelPickerOpen((v) => !v)}
+              data-testid="label-picker-toggle"
+            >
+              {ticket.labels?.length > 0 ? (
+                ticket.labels.map((l) => (
+                  <span
+                    key={l.id}
+                    className="settings-label-badge"
+                    style={{ background: l.color, color: getLabelTextColor(l.color) }}
+                  >
+                    {l.name}
+                  </span>
+                ))
+              ) : (
+                <span className="detail-panel__unassigned">+ ラベルを追加</span>
+              )}
+            </div>
+            {labelPickerOpen && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+                  onClick={() => setLabelPickerOpen(false)}
+                />
+                <div
+                  style={{
+                    position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 11,
+                    background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-sm)', padding: '6px', minWidth: '200px',
+                    maxHeight: '240px', overflowY: 'auto', boxShadow: 'var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.3))',
+                  }}
+                  data-testid="label-picker-menu"
+                >
+                  {labelOptions.length === 0 ? (
+                    <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.6, padding: '4px' }}>
+                      ラベルがありません
+                    </div>
+                  ) : (
+                    labelOptions.map((opt) => {
+                      const checked = ticket.labels?.some((l) => l.id === opt.id) ?? false;
+                      return (
+                        <label
+                          key={opt.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', cursor: 'pointer', fontSize: 'var(--font-size-sm)' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleLabel(opt)}
+                          />
+                          <span
+                            className="settings-label-badge"
+                            style={{ background: opt.color, color: getLabelTextColor(opt.color) }}
+                          >
+                            {opt.name}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* ストーリーポイント */}
@@ -397,10 +620,10 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         </div>
       )}
 
-      {/* コメント */}
+      {/* 経過メモ */}
       <div className="detail-panel__comments">
         <h3 className="detail-panel__section-title">
-          Comments ({ticket.comments?.length ?? 0})
+          経過メモ ({ticket.comments?.length ?? 0})
         </h3>
 
         {ticket.comments?.map((comment) => (
@@ -441,14 +664,107 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         </div>
       </div>
 
+      {/* 添付ファイル */}
+      <div style={{ marginTop: '1.5rem' }}>
+        <h3 className="detail-panel__section-title">
+          📎 Attachments ({ticket.attachments?.length ?? 0})
+        </h3>
+
+        {ticket.attachments && ticket.attachments.length > 0 && (
+          <div style={{ marginBottom: '1rem' }}>
+            {ticket.attachments.map((att) => (
+              <div
+                key={att.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '0.5rem 0.75rem',
+                  background: 'var(--color-bg-secondary, #f5f5f5)',
+                  borderRadius: '4px',
+                  marginBottom: '0.5rem',
+                  fontSize: '0.8125rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                  <span>{att.isImage ? '🖼️' : '📄'}</span>
+                  <a
+                    href={att.fileUrl}
+                    download={att.filename}
+                    style={{
+                      color: 'var(--color-link)',
+                      textDecoration: 'none',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={att.filename}
+                  >
+                    {att.filename}
+                  </a>
+                  <span style={{ opacity: 0.6, whiteSpace: 'nowrap' }}>({att.sizeDisplay})</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.5rem' }}>
+                  <span style={{ opacity: 0.5, fontSize: '0.75rem' }}>
+                    {timeAgo(att.createdAt)}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteAttachment(att.id)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px 4px',
+                      color: '#ef4444',
+                      fontSize: '0.75rem',
+                    }}
+                    title="Delete attachment"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* アップロード入力 */}
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <label
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '0.5rem',
+              border: '1px dashed var(--color-border-default, #ccc)',
+              borderRadius: '4px',
+              cursor: attachmentUploading ? 'wait' : 'pointer',
+              background: 'var(--color-bg-tertiary, #fafafa)',
+              opacity: attachmentUploading ? 0.6 : 1,
+              fontSize: '0.8125rem',
+            }}
+          >
+            {attachmentUploading ? '📤 Uploading...' : '📤 Click to upload file'}
+            <input
+              type="file"
+              onChange={handleAttachmentUpload}
+              disabled={attachmentUploading}
+              style={{ display: 'none' }}
+              data-testid="attachment-input"
+            />
+          </label>
+        </div>
+      </div>
+
       {/* タイムトラッカー */}
       <TimeTracker ticketId={ticket.id} />
 
       {/* Gitアクティビティ */}
-      <GitActivity ticketId={ticket.id} />
+      <GitActivity ticketKey={ticket.ticketKey} />
 
       {/* 変更履歴タイムライン */}
-      <ChangeLogTimeline ticketId={ticket.id} />
+      <ChangeLogTimeline ticketId={ticket.ticketKey} />
 
       {/* 紐付きWikiページ */}
       {ticket.linkedWikiPages && ticket.linkedWikiPages.length > 0 && (
