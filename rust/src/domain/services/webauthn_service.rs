@@ -92,6 +92,79 @@ pub fn finish_registration(
         .map_err(|e| anyhow::anyhow!("パスキー登録完了に失敗: {}", e))
 }
 
+// ── 認証（Authentication / ログイン）──
+//
+// discoverable credential(ユーザー名不要のログイン)方式を採用。
+// start_passkey_authentication/finish_passkey_authentication(全ユーザーのPasskeyを
+// 事前にstart時にDBから読み込んで渡す方式)は、未認証の第三者に全ユーザーの
+// credential_id一覧(allowCredentials)が開示されてしまうため使わない。
+// 代わりにwebauthn-rsの"conditional-ui" feature(Cargo.tomlで有効化済み)で
+// 提供される start_discoverable_authentication を使う。この名前だが実体は
+// 「ブラウザに認証器側で保持しているdiscoverable credentialを選ばせる」ための
+// 一般的なAPIであり、フロントエンド側で navigator.credentials.get() に
+// mediation: 'conditional' を明示的に指定しない限り、通常のボタン起動フロー
+// (パスキー選択ダイアログ)としてそのまま使える
+// (RequestChallengeResponse.mediationフィールドはpublicKeyの外側の兄弟フィールド
+// であり、フロントは`rcr.publicKey`だけを取り出してnavigator.credentials.get()に
+// 渡すため、mediationヒントは単に無視される)。
+//
+// フロー:
+//   1. start_discoverable_authentication() — DBアクセスなし、全ユーザー分の
+//      credential_idを列挙せずに済む
+//   2. クライアントから返ってきた PublicKeyCredential に対し
+//      identify_discoverable_authentication() で、検証前に(user_unique_id: Uuid,
+//      credential_id) を取り出す。このUuidは登録時に
+//      Uuid::from_u128(user_id as u128) で組み立てたものなので、
+//      .as_u128() as i32 でWIPのuser_idに戻せる
+//   3. そのuser_idのPasskeyだけをDBから取得し、DiscoverableKeyへ変換
+//   4. finish_discoverable_authentication() で検証
+
+/// パスキーログインを開始する(discoverable、ユーザー名不要、DBアクセスなし)。
+pub fn start_authentication(
+    webauthn: &Webauthn,
+) -> anyhow::Result<(RequestChallengeResponse, DiscoverableAuthentication)> {
+    webauthn.start_discoverable_authentication()
+        .map_err(|e| anyhow::anyhow!("パスキー認証開始に失敗: {}", e))
+}
+
+/// クライアントから返ってきた PublicKeyCredential から、検証前に
+/// (ユーザーのUuid, credential_id) を取り出す。
+/// このUuidから対象ユーザーを特定し、そのユーザーのPasskeyだけをDBから読み込んで
+/// finish_authentication に渡すこと(全ユーザー分を読み込まない)。
+pub fn identify_authentication(
+    webauthn: &Webauthn,
+    credential: &PublicKeyCredential,
+) -> anyhow::Result<(Uuid, Vec<u8>)> {
+    webauthn.identify_discoverable_authentication(credential)
+        .map(|(uuid, cred_id)| (uuid, cred_id.to_vec()))
+        .map_err(|e| anyhow::anyhow!("パスキーの識別に失敗: {}", e))
+}
+
+/// パスキーログインを完了する。
+/// `creds` は identify_authentication で特定した対象ユーザーの Passkey のみを渡すこと。
+pub fn finish_authentication(
+    webauthn: &Webauthn,
+    auth_state: DiscoverableAuthentication,
+    credential: &PublicKeyCredential,
+    creds: &[Passkey],
+) -> anyhow::Result<AuthenticationResult> {
+    let discoverable_keys: Vec<DiscoverableKey> = creds.iter().map(DiscoverableKey::from).collect();
+    webauthn.finish_discoverable_authentication(credential, auth_state, &discoverable_keys)
+        .map_err(|e| anyhow::anyhow!("パスキー認証完了に失敗: {}", e))
+}
+
+/// DiscoverableAuthentication を JSON 文字列にシリアライズする（クライアント返却用、echo-back pattern）
+pub fn authentication_state_to_json_string(state: &DiscoverableAuthentication) -> anyhow::Result<String> {
+    serde_json::to_string(state)
+        .map_err(|e| anyhow::anyhow!("DiscoverableAuthentication JSON シリアライズに失敗: {}", e))
+}
+
+/// JSON 文字列から DiscoverableAuthentication を復元する（クライアント echo-back用）
+pub fn authentication_state_from_json_string(json_str: &str) -> anyhow::Result<DiscoverableAuthentication> {
+    serde_json::from_str(json_str)
+        .map_err(|e| anyhow::anyhow!("DiscoverableAuthentication JSON デシリアライズに失敗: {}", e))
+}
+
 // ── ユーティリティ ──
 
 /// Passkey の credential_id をバイナリの状態で返す（DB保存用）

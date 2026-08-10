@@ -508,3 +508,139 @@ pub async fn delete_passkey(
         Json(serde_json::json!({"ok": true, "message": "パスキーを削除しました"})),
     ).into_response()
 }
+
+// =============================================================================
+// パスキー（WebAuthn）ログイン
+// =============================================================================
+
+#[derive(Serialize)]
+pub struct PasskeyLoginBeginResponse {
+    pub request_challenge: RequestChallengeResponse,
+    pub auth_state_json: String,
+}
+
+/// POST /api/v1/auth/passkey/login/begin/ — パスキーログイン開始(認証不要、publicルート)
+/// DBアクセスなし(discoverable credential方式のため)。
+pub async fn passkey_login_begin(
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::error!("WebAuthn初期化エラー: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "WebAuthn初期化エラー"}))).into_response();
+        }
+    };
+
+    match webauthn_service::start_authentication(&webauthn) {
+        Ok((rcr, auth_state)) => {
+            let auth_state_json = match webauthn_service::authentication_state_to_json_string(&auth_state) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::error!("認証状態シリアライズエラー: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+                }
+            };
+            (StatusCode::OK, Json(PasskeyLoginBeginResponse { request_challenge: rcr, auth_state_json })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("パスキー認証開始エラー: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "パスキー認証を開始できません"}))).into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct PasskeyLoginCompleteRequest {
+    pub auth_state_json: String,
+    pub credential: PublicKeyCredential,
+}
+
+/// POST /api/v1/auth/passkey/login/complete/ — パスキーログイン完了(認証不要、publicルート)
+pub async fn passkey_login_complete(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<PasskeyLoginCompleteRequest>,
+) -> impl IntoResponse {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::error!("WebAuthn初期化エラー: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "WebAuthn初期化エラー"}))).into_response();
+        }
+    };
+
+    let auth_state = match webauthn_service::authentication_state_from_json_string(&body.auth_state_json) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("認証状態デシリアライズエラー: {:?}", e);
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "不正な認証セッション"}))).into_response();
+        }
+    };
+
+    // 検証前に、レスポンスからユーザーを識別する(全ユーザー分を先読みしない)
+    let (user_uuid, _cred_id_hint) = match webauthn_service::identify_authentication(&webauthn, &body.credential) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("パスキー識別エラー: {:?}", e);
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "パスキー認証に失敗しました"}))).into_response();
+        }
+    };
+    let user_id = user_uuid.as_u128() as i32;
+
+    let passkeys = match user_repo::find_passkeys_by_user(&state.pool, user_id).await {
+        Ok(p) if !p.is_empty() => p,
+        Ok(_) => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "パスキー認証に失敗しました"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    let auth_result = match webauthn_service::finish_authentication(&webauthn, auth_state, &body.credential, &passkeys) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("パスキー認証完了エラー: {:?}", e);
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "パスキー認証に失敗しました"}))).into_response();
+        }
+    };
+
+    let user = match user_repo::find_by_id(&state.pool, user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+    };
+    if !user.is_active {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "アカウントが無効化されています"}))).into_response();
+    }
+
+    // sign_count更新(リプレイ攻撃防止)。iCloudキーチェーン等の同期パスキーでは
+    // カウントが変化しない/ズレる場合があるため、失敗してもログイン自体は継続する
+    // (ベストエフォート、tracing::warn!のみ)。
+    let cred_id_bytes: Vec<u8> = auth_result.cred_id().as_ref().to_vec();
+    if let Some(matching) = passkeys.iter().find(|pk| pk.cred_id().as_ref() == cred_id_bytes.as_slice()) {
+        let mut updated = matching.clone();
+        updated.update_credential(&auth_result);
+        if let Ok(updated_json) = webauthn_service::passkey_to_json_string(&updated) {
+            if let Err(e) = user_repo::update_webauthn_passkey_json(&state.pool, &cred_id_bytes, &updated_json).await {
+                tracing::warn!("sign_count更新に失敗(ログインは継続): {:?}", e);
+            }
+        }
+    }
+
+    let token_pair = match crate::domain::services::jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::error!("トークン発行エラー: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "トークン発行エラー"}))).into_response();
+        }
+    };
+
+    (StatusCode::OK, Json(crate::presentation::handlers::auth_api::LoginResponse {
+        access: token_pair.access,
+        refresh: token_pair.refresh,
+    })).into_response()
+}

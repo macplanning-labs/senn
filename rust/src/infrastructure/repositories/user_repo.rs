@@ -6,6 +6,7 @@
 
 use sqlx::PgPool;
 use crate::domain::models::user::{User, TotpDevice, WebAuthnCredential};
+use webauthn_rs::prelude::Passkey;
 
 const USER_COLUMNS: &str = "id::int4 AS id, username, password AS password_hash, display_name, email,
         first_name, last_name,
@@ -195,4 +196,25 @@ pub async fn find_first_staff_user(pool: &PgPool) -> anyhow::Result<Option<User>
     let sql = format!("SELECT {USER_COLUMNS} FROM accounts_user WHERE is_staff = true ORDER BY id LIMIT 1");
     let user = sqlx::query_as::<_, User>(&sql).fetch_optional(pool).await?;
     Ok(user)
+}
+
+/// ログイン検証用: 指定ユーザーのPasskey(passkey_json形式)のみを取得する。
+/// (全ユーザーではなく特定の1ユーザーの分のみ。identify_authentication で
+/// user_idを特定した後に呼ぶこと)
+pub async fn find_passkeys_by_user(pool: &PgPool, user_id: i32) -> anyhow::Result<Vec<Passkey>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT passkey_json FROM mfa_webauthn_credential WHERE user_id = $1 AND passkey_json IS NOT NULL"
+    ).bind(user_id).fetch_all(pool).await?;
+
+    Ok(rows.into_iter()
+        .filter_map(|(json,)| serde_json::from_str(&json).ok())
+        .collect())
+}
+
+/// 認証(ログイン)成功後、リプレイ攻撃防止のためsign_countを反映した
+/// passkey_jsonで更新する(credential_idで対象行を特定)。
+pub async fn update_webauthn_passkey_json(pool: &PgPool, credential_id: &[u8], passkey_json: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE mfa_webauthn_credential SET passkey_json = $2 WHERE credential_id = $1")
+        .bind(credential_id).bind(passkey_json).execute(pool).await?;
+    Ok(())
 }

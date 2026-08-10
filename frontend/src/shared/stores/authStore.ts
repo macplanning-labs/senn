@@ -33,6 +33,7 @@ interface AuthState {
   // アクション
   login: (username: string, password: string) => Promise<LoginResult>;
   verifyMfa: (mfaToken: string, totpCode: string) => Promise<void>;
+  loginWithPasskey: (access: string, refresh: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchUser: () => Promise<void>;
   setUser: (user: User | null) => void;
@@ -73,6 +74,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
       { mfa_token: mfaToken, totp_code: totpCode },
     );
     await completeLogin(set, data.access, data.refresh);
+  },
+
+  loginWithPasskey: async (access, refresh) => {
+    await completeLogin(set, access, refresh);
   },
 
   logout: async () => {

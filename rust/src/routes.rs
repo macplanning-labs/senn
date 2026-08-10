@@ -39,6 +39,8 @@ pub fn create_router(state: AppState) -> Router {
     let login_routes = Router::new()
         .route("/api/v1/auth/login/", post(auth_api::login))
         .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
+        .route("/api/v1/auth/passkey/login/begin/", post(security_api::passkey_login_begin))
+        .route("/api/v1/auth/passkey/login/complete/", post(security_api::passkey_login_complete))
         .layer(GovernorLayer::new(rate_limiter::login_config()).error_handler(rate_limiter::error_response));
 
     // GitHub Webhook: 60 requests/min per IP

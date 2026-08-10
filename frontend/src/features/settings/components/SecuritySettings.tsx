@@ -7,9 +7,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { startRegistration } from '@simplewebauthn/browser';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
-import { convertCreateOptionsToJSON, convertCredentialToJSON } from '@/shared/utils/base64url';
 
 interface BeginResponse {
   secret_b64: string;
@@ -229,39 +229,23 @@ export function SecuritySettings() {
 
   const handlePasskeyCreate = async (beginResponse: PasskeyBeginResponse) => {
     try {
-      if (!navigator.credentials) {
-        toast.error('このブラウザはWebAuthnに対応していません');
-        setPasskeyStep('idle');
-        return;
-      }
+      // webauthn-rs のCreationChallengeResponseは{ publicKey: {...} }の形。
+      const optionsJSON = beginResponse.creation_challenge.publicKey ?? beginResponse.creation_challenge;
+      const credential = await startRegistration({ optionsJSON });
 
-      // サーバーから返ってきた challenge をArrayBufferに変換
-      // webauthn-rs の CreationChallengeResponse は { publicKey: {...} } の形で
-      // 1段ラップされてシリアライズされるため、内側を取り出してから変換する。
-      const options = convertCreateOptionsToJSON(beginResponse.creation_challenge.publicKey);
-
-      // ブラウザのWebAuthn APIを呼び出す
-      const credential = (await navigator.credentials.create({
-        publicKey: options,
-      })) as any;
-
-      if (!credential) {
-        toast.error('パスキー作成がキャンセルされました');
-        setPasskeyStep('idle');
-        return;
-      }
-
-      // credential をJSON形式に変換
-      const credentialJSON = convertCredentialToJSON(credential);
-
-      // サーバーに送信
+      // startRegistrationの戻り値は既にJSON化された形式なのでそのまま送れる
       passkeyCompleteMutation.mutate({
         registration_state_json: passkeyRegistrationStateJson,
-        credential: credentialJSON,
+        credential,
       });
     } catch (error: any) {
-      console.error('WebAuthn error:', error);
-      toast.error(error.message || 'パスキー作成に失敗しました');
+      console.error('WebAuthn registration error:', error);
+      const msg = error?.message || '';
+      if (/AbortError|NotAllowedError|取消|canceled|cancelled/i.test(msg)) {
+        toast.error('パスキー登録がキャンセルされました');
+      } else {
+        toast.error(msg || 'パスキー作成に失敗しました');
+      }
       setPasskeyStep('idle');
     }
   };

@@ -128,6 +128,55 @@
   animation: slideInFromBottom 200ms ease-out;
 }
 
+/* ── 区切り線 ── */
+.login__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.login__divider::before,
+.login__divider::after {
+  flex: 1;
+  content: '';
+  height: 1px;
+  background-color: var(--color-border-default);
+}
+
+/* ── パスキーログインボタン ── */
+.login__passkey-btn {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.login__passkey-btn:hover:not(:disabled) {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 2px 8px rgba(92, 108, 255, 0.1);
+}
+
+.login__passkey-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login__passkey-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── サインアップリンク ── */
 .login__signup {
   text-align: center;

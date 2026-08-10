@@ -9,7 +9,9 @@ import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { startAuthentication } from '@simplewebauthn/browser';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
 
 const loginSchema = z.object({
@@ -22,6 +24,7 @@ export function LoginForm() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
   const verifyMfa = useAuthStore((s) => s.verifyMfa);
+  const loginWithPasskey = useAuthStore((s) => s.loginWithPasskey);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -69,6 +72,37 @@ export function LoginForm() {
       navigate('/dashboard');
     } catch {
       setError(t('auth.mfaError', 'Invalid authentication code'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handlePasskeyLogin() {
+    setError('');
+    setIsLoading(true);
+    try {
+      const beginRes = await apiClient.post('/auth/passkey/login/begin/');
+      const { request_challenge, auth_state_json } = beginRes.data;
+      const optionsJSON = request_challenge.publicKey ?? request_challenge;
+
+      const credential = await startAuthentication({ optionsJSON });
+
+      const completeRes = await apiClient.post('/auth/passkey/login/complete/', {
+        auth_state_json,
+        credential,
+      });
+
+      await loginWithPasskey(completeRes.data.access, completeRes.data.refresh);
+      navigate('/dashboard');
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (/AbortError|NotAllowedError|取消|canceled|cancelled/i.test(msg)) {
+        // ユーザーが自らキャンセルした場合は、画面全体のエラー表示は
+        // 出さない。静かにローディング状態を解除するのみ。
+      } else {
+        const detail = err?.response?.data?.detail;
+        setError(detail || 'パスキー認証に失敗しました');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -189,6 +223,21 @@ export function LoginForm() {
             {isLoading ? t('common.loading') : t('auth.login')}
           </button>
         </form>
+
+        {/* パスキーログイン区切り */}
+        <div className="login__divider">
+          <span>{t('auth.or', 'or')}</span>
+        </div>
+
+        {/* パスキーログインボタン */}
+        <button
+          type="button"
+          className="login__passkey-btn"
+          onClick={() => { void handlePasskeyLogin(); }}
+          disabled={isLoading}
+        >
+          🔑 {t('auth.loginWithPasskey', 'Sign in with Passkey')}
+        </button>
 
         {/* サインアップリンク */}
         <p className="login__signup">
