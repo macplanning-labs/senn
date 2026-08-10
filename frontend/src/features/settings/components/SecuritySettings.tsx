@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { startRegistration } from '@simplewebauthn/browser';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
@@ -49,6 +49,7 @@ interface PasskeyListResponse {
 export function SecuritySettings() {
   const { t } = useTranslation();
   const toast = useToast();
+  const queryClient = useQueryClient();
 
   // TOTP state
   const [step, setStep] = useState<'idle' | 'setup' | 'confirm'>('idle');
@@ -169,8 +170,7 @@ export function SecuritySettings() {
     onSuccess: () => {
       toast.success('パスキーを登録しました');
       setPasskeyStep('idle');
-      // リストをリフレッシュして再取得する
-      window.location.reload();
+      void queryClient.invalidateQueries({ queryKey: ['passkeys'] });
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -189,7 +189,7 @@ export function SecuritySettings() {
     },
     onSuccess: () => {
       toast.success('パスキーを削除しました');
-      window.location.reload();
+      void queryClient.invalidateQueries({ queryKey: ['passkeys'] });
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
