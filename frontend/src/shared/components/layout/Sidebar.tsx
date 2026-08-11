@@ -44,6 +44,16 @@ function IconGantt() {
   );
 }
 
+function IconDependency() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="2" width="5" height="4" rx="1" />
+      <rect x="10" y="10" width="5" height="4" rx="1" />
+      <path d="M6 4h3a2 2 0 012 2v6" />
+    </svg>
+  );
+}
+
 function IconBoard() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -168,6 +178,7 @@ export function Sidebar() {
         { path: `${projectBase}/board`, icon: IconBoard, label: t('nav.board') },
         { path: `${projectBase}/cycles`, icon: IconCycle, label: t('nav.cycles') },
         { path: `${projectBase}/gantt`, icon: IconGantt, label: t('nav.gantt') },
+        { path: `${projectBase}/dependencies`, icon: IconDependency, label: t('nav.dependencies') },
         { path: `${projectBase}/wiki`, icon: IconWiki, label: t('nav.wiki') },
       ]
     : [];

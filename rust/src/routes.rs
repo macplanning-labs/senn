@@ -173,6 +173,7 @@ pub fn create_router(state: AppState) -> Router {
         // JSON リソース API (Phase 3)
         .route("/api/v1/projects/", get(resource_api::project_list).post(resource_api::project_create))
         .route("/api/v1/projects/{id}/", get(resource_api::project_detail).put(resource_api::project_update).delete(resource_api::project_delete))
+        .route("/api/v1/projects/{id}/dependencies/", get(resource_api::project_dependency_graph))
         .route("/api/v1/categories/", get(resource_api::category_list).post(resource_api::category_create))
         .route("/api/v1/categories/{id}/", get(resource_api::category_detail).put(resource_api::category_update).delete(resource_api::category_delete))
         .route("/api/v1/milestones/", get(resource_api::milestone_list).post(resource_api::milestone_create))

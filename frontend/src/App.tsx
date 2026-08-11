@@ -15,6 +15,7 @@ import { TicketListPage } from '@/features/tickets/components/TicketListPage';
 import { TicketForm } from '@/features/tickets/components/TicketForm';
 import { KanbanBoard } from '@/features/tickets/components/KanbanBoard';
 import { GanttChart } from '@/features/gantt/components/GanttChart';
+import { TaskDependencyFlow } from '@/features/dependencies/components/TaskDependencyFlow';
 import { CycleList } from '@/features/cycles/components/CycleList';
 import { CycleDetail } from '@/features/cycles/components/CycleDetail';
 import { WikiList } from '@/features/wiki/components/WikiList';
@@ -171,6 +172,7 @@ export default function App() {
               <Route path="board/:ticketId" element={<KanbanBoard />} />
               <Route path="wiki" element={<WikiList />} />
               <Route path="gantt" element={<GanttChart />} />
+              <Route path="dependencies" element={<TaskDependencyFlow />} />
               <Route path="cycles" element={<CycleList />} />
               <Route path="cycles/:cycleId" element={<CycleDetail />} />
               <Route path="settings" element={<ProjectSettingsPage />} />

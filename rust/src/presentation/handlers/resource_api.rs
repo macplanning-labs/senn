@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::resource_repo;
+use crate::infrastructure::repositories::ticket_repo;
 use crate::domain::models::resource_api::*;
 
 // =============================================================================
@@ -155,6 +156,27 @@ pub async fn project_detail(
             }),
         )
             .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/projects/{id}/dependencies/ — 依存関係フロー可視化用の一括取得(ノード+エッジ)
+pub async fn project_dependency_graph(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    match ticket_repo::find_dependency_graph_for_project(&state.pool, id).await {
+        Ok(graph) => (StatusCode::OK, Json(graph)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (

@@ -225,6 +225,24 @@ export interface TaskDependency {
 }
 
 // ============================================================
+// タスク依存関係フロー(可視化用の一括取得レスポンス)
+// ============================================================
+
+export interface DependencyGraphNode {
+  id: number;
+  ticketKey: string;
+  title: string;
+  status: string;
+  assignees: UserSummary[];
+  storyPoints: number | null;
+}
+
+export interface DependencyGraph {
+  nodes: DependencyGraphNode[];
+  edges: TaskDependency[];
+}
+
+// ============================================================
 // サイクル（スプリント）
 // ============================================================
 

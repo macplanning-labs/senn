@@ -45,3 +45,21 @@ pub struct TaskDependencyCreateIn {
 fn default_dependency_type() -> String {
     "blocks".to_string()
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DependencyGraphNodeOut {
+    pub id: i32,
+    #[serde(rename = "ticketKey")]
+    pub ticket_key: String,
+    pub title: String,
+    pub status: String,
+    pub assignees: Vec<UserSummaryOut>,
+    #[serde(rename = "storyPoints")]
+    pub story_points: Option<i16>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DependencyGraphOut {
+    pub nodes: Vec<DependencyGraphNodeOut>,
+    pub edges: Vec<TaskDependencyOut>,
+}

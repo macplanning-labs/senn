@@ -2642,3 +2642,74 @@ pub async fn validate_assignees_are_members(
 
     Ok(non_members)
 }
+
+/// プロジェクト単位で全チケット(ノード)+全依存関係(エッジ)を一括取得する。
+/// 依存関係フロー可視化(React Flow)用。from/to 双方が対象プロジェクトに属する
+/// エッジのみを対象とする(プロジェクトを跨ぐ依存は対象外)。
+pub async fn find_dependency_graph_for_project(
+    pool: &PgPool,
+    project_id: i32,
+) -> anyhow::Result<crate::domain::models::dependency_api::DependencyGraphOut> {
+    use crate::domain::models::dependency_api::{DependencyGraphNodeOut, DependencyGraphOut};
+
+    // ノード: プロジェクト内の全チケット
+    let ticket_rows = sqlx::query(
+        "SELECT id::int4, ticket_key, title, status, story_points
+         FROM tickets_ticket
+         WHERE project_id = $1
+         ORDER BY id"
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+
+    let ticket_ids: Vec<i32> = ticket_rows.iter().map(|r| r.get::<i32, _>("id")).collect();
+
+    // 担当者はM2Mなので別クエリでまとめて取得しRust側でグルーピングする(N+1回避)。
+    let assignee_rows = sqlx::query(
+        "SELECT ta.ticketmodel_id::int4 as ticket_id, u.id::int4 as user_id, u.username, u.email, u.display_name
+         FROM tickets_ticket_assignees ta
+         JOIN accounts_user u ON ta.user_id = u.id
+         WHERE ta.ticketmodel_id = ANY($1)
+         ORDER BY u.id"
+    )
+    .bind(&ticket_ids)
+    .fetch_all(pool)
+    .await?;
+
+    let mut assignees_by_ticket: std::collections::HashMap<i32, Vec<UserSummaryOut>> =
+        std::collections::HashMap::new();
+    for r in &assignee_rows {
+        let ticket_id: i32 = r.get("ticket_id");
+        assignees_by_ticket.entry(ticket_id).or_default().push(UserSummaryOut {
+            id: r.get("user_id"),
+            username: r.get("username"),
+            email: r.get("email"),
+            display_name: r.get("display_name"),
+        });
+    }
+
+    let nodes: Vec<DependencyGraphNodeOut> = ticket_rows
+        .iter()
+        .map(|r| {
+            let id: i32 = r.get("id");
+            DependencyGraphNodeOut {
+                id,
+                ticket_key: r.get("ticket_key"),
+                title: r.get("title"),
+                status: r.get("status"),
+                assignees: assignees_by_ticket.remove(&id).unwrap_or_default(),
+                story_points: r.get("story_points"),
+            }
+        })
+        .collect();
+
+    // エッジ: 既存 DEPENDENCY_SELECT / row_to_dependency をそのまま再利用
+    let edges_query = format!(
+        "{DEPENDENCY_SELECT} WHERE ft.project_id = $1 AND tt.project_id = $1 ORDER BY d.created_at DESC"
+    );
+    let edge_rows = sqlx::query(&edges_query).bind(project_id).fetch_all(pool).await?;
+    let edges = edge_rows.iter().map(row_to_dependency).collect();
+
+    Ok(DependencyGraphOut { nodes, edges })
+}
