@@ -266,6 +266,8 @@ pub struct TicketPatchIn {
     #[serde(default, deserialize_with = "deserialize_present")]
     pub milestone: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_present")]
+    pub cycle: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
     pub start_date: Option<Option<NaiveDate>>,
     #[serde(default, deserialize_with = "deserialize_present")]
     pub due_date: Option<Option<NaiveDate>>,

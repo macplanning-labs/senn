@@ -28,6 +28,9 @@ async fn main() -> anyhow::Result<()> {
     // DB接続
     let pool = infrastructure::db::create_pool().await?;
 
+    // サイクル自動アクティブ化スケジューラを起動
+    infrastructure::scheduler::spawn_cycle_auto_activation(pool.clone());
+
     // マイグレーション実行
     //
     // ⚠ このDBはDjangoの実スキーマ(accounts_user, tickets_ticket等)を共有している。

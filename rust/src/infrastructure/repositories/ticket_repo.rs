@@ -1707,10 +1707,10 @@ pub async fn api_update(
         None => return Ok(None),
     };
 
-    // 更新前のスナップショット(9項目)
+    // 更新前のスナップショット(10項目)
     let old_row = sqlx::query(
         "SELECT title, status, priority, ticket_type, category_id::int4, milestone_id::int4,
-                description, start_date, due_date, story_points
+                description, start_date, due_date, story_points, cycle_id::int4
          FROM tickets_ticket WHERE id = $1"
     )
     .bind(ticket_id)
@@ -1727,6 +1727,7 @@ pub async fn api_update(
     let old_start_date: Option<NaiveDate> = old_row.get(7);
     let old_due_date: Option<NaiveDate> = old_row.get(8);
     let old_story_points: Option<i16> = old_row.get(9);
+    let old_cycle_id: Option<i32> = old_row.get(10);
 
     // 更新前の assignees
     let old_assignees: Vec<i32> = sqlx::query_scalar(
@@ -1740,10 +1741,10 @@ pub async fn api_update(
     sqlx::query(
         "UPDATE tickets_ticket SET
             title = $1, status = $2, priority = $3, ticket_type = $4,
-            category_id = $5, milestone_id = $6,
-            description = $7, start_date = $8, due_date = $9,
-            story_points = $10, updated_at = NOW()
-         WHERE id = $11"
+            category_id = $5, milestone_id = $6, cycle_id = $7,
+            description = $8, start_date = $9, due_date = $10,
+            story_points = $11, updated_at = NOW()
+         WHERE id = $12"
     )
     .bind(&input.title)
     .bind(&input.status)
@@ -1751,6 +1752,7 @@ pub async fn api_update(
     .bind(&input.ticket_type)
     .bind(input.category)
     .bind(input.milestone)
+    .bind(input.cycle)
     .bind(&input.description)
     .bind(input.start_date)
     .bind(input.due_date)
@@ -1816,7 +1818,7 @@ pub async fn api_update(
         .await?;
     }
 
-    // 変更ログ(9項目)
+    // 変更ログ(10項目)
     let changes = [
         ("title", old_title.clone(), input.title.clone()),
         ("status", old_status.clone(), input.status.clone()),
@@ -1831,6 +1833,11 @@ pub async fn api_update(
             "milestone_id",
             old_milestone_id.map_or(String::new(), |id| id.to_string()),
             input.milestone.map_or(String::new(), |id| id.to_string()),
+        ),
+        (
+            "cycle_id",
+            old_cycle_id.map_or(String::new(), |id| id.to_string()),
+            input.cycle.map_or(String::new(), |id| id.to_string()),
         ),
         ("description", old_description.clone(), input.description.clone()),
         (
@@ -1959,7 +1966,7 @@ pub async fn api_patch(
 
     let old_row = sqlx::query(
         "SELECT title, status, priority, ticket_type, category_id::int4, milestone_id::int4,
-                description, start_date, due_date, story_points
+                description, start_date, due_date, story_points, cycle_id::int4
          FROM tickets_ticket WHERE id = $1"
     )
     .bind(ticket_id)
@@ -1976,6 +1983,7 @@ pub async fn api_patch(
     let old_start_date: Option<NaiveDate> = old_row.get(7);
     let old_due_date: Option<NaiveDate> = old_row.get(8);
     let old_story_points: Option<i16> = old_row.get(9);
+    let old_cycle_id: Option<i32> = old_row.get(10);
 
     let old_assignees: Vec<i32> = sqlx::query_scalar(
         "SELECT user_id::int4 FROM tickets_ticket_assignees WHERE ticketmodel_id = $1 ORDER BY user_id"
@@ -2014,6 +2022,10 @@ pub async fn api_patch(
     }
     if let Some(milestone) = input.milestone {
         builder.push(", milestone_id = ").push_bind(milestone);
+        has_column_update = true;
+    }
+    if let Some(cycle) = input.cycle {
+        builder.push(", cycle_id = ").push_bind(cycle);
         has_column_update = true;
     }
     if let Some(start_date) = input.start_date {
@@ -2141,6 +2153,15 @@ pub async fn api_patch(
                 "milestone_id",
                 old_milestone_id.map_or(String::new(), |id| id.to_string()),
                 milestone.map_or(String::new(), |id| id.to_string()),
+            ));
+        }
+    }
+    if let Some(cycle) = input.cycle {
+        if old_cycle_id != cycle {
+            changes.push((
+                "cycle_id",
+                old_cycle_id.map_or(String::new(), |id| id.to_string()),
+                cycle.map_or(String::new(), |id| id.to_string()),
             ));
         }
     }

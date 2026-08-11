@@ -3,7 +3,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
-import type { Cycle, VelocityData } from '@/shared/api/types';
+import type { Cycle, VelocityData, CycleProgress, BurndownPoint } from '@/shared/api/types';
 
 /** サイクル一覧を取得 */
 export function useCycles(projectId: number | undefined) {
@@ -33,18 +33,11 @@ export function useCycle(cycleId: number | undefined) {
 
 /** サイクル進捗を取得 */
 export function useCycleProgress(cycleId: number | undefined) {
-  return useQuery({
+  return useQuery<CycleProgress>({
     queryKey: ['cycle-progress', cycleId],
     queryFn: async () => {
       const { data } = await apiClient.get(`/cycles/${cycleId}/progress/`);
-      return data as {
-        ticketCount: number;
-        completedCount: number;
-        inProgressCount: number;
-        totalPoints: number;
-        completedPoints: number;
-        completionRate: number;
-      };
+      return data;
     },
     enabled: !!cycleId,
   });
@@ -61,6 +54,18 @@ export function useVelocity(projectId: number | undefined) {
       return data;
     },
     enabled: !!projectId,
+  });
+}
+
+/** バーンダウンデータを取得 */
+export function useBurndown(cycleId: number | undefined) {
+  return useQuery<BurndownPoint[]>({
+    queryKey: ['burndown', cycleId],
+    queryFn: async () => {
+      const { data } = await apiClient.get(`/cycles/${cycleId}/burndown/`);
+      return data;
+    },
+    enabled: !!cycleId,
   });
 }
 

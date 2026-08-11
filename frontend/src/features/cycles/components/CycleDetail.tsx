@@ -115,6 +115,24 @@ export function CycleDetail() {
             </span>
             <span className="cycle-detail__stat-label">完了ポイント</span>
           </div>
+          {/* スコープ変更バッジ */}
+          {progress && (progress.initialPoints ?? 0) > 0 && (
+            <div className="cycle-detail__stat-card cycle-detail__stat-card--scope" data-testid="cycle-scope-badge">
+              <span className="cycle-detail__stat-label">
+                {t('cycle.initialScope')}
+              </span>
+              <span className="cycle-detail__scope-badge">
+                {progress.initialPoints ?? 0}pt
+                <span className="cycle-detail__scope-arrow">→</span>
+                {progress.totalPoints ?? 0}pt
+                {(progress.scopeChange ?? 0) !== 0 && (
+                  <span className={`cycle-detail__scope-change ${(progress.scopeChange ?? 0) > 0 ? 'cycle-detail__scope-change--added' : 'cycle-detail__scope-change--removed'}`}>
+                    {(progress.scopeChange ?? 0) > 0 ? '+' : ''}{progress.scopeChange}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

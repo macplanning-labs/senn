@@ -1,20 +1,13 @@
 /**
  * BurndownChart.tsx — バーンダウンチャート（SVGラインチャート）
  *
- * 理想線（直線・破線）+ 実績線（折れ線）を表示。
+ * 理想線（直線・破線）+ 実績線（折れ線）+ スコープ線（階段状）を表示。
  * 実績が理想を上回る（遅延）場合は赤色で警告。
  * チャートライブラリ不使用でバンドルサイズを抑制。
  */
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/shared/api/client';
+import { useBurndown } from '../hooks/useCycles';
 import './BurndownChart.css';
 import { useTranslation } from 'react-i18next';
-
-interface BurndownPoint {
-  date: string;
-  ideal: number;
-  actual: number;
-}
 
 const CHART_WIDTH = 600;
 const CHART_HEIGHT = 240;
@@ -22,14 +15,7 @@ const PADDING = { top: 20, right: 30, bottom: 50, left: 50 };
 
 export function BurndownChart({ cycleId }: { cycleId: number }) {
   const { t } = useTranslation();
-  const { data: points = [] } = useQuery<BurndownPoint[]>({
-    queryKey: ['burndown', cycleId],
-    queryFn: async () => {
-      const { data } = await apiClient.get(`/cycles/${cycleId}/burndown/`);
-      return data;
-    },
-    enabled: !!cycleId,
-  });
+  const { data: points = [] } = useBurndown(cycleId);
 
   if (points.length === 0) {
     return (
@@ -45,7 +31,7 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
   const innerW = CHART_WIDTH - PADDING.left - PADDING.right;
   const innerH = CHART_HEIGHT - PADDING.top - PADDING.bottom;
   const maxVal = Math.max(
-    ...points.map(p => Math.max(p.ideal, p.actual)),
+    ...points.map(p => Math.max(p.ideal, p.actual, p.totalScope)),
     1,
   );
 
@@ -65,6 +51,26 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
   const actualPoints = points.filter(p => p.date <= today);
   const actualPath = actualPoints
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(p.actual)}`)
+    .join(' ');
+
+  // スコープ線（階段状）— スコープが変わった日だけ段差がつく
+  const scopePath = points
+    .map((p, i) => {
+      const isFirst = i === 0;
+      const prevPoint = i > 0 ? points[i - 1] : null;
+      const prevScope = prevPoint ? (prevPoint.totalScope ?? 0) : (p.totalScope ?? 0);
+      const currScope = p.totalScope ?? 0;
+
+      if (isFirst) {
+        return `M${toX(i)},${toY(currScope)}`;
+      } else if (currScope !== prevScope) {
+        // スコープが変わった：垂直線（前の値）→ 水平線（現在の値）
+        return `L${toX(i)},${toY(prevScope)} L${toX(i)},${toY(currScope)}`;
+      } else {
+        // スコープが同じ：水平線
+        return `L${toX(i)},${toY(currScope)}`;
+      }
+    })
     .join(' ');
 
   // 実績が遅延しているか
@@ -119,6 +125,16 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
           opacity="0.6"
         />
 
+        {/* スコープ線（階段状・破線） */}
+        <path
+          d={scopePath}
+          fill="none"
+          stroke="var(--color-warning)"
+          strokeWidth="1.5"
+          strokeDasharray="4 4"
+          opacity="0.7"
+        />
+
         {/* 実績線 */}
         {actualPath && (
           <>
@@ -166,11 +182,13 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
         })}
 
         {/* 凡例 */}
-        <g transform={`translate(${CHART_WIDTH - PADDING.right - 140}, ${PADDING.top})`}>
-          <line x1="0" y1="4" x2="20" y2="4" stroke="var(--color-text-tertiary)" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.6" />
-          <text x="24" y="8" fill="var(--color-text-tertiary)" fontSize="10">理想線</text>
-          <line x1="70" y1="4" x2="90" y2="4" stroke="var(--color-accent)" strokeWidth="2" />
-          <text x="94" y="8" fill="var(--color-text-secondary)" fontSize="10">実績</text>
+        <g transform={`translate(${CHART_WIDTH - PADDING.right - 210}, ${PADDING.top})`}>
+          <line x1="0" y1="4" x2="15" y2="4" stroke="var(--color-text-tertiary)" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.6" />
+          <text x="18" y="8" fill="var(--color-text-tertiary)" fontSize="9">理想</text>
+          <line x1="50" y1="4" x2="65" y2="4" stroke="var(--color-warning)" strokeWidth="1.5" strokeDasharray="4 4" opacity="0.7" />
+          <text x="68" y="8" fill="var(--color-text-tertiary)" fontSize="9">スコープ</text>
+          <line x1="120" y1="4" x2="135" y2="4" stroke="var(--color-accent)" strokeWidth="2" />
+          <text x="138" y="8" fill="var(--color-text-secondary)" fontSize="9">実績</text>
         </g>
       </svg>
     </div>

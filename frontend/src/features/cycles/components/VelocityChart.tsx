@@ -20,7 +20,10 @@ export function VelocityChart({ projectId }: { projectId: number }) {
   const innerW = CHART_WIDTH - PADDING.left - PADDING.right;
   const innerH = CHART_HEIGHT - PADDING.top - PADDING.bottom;
 
-  const maxVal = Math.max(...velocityData.map(d => d.completedPoints), 1);
+  const maxVal = Math.max(
+    ...velocityData.map(d => d.completedPoints + Math.abs(d.scopeChange)),
+    1,
+  );
   const barWidth = (innerW - BAR_GAP * (velocityData.length - 1)) / velocityData.length;
 
   const avgPoints = velocityData.reduce((sum, d) => sum + d.completedPoints, 0) / velocityData.length;
@@ -64,6 +67,7 @@ export function VelocityChart({ projectId }: { projectId: number }) {
           const barH = (d.completedPoints / maxVal) * innerH;
           const x = PADDING.left + i * (barWidth + BAR_GAP);
           const y = PADDING.top + innerH - barH;
+          const scopeIndicatorH = Math.abs(d.scopeChange > 0 ? (d.scopeChange / maxVal) * innerH : 0);
 
           return (
             <g key={d.cycleNumber} className="velocity-chart__bar-group">
@@ -77,10 +81,22 @@ export function VelocityChart({ projectId }: { projectId: number }) {
                 fill="url(#velocity-gradient)"
                 className="velocity-chart__bar"
               />
+              {/* スコープ変更インジケーター（棒の上に積み重ねる） */}
+              {d.scopeChange !== 0 && (
+                <rect
+                  x={x}
+                  y={y - scopeIndicatorH}
+                  width={barWidth}
+                  height={scopeIndicatorH}
+                  rx="2"
+                  fill={d.scopeChange > 0 ? 'var(--color-warning)' : 'var(--color-info)'}
+                  opacity="0.5"
+                />
+              )}
               {/* 棒の上のポイント数 */}
               <text
                 x={x + barWidth / 2}
-                y={y - 6}
+                y={y - 6 - scopeIndicatorH}
                 textAnchor="middle"
                 fill="var(--color-text-secondary)"
                 fontSize="11"
@@ -112,7 +128,7 @@ export function VelocityChart({ projectId }: { projectId: number }) {
               )}
               {/* ツールチップ領域 */}
               <title>
-                {d.cycleName}: {d.completedPoints}pt 完了, {d.carryOver}件 持越
+                {d.cycleName}: {d.completedPoints}pt 完了{d.scopeChange !== 0 ? `, ${d.scopeChange > 0 ? '+' : ''}${d.scopeChange}pt スコープ変更` : ''}, {d.carryOver}件 持越
               </title>
             </g>
           );
@@ -138,6 +154,14 @@ export function VelocityChart({ projectId }: { projectId: number }) {
         >
           avg {Math.round(avgPoints)}
         </text>
+
+        {/* 凡例 */}
+        <g transform={`translate(${PADDING.left}, ${CHART_HEIGHT - 25})`}>
+          <rect x="0" y="0" width="12" height="12" rx="2" fill="var(--color-warning)" opacity="0.5" />
+          <text x="16" y="10" fill="var(--color-text-tertiary)" fontSize="9">スコープ追加</text>
+          <rect x="100" y="0" width="12" height="12" rx="2" fill="var(--color-info)" opacity="0.5" />
+          <text x="116" y="10" fill="var(--color-text-tertiary)" fontSize="9">スコープ削減</text>
+        </g>
 
         {/* グラデーション定義 */}
         <defs>

@@ -69,6 +69,10 @@ pub struct CycleProgressOut {
     pub total_points: i64,
     pub completed_points: i64,
     pub completion_rate: f64,
+    pub initial_points: i64,
+    pub scope_added: i64,
+    pub scope_removed: i64,
+    pub scope_change: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,7 +83,7 @@ pub struct VelocityEntryOut {
     pub cycle_name: String,
     pub completed_count: i64,
     pub completed_points: i64,
-    pub scope_change: i32,
+    pub scope_change: i64,
     pub carry_over: i64,
 }
 
@@ -99,4 +103,6 @@ pub struct BurndownPointOut {
     pub date: String,
     pub ideal: f64,
     pub actual: i64,
+    #[serde(rename = "totalScope")]
+    pub total_scope: i64,
 }

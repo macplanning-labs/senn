@@ -246,6 +246,19 @@ export interface Cycle {
   completedPoints: number;
 }
 
+export interface CycleProgress {
+  ticketCount: number;
+  completedCount: number;
+  inProgressCount: number;
+  totalPoints: number;
+  completedPoints: number;
+  completionRate: number;
+  initialPoints: number;
+  scopeAdded: number;
+  scopeRemoved: number;
+  scopeChange: number;
+}
+
 export interface VelocityData {
   cycleId: number;
   cycleNumber: number;
@@ -254,6 +267,13 @@ export interface VelocityData {
   completedPoints: number;
   scopeChange: number;
   carryOver: number;
+}
+
+export interface BurndownPoint {
+  date: string;
+  ideal: number;
+  actual: number;
+  totalScope: number;
 }
 
 // ============================================================

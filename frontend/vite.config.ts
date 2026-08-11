@@ -15,10 +15,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // Django API へのプロキシ（開発時のCORS回避）
+    // Rust API へのプロキシ（開発時のCORS回避、Django撤去後はport 8151）
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8151',
         changeOrigin: true,
       },
     },

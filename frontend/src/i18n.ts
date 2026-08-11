@@ -129,6 +129,10 @@ const resources = {
         noCyclesHint: 'Click "+ New Cycle" to create your first sprint.',
         burndownEmpty: 'Assign tickets to this cycle to see the burndown chart.',
         ticketHint: 'View tickets for this cycle by filtering in the ticket list.',
+        initialScope: 'Initial scope',
+        scopeChange: 'Scope change',
+        scopeAdded: 'scope added',
+        scopeRemoved: 'scope removed',
       },
       settings: {
         noProject: 'No project selected',
@@ -373,6 +377,10 @@ const resources = {
         noCyclesHint: '「+ 新しいサイクル」をクリックして最初のスプリントを作成しましょう。',
         burndownEmpty: 'サイクルにチケットを割り当てると、バーンダウンチャートが表示されます。',
         ticketHint: 'このサイクルのチケットはチケット一覧でフィルタして確認できます。',
+        initialScope: '初期スコープ',
+        scopeChange: 'スコープ変更',
+        scopeAdded: 'スコープ追加',
+        scopeRemoved: 'スコープ削減',
       },
       settings: {
         noProject: 'プロジェクトが選択されていません',
