@@ -66,7 +66,7 @@ export function TaskDependencyFlow() {
       id: String(n.id),
       type: 'task',
       position: { x: 0, y: 0 },
-      data: n,
+      data: n as TaskNodeData,
     }));
   }, [graph]);
 
