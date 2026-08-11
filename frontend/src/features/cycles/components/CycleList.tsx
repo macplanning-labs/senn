@@ -155,7 +155,7 @@ export function CycleList() {
 
       {/* アクティブサイクル */}
       {activeCycle && (
-        <div className="cycle-active" onClick={() => navigate(`cycles/${activeCycle.id}`)}>
+        <div className="cycle-active" data-testid="cycle-active-card" onClick={() => project && navigate(`/p/${project.prefix}/cycles/${activeCycle.id}`)}>
           <div className="cycle-active__header">
             <span className="cycle-active__badge" style={{ background: statusColors.active }}>
               {statusLabels.active}
@@ -204,7 +204,7 @@ export function CycleList() {
             <CycleRow
               key={cycle.id}
               cycle={cycle}
-              onNavigate={() => navigate(`cycles/${cycle.id}`)}
+              onNavigate={() => project && navigate(`/p/${project.prefix}/cycles/${cycle.id}`)}
               onDelete={() => project && deleteMutation.mutate({ id: cycle.id, projectId: project.id })}
             />
           ))}
@@ -222,7 +222,7 @@ export function CycleList() {
             <CycleRow
               key={cycle.id}
               cycle={cycle}
-              onNavigate={() => navigate(`cycles/${cycle.id}`)}
+              onNavigate={() => project && navigate(`/p/${project.prefix}/cycles/${cycle.id}`)}
             />
           ))}
         </div>
