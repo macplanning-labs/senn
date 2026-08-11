@@ -27,6 +27,12 @@
   padding: var(--space-4) 0;
 }
 
+.burndown-chart__hint--caption {
+  padding: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
+  text-align: left;
+}
+
 .burndown-chart__svg {
   width: 100%;
   max-width: 600px;

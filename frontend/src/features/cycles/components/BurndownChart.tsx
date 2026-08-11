@@ -191,6 +191,9 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
           <text x="138" y="8" fill="var(--color-text-secondary)" fontSize="9">実績</text>
         </g>
       </svg>
+      <p className="burndown-chart__hint burndown-chart__hint--caption">
+        {t('cycle.burndownColorHint')}
+      </p>
     </div>
   );
 }
