@@ -2654,7 +2654,7 @@ pub async fn find_dependency_graph_for_project(
 
     // ノード: プロジェクト内の全チケット
     let ticket_rows = sqlx::query(
-        "SELECT id::int4, ticket_key, title, status, story_points
+        "SELECT id::int4, ticket_key, title, status, ticket_type, story_points
          FROM tickets_ticket
          WHERE project_id = $1
          ORDER BY id"
@@ -2698,6 +2698,7 @@ pub async fn find_dependency_graph_for_project(
                 ticket_key: r.get("ticket_key"),
                 title: r.get("title"),
                 status: r.get("status"),
+                ticket_type: r.get("ticket_type"),
                 assignees: assignees_by_ticket.remove(&id).unwrap_or_default(),
                 story_points: r.get("story_points"),
             }

@@ -1,7 +1,7 @@
 /**
  * TaskDependencyFlow.tsx — タスク依存関係フロー可視化
  */
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -32,6 +32,14 @@ const nodeTypes = { task: TaskNode };
 const NODE_WIDTH = 260;
 const NODE_HEIGHT = 90;
 
+// TicketForm.tsxのticket_typeセレクトと表記を統一
+const TYPE_LABELS: Record<string, string> = {
+  issue: '🐛 Issue',
+  feature: '✨ Feature',
+  improvement: '💡 Improvement',
+  task: '📋 Task',
+};
+
 function layoutWithDagre(nodes: Node[], edges: Edge[]): Node[] {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
@@ -60,7 +68,10 @@ export function TaskDependencyFlow() {
   const createDependency = useCreateDependency(projectId);
   const deleteDependency = useDeleteDependency(projectId);
 
-  const initialNodes: Node<TaskNodeData>[] = useMemo(() => {
+  const [showIsolated, setShowIsolated] = useState(false);
+  const [selectedType, setSelectedType] = useState('all');
+
+  const allNodes: Node<TaskNodeData>[] = useMemo(() => {
     if (!graph) return [];
     return graph.nodes.map((n) => ({
       id: String(n.id),
@@ -70,7 +81,7 @@ export function TaskDependencyFlow() {
     }));
   }, [graph]);
 
-  const initialEdges: Edge[] = useMemo(() => {
+  const allEdges: Edge[] = useMemo(() => {
     if (!graph) return [];
     return graph.edges.map((d) => ({
       id: String(d.id),
@@ -80,23 +91,52 @@ export function TaskDependencyFlow() {
     }));
   }, [graph]);
 
+  // 依存関係(エッジ)を1つも持たないノード = 孤立ノード。判定は種別フィルターの
+  // 影響を受けない(データ全体での接続有無で決める)。
+  const isolatedIds = useMemo(() => {
+    const connected = new Set<string>();
+    allEdges.forEach((e) => {
+      connected.add(e.source);
+      connected.add(e.target);
+    });
+    return new Set(allNodes.filter((n) => !connected.has(n.id)).map((n) => n.id));
+  }, [allNodes, allEdges]);
+
+  const availableTypes = useMemo(() => {
+    if (!graph) return [];
+    return Array.from(new Set(graph.nodes.map((n) => n.ticketType))).sort();
+  }, [graph]);
+
+  const filteredNodes = useMemo(() => {
+    return allNodes.filter((n) => {
+      const typeMatch = selectedType === 'all' || n.data.ticketType === selectedType;
+      const isolationMatch = showIsolated || !isolatedIds.has(n.id);
+      return typeMatch && isolationMatch;
+    });
+  }, [allNodes, selectedType, showIsolated, isolatedIds]);
+
+  const filteredEdges = useMemo(() => {
+    const visibleIds = new Set(filteredNodes.map((n) => n.id));
+    return allEdges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
+  }, [allEdges, filteredNodes]);
+
   const layoutedNodes = useMemo(
-    () => layoutWithDagre(initialNodes, initialEdges),
-    [initialNodes, initialEdges],
+    () => layoutWithDagre(filteredNodes, filteredEdges),
+    [filteredNodes, filteredEdges],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(filteredEdges);
 
   // useNodesState/useEdgesStateは初期値をマウント時にしか取り込まないため、
-  // グラフのクエリ結果(非同期)が届いた後に明示的に同期する。
+  // グラフのクエリ結果(非同期)・フィルター変更後に明示的に同期する。
   useEffect(() => {
     setNodes(layoutedNodes);
   }, [layoutedNodes, setNodes]);
 
   useEffect(() => {
-    setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
+    setEdges(filteredEdges);
+  }, [filteredEdges, setEdges]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -141,6 +181,31 @@ export function TaskDependencyFlow() {
 
   return (
     <div className="task-dependency-flow">
+      <div className="task-dependency-flow__toolbar">
+        <label className="task-dependency-flow__toolbar-item">
+          <input
+            type="checkbox"
+            checked={showIsolated}
+            onChange={(e) => setShowIsolated(e.target.checked)}
+          />
+          孤立タスクを表示
+        </label>
+        <label className="task-dependency-flow__toolbar-item">
+          種別
+          <select
+            className="task-dependency-flow__type-select"
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+          >
+            <option value="all">すべて</option>
+            {availableTypes.map((t) => (
+              <option key={t} value={t}>
+                {TYPE_LABELS[t] ?? t}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}

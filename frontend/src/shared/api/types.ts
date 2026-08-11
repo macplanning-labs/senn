@@ -233,6 +233,7 @@ export interface DependencyGraphNode {
   ticketKey: string;
   title: string;
   status: string;
+  ticketType: string;
   assignees: UserSummary[];
   storyPoints: number | null;
 }

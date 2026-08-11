@@ -53,6 +53,8 @@ pub struct DependencyGraphNodeOut {
     pub ticket_key: String,
     pub title: String,
     pub status: String,
+    #[serde(rename = "ticketType")]
+    pub ticket_type: String,
     pub assignees: Vec<UserSummaryOut>,
     #[serde(rename = "storyPoints")]
     pub story_points: Option<i16>,
