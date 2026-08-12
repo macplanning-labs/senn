@@ -61,7 +61,7 @@ export function useStaleCheck({
 
           // キャッシュを無効化してリフェッチ
           void queryClient.invalidateQueries({
-            queryKey: ['tickets', ticketId],
+            queryKey: ['ticket', ticketId],
           });
 
           // 次回の比較用に更新

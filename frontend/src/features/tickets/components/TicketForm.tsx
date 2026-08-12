@@ -86,8 +86,12 @@ export function TicketForm() {
   const isEditing = !!ticketId && ticketId !== 'new';
 
   // 編集時は既存データを取得
+  // 詳細パネル(TicketDetailPanel)と同じキー['ticket', ticketId]を使う。
+  // 別キーだと詳細パネル側のインライン編集やここでの保存がこのクエリを
+  // 無効化し忘れ、5分間のstaleTime内は編集フォームに古いデータが
+  // 表示され続ける(F5でリロードするまで直らない)バグになるため。
   const { data: existingTicket } = useQuery<TicketEditData>({
-    queryKey: ['ticket-edit', ticketId],
+    queryKey: ['ticket', ticketId],
     queryFn: async () => {
       const res = await apiClient.get<TicketEditData>(`/tickets/${ticketId}/`);
       return res.data;

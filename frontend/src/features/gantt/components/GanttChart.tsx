@@ -52,7 +52,7 @@ export function GanttChart() {
   const { projectKey } = useProject();
 
   const { data, isLoading } = useQuery<{ results: GanttTicket[] }>({
-    queryKey: ['gantt-tickets', projectKey],
+    queryKey: ['tickets', 'gantt', projectKey],
     queryFn: async () => {
       const res = await apiClient.get<{ results: GanttTicket[] }>('/tickets/', {
         params: {

@@ -266,6 +266,8 @@ pub struct TicketPatchIn {
     #[serde(default, deserialize_with = "deserialize_present")]
     pub milestone: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_present")]
+    pub parent: Option<Option<i32>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
     pub cycle: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_present")]
     pub assigned_team: Option<Option<i32>>,
