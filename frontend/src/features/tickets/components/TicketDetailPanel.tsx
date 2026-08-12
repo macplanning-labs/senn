@@ -270,13 +270,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: 'コメントの追加に失敗しました。',
   });
 
-  // 添付ファイルアップロード
-  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.currentTarget.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
-    if (!file) return;
+  // 添付ファイル実際のアップロードとキャッシュ更新
+  const uploadAttachmentFile = async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -285,12 +280,12 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       const res = await apiClient.post<AttachmentData>(`/tickets/${ticketId}/attachments/`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      // キャッシュを更新
+      // キャッシュを更新（attachmentsが undefined の場合に備える）
       const currentTicket = ticket;
       if (currentTicket) {
         const updatedTicket = {
           ...currentTicket,
-          attachments: [...currentTicket.attachments, res.data],
+          attachments: [...(currentTicket.attachments ?? []), res.data],
         };
         queryClient.setQueryData(ticketQueryKey, updatedTicket);
       }
@@ -299,7 +294,34 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       alert('ファイルのアップロードに失敗しました。');
     } finally {
       setAttachmentUploading(false);
-      e.currentTarget.value = ''; // フォームをリセット
+    }
+  };
+
+  // 添付ファイルアップロード（入力要素の onChange ハンドラ）
+  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    if (!file) return;
+    await uploadAttachmentFile(file);
+    e.currentTarget.value = ''; // フォームをリセット
+  };
+
+  // コメント入力エリアへの画像ペースト処理
+  const handleCommentPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          await uploadAttachmentFile(file);
+        }
+        break;
+      }
     }
   };
 
@@ -651,6 +673,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             placeholder="Add a comment..."
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
+            onPaste={(e) => { void handleCommentPaste(e); }}
             rows={10}
             data-testid="comment-input"
           />
