@@ -41,9 +41,9 @@ export function useCreateTimeEntry() {
     mutationFn: async (payload: {
       ticket: number;
       description?: string;
-      start_time?: string;
-      end_time?: string;
-      duration_minutes?: number;
+      startTime?: string;
+      endTime?: string;
+      durationMinutes?: number;
     }) => {
       const { data } = await apiClient.post('/time-entries/', payload);
       return data as TimeEntry;

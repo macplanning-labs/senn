@@ -26,6 +26,10 @@ function formatElapsed(seconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+function timerStorageKey(ticketId: number): string {
+  return `wip:timer:${ticketId}`;
+}
+
 export function TimeTracker({ ticketId }: { ticketId: number }) {
   const { data: entries = [] } = useTimeEntries(ticketId);
   const createMutation = useCreateTimeEntry();
@@ -58,8 +62,29 @@ export function TimeTracker({ ticketId }: { ticketId: number }) {
     };
   }, [isRunning]);
 
+  useEffect(() => {
+    const raw = localStorage.getItem(timerStorageKey(ticketId));
+    if (!raw) return;
+    try {
+      const stored = JSON.parse(raw) as { startTime: string };
+      if (stored.startTime) {
+        const elapsedSeconds = Math.max(
+          0,
+          Math.floor((Date.now() - new Date(stored.startTime).getTime()) / 1000),
+        );
+        setStartTime(stored.startTime);
+        setElapsed(elapsedSeconds);
+        setIsRunning(true);
+      }
+    } catch {
+      localStorage.removeItem(timerStorageKey(ticketId));
+    }
+  }, [ticketId]);
+
   const handleStart = () => {
-    setStartTime(new Date().toISOString());
+    const now = new Date().toISOString();
+    localStorage.setItem(timerStorageKey(ticketId), JSON.stringify({ startTime: now }));
+    setStartTime(now);
     setElapsed(0);
     setIsRunning(true);
   };
@@ -70,11 +95,12 @@ export function TimeTracker({ ticketId }: { ticketId: number }) {
     const endTime = new Date().toISOString();
     createMutation.mutate({
       ticket: ticketId,
-      start_time: startTime!,
-      end_time: endTime,
+      startTime: startTime!,
+      endTime: endTime,
       description,
     }, {
       onSuccess: () => {
+        localStorage.removeItem(timerStorageKey(ticketId));
         setStartTime(null);
         setElapsed(0);
         setDescription('');
@@ -89,7 +115,7 @@ export function TimeTracker({ ticketId }: { ticketId: number }) {
     if (total <= 0) return;
     createMutation.mutate({
       ticket: ticketId,
-      duration_minutes: total,
+      durationMinutes: total,
       description,
     }, {
       onSuccess: () => {
