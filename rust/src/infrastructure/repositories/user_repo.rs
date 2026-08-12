@@ -23,15 +23,22 @@ pub async fn find_all(pool: &PgPool) -> anyhow::Result<Vec<User>> {
 pub async fn find_project_members(pool: &PgPool, project_id: i32) -> anyhow::Result<Vec<User>> {
     // プロジェクトメンバーのうち、有効期限内のユーザーのみを返す
     // 有効性判定: end_date IS NULL OR (end_date + grace_period_days) >= CURRENT_DATE
+    //
+    // accounts_user/tickets_project_membership/tickets_projectを直接JOINしてしまうと、
+    // 全テーブルにidカラムがあるためUSER_COLUMNS内の無修飾"id"が曖昧参照エラーになる。
+    // そのためJOINせず、メンバーシップ判定はサブクエリ(IN)側に閉じ込める。
     let sql = format!(
-        "SELECT DISTINCT {USER_COLUMNS}
-         FROM accounts_user u
-         INNER JOIN tickets_project_membership m ON u.id = m.user_id
-         INNER JOIN tickets_project p ON m.project_id = p.id
-         WHERE u.is_active = true
-           AND m.project_id = $1
-           AND (m.end_date IS NULL OR (m.end_date + (p.grace_period_days || ' days')::interval) >= CURRENT_DATE)
-         ORDER BY u.username"
+        "SELECT {USER_COLUMNS}
+         FROM accounts_user
+         WHERE is_active = true
+           AND id IN (
+             SELECT m.user_id
+             FROM tickets_project_membership m
+             INNER JOIN tickets_project p ON p.id = m.project_id
+             WHERE m.project_id = $1
+               AND (m.end_date IS NULL OR (m.end_date + (p.grace_period_days || ' days')::interval) >= CURRENT_DATE)
+           )
+         ORDER BY username"
     );
     let rows = sqlx::query_as::<_, User>(&sql)
         .bind(project_id)

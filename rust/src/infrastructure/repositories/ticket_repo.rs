@@ -1743,8 +1743,8 @@ pub async fn api_update(
             title = $1, status = $2, priority = $3, ticket_type = $4,
             category_id = $5, milestone_id = $6, cycle_id = $7,
             description = $8, start_date = $9, due_date = $10,
-            story_points = $11, updated_at = NOW()
-         WHERE id = $12"
+            story_points = $11, assigned_team_id = $12, updated_at = NOW()
+         WHERE id = $13"
     )
     .bind(&input.title)
     .bind(&input.status)
@@ -1757,6 +1757,7 @@ pub async fn api_update(
     .bind(input.start_date)
     .bind(input.due_date)
     .bind(input.story_points)
+    .bind(input.assigned_team)
     .bind(ticket_id)
     .execute(conn.as_mut())
     .await?;
@@ -2026,6 +2027,10 @@ pub async fn api_patch(
     }
     if let Some(cycle) = input.cycle {
         builder.push(", cycle_id = ").push_bind(cycle);
+        has_column_update = true;
+    }
+    if let Some(assigned_team) = input.assigned_team {
+        builder.push(", assigned_team_id = ").push_bind(assigned_team);
         has_column_update = true;
     }
     if let Some(start_date) = input.start_date {

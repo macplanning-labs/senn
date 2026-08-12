@@ -21,7 +21,7 @@ const ticketSchema = z.object({
   description: z.string().default(''),
   status: z.enum(['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled']).default('open'),
   priority: z.enum(['urgent', 'high', 'medium', 'low']).default('medium'),
-  ticket_type: z.enum(['issue', 'feature', 'improvement', 'task']).default('issue'),
+  ticket_type: z.enum(['bug', 'issue', 'task', 'qa']).default('issue'),
   due_date: z.string().nullable().default(null),
   start_date: z.string().nullable().default(null),
   story_points: z.number().nullable().default(null),
@@ -265,6 +265,12 @@ export function TicketForm() {
     }
   }
 
+  function fieldError(field: keyof TicketFormData) {
+    return errors[field] ? (
+      <span className="ticket-form__error">{errors[field]}</span>
+    ) : null;
+  }
+
   return (
     <div className="ticket-form" data-testid="ticket-form-page">
       <h1 className="ticket-form__title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -323,6 +329,7 @@ export function TicketForm() {
             rows={6}
             data-testid="ticket-description-input"
           />
+          {fieldError('description')}
         </div>
 
         {/* 2カラム: ステータス + 優先度 */}
@@ -343,6 +350,7 @@ export function TicketForm() {
               <option value="resolved">Resolved</option>
               <option value="closed">Closed</option>
             </select>
+            {fieldError('status')}
           </div>
 
           <div className="ticket-form__field">
@@ -361,6 +369,7 @@ export function TicketForm() {
               <option value="medium">— Medium</option>
               <option value="low">⬇ Low</option>
             </select>
+            {fieldError('priority')}
           </div>
         </div>
 
@@ -377,11 +386,12 @@ export function TicketForm() {
               onChange={(e) => updateField('ticket_type', e.target.value as TicketFormData['ticket_type'])}
               data-testid="ticket-type-input"
             >
-              <option value="issue">🐛 Issue</option>
-              <option value="feature">✨ Feature</option>
-              <option value="improvement">💡 Improvement</option>
-              <option value="task">📋 Task</option>
+              <option value="bug">🐛 Bug</option>
+              <option value="issue">📋 Issue</option>
+              <option value="task">📝 Task</option>
+              <option value="qa">🔍 QA</option>
             </select>
+            {fieldError('ticket_type')}
           </div>
 
           <div className="ticket-form__field">
@@ -419,6 +429,7 @@ export function TicketForm() {
               onChange={(e) => updateField('start_date', e.target.value || null)}
               data-testid="ticket-start-date-input"
             />
+            {fieldError('start_date')}
           </div>
 
           <div className="ticket-form__field">
@@ -433,6 +444,7 @@ export function TicketForm() {
               onChange={(e) => updateField('due_date', e.target.value || null)}
               data-testid="ticket-due-date-input"
             />
+            {fieldError('due_date')}
           </div>
         </div>
 
@@ -482,6 +494,11 @@ export function TicketForm() {
                   </span>
                 </label>
               ))}
+              {users && users.length === 0 && (
+                <span className="ticket-form__label-empty">
+                  プロジェクトにメンバーがいません。設定画面でメンバーを追加してください。
+                </span>
+              )}
             </div>
           </div>
 
