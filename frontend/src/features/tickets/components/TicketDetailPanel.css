@@ -84,6 +84,16 @@
   color: var(--color-accent-primary);
 }
 
+.detail-panel__edit-btn--danger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-status-canceled, #ef4444);
+}
+
+.detail-panel__edit-btn--danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .detail-panel__close {
   display: flex;
   align-items: center;

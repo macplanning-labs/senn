@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
@@ -345,6 +345,33 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     }
   };
 
+  // チケット削除(子チケットも再帰的に削除される)
+  const deleteTicketMutation = useMutation({
+    mutationFn: async () => {
+      await apiClient.delete(`/tickets/${ticketId}/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      onClose();
+      if (projectKey) {
+        navigate(`/p/${projectKey}/tickets`);
+      }
+    },
+    onError: (error) => {
+      console.error('チケット削除失敗:', error);
+      alert('チケットの削除に失敗しました。');
+    },
+  });
+
+  const handleDeleteTicket = () => {
+    if (!ticket) return;
+    const warning = ticket.childCount > 0
+      ? `このチケットには子チケットが${ticket.childCount}件あります。削除すると子チケットもすべて削除されます。本当に削除しますか？`
+      : 'このチケットを削除しますか？この操作は取り消せません。';
+    if (!window.confirm(warning)) return;
+    deleteTicketMutation.mutate();
+  };
+
   if (isLoading) {
     return (
       <div className="detail-panel detail-panel--loading" data-testid="detail-panel">
@@ -391,6 +418,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             title="編集"
           >
             ✏️
+          </button>
+          <button
+            className="detail-panel__edit-btn detail-panel__edit-btn--danger"
+            onClick={handleDeleteTicket}
+            disabled={deleteTicketMutation.isPending}
+            aria-label="Delete ticket"
+            title="削除"
+            data-testid="delete-ticket-btn"
+          >
+            🗑️
           </button>
           <button
             className="detail-panel__close"
