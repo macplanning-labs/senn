@@ -22,28 +22,31 @@ WIP（`amagi019/QA_Tool`）・Sophia、および将来の他Rustサービス共�
   変更していない（`cargo build` / `cargo test` はワークスペース全体を対象にする
   ため、`ci.yml` の既存ジョブがそのままこのクレートも検証する）。
 
-## Step 1時点で見つかった、方針ドキュメントとの相違点（要確認）
+## Step 1時点で見つかった、方針ドキュメントとの相違点と決定事項
 
-1. **WIPは現在デュアル認証構成**: 方針ドキュメント1章の比較表は
-   WIP=「JWT（アクセス30分/リフレッシュ7日）+ ブラックリスト」のみとしているが、
-   実際のWIPはWeb UI向けにセッションCookie認証（`tower-sessions`、
+Step1で実コードを確認した結果判明した相違点を踏まえ、2026-08-14に以下を決定した
+（詳細は方針ドキュメント1.3〜1.5節、プロジェクト内「Step1実装ログ」を参照）。
+
+1. **WIPは現在デュアル認証構成 → Web UI側もJWTへ統一する（決定）**: 方針ドキュメント
+   1章の比較表はWIP=「JWT（アクセス30分/リフレッシュ7日）+ ブラックリスト」のみと
+   していたが、実際のWIPはWeb UI向けにセッションCookie認証（`tower-sessions`、
    `middleware/auth.rs`の`require_auth`）も別途持っており、JWT Bearer認証
-   （`middleware/jwt_auth.rs`）はAPIルート専用。Step 2でauth-core適用範囲を
-   決める際にこの二重構成をどう扱うか（Web UI側もJWTに寄せるのか、
-   セッション認証は当面残すのか）の確認が必要。
-2. **JWTクレーム形状がDjango依存**: WIPのJWTはDjango
-   （`rest_framework_simplejwt`）と同一の`SECRET_KEY`で相互検証できるよう、
-   クレーム形状（`token_type`/`jti`/`user_id`を文字列化 等）をDjango仕様に
-   固定している。方針ドキュメント7章の汎用`Claims{sub,roles,exp,iss,extra}`とは
-   非互換のため、`domain::jwt`では両方を実装し、既存の互換層を`django_compat`
-   モジュールとして分離した。Django側との相互運用がいつまで必要か
-   （Djangoを段階的に廃止するのか）によって、Step 2/3での統合方針が変わる。
+   （`middleware/jwt_auth.rs`）はAPIルート専用だった。Web UI側もhttpOnly Secure
+   クッキー配布のJWTへ統一する方針が決定した（方針1.3節）。`must_change_password`/
+   `mfa_pending`のセッション依存状態の置き換え方はStep2で詳細設計する。
+2. **JWTクレーム形状がDjango依存 → Djangoは段階的に廃止する（決定）**: WIPのJWTは
+   Django（`rest_framework_simplejwt`）と同一の`SECRET_KEY`で相互検証できるよう、
+   クレーム形状（`token_type`/`jti`/`user_id`を文字列化 等）をDjango仕様に固定
+   している。方針ドキュメント7章の汎用`Claims{sub,roles,exp,iss,extra}`とは非互換
+   のため、`domain::jwt`では両方を実装し、Django互換層を`django_compat`モジュール
+   として分離した。Djangoを段階的に廃止する方針が決定したため、`django_compat`は
+   移行期間限定のブリッジと正式に位置付けている（方針1.4節）。
 3. **Passkeyログイン検証は実装済みだった**: ロードマップは「WIPの未実装である
-   Passkeyログイン検証を追加実装する」としているが、実際には
+   Passkeyログイン検証を追加実装する」としていたが、実際には
    `webauthn_service.rs`に discoverable credential 方式のログイン検証
    （`start_authentication`/`identify_authentication`/`finish_authentication`）が
    既に実装済みだった。そのまま`domain::webauthn`に移植したので、Step 1時点で
-   追加実装は不要だった。
+   追加実装は不要だった。ロードマップ側の記述は方針ドキュメント4章で修正済み。
 4. **`security-gate.yml`は既に全体を対象に組み込み済み**: リポジトリの
    `.github/workflows/security.yml`は`amagi019/mac-planning-standards`の
    再利用ワークフローを`working_directory: "."`（リポジトリ全体）で呼んでおり、
@@ -51,15 +54,16 @@ WIP（`amagi019/QA_Tool`）・Sophia、および将来の他Rustサービス共�
    `cargo build --verbose` / `cargo test --verbose`をワークスペース全体に対して
    実行するため、`auth-core`が追加された時点で自動的にCI対象へ入る。
    新規ワークフローファイルの追加は不要だった。
-5. **TOTPの秘密鍵保存方式が2系統ある**: `totp_service.rs`のAES-GCM暗号化
-   保存（新規Rust実装向け）と、`auth_service.rs`のBase32平文検証
-   （DjangoのTotpDeviceテーブルと共有、pyotp互換）が並存していた。
-   `domain::totp`では両方を維持し（`encrypt_secret`/`decrypt_secret`系と
-   `verify_code_base32`系）、WIPが実運用でどちらを使い続けるかはStep 2で確認する。
+5. **TOTPの秘密鍵保存方式が2系統ある → AES-GCM暗号化保存に統一する（決定）**:
+   `totp_service.rs`のAES-GCM暗号化保存（新規Rust実装向け）と、`auth_service.rs`
+   のBase32平文検証（DjangoのTotpDeviceテーブルと共有、pyotp互換）が並存していた。
+   AES-GCM暗号化保存を正式な標準とし、Base32平文検証（`verify_code_base32`）は
+   Django稼働中の後方互換のためだけに残す方針が決定した（方針1.5節）。既存の
+   平文シークレットの移行バッチはStep2で実装する。
 6. **`domain::one_time_token`はSophia実コード未参照のスケルトン**: この
-   セッションではSophiaリポジトリのパートナー認証トークン実装を直接
-   参照できなかったため、方針ドキュメント5章の記述からトレイト設計のみ
-   起こしてある。Step 3で実装を突き合わせること。
+   セッションではSophiaリポジトリ（`amagi019/Sophia`。場所はStep1で判明）の
+   パートナー認証トークン実装を直接参照できなかったため、方針ドキュメント5章の
+   記述からトレイト設計のみ起こしてある。Step 3で実装を突き合わせること。
 
 ## 未着手（Step 2以降）
 

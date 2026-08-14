@@ -4,10 +4,16 @@
 //! `auth_service.rs` のTOTP部分（Django/pyotp互換のBase32平文シークレットに
 //! 対する検証。WIPは現状こちらを本線として使っている）を統合した。
 //!
-//! - 秘密鍵を自前のテーブルに暗号化して保存する新規実装には
-//!   [`encrypt_secret`] / [`decrypt_secret`] を使う。
+//! ## 保存方式の方針（2026-08-14決定）
+//! TOTP秘密鍵の保存方式は **AES-GCM暗号化保存に統一する**（方針ドキュメント1.5節）。
+//! - 新規のTOTP enrollment（新規実装・再登録）には [`encrypt_secret`] /
+//!   [`decrypt_secret`] を使うこと。これが正式な標準。
 //! - Djangoの `pyotp` と共有しているテーブル（Base32平文で保存）に対する
-//!   検証には [`verify_code_base32`] を使う。
+//!   [`verify_code_base32`] は、Django稼働中の後方互換のためだけに残している
+//!   （1.4節のDjango段階的廃止方針を参照）。Django廃止のタイミングで、既存の
+//!   平文シークレットをAES-GCM暗号化ブロブへ移行するバッチ処理（または
+//!   `domain::password::verify_and_needs_rehash`と同様のon-the-fly移行）を
+//!   別途実装すること。
 
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{

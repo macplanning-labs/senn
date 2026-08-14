@@ -1,19 +1,22 @@
 //! domain/jwt.rs — JWT発行・検証
 //!
-//! ## Step 1時点の設計メモ（重要）
+//! ## クレーム形状の方針（2026-08-14決定）
 //! 方針ドキュメント7章は `Claims { sub, roles, exp, iss, extra }` という
-//! アプリ非依存の汎用クレーム形状を将来像として示している。一方、WIPの現行実装
+//! アプリ非依存の汎用クレーム形状を最終形として定義している。一方、WIPの現行実装
 //! （移植元の `jwt_service.rs`）は Django（`rest_framework_simplejwt`）と
 //! 同一の `SECRET_KEY` で相互検証できるよう、クレーム形状を
 //! `{token_type, exp, iat, jti, user_id}` に固定し、`user_id` を文字列として
 //! やり取りするなど、Djangoの実装に合わせた独自ルールを持っている。
 //!
-//! この2つは互換性がないため、Step 1では汎用エンジン（`encode_claims` /
-//! `decode_claims`、任意のクレーム型を受け付ける）と、WIPが現在必要としている
-//! Django互換クレーム（`django_compat` サブモジュール、既存コードそのまま）を
-//! 両方残す形にした。WIPをauth-coreへ切り替える際（Step 2）にDjango側との
-//! 相互運用がまだ必要かどうかを確認し、不要になった時点で `django_compat` を
-//! 汎用エンジン + `TokenPolicy` ベースの実装に一本化することを推奨する。
+//! この2つは互換性がないため、汎用エンジン（`encode_claims` / `decode_claims`、
+//! 任意のクレーム型を受け付ける）と、WIPが現在必要としているDjango互換クレーム
+//! （`django_compat` サブモジュール、既存コードそのまま）を両方実装している。
+//!
+//! **`django_compat` は恒久仕様ではない。** Djangoは段階的に廃止する方針が
+//! 決定しており（方針ドキュメント1.4節）、`django_compat` はDjangoが稼働している
+//! 間だけ必要な移行期間限定のブリッジという位置付けである。Django完全廃止のタイミングで、
+//! 新規発行トークンを汎用`Claims` + `TokenPolicy`ベースの実装に一本化する
+//! （切替時に未失効の既存リフレッシュトークンをどう扱うかは1.4節を参照）。
 
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
