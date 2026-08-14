@@ -194,7 +194,7 @@ pub async fn mfa_page() -> Html<&'static str> {
 
 // ======== TOTP ========
 
-pub async fn totp_page(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
+pub async fn totp_page(jar: CookieJar) -> impl IntoResponse {
     // wip_mfa_token が無ければ /auth/login へリダイレクト
     if jar.get(MFA_COOKIE).is_none() {
         return Redirect::to("/auth/login").into_response();

@@ -213,14 +213,7 @@
         <h1>ログイン</h1>
         <p class="login-form-sub">プロジェクト管理ツール</p>
 
-        {% if error_message %}
-        <div class="login-alert" role="alert">
-          <span>{{ error_message }}</span>
-        </div>
-        {% endif %}
-
         <form method="post" action="/auth/login">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="login-field">
             <label for="id_username">ユーザーID</label>
             <input type="text" name="username" id="id_username" required autofocus autocomplete="username" placeholder="ユーザーIDを入力">

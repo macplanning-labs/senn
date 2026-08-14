@@ -16,11 +16,10 @@ use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo};
 use crate::domain::services::auth_service;
-// Step 2: jwt_service / totp_service は auth-core クレートへ移行済み。
+// Step 2: jwt_service は auth-core クレートへ移行済み。
 // クレーム形状・関数シグネチャが同一のため、モジュールエイリアスとして差し替える
 // （呼び出し箇所のコードは変更不要）。
 use auth_core::domain::jwt::django_compat as jwt_service;
-use auth_core::domain::totp as totp_service;
 
 // =============================================================================
 // リクエスト・レスポンス構造体
