@@ -5,88 +5,240 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ログイン — WIP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/base.css">
   <style>
-    .login-container {
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+    }
+
+    .login-split {
       min-height: 100vh;
+      display: flex;
+    }
+
+    /* ---- 左: アンビエントビジュアル ---- */
+    .login-visual {
+      flex: 1.1;
+      min-width: 0;
+      background: linear-gradient(165deg, #0F1E1B 0%, #163832 100%);
+      color: #DCEFEA;
+      padding: 56px 52px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .login-brand {
+      font-family: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+      font-weight: 750;
+      font-size: 24px;
+      letter-spacing: -0.01em;
+    }
+    .login-brand span { color: #5EEAD4; }
+    .login-headline {
+      font-family: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+      font-weight: 750;
+      font-size: 30px;
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+      margin: 0 0 28px;
+      text-wrap: balance;
+    }
+    .login-feed { display: flex; flex-direction: column; gap: 10px; }
+    .login-ticket {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      padding: 10px 13px;
+      color: #C7DED8;
+    }
+    .login-ticket-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .login-ticket-dot.doing { background: #8FB8D8; }
+    .login-ticket-dot.review { background: #F0C674; }
+    .login-ticket-dot.done { background: #5EEAD4; }
+    .login-ticket b { color: #EAF6F3; font-weight: 600; }
+    .login-ticket small { margin-left: auto; color: #6C8B84; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+    /* ---- 右: ログインフォーム ---- */
+    .login-form-pane {
+      flex: 1;
+      min-width: 0;
+      background: #F6F8F6;
+      color: #15211D;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #0f2027 0%, #203a43 40%, #2c5364 100%);
+      padding: 40px 24px;
     }
-    .login-card {
-      background: rgba(255,255,255,0.97);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 48px 40px;
-      width: 420px;
-      max-width: 90vw;
-      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+    .login-form-inner { width: 100%; max-width: 320px; }
+    .login-form-inner h1 {
+      font-size: 21px;
+      font-weight: 600;
+      margin: 0 0 4px;
     }
-    .login-logo {
-      text-align: center;
-      margin-bottom: 32px;
+    .login-form-sub {
+      font-size: 13px;
+      color: #64766F;
+      margin: 0 0 32px;
     }
-    .login-logo .logo-icon {
-      width: 64px;
-      height: 64px;
-      font-size: 28px;
-      margin: 0 auto 16px;
-      background: linear-gradient(135deg, #0d9488, #14b8a6);
+
+    .login-alert {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      color: #B91C1C;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 20px;
     }
-    .login-logo h1 {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 32px;
-      font-weight: 900;
-      color: #0d9488;
-      letter-spacing: 4px;
+
+    .login-field { margin-bottom: 18px; }
+    .login-field label {
+      display: block;
+      font-size: 12px;
+      color: #64766F;
+      margin-bottom: 7px;
+      letter-spacing: 0.01em;
     }
-    .login-subtitle {
-      color: var(--text-secondary);
+    .login-field input {
+      width: 100%;
       font-size: 14px;
-      margin-top: 4px;
+      padding: 11px 13px;
+      background: #FFFFFF;
+      border: 1px solid #D7DEDA;
+      border-radius: 8px;
+      color: #15211D;
+      font-family: inherit;
+      transition: border-color 0.15s ease;
+    }
+    .login-field input:focus {
+      outline: none;
+      border-color: #0D9488;
+      box-shadow: 0 0 0 3px rgba(13,148,136,0.12);
+    }
+
+    .btn-login {
+      width: 100%;
+      margin-top: 22px;
+      background: #0B6F65;
+      color: #F6F8F6;
+      border: none;
+      border-radius: 8px;
+      padding: 13px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn-login:hover { background: #0D9488; }
+
+    .login-divider {
+      position: relative;
+      text-align: center;
+      margin: 22px 0;
+    }
+    .login-divider hr { border: none; border-top: 1px solid #E1E6E2; margin: 0; }
+    .login-divider span {
+      position: absolute;
+      top: -9px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #F6F8F6;
+      padding: 0 12px;
+      font-size: 11px;
+      color: #8B9B95;
+    }
+
+    .btn-passkey {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: transparent;
+      border: 1px solid #D7DEDA;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      color: #3F4E49;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .btn-passkey:hover { border-color: #0D9488; background: #EEF6F4; }
+    .btn-passkey:disabled { opacity: 0.6; cursor: default; }
+
+    @media (max-width: 760px) {
+      .login-split { flex-direction: column; }
+      .login-visual { padding: 36px 28px; }
+      .login-headline { font-size: 24px; }
+      .login-form-pane { padding: 40px 24px 56px; }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .login-ticket { animation: login-ticket-rise 0.45s ease both; }
+      .login-ticket:nth-child(2) { animation-delay: 0.07s; }
+      .login-ticket:nth-child(3) { animation-delay: 0.14s; }
+    }
+    @keyframes login-ticket-rise {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
 <body>
-  <div class="login-container">
-    <div class="login-card">
-      <div class="login-logo">
-        <div class="logo-icon">W</div>
-        <h1>WIP</h1>
-        <p class="login-subtitle">Work In Progress — プロジェクト管理</p>
+  <div class="login-split">
+    <div class="login-visual">
+      <div class="login-brand">WIP<span>.</span></div>
+      <div class="login-feed">
+        <p class="login-headline">今この瞬間も、<br>誰かの Work In Progress。</p>
+        <div class="login-ticket"><span class="login-ticket-dot doing"></span><b>WIP-475</b> 認証基盤刷新<small>進行中</small></div>
+        <div class="login-ticket"><span class="login-ticket-dot review"></span><b>WIP-479</b> ダッシュボード実装<small>レビュー待ち</small></div>
+        <div class="login-ticket"><span class="login-ticket-dot done"></span><b>WIP-482</b> チケット削除ボタン<small>完了</small></div>
       </div>
+    </div>
 
-      {% if error_message %}
-      <div class="alert alert-danger" role="alert">
-        <span>{{ error_message }}</span>
-      </div>
-      {% endif %}
+    <div class="login-form-pane">
+      <div class="login-form-inner">
+        <h1>ログイン</h1>
+        <p class="login-form-sub">プロジェクト管理ツール</p>
 
-      <form method="post" action="/auth/login">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <div class="form-group">
-          <label class="form-label" for="id_username">ユーザーID</label>
-          <input type="text" name="username" id="id_username" class="form-control" required autofocus autocomplete="username" placeholder="ユーザーIDを入力">
+        {% if error_message %}
+        <div class="login-alert" role="alert">
+          <span>{{ error_message }}</span>
         </div>
-        <div class="form-group">
-          <label class="form-label" for="id_password">パスワード</label>
-          <input type="password" name="password" id="id_password" class="form-control" required autocomplete="current-password" placeholder="パスワードを入力">
-        </div>
-        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">ログイン</button>
-      </form>
+        {% endif %}
 
-      <div style="position:relative;text-align:center;margin:20px 0;">
-        <hr style="border:none;border-top:1px solid var(--border);">
-        <span style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,0.97);padding:0 12px;font-size:12px;color:var(--text-muted);">または</span>
+        <form method="post" action="/auth/login">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="login-field">
+            <label for="id_username">ユーザーID</label>
+            <input type="text" name="username" id="id_username" required autofocus autocomplete="username" placeholder="ユーザーIDを入力">
+          </div>
+          <div class="login-field">
+            <label for="id_password">パスワード</label>
+            <input type="password" name="password" id="id_password" required autocomplete="current-password" placeholder="パスワードを入力">
+          </div>
+          <button type="submit" class="btn-login">ログイン</button>
+        </form>
+
+        <div class="login-divider"><hr><span>または</span></div>
+
+        <button type="button" id="passkeyLoginBtn" class="btn-passkey">🔑 パスキーでログイン</button>
       </div>
-
-      <button type="button" id="passkeyLoginBtn" class="btn btn-outline" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">
-        🗝️ パスキーでログイン
-      </button>
     </div>
   </div>
+
   <script src="/static/js/main.js"></script>
   <script>
   document.getElementById('passkeyLoginBtn').addEventListener('click', async function() {
@@ -133,7 +285,7 @@
       }
     } finally {
       btn.disabled = false;
-      btn.textContent = '🗝️ パスキーでログイン';
+      btn.textContent = '🔑 パスキーでログイン';
     }
   });
   function base64urlToBuffer(b) {
