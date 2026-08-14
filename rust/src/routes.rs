@@ -146,7 +146,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/tickets/holidays/bulk-add", post(holidays::bulk_add))
         .route("/tickets/holidays/{id}/delete", post(holidays::delete))
         // 認証ミドルウェア適用
-        .layer(axum_middleware::from_fn(require_auth))
+        .layer(axum_middleware::from_fn_with_state(state.clone(), require_auth))
         .layer(axum_middleware::from_fn(origin_check_middleware(allowed_origins.clone())));
 
     // JWT保護ルート
