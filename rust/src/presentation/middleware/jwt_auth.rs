@@ -12,7 +12,8 @@ use axum::{
     Json,
 };
 use crate::presentation::state::AppState;
-use crate::domain::services::jwt_service;
+// Step 2: jwt_service は auth-core クレート（django_compat、クレーム形状は同一）へ移行。
+use auth_core::domain::jwt::django_compat as jwt_service;
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthUser {

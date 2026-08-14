@@ -9,10 +9,11 @@ use axum::{
     Router,
 };
 use tower_http::services::ServeDir;
-use tower_governor::GovernorLayer;
+// Step 2: レート制限(IPトークンバケット)は auth-core::infrastructure::rate_limit へ移行済み。
+use auth_core::infrastructure::rate_limit::{ip_rate_limit_layer, IpRateLimitConfig};
 use crate::presentation::{
     state::AppState,
-    middleware::{auth::require_auth, jwt_auth, rate_limiter},
+    middleware::{auth::require_auth, jwt_auth},
     handlers::{
         auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
         milestones, projects, notifications, notification_api2, wiki, categories,
@@ -41,18 +42,18 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
         .route("/api/v1/auth/passkey/login/begin/", post(security_api::passkey_login_begin))
         .route("/api/v1/auth/passkey/login/complete/", post(security_api::passkey_login_complete))
-        .layer(GovernorLayer::new(rate_limiter::login_config()).error_handler(rate_limiter::error_response));
+        .layer(ip_rate_limit_layer(IpRateLimitConfig::login_preset()));
 
     // GitHub Webhook: 60 requests/min per IP
     let webhook_routes = Router::new()
         .route("/api/v1/webhooks/github/", post(integration_api::github_webhook))
-        .layer(GovernorLayer::new(rate_limiter::webhook_config()).error_handler(rate_limiter::error_response));
+        .layer(ip_rate_limit_layer(IpRateLimitConfig::webhook_preset()));
 
     // 外部API: 300 requests/min per IP
     let external_routes = Router::new()
         .route("/api/v1/external/tickets/", post(external_api::create_ticket))
         .route("/api/v1/external/tickets/{ticket_key}/comments/", post(external_api::create_comment))
-        .layer(GovernorLayer::new(rate_limiter::external_api_config()).error_handler(rate_limiter::error_response));
+        .layer(ip_rate_limit_layer(IpRateLimitConfig::external_api_preset()));
 
     // AI専用外部API: 300 requests/min per IP
     let ai_agent_routes = Router::new()
@@ -61,7 +62,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/ai-agent/tickets/{ticket_key}/", axum::routing::patch(ai_agent_api::patch_ticket))
         .route("/api/v1/ai-agent/tickets/", post(ai_agent_api::create_ticket).get(ai_agent_api::list_tickets))
         .route("/api/v1/ai-agent/wiki-pages/", get(ai_agent_api::list_wiki_pages))
-        .layer(GovernorLayer::new(rate_limiter::external_api_config()).error_handler(rate_limiter::error_response));
+        .layer(ip_rate_limit_layer(IpRateLimitConfig::external_api_preset()));
 
     // 認証不要ルート（すべてのサブルーターを統合）
     let public_routes = basic_public_routes

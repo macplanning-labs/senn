@@ -13,8 +13,22 @@ use serde::{Deserialize, Serialize};
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::user_repo;
-use crate::domain::services::{totp_service, auth_service, webauthn_service};
+use crate::domain::services::auth_service;
+// Step 2: totp_service / webauthn_service / jwt_service は auth-core クレートへ移行済み。
+// クレーム形状・関数シグネチャがほぼ同一のため、モジュールエイリアスとして差し替える。
+// ただし totp::generate_qr_base64 / verify_code は issuer 引数が増え、
+// webauthn::create_webauthn_from_headers は rp_name 引数が増え、
+// webauthn::start_registration の user_id は i32 ではなく Uuid を要求するため、
+// 該当の呼び出し箇所のみ引数を追加している。
+use auth_core::domain::totp as totp_service;
+use auth_core::domain::webauthn as webauthn_service;
+use auth_core::domain::jwt::django_compat as jwt_service;
 use webauthn_rs::prelude::*;
+
+/// WebAuthnのRP名 / TOTPのissuer名。移植元のWIP実装が固定していた値
+/// （旧 webauthn_service.rs の rp_name、旧 totp_service.rs の issuer="WIP"）を踏襲する。
+const WIP_RP_NAME: &str = "WIP — プロジェクト管理ツール";
+const WIP_TOTP_ISSUER: &str = "WIP";
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -99,7 +113,7 @@ pub async fn totp_begin(
 ) -> impl IntoResponse {
     let secret_bytes = totp_service::generate_secret();
 
-    let qr_base64 = match totp_service::generate_qr_base64(&secret_bytes, &auth_user.user_id.to_string()) {
+    let qr_base64 = match totp_service::generate_qr_base64(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string()) {
         Ok(qr) => qr,
         Err(e) => {
             tracing::error!("QR code generation failed: {:?}", e);
@@ -148,7 +162,7 @@ pub async fn totp_confirm(
     };
 
     // TOTP コード検証
-    match totp_service::verify_code(&secret_bytes, &auth_user.user_id.to_string(), &body.code) {
+    match totp_service::verify_code(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string(), &body.code) {
         Ok(true) => {}
         Ok(false) => {
             return (
@@ -237,7 +251,7 @@ pub async fn totp_disable(
                 Ok(Some(device)) if device.confirmed => {
                     match totp_service::decrypt_secret(&device.secret, &state.config.jwt_secret) {
                         Ok(secret_bytes) => {
-                            match totp_service::verify_code(&secret_bytes, &auth_user.user_id.to_string(), code) {
+                            match totp_service::verify_code(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string(), code) {
                                 Ok(true) => verified = true,
                                 Ok(false) => {}
                                 Err(e) => {
@@ -293,7 +307,7 @@ pub async fn passkey_register_begin(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     // リクエストヘッダーから WebAuthn インスタンスを構築
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -310,9 +324,12 @@ pub async fn passkey_register_begin(
     let existing_credentials = None;
 
     // パスキー登録を開始
+    // auth-core の start_registration は user_id: Uuid を要求する(アプリのユーザーID表現を
+    // 知らない汎用設計のため)。WIP側のi32 user_idは、ログイン検証(identify_authentication)側で
+    // 従来から使っているUuid::from_u128(user_id as u128)と対になる変換で埋め込む。
     match webauthn_service::start_registration(
         &webauthn,
-        auth_user.user_id,
+        Uuid::from_u128(auth_user.user_id as u128),
         &auth_user.user_id.to_string(),
         &format!("パスキー_{}", auth_user.user_id),
         existing_credentials,
@@ -359,7 +376,7 @@ pub async fn passkey_register_complete(
     Json(body): Json<PasskeyRegisterCompleteRequest>,
 ) -> impl IntoResponse {
     // リクエストヘッダーから WebAuthn インスタンスを構築
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -528,7 +545,7 @@ pub struct PasskeyLoginBeginResponse {
 pub async fn passkey_login_begin(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -566,7 +583,7 @@ pub async fn passkey_login_complete(
     headers: axum::http::HeaderMap,
     Json(body): Json<PasskeyLoginCompleteRequest>,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -635,7 +652,7 @@ pub async fn passkey_login_complete(
         }
     }
 
-    let token_pair = match crate::domain::services::jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
+    let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("トークン発行エラー: {:?}", e);

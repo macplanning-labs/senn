@@ -52,9 +52,13 @@ dotenvy = "0.15"
 anyhow = "1"
 thiserror = "2"
 
+# 非同期トレイト(auth-core::domain::jwt::TokenBlacklist の実装に使用。Step 2で追加)
+async-trait = "0.1"
+
 # 認証
-# 共通認証ライブラリ(Step 1で新設。段階的にjwt_service/totp_service/
-# webauthn_service/middlewareの呼び出しをこちらへ差し替える。Step 2で対応)
+# 共通認証ライブラリ(Step 1で新設。Step 2でjwt_service/totp_service/
+# webauthn_service/middleware::jwt_auth/middleware::rate_limiterの呼び出しを
+# こちらへ差し替え済み)
 auth-core = { path = "auth-core" }
 argon2 = "0.5"
 totp-rs = { version = "5", features = ["qr"] }

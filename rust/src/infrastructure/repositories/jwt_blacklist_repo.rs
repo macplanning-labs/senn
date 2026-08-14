@@ -27,3 +27,26 @@ pub async fn is_blacklisted(pool: &PgPool, jti: &str) -> anyhow::Result<bool> {
     .await?;
     Ok(row.is_some())
 }
+
+/// auth-core の `domain::jwt::TokenBlacklist` トレイト実装（Step 2: 配線）。
+///
+/// 上記の自由関数 `blacklist` / `is_blacklisted` は既存の呼び出し箇所
+/// （`auth_api.rs`）が直接 `&PgPool` を渡す形で使い続けられるようそのまま残し、
+/// この構造体はauth-core側のトレイト境界（`&dyn TokenBlacklist`のように抽象化して
+/// 受け取りたい箇所）向けの薄いラッパーとして提供する。
+pub struct PgJwtBlacklist(pub PgPool);
+
+#[async_trait::async_trait]
+impl auth_core::domain::jwt::TokenBlacklist for PgJwtBlacklist {
+    async fn blacklist(&self, jti: &str, expires_at: DateTime<Utc>) -> auth_core::Result<()> {
+        blacklist(&self.0, jti, expires_at)
+            .await
+            .map_err(|e| auth_core::AuthError::Internal(e.to_string()))
+    }
+
+    async fn is_blacklisted(&self, jti: &str) -> auth_core::Result<bool> {
+        is_blacklisted(&self.0, jti)
+            .await
+            .map_err(|e| auth_core::AuthError::Internal(e.to_string()))
+    }
+}
