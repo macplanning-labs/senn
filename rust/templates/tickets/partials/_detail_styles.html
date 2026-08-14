@@ -1,0 +1,44 @@
+<style>
+  .detail-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: var(--space-lg);
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .detail-layout { grid-template-columns: 1fr; }
+  }
+
+  .detail-main, .detail-sidebar { display: flex; flex-direction: column; gap: var(--space-lg); }
+
+  .card-header-simple {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .ticket-description { white-space: pre-wrap; line-height: 1.7; color: var(--text-secondary); }
+
+  .detail-field { margin-bottom: 14px; }
+  .detail-field:last-of-type { margin-bottom: 0; }
+  .detail-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .comment-item { padding: 12px 0; border-bottom: 1px solid var(--border-light); }
+  .comment-item:last-of-type { border-bottom: none; }
+  .comment-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .comment-avatar {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--primary); color: var(--text-on-primary);
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .comment-author { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-right: 6px; }
+  .comment-time { font-size: 11px; color: var(--text-muted); }
+  .comment-body { font-size: 13px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; margin-left: 34px; }
+
+  .comment-form { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-light); }
+</style>

@@ -344,6 +344,12 @@ async fn fetch_monthly_comparison(
     Ok((last, this))
 }
 
+/// ヘッダーバッジ用の期限超過件数取得（ダッシュボード以外の画面からも呼ばれる）
+pub async fn get_overdue_count(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<i64> {
+    let today = chrono::Local::now().date_naive();
+    count_overdue(pool, project_id, today).await
+}
+
 async fn count_overdue(pool: &PgPool, project_id: Option<i32>, today: NaiveDate) -> anyhow::Result<i64> {
     let project_clause = if let Some(pid) = project_id {
         format!("AND project_id = {}", pid)

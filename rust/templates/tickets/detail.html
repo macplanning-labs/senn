@@ -40,13 +40,12 @@
         {% for c in comments %}
         <div class="comment-item">
           <div class="comment-header">
-            <div class="comment-avatar">{{ c.author_name.chars().next().unwrap_or('?') }}</div>
+            <div class="comment-avatar">{% if let Some(name) = c.author_name %}{{ name.chars().next().unwrap_or('?') }}{% else %}?{% endif %}</div>
             <div>
-              <span class="comment-author">{{ c.author_name }}</span>
+              <span class="comment-author">{{ c.author_name|default("-") }}</span>
               <span class="comment-time">{{ c.created_at|date }}</span>
             </div>
             <form method="post" action="/comments/{{ c.id }}/delete" style="margin-left:auto;">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('削除しますか？')" style="font-size:11px;color:var(--text-muted);">🗑</button>
             </form>
           </div>
@@ -56,7 +55,6 @@
 
         {# コメント投稿フォーム #}
         <form method="post" action="/tickets/{{ ticket.id }}/comment" class="comment-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <textarea name="body" class="form-control" rows="3" placeholder="コメントを入力..." required></textarea>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:8px;">
             <div style="display:flex;align-items:center;gap:6px;">
@@ -64,7 +62,7 @@
               <select name="status" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);">
                 <option value="">変更しない</option>
                 {% for s in available_statuses %}
-                <option value="{{ s }}" {% if s == ticket.status %}selected{% endif %}>{{ s }}</option>
+                <option value="{{ s }}" {% if s.as_str() == ticket.status.as_str() %}selected{% endif %}>{{ s }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -140,7 +138,6 @@
 
         {# ウォッチ #}
         <form method="post" action="/tickets/{{ ticket.id }}/watch">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="btn btn-outline btn-sm" style="width:100%;">
             {% if is_watching %}👁️ ウォッチ中{% else %}👁️‍🗨️ ウォッチする{% endif %}
           </button>
@@ -148,7 +145,6 @@
 
         {# 削除 #}
         <form method="post" action="/tickets/{{ ticket.id }}/delete" style="margin-top:8px;">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;color:var(--danger);" onclick="return confirm('このチケットを削除しますか？')">🗑 削除</button>
         </form>
       </div>

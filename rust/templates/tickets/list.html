@@ -32,25 +32,25 @@
       <select name="status" class="form-control" style="width:auto;min-width:110px;min-height:36px;" onchange="this.form.submit()">
         <option value="">全ステータス</option>
         {% for s in statuses %}
-        <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s }}" {% if f_status.as_str() == s.as_str() %}selected{% endif %}>{{ s }}</option>
         {% endfor %}
       </select>
       <select name="priority" class="form-control" style="width:auto;min-width:90px;min-height:36px;" onchange="this.form.submit()">
         <option value="">全優先度</option>
         {% for p in priorities %}
-        <option value="{{ p }}" {% if f_priority == p %}selected{% endif %}>{{ p }}</option>
+        <option value="{{ p }}" {% if f_priority.as_str() == p.as_str() %}selected{% endif %}>{{ p }}</option>
         {% endfor %}
       </select>
       <select name="assignee_id" class="form-control" style="width:auto;min-width:110px;min-height:36px;" onchange="this.form.submit()">
         <option value="">全担当者</option>
         {% for u in users %}
-        <option value="{{ u.id }}" {% if f_assignee_id == Some(u.id) %}selected{% endif %}>{{ u.display_name }}</option>
+        <option value="{{ u.id }}" {% if f_assignee_id == Some(*u.id) %}selected{% endif %}>{{ u.display_name }}</option>
         {% endfor %}
       </select>
       <select name="milestone_id" class="form-control" style="width:auto;min-width:130px;min-height:36px;" onchange="this.form.submit()">
         <option value="">全マイルストーン</option>
         {% for m in milestones %}
-        <option value="{{ m.id }}" {% if f_milestone_id == Some(m.id) %}selected{% endif %}>{{ m.name }}</option>
+        <option value="{{ m.id }}" {% if f_milestone_id == Some(*m.id) %}selected{% endif %}>{{ m.name }}</option>
         {% endfor %}
       </select>
       <button type="submit" class="btn btn-outline btn-sm">検索</button>
