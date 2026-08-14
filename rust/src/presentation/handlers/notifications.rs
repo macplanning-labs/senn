@@ -2,23 +2,86 @@
 ///
 /// 通知一覧・既読化・全既読・ドロップダウン・未読数・通知設定
 
+use askama::Template;
 use axum::{
-    extract::{State, Path},
+    extract::{State, Path, Query},
     response::{Html, Redirect, IntoResponse},
     Extension, Form,
 };
 use serde::Deserialize;
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::auth::SessionUser;
-use crate::infrastructure::repositories::notification_repo;
+use crate::presentation::filters;
+use crate::presentation::handlers::tickets::build_base_context;
+use crate::domain::models::project::Project;
+use crate::domain::models::notification::Notification;
+use crate::infrastructure::repositories::{notification_repo, user_repo};
+
+#[derive(Template)]
+#[template(path = "notifications/list.html")]
+struct NotificationListTemplate {
+    all_projects: Vec<Project>,
+    current_project_id: Option<i32>,
+    nav_active: &'static str,
+    overdue_count: i64,
+    user_is_staff: bool,
+    user_initial: String,
+    user_display_name: String,
+    notifications: Vec<Notification>,
+    filter: String,
+    unread_count: i64,
+    email_notifications_enabled: bool,
+}
+
+#[derive(Template)]
+#[template(path = "notifications/partials/_dropdown_body.html")]
+struct DropdownBodyTemplate {
+    notifications: Vec<Notification>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct NotificationListQuery {
+    pub filter: Option<String>,
+}
 
 pub async fn list(
     State(state): State<AppState>,
     Extension(user): Extension<SessionUser>,
+    Query(query): Query<NotificationListQuery>,
 ) -> Html<String> {
-    let notifications = notification_repo::find_by_user(&state.pool, user.user_id, 100)
+    let filter = query.filter.unwrap_or_else(|| "all".to_string());
+
+    let all_notifications = notification_repo::find_by_user(&state.pool, user.user_id, 100)
         .await.unwrap_or_default();
-    Html(format!("<h1>通知一覧</h1><p>{}件</p>", notifications.len()))
+    let unread_count = all_notifications.iter().filter(|n| !n.is_read).count() as i64;
+
+    let notifications = match filter.as_str() {
+        "unread" => all_notifications.into_iter().filter(|n| !n.is_read).collect(),
+        "read" => all_notifications.into_iter().filter(|n| n.is_read).collect(),
+        _ => all_notifications,
+    };
+
+    let email_notifications_enabled = user_repo::find_by_id(&state.pool, user.user_id)
+        .await.ok().flatten()
+        .map(|u| u.email_notifications_enabled)
+        .unwrap_or(false);
+
+    let base = build_base_context(&state, &user).await;
+
+    let tpl = NotificationListTemplate {
+        all_projects: base.all_projects,
+        current_project_id: base.current_project_id,
+        nav_active: "notifications",
+        overdue_count: base.overdue_count,
+        user_is_staff: base.user_is_staff,
+        user_initial: base.user_initial,
+        user_display_name: base.user_display_name,
+        notifications,
+        filter,
+        unread_count,
+        email_notifications_enabled,
+    };
+    Html(tpl.render().unwrap_or_default())
 }
 
 pub async fn mark_read(
@@ -49,11 +112,7 @@ pub async fn unread_count(
 ) -> Html<String> {
     let count = notification_repo::count_unread(&state.pool, user.user_id)
         .await.unwrap_or(0);
-    if count > 0 {
-        Html(format!("<span class=\"badge\">{}</span>", count))
-    } else {
-        Html(String::new())
-    }
+    Html(count.to_string())
 }
 
 pub async fn dropdown(
@@ -62,8 +121,8 @@ pub async fn dropdown(
 ) -> Html<String> {
     let notifications = notification_repo::find_by_user(&state.pool, user.user_id, 10)
         .await.unwrap_or_default();
-    // TODO: Askamaテンプレートに差し替え
-    Html(format!("<div class='dropdown'>{}件の通知</div>", notifications.len()))
+    let tpl = DropdownBodyTemplate { notifications };
+    Html(tpl.render().unwrap_or_default())
 }
 
 /// メール通知設定の更新

@@ -119,19 +119,8 @@ function confirmAction(message) {
 }
 
 // ====================================================================
-// CSRF トークン取得（AJAX用）
-// ====================================================================
-function getCsrfToken() {
-  // meta tag から取得（Cookie名に依存しない）
-  var meta = document.querySelector('meta[name="csrf-token"]');
-  if (meta) return meta.getAttribute('content');
-  // フォールバック: hidden input から取得
-  var input = document.querySelector('[name=csrfmiddlewaretoken]');
-  return input ? input.value : '';
-}
-
-// ====================================================================
 // 通知ベル（Backlog風ドロップダウン通知）
+// サーバーレンダリング（Cookieセッション）のHTMLルートを叩く。
 // ====================================================================
 function toggleNotifDropdown() {
   var dd = document.getElementById('notifDropdown');
@@ -140,17 +129,24 @@ function toggleNotifDropdown() {
     dd.classList.remove('show');
   } else {
     dd.classList.add('show');
-    fetchNotifications();
+    refreshNotifDropdownBody();
   }
 }
 
-function fetchNotifications() {
-  fetch('/notifications/api/')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      updateBadge(data.unread_count);
-      renderNotifications(data.notifications);
+function refreshNotifDropdownBody() {
+  fetch('/notifications/dropdown')
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      var body = document.getElementById('notifDropdownBody');
+      if (body) body.innerHTML = html;
     })
+    .catch(function() {});
+}
+
+function refreshUnreadBadge() {
+  fetch('/notifications/unread-count')
+    .then(function(r) { return r.text(); })
+    .then(function(text) { updateBadge(parseInt(text, 10) || 0); })
     .catch(function() {});
 }
 
@@ -165,83 +161,13 @@ function updateBadge(count) {
   }
 }
 
-function renderNotifications(notifications) {
-  var body = document.getElementById('notifDropdownBody');
-  if (!body) return;
-
-  if (!notifications || notifications.length === 0) {
-    body.innerHTML = '<div class="notif-empty">通知はありません</div>';
-    return;
-  }
-
-  var html = '';
-  for (var i = 0; i < notifications.length; i++) {
-    var n = notifications[i];
-    var url = n.ticket_id
-      ? '/notifications/' + n.id + '/read/?next=/tickets/' + n.ticket_id + '/'
-      : '#';
-    var cls = n.is_read ? 'notif-item' : 'notif-item unread';
-    html += '<a class="' + cls + '" href="' + url + '" data-notif-id="' + n.id + '">'
-      + '<span class="notif-item-icon">' + n.icon + '</span>'
-      + '<div class="notif-item-content">'
-      + '<div class="notif-item-title">' + escapeHtml(n.title) + '</div>';
-    if (n.message) {
-      html += '<div class="notif-item-message">' + escapeHtml(n.message) + '</div>';
-    }
-    html += '<div class="notif-item-time">' + n.created_at + '</div>'
-      + '</div>';
-    if (!n.is_read) {
-      html += '<div class="notif-unread-dot"></div>';
-    }
-    html += '</a>';
-  }
-  body.innerHTML = html;
-}
-
-function escapeHtml(str) {
-  var div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function markNotifRead(id) {
-  // バッジを即デクリメント
-  var badge = document.getElementById('notifBadge');
-  if (badge) {
-    var count = parseInt(badge.textContent) || 0;
-    updateBadge(Math.max(0, count - 1));
-  }
-  // 未読ドットを消す
-  var item = document.querySelector('[data-notif-id="' + id + '"]');
-  if (item) {
-    item.classList.remove('unread');
-    var dot = item.querySelector('.notif-unread-dot');
-    if (dot) dot.remove();
-  }
-  // sendBeacon はページ遷移中でも確実に送信される
-  var formData = new FormData();
-  formData.append('csrfmiddlewaretoken', getCsrfToken());
-  navigator.sendBeacon('/notifications/' + id + '/read/', formData);
-}
-
 function markAllRead() {
-  fetch('/notifications/read-all/', {
+  fetch('/notifications/read-all', {
     method: 'POST',
-    headers: {
-      'X-CSRFToken': getCsrfToken(),
-      'X-Requested-With': 'XMLHttpRequest',
-    },
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
   }).then(function() {
     updateBadge(0);
-    var body = document.getElementById('notifDropdownBody');
-    if (body) {
-      body.querySelectorAll('.notif-item.unread').forEach(function(el) {
-        el.classList.remove('unread');
-      });
-      body.querySelectorAll('.notif-unread-dot').forEach(function(el) {
-        el.remove();
-      });
-    }
+    refreshNotifDropdownBody();
   }).catch(function() {});
 }
 
@@ -258,13 +184,8 @@ document.addEventListener('click', function(e) {
 document.addEventListener('DOMContentLoaded', function() {
   // 認証済みの場合のみ実行
   if (document.getElementById('notifBadge')) {
-    fetchNotifications();
-    setInterval(function() {
-      fetch('/notifications/api/')
-        .then(function(r) { return r.json(); })
-        .then(function(data) { updateBadge(data.unread_count); })
-        .catch(function() {});
-    }, 30000);
+    refreshUnreadBadge();
+    setInterval(refreshUnreadBadge, 30000);
   }
 });
 

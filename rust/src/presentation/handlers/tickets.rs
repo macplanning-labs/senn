@@ -19,16 +19,16 @@ use crate::domain::services::{ticket_service, dashboard_service};
 use crate::infrastructure::repositories::{ticket_repo, comment_repo, project_repo, user_repo, milestone_repo};
 
 /// base.html が要求する共通コンテキスト（サイドバー・ヘッダー用）
-struct BaseContext {
-    all_projects: Vec<Project>,
-    current_project_id: Option<i32>,
-    overdue_count: i64,
-    user_is_staff: bool,
-    user_initial: String,
-    user_display_name: String,
+pub(crate) struct BaseContext {
+    pub(crate) all_projects: Vec<Project>,
+    pub(crate) current_project_id: Option<i32>,
+    pub(crate) overdue_count: i64,
+    pub(crate) user_is_staff: bool,
+    pub(crate) user_initial: String,
+    pub(crate) user_display_name: String,
 }
 
-async fn build_base_context(state: &AppState, user: &SessionUser) -> BaseContext {
+pub(crate) async fn build_base_context(state: &AppState, user: &SessionUser) -> BaseContext {
     let all_projects = project_repo::find_all(&state.pool).await.unwrap_or_default();
     let overdue_count = dashboard_service::get_overdue_count(&state.pool, user.current_project_id)
         .await
