@@ -8,9 +8,11 @@ use axum::{
     middleware as axum_middleware,
     Router,
 };
+use std::sync::Arc;
 use tower_http::services::ServeDir;
 // Step 2: レート制限(IPトークンバケット)は auth-core::infrastructure::rate_limit へ移行済み。
 use auth_core::infrastructure::rate_limit::{ip_rate_limit_layer, IpRateLimitConfig};
+use auth_core::presentation::middleware::origin_check_middleware;
 use crate::presentation::{
     state::AppState,
     middleware::{auth::require_auth, jwt_auth},
@@ -25,16 +27,23 @@ use crate::presentation::{
 };
 
 pub fn create_router(state: AppState) -> Router {
-    // ルートのうち率制限なし
-    let basic_public_routes = Router::new()
+    let allowed_origins = Arc::new(vec![state.config.base_url.clone()]);
+
+    // Origin/Referer検証対象：Cookie session方式のログインルート（/auth/login, /auth/totp）
+    let login_cookie_routes = Router::new()
         .route("/auth/login", get(auth::login_page).post(auth::login_submit))
         .route("/auth/totp", get(auth::totp_page).post(auth::totp_verify))
+        .layer(axum_middleware::from_fn(origin_check_middleware(allowed_origins.clone())));
+
+    // ルートのうち率制限なし（/auth/login, /auth/totp 除く）
+    let basic_public_routes = Router::new()
         .route("/auth/webauthn", get(auth::webauthn_page))
         .route("/health", get(health::check))
         // REST API（APIキー認証 = セッション不要）
         .route("/api/tickets", get(api::list_tickets).post(api::create_ticket))
         .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
-        .route("/api/v1/auth/register/", post(auth_api::register));
+        .route("/api/v1/auth/register/", post(auth_api::register))
+        .merge(login_cookie_routes);
 
     // JSON認証API（ログイン）: 20 requests/min per IP
     let login_routes = Router::new()
@@ -137,7 +146,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/tickets/holidays/bulk-add", post(holidays::bulk_add))
         .route("/tickets/holidays/{id}/delete", post(holidays::delete))
         // 認証ミドルウェア適用
-        .layer(axum_middleware::from_fn(require_auth));
+        .layer(axum_middleware::from_fn(require_auth))
+        .layer(axum_middleware::from_fn(origin_check_middleware(allowed_origins.clone())));
 
     // JWT保護ルート
     let jwt_protected_routes = Router::new()
