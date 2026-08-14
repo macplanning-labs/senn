@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}カテゴリー設定 — WIP{% endblock %}
+{% block page_title %}カテゴリー設定{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-create-category').classList.add('show')">＋ 追加</button>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:80px;">階層</th>
+          <th>名前</th>
+          <th style="width:140px;">親フェーズ</th>
+          <th style="width:60px;">色</th>
+          <th style="width:70px;">並び順</th>
+          <th style="width:90px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in categories %}
+        <tr>
+          <td><span class="badge {% if c.is_phase() %}badge-in-progress{% else %}badge-open{% endif %}">{% if c.is_phase() %}フェーズ{% else %}カテゴリー{% endif %}</span></td>
+          <td style="font-weight:500;">{{ c.name }}</td>
+          <td style="font-size:12px;color:var(--text-secondary);">{{ c.parent_name|default("—") }}</td>
+          <td><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:{{ c.color }};vertical-align:middle;"></span></td>
+          <td style="font-size:12px;color:var(--text-secondary);">{{ c.sort_order }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modal-edit-category-{{ c.id }}').classList.add('show')">✎</button>
+            <form method="post" action="/admin/categories/{{ c.id }}/delete" style="display:inline;" onsubmit="return confirmAction('「{{ c.name }}」を削除しますか？')">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if categories.is_empty() %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <div class="empty-icon">📁</div>
+              <p>カテゴリーがありません</p>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% for c in categories %}
+<div class="modal-backdrop" id="modal-edit-category-{{ c.id }}" onclick="this.classList.remove('show')">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <strong>カテゴリーを編集</strong>
+      <button class="btn btn-ghost btn-icon-only btn-sm" onclick="document.getElementById('modal-edit-category-{{ c.id }}').classList.remove('show')">×</button>
+    </div>
+    <form method="post" action="/admin/categories/{{ c.id }}/edit">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">名前<span class="form-required">*</span></label>
+          <input type="text" name="name" class="form-control" value="{{ c.name }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">色</label>
+          <input type="color" name="color" class="form-control" value="{{ c.color }}" style="height:40px;padding:4px;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">並び順</label>
+          <input type="number" name="sort_order" class="form-control" value="{{ c.sort_order }}">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-edit-category-{{ c.id }}').classList.remove('show')">キャンセル</button>
+        <button type="submit" class="btn btn-primary btn-sm">更新</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+<div class="modal-backdrop" id="modal-create-category" onclick="this.classList.remove('show')">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <strong>新しいカテゴリー</strong>
+      <button class="btn btn-ghost btn-icon-only btn-sm" onclick="document.getElementById('modal-create-category').classList.remove('show')">×</button>
+    </div>
+    <form method="post" action="/admin/categories/create">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">名前<span class="form-required">*</span></label>
+          <input type="text" name="name" class="form-control" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">スラッグ<span class="form-required">*</span></label>
+          <input type="text" name="slug" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">階層<span class="form-required">*</span></label>
+          <select name="level" class="form-control" required>
+            <option value="1">フェーズ（第1層）</option>
+            <option value="2">カテゴリー（第2層）</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">親フェーズ（第2層の場合のみ）</label>
+          <select name="parent_id" class="form-control">
+            <option value="">未設定</option>
+            {% for c in categories %}
+            {% if c.is_phase() %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">色</label>
+          <input type="color" name="color" class="form-control" value="#6366f1" style="height:40px;padding:4px;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">並び順</label>
+          <input type="number" name="sort_order" class="form-control" value="0">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-create-category').classList.remove('show')">キャンセル</button>
+        <button type="submit" class="btn btn-primary btn-sm">作成</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

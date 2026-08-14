@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}休日設定 — WIP{% endblock %}
+{% block page_title %}休日設定{% endblock %}
+
+{% block content %}
+<div class="card mb-md">
+  <div class="card-body">
+    <form method="post" action="/tickets/holidays/bulk-add" class="d-flex flex-wrap gap-sm align-center">
+      <label class="form-label" style="margin:0;">年を指定して祝日を一括追加</label>
+      <input type="number" name="year" class="form-control" style="width:120px;" min="2000" max="2100" required>
+      <button type="submit" class="btn btn-primary btn-sm">追加</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:120px;">日付</th>
+          <th>名称</th>
+          <th style="width:60px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in holidays %}
+        <tr>
+          <td style="white-space:nowrap;">{{ h.date }}</td>
+          <td>{{ h.name }}</td>
+          <td style="text-align:right;">
+            <form method="post" action="/tickets/holidays/{{ h.id }}/delete" onsubmit="return confirmAction('「{{ h.name }}」を削除しますか？')">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if holidays.is_empty() %}
+        <tr>
+          <td colspan="3">
+            <div class="empty-state">
+              <div class="empty-icon">🗓️</div>
+              <p>休日が登録されていません</p>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

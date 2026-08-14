@@ -1,17 +1,44 @@
 /// presentation/handlers/projects.rs — プロジェクト CRUD + 切替
 
+use askama::Template;
 use axum::{extract::{State, Path}, response::{Html, Redirect, IntoResponse}, Extension, Form};
 use axum_extra::extract::cookie::{CookieJar, SameSite};
 use serde::Deserialize;
 use crate::presentation::state::AppState;
-use crate::presentation::middleware::auth::{build_cookie, PROJECT_COOKIE};
+use crate::presentation::middleware::auth::{build_cookie, SessionUser, PROJECT_COOKIE};
+use crate::presentation::filters;
+use crate::presentation::handlers::tickets::build_base_context;
+use crate::domain::models::project::Project;
 use crate::infrastructure::repositories::project_repo;
+
+#[derive(Template)]
+#[template(path = "projects.html")]
+struct ProjectsTemplate {
+    all_projects: Vec<Project>,
+    current_project_id: Option<i32>,
+    nav_active: &'static str,
+    overdue_count: i64,
+    user_is_staff: bool,
+    user_initial: String,
+    user_display_name: String,
+}
 
 pub async fn list(
     State(state): State<AppState>,
+    Extension(user): Extension<SessionUser>,
 ) -> Html<String> {
-    let projects = project_repo::find_all(&state.pool).await.unwrap_or_default();
-    Html(format!("<h1>プロジェクト一覧</h1><p>{}件</p>", projects.len()))
+    let base = build_base_context(&state, &user).await;
+
+    let tpl = ProjectsTemplate {
+        all_projects: base.all_projects,
+        current_project_id: base.current_project_id,
+        nav_active: "projects",
+        overdue_count: base.overdue_count,
+        user_is_staff: base.user_is_staff,
+        user_initial: base.user_initial,
+        user_display_name: base.user_display_name,
+    };
+    Html(tpl.render().unwrap_or_default())
 }
 
 #[derive(Deserialize)]

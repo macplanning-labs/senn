@@ -1,15 +1,48 @@
 /// presentation/handlers/categories.rs — カテゴリー CRUD
 
-use axum::{extract::{State, Path}, response::{Html, Redirect}, Form};
+use askama::Template;
+use axum::{extract::{State, Path}, response::{Html, Redirect}, Extension, Form};
 use serde::Deserialize;
 use crate::presentation::state::AppState;
+use crate::presentation::middleware::auth::SessionUser;
+use crate::presentation::filters;
+use crate::presentation::handlers::tickets::build_base_context;
+use crate::domain::models::project::Project;
+use crate::domain::models::category::Category;
 use crate::infrastructure::repositories::category_repo;
+
+#[derive(Template)]
+#[template(path = "categories.html")]
+struct CategoriesTemplate {
+    all_projects: Vec<Project>,
+    current_project_id: Option<i32>,
+    nav_active: &'static str,
+    overdue_count: i64,
+    user_is_staff: bool,
+    user_initial: String,
+    user_display_name: String,
+    categories: Vec<Category>,
+}
 
 pub async fn list(
     State(state): State<AppState>,
+    Extension(user): Extension<SessionUser>,
 ) -> Html<String> {
     let categories = category_repo::find_all(&state.pool).await.unwrap_or_default();
-    Html(format!("<h1>カテゴリー設定</h1><p>{}件</p>", categories.len()))
+
+    let base = build_base_context(&state, &user).await;
+
+    let tpl = CategoriesTemplate {
+        all_projects: base.all_projects,
+        current_project_id: base.current_project_id,
+        nav_active: "categories",
+        overdue_count: base.overdue_count,
+        user_is_staff: base.user_is_staff,
+        user_initial: base.user_initial,
+        user_display_name: base.user_display_name,
+        categories,
+    };
+    Html(tpl.render().unwrap_or_default())
 }
 
 #[derive(Deserialize)]

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}プロジェクト設定 — WIP{% endblock %}
+{% block page_title %}プロジェクト設定{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-create-project').classList.add('show')">＋ 追加</button>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:80px;">Prefix</th>
+          <th>名前</th>
+          <th>説明</th>
+          <th style="width:100px;">登録日</th>
+          <th style="width:90px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in all_projects %}
+        <tr>
+          <td><span class="badge badge-in-progress">{{ p.prefix }}</span></td>
+          <td style="font-weight:500;">
+            {{ p.name }}
+            {% if current_project_id == Some(*p.id) %}<span class="badge badge-closed" style="margin-left:6px;">現在</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--text-secondary);">{{ p.description }}</td>
+          <td style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">{{ p.created_at|date }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modal-edit-project-{{ p.id }}').classList.add('show')">✎</button>
+            <form method="post" action="/tickets/projects/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirmAction('「{{ p.name }}」を削除しますか？')">
+              <button type="submit" class="btn btn-ghost btn-sm">🗑</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if all_projects.is_empty() %}
+        <tr>
+          <td colspan="5">
+            <div class="empty-state">
+              <div class="empty-icon">📂</div>
+              <p>プロジェクトがありません</p>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% for p in all_projects %}
+<div class="modal-backdrop" id="modal-edit-project-{{ p.id }}" onclick="this.classList.remove('show')">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <strong>プロジェクトを編集</strong>
+      <button class="btn btn-ghost btn-icon-only btn-sm" onclick="document.getElementById('modal-edit-project-{{ p.id }}').classList.remove('show')">×</button>
+    </div>
+    <form method="post" action="/tickets/projects/{{ p.id }}/edit">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">プロジェクト名<span class="form-required">*</span></label>
+          <input type="text" name="name" class="form-control" value="{{ p.name }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prefix<span class="form-required">*</span></label>
+          <input type="text" name="prefix" class="form-control" value="{{ p.prefix }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">説明</label>
+          <textarea name="description" class="form-control">{{ p.description }}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-edit-project-{{ p.id }}').classList.remove('show')">キャンセル</button>
+        <button type="submit" class="btn btn-primary btn-sm">更新</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+<div class="modal-backdrop" id="modal-create-project" onclick="this.classList.remove('show')">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <strong>新しいプロジェクト</strong>
+      <button class="btn btn-ghost btn-icon-only btn-sm" onclick="document.getElementById('modal-create-project').classList.remove('show')">×</button>
+    </div>
+    <form method="post" action="/tickets/projects/create">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">プロジェクト名<span class="form-required">*</span></label>
+          <input type="text" name="name" class="form-control" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Prefix<span class="form-required">*</span></label>
+          <input type="text" name="prefix" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">説明</label>
+          <textarea name="description" class="form-control"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('modal-create-project').classList.remove('show')">キャンセル</button>
+        <button type="submit" class="btn btn-primary btn-sm">作成</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
