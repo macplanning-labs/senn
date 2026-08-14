@@ -1,10 +1,12 @@
 //! domain/password.rs — パスワードハッシュ（Argon2）と旧方式からの移行
 //!
-//! WIPの現行実装（`auth_service.rs` から移植）はDjangoの
-//! `Argon2PasswordHasher.encode()` が使う `"argon2" + <PHC文字列>` という
-//! 独自フォーマットでDBに保存する前提になっている（先頭に生の"argon2"文字列を
-//! 付与する。argon2クレートの`hash.to_string()`はPHC文字列のみを返すため、
-//! そのまま保存するとDjango側がハッシュ方式を特定できずログイン不能になる）。
+//! WIPの旧実装（Djangoが稼働していた期間）は、Djangoの`Argon2PasswordHasher.encode()`
+//! が使う`"argon2" + <PHC文字列>`という独自フォーマットでDBに保存する必要があった
+//! （argon2クレートの`hash.to_string()`はPHC文字列のみを返すため、そのまま保存すると
+//! Django側がハッシュ方式を特定できずログイン不能になっていた）。Django(web)は
+//! 2026-08-10に完全撤去済みのため、このプレフィックスはもはや不要（`hash_password`は
+//! 素のPHC文字列のみを返す。既存の"argon2"プレフィックス付きレコードは`verify_argon2`
+//! が引き続き読み取れる）。
 //!
 //! 方針ドキュメント3.2節はこれを一般化した `verify_and_needs_rehash` を
 //! 提案している。ここでは「旧ハッシュ方式の検証器」を `LegacyHashVerifier`
@@ -18,16 +20,7 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 
 use crate::error::AuthError;
 
-/// Djangoの`Argon2PasswordHasher`と同じ`"argon2"`プレフィックス付きで
-/// PHC文字列を返す。WIPのDBはDjangoのaccounts_userテーブルを共有しているため、
-/// この形式で保存する必要がある。
-pub fn hash_password_django_compat(password: &str) -> Result<String, AuthError> {
-    let hash = hash_password(password)?;
-    Ok(format!("argon2{hash}"))
-}
-
 /// 素のArgon2 PHC文字列（`$argon2id$...`）を返す。
-/// Django互換が不要なアプリ（Sophia等）はこちらをそのまま使えばよい。
 pub fn hash_password(password: &str) -> Result<String, AuthError> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -101,14 +94,10 @@ impl LegacyHashVerifier for DjangoPbkdf2Verifier {
 ///
 /// 再ハッシュ後のDB更新はauth-coreの責務外（アプリのユーザーリポジトリが行う）。
 /// 呼び出し側は戻り値の`Some(new_hash)`を見てDBを更新すること。
-///
-/// `django_compat`: trueの場合、再ハッシュ結果はDjango互換の`"argon2"`プレフィックス
-/// 付きで返す。falseの場合は素のPHC文字列を返す。
 pub fn verify_and_needs_rehash(
     password: &str,
     stored_hash: &str,
     legacy_verifiers: &[&dyn LegacyHashVerifier],
-    django_compat: bool,
 ) -> Result<(bool, Option<String>), AuthError> {
     for verifier in legacy_verifiers {
         if verifier.matches(stored_hash) {
@@ -116,11 +105,7 @@ pub fn verify_and_needs_rehash(
             if !valid {
                 return Ok((false, None));
             }
-            let new_hash = if django_compat {
-                hash_password_django_compat(password)?
-            } else {
-                hash_password(password)?
-            };
+            let new_hash = hash_password(password)?;
             return Ok((true, Some(new_hash)));
         }
     }
@@ -142,10 +127,13 @@ mod tests {
     }
 
     #[test]
-    fn django_compat_prefix_roundtrip() {
-        let hash = hash_password_django_compat("correct horse battery staple").unwrap();
-        assert!(hash.starts_with("argon2$argon2id$"));
-        assert!(verify_argon2("correct horse battery staple", &hash).unwrap());
+    fn legacy_django_prefixed_hash_still_verifies() {
+        // Django運用時代に書き込まれた"argon2"プレフィックス付きレコードが、
+        // プレフィックスを付けなくなった現行のhash_passwordとは別に、
+        // 引き続き検証できることを確認する（後方互換性の担保）。
+        let plain_hash = hash_password("correct horse battery staple").unwrap();
+        let legacy_style_hash = format!("argon2{plain_hash}");
+        assert!(verify_argon2("correct horse battery staple", &legacy_style_hash).unwrap());
     }
 
     #[test]
@@ -171,21 +159,19 @@ mod tests {
         let stored = format!("pbkdf2_sha256${iterations}${salt}${hash_b64}");
 
         let verifiers: Vec<&dyn LegacyHashVerifier> = vec![&DjangoPbkdf2Verifier];
-        let (valid, new_hash) =
-            verify_and_needs_rehash(password, &stored, &verifiers, true).unwrap();
+        let (valid, new_hash) = verify_and_needs_rehash(password, &stored, &verifiers).unwrap();
         assert!(valid);
         let new_hash = new_hash.expect("再ハッシュが必要と判定されるはず");
-        assert!(new_hash.starts_with("argon2$argon2id$"));
+        assert!(new_hash.starts_with("$argon2id$"));
         assert!(verify_argon2(password, &new_hash).unwrap());
     }
 
     #[test]
     fn verify_and_needs_rehash_no_migration_for_argon2() {
-        let hash = hash_password_django_compat("correct horse battery staple").unwrap();
+        let hash = hash_password("correct horse battery staple").unwrap();
         let verifiers: Vec<&dyn LegacyHashVerifier> = vec![&DjangoPbkdf2Verifier];
         let (valid, new_hash) =
-            verify_and_needs_rehash("correct horse battery staple", &hash, &verifiers, true)
-                .unwrap();
+            verify_and_needs_rehash("correct horse battery staple", &hash, &verifiers).unwrap();
         assert!(valid);
         assert!(new_hash.is_none());
     }

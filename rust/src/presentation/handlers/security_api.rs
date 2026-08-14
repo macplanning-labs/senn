@@ -27,7 +27,7 @@ use webauthn_rs::prelude::*;
 
 /// WebAuthnのRP名 / TOTPのissuer名。移植元のWIP実装が固定していた値
 /// （旧 webauthn_service.rs の rp_name、旧 totp_service.rs の issuer="WIP"）を踏襲する。
-const WIP_RP_NAME: &str = "WIP — プロジェクト管理ツール";
+pub(crate) const WIP_RP_NAME: &str = "WIP — プロジェクト管理ツール";
 const WIP_TOTP_ISSUER: &str = "WIP";
 
 // =============================================================================

@@ -11,19 +11,18 @@ use crate::infrastructure::repositories::user_repo;
 
 /// パスワードを Argon2 でハッシュ化
 ///
-/// DjangoのArgon2PasswordHasher.encode()は `"argon2" + <PHC文字列>` という
-/// 独自フォーマットでDBに保存する(例: `argon2$argon2id$v=19$...`)。
-/// argon2クレートの`hash.to_string()`は素のPHC文字列(`$argon2id$...`、先頭が"argon2"
-/// ではなく"$")を返すため、そのまま保存するとDjango側のidentify_hasher()が
-/// `encoded.split("$", 1)[0]`で空文字列を得てハッシュ方式を特定できずログイン不能になる。
-/// そのためDjangoと同じ"argon2"プレフィックスを付けて保存する。
+/// 素のPHC文字列(`$argon2id$...`)をそのまま返す。旧Django運用時代は
+/// `Argon2PasswordHasher.encode()`が使う`"argon2"+PHC文字列`という独自
+/// フォーマットで保存する必要があったが、Django(web)は2026-08-10に
+/// 完全撤去済みのためこのプレフィックスは不要になった。既存の
+/// "argon2"プレフィックス付きレコードは`verify_password`が引き続き読み取れる。
 pub fn hash_password(password: &str) -> anyhow::Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
         .hash_password(password.as_bytes(), &salt)
         .map_err(|e| anyhow::anyhow!("パスワードハッシュエラー: {}", e))?;
-    Ok(format!("argon2{hash}"))
+    Ok(hash.to_string())
 }
 
 /// パスワード検証
@@ -49,8 +48,10 @@ pub async fn verify_password(
     }
 
     // Argon2 ハッシュ検証
-    // DjangoのArgon2PasswordHasher形式("argon2"+PHC文字列)で保存されているため、
-    // argon2クレートが解釈できる素のPHC文字列に戻すため先頭の"argon2"を取り除く。
+    // 旧Django運用時代のレコードは"argon2"プレフィックス付き(`argon2$argon2id$...`)で
+    // 保存されているため、あれば取り除いてから素のPHC文字列として解釈する
+    // (2026-08-14以降の新規ハッシュはプレフィックスなしで保存されるため、
+    // その場合はunwrap_or(stored_hash)でそのまま使われる)。
     let phc_str = stored_hash.strip_prefix("argon2").unwrap_or(stored_hash);
     let parsed_hash = PasswordHash::new(phc_str)
         .map_err(|e| anyhow::anyhow!("ハッシュ解析エラー: {}", e))?;

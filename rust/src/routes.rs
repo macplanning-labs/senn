@@ -33,6 +33,8 @@ pub fn create_router(state: AppState) -> Router {
     let login_cookie_routes = Router::new()
         .route("/auth/login", get(auth::login_page).post(auth::login_submit))
         .route("/auth/totp", get(auth::totp_page).post(auth::totp_verify))
+        .route("/auth/webauthn/login/begin", post(security_api::passkey_login_begin))
+        .route("/auth/webauthn/login/complete", post(auth::webauthn_login_complete))
         .layer(axum_middleware::from_fn(origin_check_middleware(allowed_origins.clone())));
 
     // ルートのうち率制限なし（/auth/login, /auth/totp 除く）

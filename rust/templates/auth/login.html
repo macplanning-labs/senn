@@ -239,31 +239,32 @@
     btn.disabled = true;
     btn.textContent = '認証中...';
     try {
-      var beginRes = await fetch('/auth/webauthn/login/begin', {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': document.querySelector('[name=csrf_token]').value },
-      });
-      var options = await beginRes.json();
-      options.challenge = base64urlToBuffer(options.challenge);
-      if (options.allowCredentials) {
-        options.allowCredentials = options.allowCredentials.map(function(c) {
+      var beginRes = await fetch('/auth/webauthn/login/begin', { method: 'POST' });
+      var beginData = await beginRes.json();
+      var publicKey = beginData.request_challenge.publicKey;
+      publicKey.challenge = base64urlToBuffer(publicKey.challenge);
+      if (publicKey.allowCredentials) {
+        publicKey.allowCredentials = publicKey.allowCredentials.map(function(c) {
           return Object.assign({}, c, { id: base64urlToBuffer(c.id) });
         });
       }
-      var assertion = await navigator.credentials.get({ publicKey: options });
+      var assertion = await navigator.credentials.get({ publicKey: publicKey });
       var completeRes = await fetch('/auth/webauthn/login/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: assertion.id,
-          rawId: bufferToBase64url(assertion.rawId),
-          response: {
-            authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
-            clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
-            signature: bufferToBase64url(assertion.response.signature),
-            userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : null,
+          auth_state_json: beginData.auth_state_json,
+          credential: {
+            id: assertion.id,
+            rawId: bufferToBase64url(assertion.rawId),
+            response: {
+              authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+              clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+              signature: bufferToBase64url(assertion.response.signature),
+              userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : null,
+            },
+            type: assertion.type,
           },
-          type: assertion.type,
         }),
       });
       var result = await completeRes.json();
