@@ -8,8 +8,11 @@ pub struct AppConfig {
     pub database_url: String,
     pub port: u16,
     pub base_url: String,
-    pub session_secret: String,
-    pub cookie_name: String,
+    /// Cookie の Secure 属性。`COOKIE_SECURE` 環境変数で明示上書きできる。
+    /// 未設定時は `base_url` が `https://` で始まるかどうかから自動判定する
+    /// (ローカル開発の `http://localhost` のままSecure=trueを固定すると、
+    /// ブラウザがCookieを保存できずログインが無限リダイレクトになる事故を防ぐため)。
+    pub cookie_secure: bool,
     pub media_dir: String,
     pub max_upload_size: usize,
     pub smtp_host: Option<String>,
@@ -47,13 +50,14 @@ impl AppConfig {
                 .parse()?,
             base_url: std::env::var("BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:8150".to_string()),
-            session_secret: std::env::var("SESSION_SECRET")
-                .unwrap_or_else(|_| {
-                    // 開発時のみデフォルト値を使用（本番では必須）
-                    "dev-secret-key-change-me-in-production-at-least-64-chars-long!!".to_string()
+            cookie_secure: std::env::var("COOKIE_SECURE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| {
+                    std::env::var("BASE_URL")
+                        .map(|u| u.starts_with("https://"))
+                        .unwrap_or(false)
                 }),
-            cookie_name: std::env::var("COOKIE_NAME")
-                .unwrap_or_else(|_| "wip_session".to_string()),
             media_dir: std::env::var("MEDIA_DIR")
                 .unwrap_or_else(|_| "media".to_string()),
             max_upload_size: std::env::var("MAX_UPLOAD_SIZE")

@@ -1,1 +1,87 @@
-<html><body><h1>totp.html</h1></body></html>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>認証コード入力 — WIP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <style>
+    .totp-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0f2027 0%, #203a43 40%, #2c5364 100%);
+    }
+    .totp-card {
+      background: rgba(255,255,255,0.97);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 48px 40px;
+      width: 420px;
+      max-width: 90vw;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+    }
+    .totp-logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .totp-logo .logo-icon {
+      width: 64px;
+      height: 64px;
+      font-size: 28px;
+      margin: 0 auto 16px;
+      background: linear-gradient(135deg, #0d9488, #14b8a6);
+    }
+    .totp-logo h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      color: #0d9488;
+      letter-spacing: 2px;
+    }
+    .totp-subtitle {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-top: 4px;
+    }
+    .totp-description {
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="totp-container">
+    <div class="totp-card">
+      <div class="totp-logo">
+        <div class="logo-icon">🔐</div>
+        <h1>認証コード入力</h1>
+        <p class="totp-subtitle">多要素認証</p>
+      </div>
+
+      <p class="totp-description">
+        認証アプリケーション（Google Authenticator、Microsoft Authenticator など）に表示されている6桁の認証コードを入力してください。
+      </p>
+
+      <form method="post" action="/auth/totp">
+        <div class="form-group">
+          <label class="form-label" for="id_code">認証コード</label>
+          <input type="text" name="code" id="id_code" class="form-control" required autofocus inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="000000">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">認証</button>
+      </form>
+
+      <div style="margin-top:20px;text-align:center;">
+        <a href="/auth/login" style="color:var(--text-muted);font-size:13px;text-decoration:none;">ログイン画面に戻る</a>
+      </div>
+    </div>
+  </div>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>

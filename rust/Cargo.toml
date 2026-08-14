@@ -15,6 +15,9 @@ members = ["auth-core"]
 # Web フレームワーク
 axum = { version = "0.8", features = ["macros", "multipart"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
+# Cookie の max_age() が time::Duration を要求するため直接依存として追加
+# (axum-extra/cookie crateの推移依存だが、crate名で直接参照するには明示宣言が必要)
+time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }

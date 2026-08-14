@@ -145,3 +145,39 @@ pub fn generate_totp_setup(username: &str) -> anyhow::Result<(String, String)> {
 
     Ok((secret_base32, uri))
 }
+
+/// ユーザーのTOTP検証（暗号化秘密鍵対応）
+///
+/// DBから秘密鍵を取得して、暗号化/平文を判定・復号・検証する共通ロジック。
+/// auth_api.rs::login_verify と Web UI のハンドラで同じロジックを使えるようにする。
+pub async fn verify_totp_for_user(
+    pool: &PgPool,
+    jwt_secret: &str,
+    user_id: i32,
+    code: &str,
+) -> anyhow::Result<bool> {
+    let device = match user_repo::find_totp(pool, user_id).await? {
+        Some(d) if d.confirmed => d,
+        _ => return Ok(false),
+    };
+
+    // 秘密鍵が暗号化されているか判定（Base64 blob vs Base32）
+    let secret_to_verify = if device.secret.len() > 32 && !device.secret.contains('$') {
+        // 暗号化された秘密鍵の可能性（Base64 blob、Base32 secretよりも長い）
+        match auth_core::domain::totp::decrypt_secret(&device.secret, jwt_secret) {
+            Ok(secret_bytes) => {
+                // 復号化した raw bytes を Base32 に変換
+                auth_core::domain::totp::secret_to_base32(&secret_bytes)
+            }
+            Err(_) => {
+                // 復号失敗 → 平文の Base32 秘密鍵として扱う
+                device.secret.clone()
+            }
+        }
+    } else {
+        // 平文の Base32 秘密鍵（pyotpやDjango由来）
+        device.secret.clone()
+    };
+
+    verify_totp(&secret_to_verify, code)
+}

@@ -238,36 +238,8 @@ pub async fn login_verify(
         }
     };
 
-    // TOTPデバイス確認
-    let totp_device = match user_repo::find_totp(&state.pool, user.id).await {
-        Ok(Some(d)) if d.confirmed => d,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"detail": "MFAトークンが無効です"})),
-            ).into_response();
-        }
-    };
-
-    // TOTPコード検証（秘密鍵が暗号化されている場合は復号）
-    let secret_to_verify = if totp_device.secret.len() > 32 && !totp_device.secret.contains("$") {
-        // 暗号化された秘密鍵の可能性（Base64 blob、Base32 secretよりも長い）
-        match totp_service::decrypt_secret(&totp_device.secret, &state.config.jwt_secret) {
-            Ok(secret_bytes) => {
-                // 復号化した raw bytes を Base32 に変換
-                totp_service::secret_to_base32(&secret_bytes)
-            }
-            Err(_) => {
-                // 復号失敗 → 平文の Base32 秘密鍵として扱う
-                totp_device.secret.clone()
-            }
-        }
-    } else {
-        // 平文の Base32 秘密鍵（pyotpやDjango由来）
-        totp_device.secret.clone()
-    };
-
-    let totp_valid = match auth_service::verify_totp(&secret_to_verify, &body.totp_code) {
+    // TOTPコード検証（auth_service::verify_totp_for_user で DB から秘密鍵を取得・検証）
+    let totp_valid = match auth_service::verify_totp_for_user(&state.pool, &state.config.jwt_secret, user.id, &body.totp_code).await {
         Ok(valid) => valid,
         Err(_) => false,
     };
