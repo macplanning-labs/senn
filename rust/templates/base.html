@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/base.css">
-  <meta name="csrf-token" content="{{ csrf_token }}">
   {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -24,11 +23,10 @@
 
       {# プロジェクト切り替え #}
       <form method="post" action="/tickets/projects/switch" class="sidebar-project-switch" data-no-guard>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <select name="project_id" onchange="this.form.submit()" style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-card);color:var(--text-primary);cursor:pointer;">
           <option value="">📁 すべてのプロジェクト</option>
           {% for p in all_projects %}
-          <option value="{{ p.id }}" {% if current_project_id == Some(p.id) %}selected{% endif %}>{{ p.name }}</option>
+          <option value="{{ p.id }}" {% if current_project_id == Some(*p.id) %}selected{% endif %}>{{ p.name }}</option>
           {% endfor %}
         </select>
       </form>
@@ -141,7 +139,6 @@
           </div>
 
           <form method="post" action="/auth/logout" data-no-guard>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="btn btn-ghost btn-sm">ログアウト</button>
           </form>
         </div>
