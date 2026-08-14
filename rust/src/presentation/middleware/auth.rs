@@ -15,7 +15,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use auth_core::domain::jwt::django_compat as jwt_service;
+use crate::domain::services::jwt_service;
 use crate::infrastructure::repositories::{jwt_blacklist_repo, project_repo, user_repo};
 use crate::presentation::state::AppState;
 
@@ -69,12 +69,14 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
     // 1. access token を試す
     if let Some(access_cookie) = jar.get(ACCESS_COOKIE) {
         if let Ok(claims) = jwt_service::decode_token(access_cookie.value(), &state.config.jwt_secret) {
-            if claims.token_type == "access" {
-                if let Some(user) = build_session_user(state, claims.user_id, jar).await {
-                    return ResolveOutcome::Authenticated {
-                        user,
-                        refreshed_access_cookie: None,
-                    };
+            if claims.token_type == jwt_service::TokenType::Access {
+                if let Ok(user_id) = claims.user_id() {
+                    if let Some(user) = build_session_user(state, user_id, jar).await {
+                        return ResolveOutcome::Authenticated {
+                            user,
+                            refreshed_access_cookie: None,
+                        };
+                    }
                 }
             }
         }
@@ -83,25 +85,27 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
     // 2. access が無い/失効 → refresh を試す（サイレントリフレッシュ）
     if let Some(refresh_cookie) = jar.get(REFRESH_COOKIE) {
         if let Ok(claims) = jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret) {
-            if claims.token_type == "refresh" {
-                let blacklisted = jwt_blacklist_repo::is_blacklisted(&state.pool, &claims.jti)
-                    .await
-                    .unwrap_or(false);
-                if !blacklisted {
-                    if let Ok(new_access) = jwt_service::issue_access_token(claims.user_id, &state.config.jwt_secret) {
-                        if let Some(user) = build_session_user(state, claims.user_id, jar).await {
-                            let cookie = build_cookie(
-                                ACCESS_COOKIE,
-                                new_access,
-                                "/",
-                                30 * 60,
-                                SameSite::Lax,
-                                state.config.cookie_secure,
-                            );
-                            return ResolveOutcome::Authenticated {
-                                user,
-                                refreshed_access_cookie: Some(cookie),
-                            };
+            if claims.token_type == jwt_service::TokenType::Refresh {
+                if let (Ok(user_id), Some(jti)) = (claims.user_id(), claims.jti.as_deref()) {
+                    let blacklisted = jwt_blacklist_repo::is_blacklisted(&state.pool, jti)
+                        .await
+                        .unwrap_or(false);
+                    if !blacklisted {
+                        if let Ok(new_access) = jwt_service::issue_access_token(user_id, &state.config.jwt_secret) {
+                            if let Some(user) = build_session_user(state, user_id, jar).await {
+                                let cookie = build_cookie(
+                                    ACCESS_COOKIE,
+                                    new_access,
+                                    "/",
+                                    30 * 60,
+                                    SameSite::Lax,
+                                    state.config.cookie_secure,
+                                );
+                                return ResolveOutcome::Authenticated {
+                                    user,
+                                    refreshed_access_cookie: Some(cookie),
+                                };
+                            }
                         }
                     }
                 }

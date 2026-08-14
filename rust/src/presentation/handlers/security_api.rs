@@ -22,7 +22,7 @@ use crate::domain::services::auth_service;
 // 該当の呼び出し箇所のみ引数を追加している。
 use auth_core::domain::totp as totp_service;
 use auth_core::domain::webauthn as webauthn_service;
-use auth_core::domain::jwt::django_compat as jwt_service;
+use crate::domain::services::jwt_service;
 use webauthn_rs::prelude::*;
 
 /// WebAuthnのRP名 / TOTPのissuer名。移植元のWIP実装が固定していた値

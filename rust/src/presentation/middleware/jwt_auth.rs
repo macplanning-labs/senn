@@ -12,8 +12,7 @@ use axum::{
     Json,
 };
 use crate::presentation::state::AppState;
-// Step 2: jwt_service は auth-core クレート（django_compat、クレーム形状は同一）へ移行。
-use auth_core::domain::jwt::django_compat as jwt_service;
+use crate::domain::services::jwt_service;
 
 #[derive(Clone, Copy, Debug)]
 pub struct AuthUser {
@@ -56,19 +55,24 @@ pub async fn jwt_auth(
         )
     })?;
 
-    // token_type が "access" であることを確認
-    if claims.token_type != "access" {
+    // token_type が Access であることを確認
+    if claims.token_type != jwt_service::TokenType::Access {
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"detail": "認証情報が正しくありません"})),
         ));
     }
 
+    let user_id = claims.user_id().map_err(|_| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"detail": "認証情報が正しくありません"})),
+        )
+    })?;
+
     // AuthUser を拡張に挿入
     let mut req = req;
-    req.extensions_mut().insert(AuthUser {
-        user_id: claims.user_id,
-    });
+    req.extensions_mut().insert(AuthUser { user_id });
 
     Ok(next.run(req).await)
 }

@@ -16,10 +16,7 @@ use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo};
 use crate::domain::services::auth_service;
-// Step 2: jwt_service は auth-core クレートへ移行済み。
-// クレーム形状・関数シグネチャが同一のため、モジュールエイリアスとして差し替える
-// （呼び出し箇所のコードは変更不要）。
-use auth_core::domain::jwt::django_compat as jwt_service;
+use crate::domain::services::jwt_service;
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -226,8 +223,18 @@ pub async fn login_verify(
         }
     };
 
+    let mfa_user_id = match mfa_claims.user_id() {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"detail": "MFAトークンが無効です"})),
+            ).into_response();
+        }
+    };
+
     // ユーザー確認
-    let user = match user_repo::find_by_id(&state.pool, mfa_claims.user_id).await {
+    let user = match user_repo::find_by_id(&state.pool, mfa_user_id).await {
         Ok(Some(u)) => u,
         _ => {
             return (
@@ -288,15 +295,25 @@ pub async fn token_refresh(
     };
 
     // token_type チェック
-    if claims.token_type != "refresh" {
+    if claims.token_type != jwt_service::TokenType::Refresh {
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"detail": "トークンが無効です"})),
         ).into_response();
     }
 
+    let (user_id, jti) = match (claims.user_id(), claims.jti.as_deref()) {
+        (Ok(user_id), Some(jti)) => (user_id, jti.to_string()),
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"detail": "トークンが無効です"})),
+            ).into_response();
+        }
+    };
+
     // ブラックリスト確認
-    let is_blacklisted = match jwt_blacklist_repo::is_blacklisted(&state.pool, &claims.jti).await {
+    let is_blacklisted = match jwt_blacklist_repo::is_blacklisted(&state.pool, &jti).await {
         Ok(blacklisted) => blacklisted,
         Err(_) => false,
     };
@@ -311,12 +328,12 @@ pub async fn token_refresh(
     // 古いトークンをブラックリスト登録
     let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
         .unwrap_or_else(|| chrono::Utc::now());
-    if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await {
+    if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, &jti, expires_at).await {
         tracing::error!("failed to blacklist refresh token: {:?}", e);
     }
 
     // 新しいトークンペア発行
-    let token_pair = match jwt_service::issue_token_pair(claims.user_id, &state.config.jwt_secret) {
+    let token_pair = match jwt_service::issue_token_pair(user_id, &state.config.jwt_secret) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -374,10 +391,12 @@ pub async fn logout(
     // リフレッシュトークンがあればブラックリスト登録
     if let Some(refresh_token) = body.refresh {
         if let Ok(claims) = jwt_service::decode_token(&refresh_token, &state.config.jwt_secret) {
-            let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
-                .unwrap_or_else(|| chrono::Utc::now());
-            if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await {
-                tracing::error!("failed to blacklist refresh token on logout: {:?}", e);
+            if let Some(jti) = claims.jti.as_deref() {
+                let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
+                    .unwrap_or_else(|| chrono::Utc::now());
+                if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, jti, expires_at).await {
+                    tracing::error!("failed to blacklist refresh token on logout: {:?}", e);
+                }
             }
         }
     }

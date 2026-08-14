@@ -9,7 +9,7 @@ use axum::{
     Extension, Form,
 };
 use axum_extra::extract::cookie::CookieJar;
-use auth_core::domain::jwt::django_compat as jwt_service;
+use crate::domain::services::jwt_service;
 use chrono::DateTime;
 use serde::Deserialize;
 
@@ -126,9 +126,11 @@ pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoR
     // リフレッシュトークンがあればブラックリスト登録
     if let Some(refresh_cookie) = jar.get(REFRESH_COOKIE) {
         if let Ok(claims) = jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret) {
-            let expires_at =
-                DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0).unwrap_or_else(chrono::Utc::now);
-            let _ = jwt_blacklist_repo::blacklist(&state.pool, &claims.jti, expires_at).await;
+            if let Some(jti) = claims.jti.as_deref() {
+                let expires_at =
+                    DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0).unwrap_or_else(chrono::Utc::now);
+                let _ = jwt_blacklist_repo::blacklist(&state.pool, jti, expires_at).await;
+            }
         }
     }
 
@@ -220,10 +222,14 @@ pub async fn totp_verify(
         return Redirect::to("/auth/login").into_response();
     };
 
-    match auth_service::verify_totp_for_user(&state.pool, &state.config.jwt_secret, mfa_claims.user_id, &form.code)
+    let Ok(user_id) = mfa_claims.user_id() else {
+        return Redirect::to("/auth/login").into_response();
+    };
+
+    match auth_service::verify_totp_for_user(&state.pool, &state.config.jwt_secret, user_id, &form.code)
         .await
     {
-        Ok(true) => issue_login_cookies_and_redirect(&state, mfa_claims.user_id, "/").await,
+        Ok(true) => issue_login_cookies_and_redirect(&state, user_id, "/").await,
         _ => Html("<script>alert('認証コードが正しくありません');history.back();</script>").into_response(),
     }
 }
