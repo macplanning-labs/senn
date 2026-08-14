@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "WIP — プロジェクト管理ツール（チケット・ガントチャート・Wiki）"
 
+# ルートパッケージ(wip)を維持したまま、共通認証ライブラリauth-coreを
+# ワークスペースメンバーとして追加する(Step 1: auth-coreクレート雛形切り出し)。
+# 既存のディレクトリ構成・Dockerfile・CI(ci.yml)は変更不要
+# (cargo build/testはワークスペース全体を対象にするため自動的に対象に入る)。
+[workspace]
+members = ["auth-core"]
+
 [dependencies]
 # Web フレームワーク
 axum = { version = "0.8", features = ["macros", "multipart"] }
@@ -46,6 +53,9 @@ anyhow = "1"
 thiserror = "2"
 
 # 認証
+# 共通認証ライブラリ(Step 1で新設。段階的にjwt_service/totp_service/
+# webauthn_service/middlewareの呼び出しをこちらへ差し替える。Step 2で対応)
+auth-core = { path = "auth-core" }
 argon2 = "0.5"
 totp-rs = { version = "5", features = ["qr"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }
