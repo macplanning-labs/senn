@@ -1,10 +1,10 @@
 /// presentation/handlers/projects.rs — プロジェクト CRUD + 切替
 
 use axum::{extract::{State, Path}, response::{Html, Redirect, IntoResponse}, Extension, Form};
+use axum_extra::extract::cookie::{CookieJar, SameSite};
 use serde::Deserialize;
-use tower_sessions::Session;
 use crate::presentation::state::AppState;
-use crate::presentation::middleware::auth::SessionUser;
+use crate::presentation::middleware::auth::{build_cookie, PROJECT_COOKIE};
 use crate::infrastructure::repositories::project_repo;
 
 pub async fn list(
@@ -59,27 +59,12 @@ pub struct SwitchForm {
 
 pub async fn switch(
     State(state): State<AppState>,
-    session: Session,
     Form(form): Form<SwitchForm>,
-) -> Redirect {
-    let mut user: SessionUser = session.get("user").await.unwrap_or(None).unwrap_or_else(|| {
-        SessionUser {
-            user_id: 0, username: String::new(), display_name: String::new(),
-            is_staff: false, must_change_password: false,
-            current_project_id: None, current_project_name: None,
-        }
-    });
-
-    if let Some(pid) = form.project_id {
-        if let Ok(Some(p)) = project_repo::find_by_id(&state.pool, pid).await {
-            user.current_project_id = Some(p.id);
-            user.current_project_name = Some(p.name);
-        }
-    } else {
-        user.current_project_id = None;
-        user.current_project_name = None;
-    }
-
-    let _ = session.insert("user", user).await;
-    Redirect::to("/")
+) -> impl IntoResponse {
+    let jar = CookieJar::new();
+    let jar = match form.project_id {
+        Some(pid) => jar.add(build_cookie(PROJECT_COOKIE, pid.to_string(), "/", 30 * 24 * 3600, SameSite::Lax, state.config.cookie_secure)),
+        None => jar.add(build_cookie(PROJECT_COOKIE, String::new(), "/", 0, SameSite::Lax, state.config.cookie_secure)),
+    };
+    (jar, Redirect::to("/")).into_response()
 }
