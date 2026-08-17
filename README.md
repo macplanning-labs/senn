@@ -46,14 +46,16 @@ npm install
 npm run dev
 ```
 
-### ⚠ 既知の制約: データベーススキーマ
+### データベースのセットアップ
 
-`rust/migrations/` にあるsqlxマイグレーションは**増分マイグレーションのみ**で、`tickets`・`users`・`projects`などの土台となるテーブルを作成するベーススキーマを含んでいません(このリポジトリの前身であるDjangoアプリのマイグレーションがベーススキーマを担っていたため)。そのため、現時点では**空のPostgreSQLに対して`cargo run`しても正常に起動しません**。
+`rust/migrations/20260701000000_initial_schema.sql` が全テーブルを作成するベースラインマイグレーションです(本番スキーマから`pg_dump --schema-only`で抽出し、Django管理テーブル等を除去して統合したもの)。空のPostgreSQLを用意した状態で `cargo run`(`RUST_RUN_MIGRATIONS=true`)を実行すれば、このマイグレーションが自動適用され、テーブルが作成されます。
 
-新規に立ち上げる場合は、以下のいずれかの対応が必要です(未整備・要コントリビューション):
-
-1. 既存の稼働環境から `pg_dump --schema-only` でベーススキーマを取得し、単一の初期マイグレーションとして `rust/migrations/` に追加する
-2. または、ベーススキーマをRustのマイグレーションとして書き起こす
+```bash
+createdb wip
+cp .env.example .env  # DATABASE_URL 等を環境に合わせて編集
+cd rust
+cargo run
+```
 
 ## テスト
 
