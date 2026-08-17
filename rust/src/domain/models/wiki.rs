@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Wiki カテゴリ
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub enum WikiCategory {
     Manual,
     Minutes,
@@ -17,6 +18,7 @@ pub enum WikiCategory {
     Other,
 }
 
+#[allow(dead_code)]
 impl WikiCategory {
     pub fn label(&self) -> &str {
         match self {
@@ -87,6 +89,7 @@ pub struct WikiPage {
     pub project_name: Option<String>,
 }
 
+#[allow(dead_code)]
 impl WikiPage {
     pub fn category_enum(&self) -> WikiCategory {
         WikiCategory::from_db(&self.category)

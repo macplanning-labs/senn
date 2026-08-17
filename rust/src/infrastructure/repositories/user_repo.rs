@@ -168,6 +168,7 @@ pub async fn find_webauthn_credentials(pool: &PgPool, user_id: i32) -> anyhow::R
     Ok(rows)
 }
 
+#[allow(dead_code)]
 pub async fn save_webauthn_credential(
     pool: &PgPool, user_id: i32, credential_id: &[u8],
     public_key: &[u8], name: &str,

@@ -92,6 +92,7 @@ fn calc_progress(ticket: &Ticket, all_tickets: &[Ticket]) -> i32 {
 }
 
 /// ガント表示用の日付範囲を計算
+#[allow(dead_code)]
 pub fn calc_date_range(
     start_override: Option<NaiveDate>,
     end_override: Option<NaiveDate>,
@@ -117,6 +118,7 @@ pub fn calc_date_range(
 use chrono::Datelike;
 
 /// 月末日を取得
+#[allow(dead_code)]
 fn month_end(d: NaiveDate) -> NaiveDate {
     if d.month() == 12 {
         NaiveDate::from_ymd_opt(d.year(), 12, 31).unwrap_or(d)

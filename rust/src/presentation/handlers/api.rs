@@ -29,6 +29,7 @@ fn verify_api_key(headers: &HeaderMap) -> bool {
 }
 
 #[derive(Deserialize, Default)]
+#[allow(dead_code)]
 pub struct ApiListQuery {
     pub project: Option<String>,
     pub status: Option<String>,

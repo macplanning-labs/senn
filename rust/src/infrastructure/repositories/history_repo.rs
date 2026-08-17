@@ -34,6 +34,7 @@ pub async fn find_by_milestone(
 }
 
 /// チケット単位の履歴取得
+#[allow(dead_code)]
 pub async fn find_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<TicketStatusHistory>> {
     let rows = sqlx::query_as::<_, TicketStatusHistory>(
         "SELECT h.id, h.ticket_id, h.old_status, h.new_status, h.changed_by_id, h.changed_at,

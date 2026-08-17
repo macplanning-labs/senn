@@ -200,6 +200,7 @@ pub async fn reject(pool: &PgPool, id: i32, reviewed_by: i32, comment: &str) -> 
 
 /// 承認: レビュー情報を記録し、必要であればチケットを自動生成して紐付ける。
 /// ticket_id/project_idは既にセットされている場合(ticketが既存)は変更しない。
+#[allow(dead_code)]
 pub struct ApproveResult {
     pub created_ticket_id: Option<i32>,
 }

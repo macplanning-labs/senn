@@ -26,6 +26,7 @@ pub const PROJECT_COOKIE: &str = "wip_current_project_id";
 
 /// 認証済みユーザーのセッションデータ
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct SessionUser {
     pub user_id: i32,
     pub username: String,

@@ -8,6 +8,7 @@ use crate::config::AppConfig;
 use crate::infrastructure::mail::MailSender;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct AppState {
     pub pool: PgPool,
     pub config: AppConfig,

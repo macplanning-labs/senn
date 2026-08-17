@@ -5,7 +5,7 @@
 
 use axum::{
     extract::{State, Path, Query},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     http::{StatusCode, HeaderMap, header},
     Json,
     Extension,
@@ -26,20 +26,27 @@ use crate::domain::models::ticket_api::*;
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub status: Option<String>,
-    pub status__in: Option<String>,
+    #[serde(rename = "status__in")]
+    pub status_in: Option<String>,
     pub priority: Option<String>,
-    pub priority__in: Option<String>,
+    #[serde(rename = "priority__in")]
+    pub priority_in: Option<String>,
     pub assignees: Option<i32>,
     pub project: Option<i32>,
-    pub project__prefix: Option<String>,
+    #[serde(rename = "project__prefix")]
+    pub project_prefix: Option<String>,
     pub milestone: Option<i32>,
     pub category: Option<i32>,
     pub labels: Option<i32>,
     pub parent: Option<i32>,
-    pub parent__isnull: Option<bool>,
-    pub due_date__gte: Option<String>,
-    pub due_date__lte: Option<String>,
-    pub due_date__isnull: Option<bool>,
+    #[serde(rename = "parent__isnull")]
+    pub parent_isnull: Option<bool>,
+    #[serde(rename = "due_date__gte")]
+    pub due_date_gte: Option<String>,
+    #[serde(rename = "due_date__lte")]
+    pub due_date_lte: Option<String>,
+    #[serde(rename = "due_date__isnull")]
+    pub due_date_isnull: Option<bool>,
     pub search: Option<String>,
     pub ordering: Option<String>,
     pub page: Option<i64>,
@@ -83,7 +90,7 @@ pub async fn list(
     if let Some(status_str) = params.status {
         filter.status = Some(vec![status_str]);
     }
-    if let Some(status_in) = params.status__in {
+    if let Some(status_in) = params.status_in {
         filter.status = Some(status_in.split(',').map(|s| s.to_string()).collect());
     }
 
@@ -91,31 +98,31 @@ pub async fn list(
     if let Some(priority_str) = params.priority {
         filter.priority = Some(vec![priority_str]);
     }
-    if let Some(priority_in) = params.priority__in {
+    if let Some(priority_in) = params.priority_in {
         filter.priority = Some(priority_in.split(',').map(|s| s.to_string()).collect());
     }
 
     filter.assignees = params.assignees;
     filter.project = params.project;
-    filter.project_prefix = params.project__prefix;
+    filter.project_prefix = params.project_prefix;
     filter.milestone = params.milestone;
     filter.category = params.category;
     filter.labels = params.labels;
     filter.parent = params.parent;
-    filter.parent_isnull = params.parent__isnull;
+    filter.parent_isnull = params.parent_isnull;
 
     // due_date
-    if let Some(due_gte) = params.due_date__gte {
+    if let Some(due_gte) = params.due_date_gte {
         if let Ok(date) = NaiveDate::parse_from_str(&due_gte, "%Y-%m-%d") {
             filter.due_date_gte = Some(date);
         }
     }
-    if let Some(due_lte) = params.due_date__lte {
+    if let Some(due_lte) = params.due_date_lte {
         if let Ok(date) = NaiveDate::parse_from_str(&due_lte, "%Y-%m-%d") {
             filter.due_date_lte = Some(date);
         }
     }
-    filter.due_date_isnull = params.due_date__isnull;
+    filter.due_date_isnull = params.due_date_isnull;
 
     let sort = params.ordering.as_deref().unwrap_or("-updated_at");
     let search = params.search.as_deref();

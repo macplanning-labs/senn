@@ -71,6 +71,7 @@ pub fn resolve_wiki_links(html: &str, project_id: Option<i32>) -> String {
 }
 
 /// Wiki ページ作成（初回リビジョン自動保存）
+#[allow(dead_code)]
 pub async fn create_page(
     pool: &PgPool,
     project_id: Option<i32>,
@@ -95,6 +96,7 @@ pub async fn create_page(
 }
 
 /// Wiki ページ更新（リビジョン自動保存）
+#[allow(dead_code)]
 pub async fn update_page(
     pool: &PgPool,
     page_id: i32,
@@ -115,6 +117,7 @@ pub async fn update_page(
 }
 
 /// 2つのリビジョン間の簡易差分（行単位）
+#[allow(dead_code)]
 pub fn simple_diff(old_content: &str, new_content: &str) -> Vec<DiffLine> {
     let old_lines: Vec<&str> = old_content.lines().collect();
     let new_lines: Vec<&str> = new_content.lines().collect();
@@ -147,12 +150,14 @@ pub fn simple_diff(old_content: &str, new_content: &str) -> Vec<DiffLine> {
 
 /// 差分行の種類
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum DiffLine {
     Added(String),
     Removed(String),
     Unchanged(String),
 }
 
+#[allow(dead_code)]
 impl DiffLine {
     pub fn css_class(&self) -> &str {
         match self {

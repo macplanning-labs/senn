@@ -30,6 +30,7 @@ pub fn default_story_point() -> StoryPointResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct SprintHealthAlert {
     pub task_id: Value,
     pub reason: String,

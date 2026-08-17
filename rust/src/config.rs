@@ -4,6 +4,7 @@
 /// .env ファイルまたは Docker の環境変数で設定する。
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct AppConfig {
     pub database_url: String,
     pub port: u16,

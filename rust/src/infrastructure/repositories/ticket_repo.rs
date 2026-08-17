@@ -6,10 +6,11 @@
 use sqlx::{PgPool, Row};
 use chrono::{NaiveDate, Utc};
 
-use crate::domain::models::ticket::{Ticket, TicketStatusHistory};
+use crate::domain::models::ticket::Ticket;
 use crate::domain::models::ticket_api::*;
 
 /// チケットフィルタ条件
+#[allow(dead_code)]
 pub struct TicketFilter {
     pub keyword: Option<String>,
     pub status: Option<String>,
@@ -260,6 +261,7 @@ pub async fn generate_next_key(pool: &PgPool, prefix: &str) -> anyhow::Result<St
 }
 
 /// ステータス別件数
+#[allow(dead_code)]
 pub async fn count_by_status(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<(String, i64)>> {
     let rows: Vec<(String, i64)> = if let Some(pid) = project_id {
         sqlx::query_as(
@@ -303,6 +305,7 @@ pub async fn update_dates(
 }
 
 /// 子チケット取得
+#[allow(dead_code)]
 pub async fn find_children(pool: &PgPool, parent_id: i32) -> anyhow::Result<Vec<Ticket>> {
     let tickets = sqlx::query_as::<_, Ticket>(
         "SELECT t.id, t.ticket_key, t.title, t.description, t.status, t.priority,
@@ -493,7 +496,7 @@ pub async fn api_find_all(
     }
 
     // assignees フィルタ (EXISTS)
-    if let Some(assignee_id) = filter.assignees {
+    if let Some(_assignee_id) = filter.assignees {
         query.push_str(&format!(
             " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
             param_count
@@ -502,13 +505,13 @@ pub async fn api_find_all(
     }
 
     // project フィルタ
-    if let Some(proj_id) = filter.project {
+    if let Some(_proj_id) = filter.project {
         query.push_str(&format!(" AND t.project_id = ${}", param_count));
         param_count += 1;
     }
 
     // project__prefix フィルタ
-    if let Some(ref prefix) = filter.project_prefix {
+    if let Some(ref _prefix) = filter.project_prefix {
         query.push_str(&format!(
             " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
             param_count
@@ -517,19 +520,19 @@ pub async fn api_find_all(
     }
 
     // milestone フィルタ
-    if let Some(ms_id) = filter.milestone {
+    if let Some(_ms_id) = filter.milestone {
         query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
         param_count += 1;
     }
 
     // category フィルタ
-    if let Some(cat_id) = filter.category {
+    if let Some(_cat_id) = filter.category {
         query.push_str(&format!(" AND t.category_id = ${}", param_count));
         param_count += 1;
     }
 
     // labels フィルタ (EXISTS)
-    if let Some(label_id) = filter.labels {
+    if let Some(_label_id) = filter.labels {
         query.push_str(&format!(
             " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
             param_count
@@ -538,7 +541,7 @@ pub async fn api_find_all(
     }
 
     // parent フィルタ
-    if let Some(parent_id) = filter.parent {
+    if let Some(_parent_id) = filter.parent {
         query.push_str(&format!(" AND t.parent_id = ${}", param_count));
         param_count += 1;
     }
@@ -553,13 +556,13 @@ pub async fn api_find_all(
     }
 
     // due_date gte
-    if let Some(due_gte) = filter.due_date_gte {
+    if let Some(_due_gte) = filter.due_date_gte {
         query.push_str(&format!(" AND t.due_date >= ${}", param_count));
         param_count += 1;
     }
 
     // due_date lte
-    if let Some(due_lte) = filter.due_date_lte {
+    if let Some(_due_lte) = filter.due_date_lte {
         query.push_str(&format!(" AND t.due_date <= ${}", param_count));
         param_count += 1;
     }
@@ -576,7 +579,7 @@ pub async fn api_find_all(
     // 全文検索
     if let Some(search_term) = search {
         if !search_term.is_empty() {
-            let search_pattern = format!("%{}%", search_term);
+            let _search_pattern = format!("%{}%", search_term);
             query.push_str(&format!(
                 " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
                 param_count,
@@ -1940,8 +1943,8 @@ pub async fn api_update(
 
     // story_points変更ログ
     if old_story_points != input.story_points {
-        let old_points_str = old_story_points.map_or(String::new(), |p| p.to_string());
-        let new_points_str = input.story_points.map_or(String::new(), |p| p.to_string());
+        let _old_points_str = old_story_points.map_or(String::new(), |p| p.to_string());
+        let _new_points_str = input.story_points.map_or(String::new(), |p| p.to_string());
 
         sqlx::query(
             "INSERT INTO h_task_point_history (old_points, new_points, reason, changed_by_id, changed_at, ticket_id)

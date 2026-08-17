@@ -20,6 +20,7 @@ pub struct User {
     pub email_notifications_enabled: bool,
 }
 
+#[allow(dead_code)]
 impl User {
     /// 表示名（display_name が空ならユーザー名）
     pub fn display(&self) -> &str {

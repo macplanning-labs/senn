@@ -121,6 +121,7 @@ pub fn verify_totp(secret: &str, code: &str) -> anyhow::Result<bool> {
 }
 
 /// TOTP セットアップ（QR コード URL 生成）
+#[allow(dead_code)]
 pub fn generate_totp_setup(username: &str) -> anyhow::Result<(String, String)> {
     use totp_rs::{Algorithm, TOTP, Secret};
 

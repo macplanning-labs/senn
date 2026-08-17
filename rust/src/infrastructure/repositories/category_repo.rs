@@ -18,6 +18,7 @@ pub async fn find_all(pool: &PgPool) -> anyhow::Result<Vec<Category>> {
 }
 
 /// フェーズ（level=1）一覧取得
+#[allow(dead_code)]
 pub async fn find_phases(pool: &PgPool) -> anyhow::Result<Vec<Category>> {
     let rows = sqlx::query_as::<_, Category>(
         "SELECT id, name, slug, level, parent_id, sort_order, color, NULL as parent_name
@@ -30,6 +31,7 @@ pub async fn find_phases(pool: &PgPool) -> anyhow::Result<Vec<Category>> {
 }
 
 /// フェーズ配下のカテゴリー取得
+#[allow(dead_code)]
 pub async fn find_by_phase(pool: &PgPool, phase_id: i32) -> anyhow::Result<Vec<Category>> {
     let rows = sqlx::query_as::<_, Category>(
         "SELECT c.id, c.name, c.slug, c.level, c.parent_id, c.sort_order, c.color,

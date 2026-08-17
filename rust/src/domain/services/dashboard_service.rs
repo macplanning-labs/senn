@@ -17,6 +17,7 @@ use crate::domain::models::ticket::Ticket;
 // ---------------------------------------------------------------------------
 
 /// ダッシュボード全体のデータ
+#[allow(dead_code)]
 pub struct DashboardData {
     pub my_tickets: Vec<Ticket>,
     pub my_filter: String,

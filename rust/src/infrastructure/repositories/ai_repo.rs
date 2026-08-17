@@ -5,6 +5,7 @@
 use sqlx::{PgPool, Row};
 use serde_json::{json, Value};
 
+#[allow(dead_code)]
 pub struct TicketForAi {
     pub id: i32,
     pub title: String,

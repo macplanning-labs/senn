@@ -7,11 +7,13 @@ use crate::config::AppConfig;
 use std::sync::Arc;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct MailSender {
     transport: Option<Arc<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>>,
     from: String,
 }
 
+#[allow(dead_code)]
 impl MailSender {
     /// 設定から MailSender を構築
     pub fn new(config: &AppConfig) -> Self {

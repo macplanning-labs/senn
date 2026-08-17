@@ -19,6 +19,7 @@ pub enum NotificationCategory {
     Mentioned,
 }
 
+#[allow(dead_code)]
 impl NotificationCategory {
     pub fn label(&self) -> &str {
         match self {
@@ -101,6 +102,7 @@ impl Notification {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[allow(dead_code)]
 pub struct NotificationLog {
     pub id: i32,
     pub ticket_id: i32,

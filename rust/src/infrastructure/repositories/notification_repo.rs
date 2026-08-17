@@ -1,7 +1,7 @@
 /// infrastructure/repositories/notification_repo.rs — 通知永続化
 
 use sqlx::PgPool;
-use crate::domain::models::notification::{Notification, NotificationLog};
+use crate::domain::models::notification::Notification;
 
 pub async fn find_by_user(pool: &PgPool, user_id: i32, limit: i64) -> anyhow::Result<Vec<Notification>> {
     let rows = sqlx::query_as::<_, Notification>(

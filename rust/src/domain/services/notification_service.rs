@@ -10,6 +10,7 @@ use crate::infrastructure::mail::MailSender;
 use crate::infrastructure::repositories::{notification_repo, ticket_repo, user_repo};
 
 /// チケット操作に基づく通知生成
+#[allow(dead_code)]
 pub async fn notify_ticket_event(
     pool: &PgPool,
     mail_sender: &Option<MailSender>,
@@ -84,6 +85,7 @@ pub async fn notify_ticket_event(
 }
 
 /// コメント追加時の通知
+#[allow(dead_code)]
 pub async fn notify_comment(
     pool: &PgPool,
     mail_sender: &Option<MailSender>,
@@ -104,6 +106,7 @@ pub async fn notify_comment(
 }
 
 /// ステータス変更時の通知
+#[allow(dead_code)]
 pub async fn notify_status_change(
     pool: &PgPool,
     mail_sender: &Option<MailSender>,
@@ -120,6 +123,7 @@ pub async fn notify_status_change(
 }
 
 /// 担当者設定時の通知
+#[allow(dead_code)]
 pub async fn notify_assigned(
     pool: &PgPool,
     mail_sender: &Option<MailSender>,

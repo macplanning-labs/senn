@@ -6,7 +6,7 @@
 use chrono::NaiveDate;
 use sqlx::PgPool;
 
-use crate::domain::models::ticket::{Ticket, TicketStatus, TicketStatusHistory};
+use crate::domain::models::ticket::{Ticket, TicketStatus};
 use crate::infrastructure::repositories::{ticket_repo, history_repo};
 
 /// チケット作成リクエスト
@@ -131,6 +131,7 @@ pub async fn delete_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<()> 
 }
 
 /// 子チケットの進捗から親チケットの進捗率を計算
+#[allow(dead_code)]
 pub fn calc_parent_progress(children: &[Ticket]) -> i32 {
     if children.is_empty() {
         return 0;

@@ -264,7 +264,7 @@ pub async fn edit_page(
 
 pub async fn edit_submit(
     State(state): State<AppState>,
-    Extension(user): Extension<SessionUser>,
+    Extension(_user): Extension<SessionUser>,
     Path(id): Path<i32>,
     Form(form): Form<TicketForm>,
 ) -> impl IntoResponse {

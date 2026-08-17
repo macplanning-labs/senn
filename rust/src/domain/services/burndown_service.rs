@@ -2,7 +2,7 @@
 ///
 /// マイルストーン内のチケットステータス変更履歴からバーンダウンデータを構築。
 
-use chrono::{NaiveDate, Datelike};
+use chrono::NaiveDate;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
 
