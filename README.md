@@ -1,44 +1,56 @@
 <title>WIP</title>
 
-# WIP — プロジェクト管理ツール
+English | [日本語 (Japanese)](./README_JA.md)
 
-チケット管理・ガントチャート・Wiki・通知を備えたプロジェクト管理ツールです。バックエンドはRust(Axum)、フロントエンドはReact(TypeScript)で構築されています。
+# WIP — Project Management Tool
 
-## アーキテクチャ
+A lightweight, fast project management tool with ticketing, Gantt charts, a wiki, and notifications. The backend is built with Rust (Axum), and the frontend with React (TypeScript).
 
-バックエンド(`rust/`)はClean Architectureに沿って3層に分かれています。
+## Key Features
+
+- **Ticket management** — issues/tickets with status, priority, labels, assignees, and comment threads
+- **Gantt chart** — visual scheduling and dependency tracking
+- **Wiki** — internal documentation linked to tickets, with revision history
+- **Notifications** — in-app notification feed for ticket and wiki events
+- **Auth** — JWT-based authentication, TOTP, and WebAuthn (passkeys) via a dedicated `auth-core` crate
+
+## Architecture
+
+The backend (`rust/`) follows Clean Architecture, split into three layers:
 
 ```
 rust/src/
-├── domain/          # ドメインモデル・ドメインサービス(ビジネスロジック)
-├── infrastructure/  # リポジトリ実装(PostgreSQL, sqlx)、メール送信など
-├── presentation/     # HTTPハンドラ、ミドルウェア
-├── routes.rs         # ルーティング定義
-├── config.rs          # 環境変数からの設定読み込み
-└── main.rs            # エントリポイント
+├── domain/          # Domain models and domain services (business logic)
+├── infrastructure/  # Repository implementations (PostgreSQL via sqlx), mail sending, etc.
+├── presentation/     # HTTP handlers, middleware
+├── routes.rs         # Route definitions
+├── config.rs          # Configuration loaded from environment variables
+└── main.rs            # Entry point
 ```
 
-認証まわりは `rust/auth-core/` に独立クレートとして切り出されており、JWT発行・検証、TOTP、WebAuthn(パスキー)を扱います。
+Authentication is factored out into its own crate at `rust/auth-core/`, handling JWT issuance/verification, TOTP, and WebAuthn (passkeys).
 
-フロントエンド(`frontend/`)はVite + React + TypeScript。APIクライアントはOpenAPIスキーマから[orval](https://orval.dev/)で自動生成しています(`npm run generate:api`)。
+The frontend (`frontend/`) is built with Vite + React + TypeScript. The API client is auto-generated from the OpenAPI schema using [orval](https://orval.dev/) (`npm run generate:api`).
 
-## セットアップ
+## Getting Started
 
-### 前提
+### Prerequisites
 
-- Rust 1.90以上
-- Node.js 20以上
+- Rust 1.90+
+- Node.js 20+
 - PostgreSQL 16
 
-### 手順
+### Quick Start
 
 ```bash
-cp .env.example .env
-# .env を編集し、DATABASE_URL 等を環境に合わせて設定
+createdb wip
+cp .env.example .env  # edit DATABASE_URL etc. to match your environment
 
 cd rust
 cargo run
 ```
+
+`rust/migrations/20260701000000_initial_schema.sql` is the baseline migration that creates all tables (extracted from a production schema via `pg_dump --schema-only` and cleaned up). Running `cargo run` with a fresh, empty PostgreSQL database and `RUST_RUN_MIGRATIONS=true` (the default in `.env.example`) applies this migration automatically — no manual schema setup needed.
 
 ```bash
 cd frontend
@@ -46,24 +58,13 @@ npm install
 npm run dev
 ```
 
-### データベースのセットアップ
-
-`rust/migrations/20260701000000_initial_schema.sql` が全テーブルを作成するベースラインマイグレーションです(本番スキーマから`pg_dump --schema-only`で抽出し、Django管理テーブル等を除去して統合したもの)。空のPostgreSQLを用意した状態で `cargo run`(`RUST_RUN_MIGRATIONS=true`)を実行すれば、このマイグレーションが自動適用され、テーブルが作成されます。
-
-```bash
-createdb wip
-cp .env.example .env  # DATABASE_URL 等を環境に合わせて編集
-cd rust
-cargo run
-```
-
-## テスト
+## Tests
 
 ```bash
 cd rust
 cargo test --workspace
 ```
 
-## ライセンス
+## License
 
 [MIT](./LICENSE)
