@@ -5,8 +5,9 @@
  * 右カラム: 選択したページのMarkdownプレビュー
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { FilterBar } from '@/shared/components/ui/FilterBar';
@@ -62,6 +63,7 @@ function timeAgo(dateStr: string): string {
 export function WikiList() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -71,6 +73,7 @@ export function WikiList() {
   const [editContent, setEditContent] = useState('');
   const [editCategory, setEditCategory] = useState('other');
   const [isCreating, setIsCreating] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // --- D&D インポート ---
   const [isDragOver, setIsDragOver] = useState(false);
@@ -142,6 +145,16 @@ export function WikiList() {
   });
 
   const pageList = pages?.results ?? [];
+
+  useEffect(() => {
+    const slugParam = searchParams.get('page');
+    if (slugParam && !selectedId && pages?.results.length) {
+      const match = pages.results.find((p) => p.slug === slugParam);
+      if (match) {
+        setSelectedId(match.id);
+      }
+    }
+  }, [searchParams, selectedId, pages]);
 
   function startEdit() {
     if (selectedPage) {
@@ -388,6 +401,21 @@ export function WikiList() {
               <div className="wiki__viewer-header">
                 <h2 className="wiki__viewer-title">{selectedPage.title}</h2>
                 <div className="wiki__viewer-actions">
+                  <button
+                    className="wiki__edit-btn"
+                    onClick={() => {
+                      if (!selectedPage) return;
+                      const url = `${window.location.origin}${window.location.pathname}?page=${selectedPage.slug}`;
+                      void navigator.clipboard.writeText(url);
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 1500);
+                    }}
+                    aria-label="Copy wiki page link"
+                    title={linkCopied ? 'コピーしました' : 'リンクをコピー'}
+                    data-testid="wiki-copy-link-btn"
+                  >
+                    {linkCopied ? '✅' : '🔗'}
+                  </button>
                   <button
                     className="wiki__edit-btn"
                     onClick={startEdit}
