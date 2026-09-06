@@ -6,21 +6,33 @@
 
 ## アーキテクチャ
 
-バックエンド(`rust/`)はClean Architectureに沿って3層に分かれています。
+UI は **ハイブリッド** です。対話的なアプリ画面は React SPA、ログインシェルや単純なサーバー描画など適した箇所は **Askama** を使います。Askama は適材適所で維持しており、**完全撤去はしていません**。
+
+### バックエンド (`rust/`)
+
+Clean Architecture に沿った3層構成:
 
 ```
 rust/src/
 ├── domain/          # ドメインモデル・ドメインサービス(ビジネスロジック)
 ├── infrastructure/  # リポジトリ実装(PostgreSQL, sqlx)、メール送信など
-├── presentation/     # HTTPハンドラ、ミドルウェア
+├── presentation/     # HTTPハンドラ、ミドルウェア、Askama 利用箇所
 ├── routes.rs         # ルーティング定義
 ├── config.rs          # 環境変数からの設定読み込み
 └── main.rs            # エントリポイント
 ```
 
-認証まわりは `rust/auth-core/` に独立クレートとして切り出されており、JWT発行・検証、TOTP、WebAuthn(パスキー)を扱います。
+`rust/templates/` に Askama テンプレートがあります。
+認証は `rust/auth-core/`（JWT / TOTP / WebAuthn）。
 
-フロントエンド(`frontend/`)はVite + React + TypeScript。APIクライアントはOpenAPIスキーマから[orval](https://orval.dev/)で自動生成しています(`npm run generate:api`)。
+### フロントエンド (`frontend/`)
+
+Vite + React + TypeScript の SPA。API クライアントは OpenAPI から [orval](https://orval.dev/) で生成（`npm run generate:api`）。
+
+SPA 内の UI 複雑度の使い分け:
+
+- **マスタ / 設定**（`features/settings/` など）— 軽量な CRUD フォーム
+- **チケット / カンバン / Git 連携** — リッチなインタラクティブ UI
 
 ## セットアップ
 

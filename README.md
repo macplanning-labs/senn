@@ -1,5 +1,3 @@
-<title>WIP</title>
-
 English | [日本語 (Japanese)](./README_JA.md)
 
 # WIP — Project Management Tool
@@ -16,21 +14,33 @@ A lightweight, fast project management tool with ticketing, Gantt charts, a wiki
 
 ## Architecture
 
-The backend (`rust/`) follows Clean Architecture, split into three layers:
+UI is a **hybrid**: a React SPA for interactive app screens, plus **Askama** server-rendered templates where they still fit (login shells, simple server pages, etc.). Askama is kept where appropriate — it is **not** fully removed.
+
+### Backend (`rust/`)
+
+Clean Architecture in three layers:
 
 ```
 rust/src/
 ├── domain/          # Domain models and domain services (business logic)
 ├── infrastructure/  # Repository implementations (PostgreSQL via sqlx), mail sending, etc.
-├── presentation/     # HTTP handlers, middleware
+├── presentation/     # HTTP handlers, middleware, Askama where used
 ├── routes.rs         # Route definitions
 ├── config.rs          # Configuration loaded from environment variables
 └── main.rs            # Entry point
 ```
 
-Authentication is factored out into its own crate at `rust/auth-core/`, handling JWT issuance/verification, TOTP, and WebAuthn (passkeys).
+`rust/templates/` holds Askama templates used for selected server-rendered surfaces.
+Authentication is factored out into `rust/auth-core/` (JWT, TOTP, WebAuthn/passkeys).
 
-The frontend (`frontend/`) is built with Vite + React + TypeScript. The API client is auto-generated from the OpenAPI schema using [orval](https://orval.dev/) (`npm run generate:api`).
+### Frontend (`frontend/`)
+
+Vite + React + TypeScript SPA. API client is generated from OpenAPI via [orval](https://orval.dev/) (`npm run generate:api`).
+
+Within the SPA, UI complexity is intentional:
+
+- **Master / settings** (`features/settings/` and similar) — lightweight CRUD forms
+- **Tickets / boards / Git activity** — richer interactive UI (kanban, panels, modals)
 
 ## Getting Started
 
