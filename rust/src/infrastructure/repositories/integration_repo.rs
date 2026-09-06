@@ -140,7 +140,7 @@ pub async fn find_active_integrations_by_repo_url(pool: &PgPool, repo_url: &str)
 }
 
 /// チケットキーからticket_idを検索する。見つからない場合、prefix+ゼロパディングで再検索する
-/// (例: WIP-123 → WIP-000123)。Djangoの GitWebhookService._find_ticket と同じロジック。
+/// (例: DEMO-123 → DEMO-000123)。Djangoの GitWebhookService._find_ticket と同じロジック。
 pub async fn find_ticket_id_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
     if let Some(id) = crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(pool, ticket_key).await? {
         return Ok(Some(id));

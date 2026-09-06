@@ -193,7 +193,7 @@ pub async fn list(
     path = "/api/v1/tickets/{ticket_key}/",
     tag = "tickets",
     params(
-        ("ticket_key" = String, Path, description = "チケットキー(例: WIP-000001)")
+        ("ticket_key" = String, Path, description = "チケットキー(例: DEMO-000001)")
     ),
     responses(
         (status = 200, description = "チケット詳細を返す"),

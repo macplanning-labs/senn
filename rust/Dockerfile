@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY auth-core ./auth-core
-COPY drive-core ./drive-core
 COPY migrations ./migrations
 COPY templates ./templates
 COPY static ./static

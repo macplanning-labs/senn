@@ -178,7 +178,7 @@ pub async fn create(
     Ok(ticket_id)
 }
 
-/// 次のチケットキーを生成（例: WIP-000042）
+/// 次のチケットキーを生成（例: DEMO-000042）
 pub async fn generate_next_key(pool: &PgPool, prefix: &str) -> anyhow::Result<String> {
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM tickets_ticket WHERE ticket_key LIKE $1"

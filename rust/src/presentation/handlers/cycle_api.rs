@@ -201,7 +201,7 @@ pub async fn update(
 
 /// PATCH /api/v1/cycles/{id}/ — サイクル部分更新
 ///
-/// WIP-000107: フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
+/// フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
 /// 従来 PUT のみでCycleWriteIn(全フィールド必須)を要求していたため405になっていた。
 /// 既存値を取得し、指定フィールドのみ上書きしてCycleWriteInを組み立てた上で、
 /// ステータス遷移時のactivated_at/completed_at設定を含む既存のupdate_cycleに委譲する

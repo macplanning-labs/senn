@@ -63,7 +63,7 @@ async fn authenticate_ai(state: &AppState, headers: &HeaderMap) -> Result<i32, (
     let created = user_repo::create_user(
         &state.pool,
         username,
-        "ai-agent@macplanning.local",
+        "ai-agent@example.com",
         "!",
         "AI",
         "Agent",
