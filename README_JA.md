@@ -36,13 +36,34 @@ SPA 内の UI 複雑度の使い分け:
 
 ## セットアップ
 
-### 前提
+### クイックスタート（Docker・推奨）
+
+Rust / Node / PostgreSQL のホストへの個別インストールは不要です。
+
+```bash
+cp .env.example .env
+# 初回起動前に DB_PASSWORD と DJANGO_SECRET_KEY をローカル用の値に書き換える
+docker compose up --build
+```
+
+ブラウザで http://localhost:8151 を開きます。初回起動時にテーブルは自動作成されます（`RUST_RUN_MIGRATIONS=true`）。初期シードユーザーは同梱していないため、http://localhost:8151/register の画面上の「新規登録」から最初のアカウントを作成し、http://localhost:8151/login からログインしてください。
+
+データベースをリセットしてやり直す場合:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### 手動セットアップ（Dockerを使わない場合）
+
+#### 前提
 
 - Rust 1.90以上
 - Node.js 20以上
 - PostgreSQL 16
 
-### 手順
+#### 手順
 
 ```bash
 cp .env.example .env
@@ -58,7 +79,7 @@ npm install
 npm run dev
 ```
 
-### データベースのセットアップ
+#### データベースのセットアップ
 
 `rust/migrations/20260701000000_initial_schema.sql` が全テーブルを作成するベースラインマイグレーションです(本番スキーマから`pg_dump --schema-only`で抽出し、Django管理テーブル等を除去して統合したもの)。空のPostgreSQLを用意した状態で `cargo run`(`RUST_RUN_MIGRATIONS=true`)を実行すれば、このマイグレーションが自動適用され、テーブルが作成されます。
 

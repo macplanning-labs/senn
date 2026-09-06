@@ -44,13 +44,34 @@ Within the SPA, UI complexity is intentional:
 
 ## Getting Started
 
-### Prerequisites
+### Quick Start (Docker — recommended)
+
+No local Rust / Node / PostgreSQL install needed.
+
+```bash
+cp .env.example .env
+# edit DB_PASSWORD and DJANGO_SECRET_KEY to local values before first run
+docker compose up --build
+```
+
+Open http://localhost:8151 in your browser. Database tables are created automatically on first start (`RUST_RUN_MIGRATIONS=true`). No seed users are bundled — create your first account from the in-app registration screen at http://localhost:8151/register, then log in at http://localhost:8151/login.
+
+To reset the database and start clean:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### Manual setup (without Docker)
+
+#### Prerequisites
 
 - Rust 1.90+
 - Node.js 20+
 - PostgreSQL 16
 
-### Quick Start
+#### Steps
 
 ```bash
 createdb wip

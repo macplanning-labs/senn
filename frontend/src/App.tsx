@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { MainLayout } from '@/shared/components/layout/MainLayout';
 import { LoginForm } from '@/features/auth/components/LoginForm';
+import { RegisterForm } from '@/features/auth/components/RegisterForm';
 import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 import { Dashboard } from '@/features/dashboard/components/Dashboard';
@@ -114,25 +115,6 @@ function ProjectIndex() {
   return <TicketListPage />;
 }
 
-/** プレースホルダーページ */
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div data-testid={`page-${title.toLowerCase()}`}>
-      <h1 style={{
-        fontSize: 'var(--font-size-2xl)',
-        fontWeight: 'var(--font-weight-bold)',
-        color: 'var(--color-text-primary)',
-        marginBottom: 'var(--space-4)',
-      }}>
-        {title}
-      </h1>
-      <p style={{ color: 'var(--color-text-tertiary)' }}>
-        Coming soon...
-      </p>
-    </div>
-  );
-}
-
 export default function App() {
   const { fetchUser, isAuthenticated } = useAuthStore();
 
@@ -149,7 +131,7 @@ export default function App() {
           <Route path="/login" element={<LoginForm />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/register" element={<PlaceholderPage title="Register" />} />
+          <Route path="/register" element={<RegisterForm />} />
 
           {/* メインアプリ（サイドバー付きレイアウト） */}
           <Route
