@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}通知 — WIP{% endblock %}
+{% block page_title %}通知{% endblock %}
+
+{% block header_actions %}
+{% if unread_count > 0 %}
+<form method="post" action="/notifications/read-all" data-no-guard>
+  <button type="submit" class="btn btn-outline btn-sm">✓ すべて既読</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .notif-filter-tabs { display: flex; gap: 4px; }
+  .notif-filter-tab {
+    padding: 6px 14px; font-size: 13px; border-radius: var(--radius-sm);
+    color: var(--text-secondary); text-decoration: none;
+  }
+  .notif-filter-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .notif-filter-tab.active { background: var(--primary); color: #fff; }
+  .notif-list-item { padding: 14px 16px; }
+  .notif-list-item .notif-item-icon { font-size: 22px; }
+  .notif-list-item .notif-item-title { font-size: 14px; }
+  .notif-list-item .notif-item-message { white-space: normal; }
+  .notif-settings-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; font-size: 13px; color: var(--text-secondary);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-md">
+  <div class="notif-settings-row">
+    <form method="post" action="/notifications/settings" data-no-guard>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" name="email_enabled" onchange="this.form.submit()" {% if email_notifications_enabled %}checked{% endif %}>
+        メール通知を受け取る
+      </label>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-md">
+  <div class="card-body" style="padding:8px 16px;">
+    <div class="notif-filter-tabs">
+      <a href="/notifications?filter=all" class="notif-filter-tab {% if filter.as_str() == "all" %}active{% endif %}">すべて</a>
+      <a href="/notifications?filter=unread" class="notif-filter-tab {% if filter.as_str() == "unread" %}active{% endif %}">未読{% if unread_count > 0 %}（{{ unread_count }}）{% endif %}</a>
+      <a href="/notifications?filter=read" class="notif-filter-tab {% if filter.as_str() == "read" %}active{% endif %}">既読</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  {% if notifications.is_empty() %}
+  <div class="empty-state">
+    <div class="empty-icon">🔔</div>
+    <p>通知はありません</p>
+  </div>
+  {% else %}
+  {% for n in notifications %}
+  <a class="notif-item notif-list-item {% if !n.is_read %}unread{% endif %}" href="/notifications/read/{{ n.id }}">
+    <span class="notif-item-icon">{{ n.category_enum().icon() }}</span>
+    <div class="notif-item-content">
+      <div class="notif-item-title">{{ n.title }}</div>
+      {% if !n.message.is_empty() %}
+      <div class="notif-item-message">{{ n.message }}</div>
+      {% endif %}
+      <div class="notif-item-time">{{ n.created_at|date }}</div>
+    </div>
+    {% if !n.is_read %}
+    <div class="notif-unread-dot"></div>
+    {% endif %}
+  </a>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

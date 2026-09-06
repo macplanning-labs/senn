@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}ガントチャート — WIP{% endblock %}
+{% block page_title %}ガントチャート{% endblock %}
+
+{% block header_actions %}
+<a href="/tickets/gantt/export" class="btn btn-outline btn-sm" title="Excel出力">📥 Excel</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .gantt-progress-wrap {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .gantt-progress-bar {
+    flex: 1; height: 6px; background: var(--border-light);
+    border-radius: 3px; overflow: hidden; min-width: 60px;
+  }
+  .gantt-progress-fill {
+    height: 100%; background: var(--primary); border-radius: 3px;
+  }
+  .gantt-progress-pct {
+    font-size: 11px; color: var(--text-muted); min-width: 32px; text-align: right;
+  }
+  .gantt-child-title { padding-left: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:60px;">種別</th>
+          <th style="width:150px;">キー</th>
+          <th>件名</th>
+          <th style="width:80px;">担当者</th>
+          <th style="width:70px;">状態</th>
+          <th style="width:85px;">開始日</th>
+          <th style="width:85px;">期限日</th>
+          <th style="width:140px;">進捗</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr onclick="location.href='/tickets/{{ row.ticket.ticket_key }}'" style="cursor:pointer;">
+          <td style="font-size:11px;white-space:nowrap;">
+            <span class="badge {% if row.ticket.ticket_type == "不具合" %}badge-high{% elif row.ticket.ticket_type == "QA" %}badge-in-progress{% elif row.ticket.ticket_type == "作業依頼" %}badge-resolved{% else %}badge-medium{% endif %}" style="font-size:10px;">{{ row.ticket.ticket_type }}</span>
+          </td>
+          <td style="white-space:nowrap;">
+            <span style="font-size:12px;font-weight:600;color:var(--primary);">{{ row.ticket.ticket_key }}</span>
+          </td>
+          <td style="font-weight:500;" class="{% if row.is_child %}gantt-child-title{% endif %}">
+            {% if row.is_child %}└ {% endif %}{{ row.ticket.title }}
+          </td>
+          <td style="font-size:12px;color:var(--text-secondary);">{{ row.ticket.assignee_name|default("") }}</td>
+          <td>
+            <span class="badge {% if row.ticket.status == "未対応" %}badge-open{% elif row.ticket.status == "処理中" %}badge-in-progress{% elif row.ticket.status == "処理済み" %}badge-resolved{% elif row.ticket.status == "完了" %}badge-closed{% endif %}">{{ row.ticket.status }}</span>
+          </td>
+          <td style="font-size:12px;white-space:nowrap;color:var(--text-secondary);">
+            {% if let Some(d) = row.ticket.start_date %}{{ d }}{% endif %}
+          </td>
+          <td style="font-size:12px;white-space:nowrap;">
+            {% if let Some(d) = row.ticket.due_date %}{{ d }}{% endif %}
+          </td>
+          <td>
+            <div class="gantt-progress-wrap">
+              <div class="gantt-progress-bar"><div class="gantt-progress-fill" style="width:{{ row.progress }}%;"></div></div>
+              <span class="gantt-progress-pct">{{ row.progress }}%</span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if rows.is_empty() %}
+        <tr>
+          <td colspan="8">
+            <div class="empty-state">
+              <div class="empty-icon">📊</div>
+              <p>チケットがありません</p>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

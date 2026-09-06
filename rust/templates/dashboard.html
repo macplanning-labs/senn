@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}ダッシュボード — WIP{% endblock %}
+{% block page_title %}ダッシュボード{% endblock %}
+
+{% block extra_css %}
+{% include "partials/_dashboard_styles.html" %}
+{% endblock %}
+
+{% block content %}
+{# ===== ステータスサマリー ===== #}
+<div class="stats-grid">
+  <a href="/tickets" class="stat-card stat-total" style="text-decoration:none;color:inherit;">
+    <div class="stat-info">
+      <div class="stat-label">全チケット数</div>
+      <div class="stat-value">{{ data.total_count }}<span style="font-size:13px;font-weight:500;color:var(--text-muted);margin-left:8px;">｜今月 {{ data.this_month_total }}件</span></div>
+    </div>
+    <div class="stat-icon">📊</div>
+  </a>
+  {% for sc in data.status_counts %}
+  <a href="/tickets?status={{ sc.0 }}" class="stat-card {% if sc.0 == "未対応" %}stat-open{% elif sc.0 == "処理中" %}stat-progress{% elif sc.0 == "処理済み" %}stat-resolved{% elif sc.0 == "完了" %}stat-closed{% endif %}" style="text-decoration:none;color:inherit;">
+    <div class="stat-info">
+      <div class="stat-label">{{ sc.0 }}</div>
+      <div class="stat-value">{{ sc.1 }}</div>
+    </div>
+    <div class="stat-icon">{% if sc.0 == "未対応" %}📥{% elif sc.0 == "処理中" %}⚡{% elif sc.0 == "処理済み" %}✅{% elif sc.0 == "完了" %}🏆{% endif %}</div>
+  </a>
+  {% endfor %}
+  {% if data.overdue_count > 0 %}
+  <a href="/tickets?status=未対応" class="stat-card stat-overdue" style="text-decoration:none;color:inherit;">
+    <div class="stat-info">
+      <div class="stat-label">期限超過</div>
+      <div class="stat-value">{{ data.overdue_count }}</div>
+    </div>
+    <div class="stat-icon">🔥</div>
+  </a>
+  {% endif %}
+</div>
+
+{# ===== 最近のチケット活動 ===== #}
+<div class="dashboard-full">
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">
+        <span class="section-icon" style="background:var(--primary-bg); color:var(--primary);">📋</span>
+        最近のチケット活動
+      </div>
+      <a href="/tickets" class="btn btn-sm btn-outline">すべて表示</a>
+    </div>
+    <div class="card-body" style="padding:0;">
+      <div class="table-responsive">
+        <table class="activity-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>タイトル</th>
+              <th>担当者</th>
+              <th>ステータス</th>
+              <th>優先度</th>
+              <th>更新</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in data.recent_tickets %}
+            <tr>
+              <td><a href="/tickets/{{ t.ticket_key }}" class="ticket-id-link">{{ t.ticket_key }}</a></td>
+              <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ t.title }}</td>
+              <td>{{ t.assignee_name|default("-") }}</td>
+              <td><span class="badge {% if t.status == "未対応" %}badge-open{% elif t.status == "処理中" %}badge-in-progress{% elif t.status == "処理済み" %}badge-resolved{% elif t.status == "完了" %}badge-closed{% endif %}">{{ t.status }}</span></td>
+              <td><span class="badge {% if t.priority == "高" %}badge-high{% elif t.priority == "中" %}badge-medium{% elif t.priority == "低" %}badge-low{% endif %}">{{ t.priority }}</span></td>
+              <td style="font-size:11px;color:var(--text-muted);white-space:nowrap;">{{ t.updated_at|date }}</td>
+            </tr>
+            {% endfor %}
+            {% if data.recent_tickets.is_empty() %}
+            <tr><td colspan="6" class="empty-premium">チケットがありません</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== 下段: プロジェクト進捗 + メンバーパフォーマンス ===== #}
+<div class="dashboard-2col">
+  {# プロジェクト進捗状況 #}
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">
+        <span class="section-icon" style="background:#f0f9ff; color:#0284c7;">📈</span>
+        プロジェクト進捗状況
+      </div>
+    </div>
+    <div class="card-body">
+      {% for ms in data.milestone_progress %}
+      <div class="milestone-item">
+        <div class="milestone-head">
+          <span class="milestone-name">{{ ms.name }}</span>
+          <div class="milestone-meta">
+            <span>{{ ms.closed }}/{{ ms.total }}件</span>
+            {% if let Some(due) = ms.due_date %}
+            <span>〆 {{ due }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill progress-teal" style="width:{{ ms.percent }}%;"></div>
+        </div>
+      </div>
+      {% endfor %}
+      {% if data.milestone_progress.is_empty() %}
+      <div class="empty-premium">
+        <div class="empty-premium-icon">📊</div>
+        <div>マイルストーンがありません</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# メンバーパフォーマンス #}
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">
+        <span class="section-icon" style="background:#fef2f2; color:#dc2626;">🏅</span>
+        メンバーパフォーマンス
+      </div>
+    </div>
+    <div class="card-body">
+      {% for m in data.member_performance %}
+      <div class="member-item">
+        <div class="member-rank {% if loop.index == 1 %}rank-1{% elif loop.index == 2 %}rank-2{% elif loop.index == 3 %}rank-3{% else %}rank-default{% endif %}">
+          {{ loop.index }}
+        </div>
+        <div class="member-info">
+          <div class="member-name">{{ m.user_name }}</div>
+          <div class="member-stats">完了 {{ m.closed }}件 / 担当 {{ m.total }}件</div>
+        </div>
+        <div class="member-count">{{ m.closed }}</div>
+      </div>
+      {% endfor %}
+      {% if data.member_performance.is_empty() %}
+      <div class="empty-premium">
+        <div class="empty-premium-icon">👥</div>
+        <div>メンバーデータがありません</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ===== 下段2: 自分の課題 + 最近の更新 ===== #}
+<div class="dashboard-2col" style="margin-top:24px;">
+  {# 自分の課題 #}
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">
+        <span class="section-icon" style="background:var(--primary-bg); color:var(--primary);">📌</span>
+        自分の課題
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="my-tabs">
+        <a href="?my=assigned" class="my-tab {% if data.my_filter == "assigned" %}active{% endif %}">担当 <span class="count">{{ data.my_assigned_count }}</span></a>
+        <a href="?my=created" class="my-tab {% if data.my_filter == "created" %}active{% endif %}">作成 <span class="count">{{ data.my_created_count }}</span></a>
+        {% if data.my_overdue_count > 0 %}
+        <a href="?my=overdue" class="my-tab overdue {% if data.my_filter == "overdue" %}active{% endif %}">🔥 期限切れ <span class="count">{{ data.my_overdue_count }}</span></a>
+        {% endif %}
+        <a href="?my=due_today" class="my-tab {% if data.my_filter == "due_today" %}active{% endif %}">今日まで <span class="count">{{ data.my_due_today_count }}</span></a>
+        <a href="?my=due_this_week" class="my-tab {% if data.my_filter == "due_this_week" %}active{% endif %}">今週中 <span class="count">{{ data.my_due_week_count }}</span></a>
+      </div>
+      {% for t in data.my_tickets %}
+      <div class="ticket-mini">
+        <div class="ticket-mini-header">
+          <span class="ticket-mini-key">{{ t.ticket_key }}</span>
+          <a href="/tickets/{{ t.ticket_key }}" class="ticket-mini-title">{{ t.title }}</a>
+          <span class="badge {% if t.priority == "高" %}badge-high{% elif t.priority == "中" %}badge-medium{% elif t.priority == "低" %}badge-low{% endif %}">{{ t.priority }}</span>
+          <span class="badge {% if t.status == "未対応" %}badge-open{% elif t.status == "処理中" %}badge-in-progress{% elif t.status == "処理済み" %}badge-resolved{% elif t.status == "完了" %}badge-closed{% endif %}">{{ t.status }}</span>
+        </div>
+        <div class="ticket-mini-meta">
+          {% if let Some(cat) = t.category_name %}
+          <span>{{ cat }}</span>
+          {% endif %}
+          {% if let Some(due) = t.due_date %}
+          <span>期限: {{ due }}</span>
+          {% endif %}
+          <span>更新: {{ t.updated_at|date }}</span>
+        </div>
+      </div>
+      {% endfor %}
+      {% if data.my_tickets.is_empty() %}
+      <div class="empty-premium">
+        <div class="empty-premium-icon">📭</div>
+        <div>該当するチケットはありません</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# 最近の更新 #}
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">
+        <span class="section-icon" style="background:#f0f9ff; color:#0284c7;">🕐</span>
+        最近の更新
+      </div>
+    </div>
+    <div class="card-body" style="max-height:500px;overflow-y:auto;">
+      {% for act in data.activities %}
+      <div style="display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-light);">
+        {% if act.activity_type == "status_change" %}
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#14b8a6,#0f766e);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;">{{ act.user_name.chars().next().unwrap_or('?') }}</div>
+        {% elif act.activity_type == "comment" %}
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#34d399,#059669);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;">{{ act.user_name.chars().next().unwrap_or('?') }}</div>
+        {% elif act.activity_type == "ticket_created" %}
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#fb923c,#ea580c);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;">{{ act.user_name.chars().next().unwrap_or('?') }}</div>
+        {% endif %}
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;">
+            <span style="font-weight:700;">{{ act.user_name }}</span>
+            {% if act.activity_type == "status_change" %}
+            <span style="color:var(--text-secondary);">がステータスを更新: {{ act.detail }}</span>
+            {% elif act.activity_type == "comment" %}
+            <span style="color:var(--text-secondary);">がコメント</span>
+            {% elif act.activity_type == "ticket_created" %}
+            <span style="color:var(--text-secondary);">が課題を追加</span>
+            {% endif %}
+          </div>
+          <a href="/tickets/{{ act.ticket_key }}" style="color:var(--primary);font-weight:600;font-size:13px;text-decoration:none;">{{ act.ticket_key }} {{ act.ticket_title }}</a>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">{{ act.timestamp|date }}</div>
+        </div>
+      </div>
+      {% endfor %}
+      {% if data.activities.is_empty() %}
+      <div class="empty-premium">
+        <div class="empty-premium-icon">📝</div>
+        <div>まだ更新がありません</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
