@@ -38,6 +38,14 @@ pub struct ErrorResponse {
 }
 
 /// GET /api/v1/wiki/
+#[utoipa::path(
+    get,
+    path = "/api/v1/wiki/",
+    tag = "wiki",
+    responses(
+        (status = 200, description = "Wikiページ一覧を返す")
+    )
+)]
 pub async fn list(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthUser>,
@@ -98,6 +106,18 @@ pub async fn list(
 }
 
 /// GET /api/v1/wiki/{id}/
+#[utoipa::path(
+    get,
+    path = "/api/v1/wiki/{id}/",
+    tag = "wiki",
+    params(
+        ("id" = i32, Path, description = "WikiページID")
+    ),
+    responses(
+        (status = 200, description = "Wikiページ詳細を返す"),
+        (status = 404, description = "ページが見つからない")
+    )
+)]
 pub async fn detail(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthUser>,

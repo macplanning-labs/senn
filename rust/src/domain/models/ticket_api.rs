@@ -145,6 +145,36 @@ pub struct CommentOut {
     pub author: UserSummaryOut,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AttachmentOut {
+    pub id: i32,
+    pub filename: String,
+    #[serde(rename = "fileSize")]
+    pub file_size: i32,
+    #[serde(rename = "sizeDisplay")]
+    pub size_display: String,
+    #[serde(rename = "isImage")]
+    pub is_image: bool,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
+    pub uploader: UserSummaryOut,
+    #[serde(rename = "fileUrl")]
+    pub file_url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TicketLinkOut {
+    pub id: i32,
+    pub url: String,
+    pub title: Option<String>,
+    #[serde(rename = "createdBy")]
+    pub created_by: UserSummaryOut,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -153,6 +183,8 @@ pub struct TicketDetailOut {
     pub base: TicketListOut,
     pub description: String,
     pub comments: Vec<CommentOut>,
+    pub attachments: Vec<AttachmentOut>,
+    pub links: Vec<TicketLinkOut>,
     #[serde(rename = "closedAt")]
     pub closed_at: Option<DateTime<Utc>>,
     #[serde(rename = "linkedRules")]

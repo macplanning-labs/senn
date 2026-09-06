@@ -30,7 +30,6 @@ pub fn default_story_point() -> StoryPointResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct SprintHealthAlert {
     pub task_id: Value,
     pub reason: String,
@@ -83,41 +82,190 @@ pub fn default_close_analysis() -> CloseAnalysisResult {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneratePromptTextResult {
+    pub prompt_text: String,
+    /// "hybrid" | "template_fallback"
+    #[serde(rename = "generationMode")]
+    pub generation_mode: String,
+}
+
+/// Ollama 呼び出し失敗時の詳細（API エラーレスポンス用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaCallError {
+    pub error: String,
+    pub error_code: String,
+    pub model: String,
+    pub elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+}
+
+fn format_elapsed_secs(elapsed_ms: u64) -> String {
+    format!("{:.1}", elapsed_ms as f64 / 1000.0)
+}
+
+fn ollama_error(
+    code: &'static str,
+    message: String,
+    model: &str,
+    elapsed_ms: u64,
+    timeout_secs: Option<u64>,
+) -> OllamaCallError {
+    OllamaCallError {
+        error: message,
+        error_code: code.to_string(),
+        model: model.to_string(),
+        elapsed_ms,
+        timeout_secs,
+    }
+}
+
 // =============================================================================
 // Ollama / OpenAI 呼び出し
 // =============================================================================
 
 async fn call_ollama(config: &AppConfig, prompt: &str) -> Option<String> {
+    match call_ollama_generate(config, prompt, true).await {
+        Ok(text) => Some(text),
+        Err(e) => {
+            tracing::warn!("Ollama call failed: {} ({})", e.error, e.error_code);
+            None
+        }
+    }
+}
+
+async fn call_ollama_text(config: &AppConfig, prompt: &str) -> Result<String, OllamaCallError> {
+    call_ollama_generate(config, prompt, false).await
+}
+
+async fn call_ollama_generate(
+    config: &AppConfig,
+    prompt: &str,
+    json_format: bool,
+) -> Result<String, OllamaCallError> {
+    let started = std::time::Instant::now();
+    let model = config.ollama_model.clone();
+    let timeout_secs = config.ollama_timeout_secs;
+    let elapsed_ms = || started.elapsed().as_millis() as u64;
+
+    let mut body = serde_json::json!({
+        "model": model,
+        "prompt": prompt,
+        "stream": false,
+    });
+    if json_format {
+        body["format"] = serde_json::Value::String("json".to_string());
+    }
+
     let client = reqwest::Client::new();
     let result = client
         .post(format!("{}/api/generate", config.ollama_url))
-        .timeout(std::time::Duration::from_secs(config.ollama_timeout_secs))
-        .json(&serde_json::json!({
-            "model": config.ollama_model,
-            "prompt": prompt,
-            "stream": false,
-            "format": "json",
-        }))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .json(&body)
         .send()
         .await;
 
     match result {
         Ok(resp) if resp.status().is_success() => {
             match resp.json::<Value>().await {
-                Ok(data) => data.get("response").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                Ok(data) => match data.get("response").and_then(|v| v.as_str()) {
+                    Some(text) if !text.trim().is_empty() => Ok(text.to_string()),
+                    _ => Err(ollama_error(
+                        "ollama_empty_response",
+                        format!(
+                            "Ollama の応答が空です（モデル: {}、{}秒）",
+                            model,
+                            format_elapsed_secs(elapsed_ms())
+                        ),
+                        &model,
+                        elapsed_ms(),
+                        Some(timeout_secs),
+                    )),
+                },
                 Err(e) => {
                     tracing::warn!("Ollama response parse failed: {:?}", e);
-                    None
+                    Err(ollama_error(
+                        "ollama_parse_failed",
+                        format!(
+                            "Ollama の応答を解釈できません（モデル: {}、{}秒）",
+                            model,
+                            format_elapsed_secs(elapsed_ms())
+                        ),
+                        &model,
+                        elapsed_ms(),
+                        Some(timeout_secs),
+                    ))
                 }
             }
         }
         Ok(resp) => {
-            tracing::warn!("Ollama call failed with status: {}", resp.status());
-            None
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_default();
+            let lowered = body_text.to_lowercase();
+            let code = if status.as_u16() == 404 || lowered.contains("not found") {
+                "ollama_model_not_found"
+            } else {
+                "ollama_http_error"
+            };
+            let message = if code == "ollama_model_not_found" {
+                format!(
+                    "モデル「{}」が見つかりません（{}秒）。`ollama pull {}` を実行してください。",
+                    model,
+                    format_elapsed_secs(elapsed_ms()),
+                    model
+                )
+            } else {
+                format!(
+                    "Ollama エラー HTTP {}（モデル: {}、{}秒）",
+                    status,
+                    model,
+                    format_elapsed_secs(elapsed_ms())
+                )
+            };
+            tracing::warn!("Ollama call failed with status: {} body: {}", status, &body_text[..body_text.len().min(200)]);
+            Err(ollama_error(code, message, &model, elapsed_ms(), Some(timeout_secs)))
         }
         Err(e) => {
-            tracing::warn!("Ollama call failed: {:?}", e);
-            None
+            if e.is_timeout() {
+                Err(ollama_error(
+                    "ollama_timeout",
+                    format!(
+                        "Ollama がタイムアウトしました（モデル: {}、{}秒経過、上限 {}秒）",
+                        model,
+                        format_elapsed_secs(elapsed_ms()),
+                        timeout_secs
+                    ),
+                    &model,
+                    elapsed_ms(),
+                    Some(timeout_secs),
+                ))
+            } else if e.is_connect() || e.is_request() {
+                Err(ollama_error(
+                    "ollama_connection_failed",
+                    format!(
+                        "Ollama に接続できません（モデル: {}、{}秒）。起動状態と OLLAMA_URL を確認してください。",
+                        model,
+                        format_elapsed_secs(elapsed_ms())
+                    ),
+                    &model,
+                    elapsed_ms(),
+                    Some(timeout_secs),
+                ))
+            } else {
+                tracing::warn!("Ollama call failed: {:?}", e);
+                Err(ollama_error(
+                    "ollama_unavailable",
+                    format!(
+                        "Ollama が利用できません（モデル: {}、{}秒）",
+                        model,
+                        format_elapsed_secs(elapsed_ms())
+                    ),
+                    &model,
+                    elapsed_ms(),
+                    Some(timeout_secs),
+                ))
+            }
         }
     }
 }
@@ -187,6 +335,17 @@ fn parse_json(raw: Option<String>) -> Option<Value> {
             None
         }
     }
+}
+
+/// AI応答から ``` ラッパーを除去する。
+fn clean_text_response(raw: &str) -> String {
+    raw.trim()
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("```"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
 }
 
 /// Ollama → OpenAI の順で呼び出し、最初に得られた応答文字列を返す。
@@ -480,6 +639,190 @@ pub struct OllamaStatus {
 #[derive(Debug, Serialize)]
 pub struct OpenAiStatus {
     pub configured: bool,
+}
+
+/// ハイブリッド方式: テンプレート組立関数
+/// situation_summary を差し込み、最終プロンプトを構築する
+fn build_dev_ai_prompt_template(
+    ticket_key: &str,
+    title: &str,
+    status: &str,
+    description: &str,
+    comments_text: &str,
+    situation_summary: &str,
+) -> String {
+    format!(
+        r#"あなたはシニアソフトウェアエンジニア兼テックリードです。
+以下のチケット情報と現状のコンテキストを確認し、指示に従ってタスクを実行してください。
+
+### 1. 対象チケット情報
+チケットキー: {ticket_key}
+タイトル: {title}
+ステータス: {status}
+内容・コンテキスト:
+{description}
+
+### 2. コメント履歴（重要な論点を把握すること）
+{comments_text}
+
+### 3. WIP側の状況サマリ（参考・ローカルAIによる短文分析）
+{situation_summary}
+
+### 4. ミッション
+上記の説明・コメント・状況サマリを読んだうえで作業してください。
+状況サマリの「推奨アクション」を最優先の指針にしてください。
+
+- **bug_fix**: 指摘された不具合の調査・修正・検証に集中する。説明に既存の設計書パスがある場合はそれを読み、**同内容の設計書一式を新規作成し直さない**（必要なら差分の短い修正計画とタスクリストのみ）。
+- **continue_impl**: 未完部分の実装を進める。必要なら実装計画・詳細設計・タスクリストを作成/更新する。
+- **verify_only**: 完了定義（DoD）に沿って検証し、結果を報告する。
+- **close_ready**: クローズ可能か客観的に判断し、理由を報告する。
+
+共通:
+- スコープ外は別チケット化を提案する。
+- `/docs` 配下の関連設計書があれば先に読む。
+
+### 5. 制約・ルール（ボーイスカウト精神）
+- 修正や新規実装を行う場合、開発ルール（CLAUDE.md / AGENTS.md 等）に準拠すること。
+- 新規DBクエリは必ずRepository層を経由させること。
+- スコープ外の項目は本チケットに含めず、別チケット化を提案すること。
+- **必ず `/docs` 配下の設計書（概要設計書・詳細設計書・方式設計書）を読んでから作業を開始すること。**
+- 開発標準を遵守すること。
+
+それでは、まずは状況の確認から開始してください。
+"#,
+        ticket_key = ticket_key,
+        title = title,
+        status = status,
+        description = description,
+        comments_text = comments_text,
+        situation_summary = situation_summary,
+    )
+}
+
+/// Ollama で短い状況サマリのみを生成（メタプロンプトは設計書 §3）
+async fn generate_situation_summary(
+    config: &AppConfig,
+    ticket_key: &str,
+    title: &str,
+    status: &str,
+    description: &str,
+    comments_text: &str,
+    team_rules_text: &str,
+) -> Result<String, OllamaCallError> {
+    let prompt = format!(
+        r#"あなたはチケット分析アシスタントです。
+以下のチケット情報を読み、開発AI向けプロンプトに差し込む【状況サマリ】だけを出力してください。
+前置き・挨拶・コードフェンス・「はい」等は禁止。指定フォーマットのMarkdownのみ。
+
+# チケット
+キー: {ticket_key}
+タイトル: {title}
+ステータス: {status}
+説明:
+{description}
+
+# コメント
+{comments_text}
+
+# チームルール（参考）
+{team_rules_text}
+
+# 推奨アクション判定ルール（上から優先。該当したらその種別を選ぶ）
+1. **bug_fix** — 実行時の不具合（500/401/403/NaN/panic/接続失敗/タイムアウト/「Unable To Extract Key!」等）が**主な残件**で、実装・ビルドは一通りある（または大部分完了）。「一部未実装」と書いてあっても、実行時エラーが主因なら bug_fix を選ぶ。
+2. **continue_impl** — 未着手、新規API・画面・PoC、未配線の追加実装、設計判断待ちで実装がこれから。
+3. **verify_only** — 実装は完了済みで、残りは手動/実機/DoD 検証・確認のみ。
+4. **close_ready** — 残作業なし、または本文が「完了」「実施済み」「マージ済み」「デプロイ済み」等でクローズ可能。ステータスが open/in_progress でも本文が完了なら close_ready とし、ステータス整合で矛盾を指摘する。
+
+# 判定の注意
+- 046型: 大規模実装済み + 実行時500 → bug_fix（continue_impl にしない）
+- 043型: 未配線・追加適用が主 → continue_impl
+- 088型: 本文完了 + open → close_ready + ステータス不整合
+
+# 必ずこの見出し付き箇条書きで出力（各1〜2行）
+- フェーズ: （実装中 / 検証待ち / 完了相当 / 調査中 など）
+- 残作業: （具体的な残件。なければ「なし（クローズ判定可）」）
+- 推奨アクション: （次のいずれか1つを選び、短い理由を付ける）
+  - bug_fix … 既存実装の不具合修正が主
+  - continue_impl … 未完の実装を続ける
+  - verify_only … 実装済みの検証・DoD確認が主
+  - close_ready … 残作業なしでクローズ判断が主
+- 既存ドキュメント: （説明・コメントに出てきた設計書・タスクリスト等のパス。なければ「記載なし」。再作成不要なら「既存を更新/参照」と明記）
+- コメント論点: （ブロッカー・合意・未決。なければ「特になし」）
+- ステータス整合: （ステータスと本文の矛盾があれば指摘。なければ「整合」）
+
+# 制約
+- 全体で日本語 500文字以内
+- 実装計画・詳細設計・タスクリストの本文は書かない
+- プロンプト全文や「あなたはシニア〜」は書かない
+- 事実にない情報を捏造しない（コメントが空なら論点は「特になし」）
+- 上記判定ルールに従い、実行時不具合が主残件なら continue_impl ではなく bug_fix を選ぶ
+- バグ修正が主なら推奨アクションは bug_fix とし、新規の設計書一式作成を推奨しない
+"#,
+        ticket_key = ticket_key,
+        title = title,
+        status = status,
+        description = description,
+        comments_text = comments_text,
+        team_rules_text = team_rules_text,
+    );
+
+    call_ollama_text(config, &prompt).await
+}
+
+/// フォールバック文言（Ollama失敗時）
+const SITUATION_SUMMARY_FALLBACK: &str = r#"- フェーズ: （自動判定不可）
+- 残作業: 説明とコメント全文を直接読み判断してください
+- 推奨アクション: continue_impl （ローカルAIサマリ取得失敗のため既定）
+- 既存ドキュメント: 説明文中のパスを確認
+- コメント論点: 特になし（自動判定不可）
+- ステータス整合: 説明とステータスを照合してください"#;
+
+pub async fn generate_dev_ai_prompt(
+    config: &AppConfig,
+    ticket_key: &str,
+    _project_prefix: &str,
+    title: &str,
+    status: &str,
+    description: &str,
+    comments_text: &str,
+    team_rules_text: &str,
+    _language: &str,
+) -> Result<GeneratePromptTextResult, OllamaCallError> {
+    let (summary, generation_mode) = match generate_situation_summary(
+        config,
+        ticket_key,
+        title,
+        status,
+        description,
+        comments_text,
+        team_rules_text,
+    )
+    .await
+    {
+        Ok(s) => {
+            let cleaned = clean_text_response(&s);
+            if cleaned.is_empty() {
+                (SITUATION_SUMMARY_FALLBACK.to_string(), "template_fallback")
+            } else {
+                (cleaned, "hybrid")
+            }
+        }
+        Err(_) => (SITUATION_SUMMARY_FALLBACK.to_string(), "template_fallback"),
+    };
+
+    let prompt_text = build_dev_ai_prompt_template(
+        ticket_key,
+        title,
+        status,
+        description,
+        comments_text,
+        &summary,
+    );
+
+    Ok(GeneratePromptTextResult {
+        prompt_text,
+        generation_mode: generation_mode.to_string(),
+    })
 }
 
 /// Ollamaの疎通チェック(GET /api/tags、3秒タイムアウト)。

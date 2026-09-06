@@ -27,8 +27,14 @@ pub struct ProjectOut {
     pub member_count: i64,
     #[serde(rename = "ownerTeam")]
     pub owner_team: Option<TeamSummaryOut>,
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<i32>,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
+    #[serde(rename = "cycleAutoComplete")]
+    pub cycle_auto_complete: bool,
+    #[serde(rename = "cycleAutoCreateNext")]
+    pub cycle_auto_create_next: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,6 +44,26 @@ pub struct ProjectWriteIn {
     #[serde(default)]
     pub description: String,
     pub owner_team: Option<i32>,
+}
+
+/// JSONキー有無と null クリアを区別する（ticket_api::TicketPatchIn と同型）。
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectPatchIn {
+    /// 外側: キー有無 / 内側: DB 値（null 可）。FE の「— None」は null クリア。
+    #[serde(default, deserialize_with = "deserialize_present")]
+    pub owner_team: Option<Option<i32>>,
+    #[serde(default, rename = "cycleAutoComplete")]
+    pub cycle_auto_complete: Option<bool>,
+    #[serde(default, rename = "cycleAutoCreateNext")]
+    pub cycle_auto_create_next: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------

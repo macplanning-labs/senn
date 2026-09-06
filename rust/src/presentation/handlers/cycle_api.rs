@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::cycle_repo;
-use crate::domain::models::cycle_api::CycleWriteIn;
+use crate::domain::models::cycle_api::{CycleWriteIn, CyclePatchIn};
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -43,7 +43,7 @@ pub async fn list(
     {
         Ok(cycles) => (StatusCode::OK, Json(cycles)).into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -71,7 +71,7 @@ pub async fn detail(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -102,7 +102,7 @@ pub async fn create(
                 )
                     .into_response(),
                 Err(e) => {
-                    tracing::error!("DB operation failed: {:?}", e);
+                    tracing::error!("[サイクル/作成検証] 処理=作成後検証 結果=失敗 影響=サイクル登録状態が確認できない | {}", e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -124,7 +124,7 @@ pub async fn create(
                 )
                     .into_response()
             } else {
-                tracing::error!("DB operation failed: {:?}", e);
+                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -157,7 +157,7 @@ pub async fn update(
                 )
                     .into_response(),
                 Err(e) => {
-                    tracing::error!("DB operation failed: {:?}", e);
+                    tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -186,7 +186,102 @@ pub async fn update(
                 )
                     .into_response()
             } else {
-                tracing::error!("DB operation failed: {:?}", e);
+                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+/// PATCH /api/v1/cycles/{id}/ — サイクル部分更新
+///
+/// WIP-000107: フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
+/// 従来 PUT のみでCycleWriteIn(全フィールド必須)を要求していたため405になっていた。
+/// 既存値を取得し、指定フィールドのみ上書きしてCycleWriteInを組み立てた上で、
+/// ステータス遷移時のactivated_at/completed_at設定を含む既存のupdate_cycleに委譲する
+/// (遷移ロジックの重複実装を避けるため)。
+pub async fn patch(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+    Json(input): Json<CyclePatchIn>,
+) -> impl IntoResponse {
+    let existing = match cycle_repo::find_cycle_by_id(&state.pool, id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "サイクルが見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let merged = CycleWriteIn {
+        project: input.project.unwrap_or(existing.project),
+        name: input.name.unwrap_or(existing.name),
+        start_date: input.start_date.unwrap_or(existing.start_date),
+        end_date: input.end_date.unwrap_or(existing.end_date),
+        status: input.status.unwrap_or(existing.status),
+    };
+
+    match cycle_repo::update_cycle(&state.pool, id, &merged).await {
+        Ok(true) => match cycle_repo::find_cycle_by_id(&state.pool, id).await {
+            Ok(Some(cycle)) => (StatusCode::OK, Json(cycle)).into_response(),
+            Ok(None) => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "サイクルが見つかりません".to_string(),
+                }),
+            )
+                .into_response(),
+            Err(e) => {
+                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        },
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "サイクルが見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            if e.to_string().contains("開始日は終了日より前") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: "開始日は終了日より前でなければなりません。".to_string(),
+                    }),
+                )
+                    .into_response()
+            } else {
+                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -215,7 +310,7 @@ pub async fn delete(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -252,7 +347,7 @@ pub async fn progress(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -287,7 +382,7 @@ pub async fn complete(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -321,7 +416,7 @@ pub async fn velocity(
     match cycle_repo::get_velocity_data(&state.pool, project_id, 6).await {
         Ok(data) => (StatusCode::OK, Json(data)).into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -349,7 +444,7 @@ pub async fn burndown(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {

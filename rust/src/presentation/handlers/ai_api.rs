@@ -45,8 +45,9 @@ pub async fn suggest_points(
         _ => return (StatusCode::BAD_REQUEST, Json(err("title は必須です"))).into_response(),
     };
 
+    let ai_config = state.ai_config().await;
     let result = ai_service::suggest_story_points(
-        &state.config, title, &body.description, &body.team_rules, DEFAULT_LANGUAGE,
+        &ai_config, title, &body.description, &body.team_rules, DEFAULT_LANGUAGE,
     )
     .await;
 
@@ -100,8 +101,9 @@ pub async fn sprint_health(
         (String::new(), String::new())
     };
 
+    let ai_config = state.ai_config().await;
     let result = ai_service::analyze_sprint_health(
-        &state.config, &project_prefix, &start_date, &end_date,
+        &ai_config, &project_prefix, &start_date, &end_date,
         &serde_json::Value::Array(tasks_json), DEFAULT_LANGUAGE,
     )
     .await;
@@ -111,7 +113,7 @@ pub async fn sprint_health(
 
 /// GET /api/v1/ai/status/
 pub async fn ai_status(State(state): State<AppState>, Extension(_auth): Extension<AuthUser>) -> impl IntoResponse {
-    let status = ai_service::check_ai_status(&state.config).await;
+    let status = ai_service::check_ai_status(&state.ai_config().await).await;
     (StatusCode::OK, Json(status)).into_response()
 }
 
@@ -148,8 +150,9 @@ pub async fn context_analysis(
         }
     };
 
+    let ai_config = state.ai_config().await;
     let result = ai_service::analyze_ticket_context(
-        &state.config, ticket.id, &ticket.title, &ticket.description, &ticket.status,
+        &ai_config, ticket.id, &ticket.title, &ticket.description, &ticket.status,
         ticket.story_points.map(|p| p as i32), &ticket.project_prefix, &rules_text, DEFAULT_LANGUAGE,
     )
     .await;
@@ -190,10 +193,76 @@ pub async fn close_analysis(
         }
     };
 
+    let ai_config = state.ai_config().await;
     let result = ai_service::analyze_ticket_close(
-        &state.config, &ticket.title, &ticket.description, &comments_text, DEFAULT_LANGUAGE,
+        &ai_config, &ticket.title, &ticket.description, &comments_text, DEFAULT_LANGUAGE,
     )
     .await;
 
     (StatusCode::OK, Json(result)).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct GeneratePromptTextIn {
+    pub ticket_id: Option<i32>,
+}
+
+/// POST /api/v1/ai/generate-prompt-text/
+pub async fn generate_prompt_text(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Json(body): Json<GeneratePromptTextIn>,
+) -> impl IntoResponse {
+    let ticket_id = match body.ticket_id {
+        Some(id) => id,
+        None => return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response(),
+    };
+
+    let ticket = match ai_repo::find_ticket_for_ai(&state.pool, ticket_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(err("Ticket not found"))).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
+
+    let comments_text = match ai_repo::build_comments_text(&state.pool, ticket_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
+
+    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.assigned_team_id).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
+
+    let ai_config = state.ai_config().await;
+    // ハイブリッド方式: Ollama 失敗時も Ok（テンプレート + フォールバック文言）を返す。
+    // エラーは実質ほぼ発生しない（チケット不存在・DB エラー時のみ）。
+    match ai_service::generate_dev_ai_prompt(
+        &ai_config,
+        &ticket.ticket_key,
+        &ticket.project_prefix,
+        &ticket.title,
+        &ticket.status,
+        &ticket.description,
+        &comments_text,
+        &rules_text,
+        DEFAULT_LANGUAGE,
+    )
+    .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(e) => {
+            tracing::error!("generate_dev_ai_prompt failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(e)).into_response()
+        }
+    }
 }

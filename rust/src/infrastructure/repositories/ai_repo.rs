@@ -5,9 +5,9 @@
 use sqlx::{PgPool, Row};
 use serde_json::{json, Value};
 
-#[allow(dead_code)]
 pub struct TicketForAi {
     pub id: i32,
+    pub ticket_key: String,
     pub title: String,
     pub description: String,
     pub status: String,
@@ -19,7 +19,7 @@ pub struct TicketForAi {
 
 pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Option<TicketForAi>> {
     let row = sqlx::query(
-        "SELECT t.id::int4, t.title, t.description, t.status, t.story_points,
+        "SELECT t.id::int4, t.ticket_key, t.title, t.description, t.status, t.story_points,
             t.project_id::int4, p.prefix, t.assigned_team_id::int4
          FROM tickets_ticket t
          LEFT JOIN tickets_project p ON t.project_id = p.id
@@ -31,6 +31,7 @@ pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result
 
     Ok(row.map(|r| TicketForAi {
         id: r.get("id"),
+        ticket_key: r.get("ticket_key"),
         title: r.get("title"),
         description: r.get("description"),
         status: r.get("status"),

@@ -26,7 +26,6 @@ pub const PROJECT_COOKIE: &str = "wip_current_project_id";
 
 /// 認証済みユーザーのセッションデータ
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct SessionUser {
     pub user_id: i32,
     pub username: String,
@@ -88,9 +87,13 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
         if let Ok(claims) = jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret) {
             if claims.token_type == jwt_service::TokenType::Refresh {
                 if let (Ok(user_id), Some(jti)) = (claims.user_id(), claims.jti.as_deref()) {
-                    let blacklisted = jwt_blacklist_repo::is_blacklisted(&state.pool, jti)
-                        .await
-                        .unwrap_or(false);
+                    let blacklisted = match jwt_blacklist_repo::is_blacklisted(&state.pool, jti).await {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!("[認証/JWT] 処理=ブラックリスト照会 結果=失敗 影響=安全側で再ログイン要求 | {}", e);
+                            return ResolveOutcome::Unauthenticated;
+                        }
+                    };
                     if !blacklisted {
                         if let Ok(new_access) = jwt_service::issue_access_token(user_id, &state.config.jwt_secret) {
                             if let Some(user) = build_session_user(state, user_id, jar).await {
@@ -120,7 +123,14 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
 /// user_id からDBの最新情報を引いてSessionUserを組み立てる（must_change_password等はここで常に最新値）。
 /// current_project_id はJWTではなく別Cookieから読み、DBで名前解決する。
 async fn build_session_user(state: &AppState, user_id: i32, jar: &CookieJar) -> Option<SessionUser> {
-    let user = user_repo::find_by_id(&state.pool, user_id).await.ok().flatten()?;
+    let user = match user_repo::find_by_id(&state.pool, user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::error!("[認証/セッション] 処理=ユーザー取得 結果=失敗 影響=ログイン状態を確認できない | {}", e);
+            return None;
+        }
+    };
     if !user.is_active {
         return None;
     }

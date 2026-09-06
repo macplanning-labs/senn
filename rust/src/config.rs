@@ -4,7 +4,6 @@
 /// .env ファイルまたは Docker の環境変数で設定する。
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct AppConfig {
     pub database_url: String,
     pub port: u16,
@@ -69,8 +68,13 @@ impl AppConfig {
             smtp_port: std::env::var("EMAIL_PORT")
                 .ok()
                 .and_then(|s| s.parse().ok()),
-            smtp_user: std::env::var("EMAIL_USER").ok(),
-            smtp_password: std::env::var("EMAIL_PASSWORD").ok(),
+            // Django互換: .env.nas は EMAIL_HOST_USER / EMAIL_HOST_PASSWORD を使う
+            smtp_user: std::env::var("EMAIL_USER")
+                .ok()
+                .or_else(|| std::env::var("EMAIL_HOST_USER").ok()),
+            smtp_password: std::env::var("EMAIL_PASSWORD")
+                .ok()
+                .or_else(|| std::env::var("EMAIL_HOST_PASSWORD").ok()),
             webauthn_rp_id: std::env::var("WEBAUTHN_RP_ID")
                 .unwrap_or_else(|_| "localhost".to_string()),
             webauthn_rp_origin: std::env::var("WEBAUTHN_RP_ORIGIN")
@@ -85,8 +89,8 @@ impl AppConfig {
             wip_ai_api_key: std::env::var("WIP_AI_API_KEY").ok().filter(|s| !s.is_empty()),
             wip_ai_api_user: std::env::var("WIP_AI_API_USER").unwrap_or_else(|_| "ai_agent".to_string()),
             ollama_url: std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            ollama_model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5:7b".to_string()),
-            ollama_timeout_secs: std::env::var("OLLAMA_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(30),
+            ollama_model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string()),
+            ollama_timeout_secs: std::env::var("OLLAMA_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(60),
             openai_api_key: std::env::var("OPENAI_API_KEY").ok().filter(|s| !s.is_empty()),
             openai_model: std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
             openai_timeout_secs: std::env::var("OPENAI_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(30),

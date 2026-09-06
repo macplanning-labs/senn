@@ -41,6 +41,16 @@ pub struct CycleWriteIn {
     pub status: String,
 }
 
+/// PATCH /api/v1/cycles/{id}/ 用の部分更新入力。指定したフィールドのみ上書きする。
+#[derive(Debug, Clone, Deserialize)]
+pub struct CyclePatchIn {
+    pub project: Option<i32>,
+    pub name: Option<String>,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
+    pub status: Option<String>,
+}
+
 fn default_cycle_status() -> String {
     "planned".to_string()
 }
@@ -105,4 +115,12 @@ pub struct BurndownPointOut {
     pub actual: i64,
     #[serde(rename = "totalScope")]
     pub total_scope: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AutoCompleteLogEntry {
+    pub cycle_id: i32,
+    pub project_id: i32,
+    pub carried_over: i64,
+    pub target_cycle_id: Option<i32>,
 }

@@ -840,3 +840,486 @@ pub async fn auto_activate_due_cycles(pool: &PgPool) -> anyhow::Result<Vec<(i32,
         .map(|row| (row.get(0), row.get(1), row.get(2)))
         .collect())
 }
+
+/// 持ち越し先解決の結果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CarryOverResolve {
+    /// 次 Cycle（既存 planned または新規作成）へ持ち越し
+    CarryTo(i32),
+    /// 持ち越しなしで完了してよい（create_next=false）
+    CompleteWithoutCarry,
+    /// 次 Cycle を作れず、自動完了自体をスキップする（actor 不在など）
+    AbortAutoComplete,
+}
+
+/// 持ち越し先 Cycle を解決する。
+/// 1. 同 project_id の status='planned' を先頭から探索 → CarryTo(id)
+/// 2. 無ければ:
+///    - cycle_auto_create_next = false → CompleteWithoutCarry
+///    - cycle_auto_create_next = true → 次 Cycle を自動作成して CarryTo(id)
+/// 3. created_by / owner / membership(staff 優先) が全て無ければ AbortAutoComplete
+pub async fn resolve_carry_over_target(
+    pool: &PgPool,
+    project_id: i32,
+    completed_cycle: &CycleOut,
+) -> anyhow::Result<CarryOverResolve> {
+    // 1. planned Cycle が存在するか確認
+    let planned_cycle: Option<i32> = sqlx::query_scalar(
+        "SELECT id::int4 FROM t_cycle
+         WHERE project_id = $1::int4 AND status = 'planned'
+         ORDER BY start_date ASC, id ASC
+         LIMIT 1"
+    )
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(id) = planned_cycle {
+        return Ok(CarryOverResolve::CarryTo(id));
+    }
+
+    // 2. cycle_auto_create_next を確認
+    let auto_create_next: bool = sqlx::query_scalar(
+        "SELECT cycle_auto_create_next FROM tickets_project WHERE id = $1::int4"
+    )
+    .bind(project_id)
+    .fetch_one(pool)
+    .await?;
+
+    if !auto_create_next {
+        return Ok(CarryOverResolve::CompleteWithoutCarry);
+    }
+
+    // 3. 次 Cycle を自動作成
+    // created_by_id を決定
+    let creator_id = if let Some(uid) = completed_cycle.created_by.as_ref().map(|u| u.id) {
+        Some(uid)
+    } else {
+        // owner_id を取得
+        let owner_id: Option<i32> = sqlx::query_scalar(
+            "SELECT owner_id::int4 FROM tickets_project WHERE id = $1::int4"
+        )
+        .bind(project_id)
+        .fetch_one(pool)
+        .await?;
+
+        if owner_id.is_some() {
+            owner_id
+        } else {
+            // membership: is_staff 優先、なければ最初のメンバー
+            let member_id: Option<i32> = sqlx::query_scalar(
+                "SELECT m.user_id::int4
+                 FROM tickets_project_membership m
+                 JOIN accounts_user u ON u.id = m.user_id
+                 WHERE m.project_id = $1::int4
+                 ORDER BY u.is_staff DESC, m.user_id ASC
+                 LIMIT 1"
+            )
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await?;
+
+            member_id
+        }
+    };
+
+    // creator_id が決まらない場合は自動完了ごとスキップ
+    let creator_id = match creator_id {
+        Some(uid) => uid,
+        None => {
+            tracing::error!(
+                "[Cycle 自動完了] project_id={} 結果=次Cycle作成失敗→自動完了スキップ 理由=created_by_idが決定不可（creator/owner/membershipが無い）",
+                project_id
+            );
+            return Ok(CarryOverResolve::AbortAutoComplete);
+        }
+    };
+
+    // 次 Cycle の期間を計算
+    let duration_days = (completed_cycle.end_date - completed_cycle.start_date).num_days();
+    let next_start = completed_cycle.end_date + chrono::Duration::days(1);
+    let duration = if duration_days > 0 {
+        duration_days
+    } else {
+        14
+    };
+    let next_end = next_start + chrono::Duration::days(duration);
+
+    // 次 Cycle 番号を取得
+    let next_number = get_next_cycle_number(pool, project_id).await?;
+    let next_name = format!("Cycle {}", next_number);
+
+    // 次 Cycle を作成
+    let new_cycle_id: i32 = sqlx::query_scalar(
+        "INSERT INTO t_cycle (project_id, name, number, status, start_date, end_date, created_by_id, created_at)
+         VALUES ($1::int4, $2, $3, 'planned', $4, $5, $6::int4, NOW())
+         RETURNING id::int4"
+    )
+    .bind(project_id)
+    .bind(&next_name)
+    .bind(next_number)
+    .bind(next_start)
+    .bind(next_end)
+    .bind(creator_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CarryOverResolve::CarryTo(new_cycle_id))
+}
+
+/// 期限超過の active Cycle を自動完了し、ログエントリを返す。
+pub async fn auto_complete_overdue_cycles(
+    pool: &PgPool,
+) -> anyhow::Result<Vec<crate::domain::models::cycle_api::AutoCompleteLogEntry>> {
+    use crate::domain::models::cycle_api::AutoCompleteLogEntry;
+
+    // 対象クエリ
+    let overdue_cycles = sqlx::query(
+        "SELECT c.id::int4, c.project_id::int4, c.name, c.start_date, c.end_date, c.created_by_id::int4
+         FROM t_cycle c
+         JOIN tickets_project p ON p.id = c.project_id
+         WHERE c.status = 'active'
+           AND c.end_date < CURRENT_DATE
+           AND p.cycle_auto_complete = true
+         ORDER BY c.end_date ASC, c.id ASC"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut result = Vec::new();
+
+    for row in overdue_cycles {
+        let cycle_id: i32 = row.get("id");
+        let project_id: i32 = row.get("project_id");
+        let name: String = row.get("name");
+        let start_date: chrono::NaiveDate = row.get("start_date");
+        let end_date: chrono::NaiveDate = row.get("end_date");
+        let created_by_id: Option<i32> = row.get("created_by_id");
+
+        // completed_cycle 用の CycleOut を構築（最小限）
+        let completed_cycle = CycleOut {
+            id: cycle_id,
+            project: project_id,
+            name: name.clone(),
+            number: 0, // 使用されない
+            status: "active".to_string(),
+            start_date,
+            end_date,
+            created_by: if let Some(uid) = created_by_id {
+                // ユーザー情報を取得
+                let user_row = sqlx::query(
+                    "SELECT id::int4, username, email,
+                            COALESCE(display_name, '') as display_name
+                     FROM accounts_user WHERE id = $1::int4"
+                )
+                .bind(uid)
+                .fetch_optional(pool)
+                .await?;
+
+                user_row.map(|u| crate::domain::models::ticket_api::UserSummaryOut {
+                    id: u.get("id"),
+                    username: u.get("username"),
+                    email: u.get("email"),
+                    display_name: u.get("display_name"),
+                })
+            } else {
+                None
+            },
+            created_at: chrono::Utc::now(),
+            ticket_count: 0,
+            completed_count: 0,
+            total_points: 0,
+            completed_points: 0,
+        };
+
+        // 持ち越し先を解決
+        let target_id = match resolve_carry_over_target(pool, project_id, &completed_cycle).await {
+            Ok(CarryOverResolve::CarryTo(id)) => Some(id),
+            Ok(CarryOverResolve::CompleteWithoutCarry) => None,
+            Ok(CarryOverResolve::AbortAutoComplete) => {
+                tracing::warn!(
+                    "cycle auto-complete aborted: id={} project_id={} 理由=次Cycle作成不可",
+                    cycle_id, project_id
+                );
+                continue;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "[Cycle 自動完了] cycle_id={} project_id={} 結果=失敗（持ち越し先解決） | {}",
+                    cycle_id, project_id, e
+                );
+                continue;
+            }
+        };
+
+        // Cycle を完了
+        match complete_cycle(pool, cycle_id, target_id).await {
+            Ok(CompleteCycleResult::Success(out)) => {
+                tracing::info!(
+                    "cycle auto-completed: id={} project_id={} carried_over={} target={:?} 処理=期限超過サイクル自動完了",
+                    cycle_id, project_id, out.carried_over, target_id
+                );
+
+                // 通知を作成
+                if let Err(e) = crate::domain::services::notification_service::notify_cycle_auto_completed(
+                    pool,
+                    project_id,
+                    cycle_id,
+                    &name,
+                    out.carried_over,
+                    target_id,
+                ).await {
+                    tracing::error!(
+                        "[Cycle自動完了通知] 作成失敗 cycle_id={} project_id={}: {}",
+                        cycle_id, project_id, e
+                    );
+                }
+
+                result.push(AutoCompleteLogEntry {
+                    cycle_id,
+                    project_id,
+                    carried_over: out.carried_over,
+                    target_cycle_id: target_id,
+                });
+            }
+            Ok(CompleteCycleResult::AlreadyCompleted) => {
+                // no-op
+                tracing::debug!(
+                    "cycle auto-complete skipped: id={} project_id={} 理由=already_completed",
+                    cycle_id, project_id
+                );
+            }
+            Ok(CompleteCycleResult::NotFound) => {
+                // no-op
+                tracing::debug!(
+                    "cycle auto-complete skipped: id={} project_id={} 理由=not_found",
+                    cycle_id, project_id
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "[Cycle 自動完了] cycle_id={} project_id={} 結果=失敗（完了処理） | {}",
+                    cycle_id, project_id, e
+                );
+                continue;
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+    use crate::test_support;
+
+    #[tokio::test]
+    async fn test_resolve_carry_over_target_with_planned() {
+        // T1: planned あり → 先頭 planned へ持ち越し
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cyc").await;
+        let project_id = test_support::create_test_project(&pool, "CYC", user_id).await;
+
+        let today = chrono::Local::now().naive_local().date();
+        let active_cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: project_id,
+                name: "Active Cycle".to_string(),
+                start_date: today - Duration::days(10),
+                end_date: today - Duration::days(1),
+                status: "active".to_string(),
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create active cycle");
+
+        let planned_cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: project_id,
+                name: "Planned Cycle".to_string(),
+                start_date: today,
+                end_date: today + Duration::days(14),
+                status: "planned".to_string(),
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create planned cycle");
+
+        let active_cycle = find_cycle_by_id(&pool, active_cycle_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Active cycle not found");
+
+        let target = resolve_carry_over_target(&pool, project_id, &active_cycle)
+            .await
+            .expect("resolve_carry_over_target failed");
+
+        assert_eq!(target, CarryOverResolve::CarryTo(planned_cycle_id));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_carry_over_target_create_next() {
+        // T2: planned なし・create_next=true → 新 Cycle 作成
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cyc2").await;
+        let project_id = test_support::create_test_project(&pool, "CY2", user_id).await;
+
+        sqlx::query("UPDATE tickets_project SET cycle_auto_create_next = true WHERE id = $1")
+            .bind(project_id)
+            .execute(&pool)
+            .await
+            .expect("Failed to set cycle_auto_create_next");
+
+        let today = chrono::Local::now().naive_local().date();
+        let active_cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: project_id,
+                name: "Active Cycle".to_string(),
+                start_date: today - Duration::days(10),
+                end_date: today - Duration::days(1),
+                status: "active".to_string(),
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create active cycle");
+
+        let active_cycle = find_cycle_by_id(&pool, active_cycle_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Active cycle not found");
+
+        let target = resolve_carry_over_target(&pool, project_id, &active_cycle)
+            .await
+            .expect("resolve_carry_over_target failed");
+
+        let CarryOverResolve::CarryTo(new_id) = target else {
+            panic!("expected CarryTo, got {:?}", target);
+        };
+
+        let new_cycle = find_cycle_by_id(&pool, new_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("New cycle not found");
+
+        assert_eq!(new_cycle.status, "planned");
+        assert!(new_cycle.start_date > active_cycle.end_date);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_carry_over_target_no_create() {
+        // T3: planned なし・create_next=false → CompleteWithoutCarry
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cyc3").await;
+        let project_id = test_support::create_test_project(&pool, "CY3", user_id).await;
+
+        sqlx::query("UPDATE tickets_project SET cycle_auto_create_next = false WHERE id = $1")
+            .bind(project_id)
+            .execute(&pool)
+            .await
+            .expect("Failed to set cycle_auto_create_next");
+
+        let today = chrono::Local::now().naive_local().date();
+        let active_cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: project_id,
+                name: "Active Cycle".to_string(),
+                start_date: today - Duration::days(10),
+                end_date: today - Duration::days(1),
+                status: "active".to_string(),
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create active cycle");
+
+        let active_cycle = find_cycle_by_id(&pool, active_cycle_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Active cycle not found");
+
+        let target = resolve_carry_over_target(&pool, project_id, &active_cycle)
+            .await
+            .expect("resolve_carry_over_target failed");
+
+        assert_eq!(target, CarryOverResolve::CompleteWithoutCarry);
+    }
+
+    #[tokio::test]
+    async fn test_auto_complete_overdue_cycles_disabled() {
+        // T4: auto_complete=false → 当該プロジェクトの期限超過は完了しない
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cyc4").await;
+        let project_id = test_support::create_test_project(&pool, "CY4", user_id).await;
+
+        sqlx::query("UPDATE tickets_project SET cycle_auto_complete = false WHERE id = $1")
+            .bind(project_id)
+            .execute(&pool)
+            .await
+            .expect("Failed to set cycle_auto_complete");
+
+        let today = chrono::Local::now().naive_local().date();
+        let overdue_cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: project_id,
+                name: "Overdue Cycle".to_string(),
+                start_date: today - Duration::days(10),
+                end_date: today - Duration::days(1),
+                status: "active".to_string(),
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create overdue cycle");
+
+        let logs = auto_complete_overdue_cycles(&pool)
+            .await
+            .expect("auto_complete_overdue_cycles failed");
+
+        assert!(!logs.iter().any(|e| e.cycle_id == overdue_cycle_id));
+
+        let cycle = find_cycle_by_id(&pool, overdue_cycle_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Cycle not found");
+        assert_eq!(cycle.status, "active");
+    }
+
+    #[tokio::test]
+    async fn test_auto_complete_overdue_cycles_already_completed() {
+        // T5: 既に completed → 当該 cycle はログに出ない
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cyc5").await;
+        let project_id = test_support::create_test_project(&pool, "CY5", user_id).await;
+
+        let today = chrono::Local::now().naive_local().date();
+        let cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: project_id,
+                name: "Completed Cycle".to_string(),
+                start_date: today - Duration::days(10),
+                end_date: today - Duration::days(1),
+                status: "completed".to_string(),
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create cycle");
+
+        let logs = auto_complete_overdue_cycles(&pool)
+            .await
+            .expect("auto_complete_overdue_cycles failed");
+
+        assert!(!logs.iter().any(|e| e.cycle_id == cycle_id));
+    }
+}

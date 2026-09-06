@@ -34,7 +34,6 @@ pub async fn is_blacklisted(pool: &PgPool, jti: &str) -> anyhow::Result<bool> {
 /// （`auth_api.rs`）が直接 `&PgPool` を渡す形で使い続けられるようそのまま残し、
 /// この構造体はauth-core側のトレイト境界（`&dyn TokenBlacklist`のように抽象化して
 /// 受け取りたい箇所）向けの薄いラッパーとして提供する。
-#[allow(dead_code)]
 pub struct PgJwtBlacklist(pub PgPool);
 
 #[async_trait::async_trait]

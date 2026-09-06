@@ -93,7 +93,6 @@ pub enum Priority {
     Low,
 }
 
-#[allow(dead_code)]
 impl Priority {
     pub fn label(&self) -> &str {
         match self {
@@ -136,7 +135,6 @@ impl std::fmt::Display for Priority {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub enum TicketType {
     Bug,
     Issue,
@@ -144,7 +142,6 @@ pub enum TicketType {
     Qa,
 }
 
-#[allow(dead_code)]
 impl TicketType {
     pub fn label(&self) -> &str {
         match self {
@@ -221,7 +218,6 @@ pub struct Ticket {
     pub parent_key: Option<String>,
 }
 
-#[allow(dead_code)]
 impl Ticket {
     /// ステータス enum を取得
     pub fn status_enum(&self) -> TicketStatus {

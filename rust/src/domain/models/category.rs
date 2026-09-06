@@ -19,7 +19,6 @@ pub struct Category {
     pub parent_name: Option<String>,
 }
 
-#[allow(dead_code)]
 impl Category {
     /// フェーズ（第1層）かどうか
     pub fn is_phase(&self) -> bool {

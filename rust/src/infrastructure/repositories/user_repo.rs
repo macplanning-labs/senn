@@ -59,6 +59,36 @@ pub async fn find_by_username(pool: &PgPool, username: &str) -> anyhow::Result<O
     Ok(row)
 }
 
+/// メールアドレスで有効ユーザーを検索する（大文字小文字を区別しない）。
+/// email は DB 上 UNIQUE ではないため、複数ヒットしうる。
+pub async fn find_active_by_email(pool: &PgPool, email: &str) -> anyhow::Result<Vec<User>> {
+    let sql = format!(
+        "SELECT {USER_COLUMNS} FROM accounts_user
+         WHERE is_active = true AND lower(email) = lower($1)
+         ORDER BY id"
+    );
+    let rows = sqlx::query_as::<_, User>(&sql)
+        .bind(email)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+/// 表示名で有効ユーザーを検索する（完全一致、トリム後）。
+pub async fn find_active_by_display_name(pool: &PgPool, display_name: &str) -> anyhow::Result<Vec<User>> {
+    let trimmed = display_name.trim();
+    let sql = format!(
+        "SELECT {USER_COLUMNS} FROM accounts_user
+         WHERE is_active = true AND display_name = $1
+         ORDER BY id"
+    );
+    let rows = sqlx::query_as::<_, User>(&sql)
+        .bind(trimmed)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 pub async fn update_password(pool: &PgPool, id: i32, password_hash: &str) -> anyhow::Result<()> {
     sqlx::query("UPDATE accounts_user SET password=$2, must_change_password=false WHERE id=$1")
         .bind(id).bind(password_hash).execute(pool).await?;
@@ -91,6 +121,21 @@ pub async fn update_profile(
         .bind(email)
         .bind(first_name)
         .bind(last_name)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
+/// ユーザーのログイン名を更新する(Django Admin代替、is_staffのみ呼び出し可能)。
+/// usernameのUNIQUE制約違反はsqlx::Errorとして呼び出し元に伝播する。
+pub async fn update_username(pool: &PgPool, id: i32, username: &str) -> anyhow::Result<User> {
+    let sql = format!(
+        "UPDATE accounts_user SET username=$2 WHERE id=$1
+         RETURNING {USER_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, User>(&sql)
+        .bind(id)
+        .bind(username)
         .fetch_one(pool)
         .await?;
     Ok(row)
@@ -168,7 +213,6 @@ pub async fn find_webauthn_credentials(pool: &PgPool, user_id: i32) -> anyhow::R
     Ok(rows)
 }
 
-#[allow(dead_code)]
 pub async fn save_webauthn_credential(
     pool: &PgPool, user_id: i32, credential_id: &[u8],
     public_key: &[u8], name: &str,
@@ -229,4 +273,82 @@ pub async fn update_webauthn_passkey_json(pool: &PgPool, credential_id: &[u8], p
     sqlx::query("UPDATE mfa_webauthn_credential SET passkey_json = $2 WHERE credential_id = $1")
         .bind(credential_id).bind(passkey_json).execute(pool).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{create_test_user, test_pool, unique_suffix};
+
+    #[tokio::test]
+    async fn find_active_by_display_name_returns_single_match() {
+        let Some(pool) = test_pool().await else {
+            eprintln!("skip: test DB unavailable");
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let display_name = format!("表示名-{suffix}");
+        let user_id = create_test_user(&pool, &format!("disp-{suffix}")).await;
+        sqlx::query("UPDATE accounts_user SET display_name = $2 WHERE id = $1")
+            .bind(user_id)
+            .bind(&display_name)
+            .execute(&pool)
+            .await
+            .expect("display_name update");
+
+        let users = find_active_by_display_name(&pool, &display_name)
+            .await
+            .expect("lookup");
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].id, user_id);
+    }
+
+    #[tokio::test]
+    async fn find_active_by_display_name_skips_duplicates() {
+        let Some(pool) = test_pool().await else {
+            eprintln!("skip: test DB unavailable");
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let display_name = format!("重複-{suffix}");
+        for i in 0..2 {
+            let user_id = create_test_user(&pool, &format!("dup-{i}-{suffix}")).await;
+            sqlx::query("UPDATE accounts_user SET display_name = $2 WHERE id = $1")
+                .bind(user_id)
+                .bind(&display_name)
+                .execute(&pool)
+                .await
+                .expect("display_name update");
+        }
+
+        let users = find_active_by_display_name(&pool, &display_name)
+            .await
+            .expect("lookup");
+        assert_eq!(users.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn update_username_changes_login_name() {
+        let Some(pool) = test_pool().await else {
+            eprintln!("skip: test DB unavailable");
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let user_id = create_test_user(&pool, &format!("rename-{suffix}")).await;
+        let new_username = format!("renamed-{suffix}");
+
+        let updated = update_username(&pool, user_id, &new_username)
+            .await
+            .expect("update username");
+        assert_eq!(updated.username, new_username);
+
+        let found = find_by_username(&pool, &new_username)
+            .await
+            .expect("find")
+            .expect("user");
+        assert_eq!(found.id, user_id);
+    }
 }

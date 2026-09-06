@@ -3,6 +3,8 @@ mod domain;
 mod infrastructure;
 mod presentation;
 mod routes;
+#[cfg(test)]
+mod test_support;
 
 use std::net::SocketAddr;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -50,11 +52,7 @@ async fn main() -> anyhow::Result<()> {
     let mail_sender = MailSender::new(&config);
 
     // 共有ステート構築
-    let state = AppState {
-        pool,
-        config,
-        mail_sender: Some(mail_sender),
-    };
+    let state = AppState::new(pool, config, Some(mail_sender)).await?;
 
     // ルーター構築
     let app = routes::create_router(state);
