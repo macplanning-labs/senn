@@ -4,13 +4,14 @@
 
 .layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background-color: var(--color-bg-primary);
 }
 
 .layout__main {
   flex: 1;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   transition: margin-left var(--transition-slow);
@@ -86,6 +87,8 @@
 /* ── コンテンツ ── */
 .layout__content {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* ── ページ共通の内部パディング ── */

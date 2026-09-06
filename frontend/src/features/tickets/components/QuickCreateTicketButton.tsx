@@ -73,7 +73,7 @@ export function QuickCreateTicketButton({
       <div style={{
         display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
         padding: '0.375rem 0.75rem', borderRadius: '6px',
-        background: 'rgba(45, 164, 78, 0.15)', color: 'var(--success, #2da44e)',
+        background: 'rgba(45, 164, 78, 0.15)', color: 'var(--color-success, #2da44e)',
         fontSize: '0.8125rem',
       }}>
         ✅ <a
@@ -98,9 +98,9 @@ export function QuickCreateTicketButton({
           placeholder="チケットタイトル..."
           style={{
             flex: 1, padding: '0.375rem 0.5rem',
-            borderRadius: '6px', border: '1px solid var(--border-subtle, #e0e0e0)',
+            borderRadius: '6px', border: '1px solid var(--color-border-default, #e0e0e0)',
             fontSize: '0.8125rem',
-            background: 'var(--surface-primary, #fff)',
+            background: 'var(--color-bg-primary, #fff)',
             color: 'var(--color-text-primary, #1a1a1a)',
           }}
           autoFocus
@@ -115,7 +115,7 @@ export function QuickCreateTicketButton({
           style={{
             padding: '0.375rem 0.625rem', borderRadius: '6px',
             border: 'none', fontSize: '0.8125rem', cursor: 'pointer',
-            background: 'var(--success, #2da44e)', color: '#fff',
+            background: 'var(--color-success, #2da44e)', color: '#fff',
             opacity: !title.trim() || mutation.isPending ? 0.5 : 1,
           }}
         >
@@ -126,7 +126,7 @@ export function QuickCreateTicketButton({
           style={{
             padding: '0.375rem 0.5rem', borderRadius: '6px',
             border: 'none', fontSize: '0.8125rem', cursor: 'pointer',
-            background: 'var(--surface-secondary, #f5f5f5)',
+            background: 'var(--color-bg-tertiary, #f5f5f5)',
             color: 'var(--color-text-primary)',
           }}
         >
@@ -144,8 +144,8 @@ export function QuickCreateTicketButton({
       }}
       style={{
         padding: '0.375rem 0.75rem', borderRadius: '6px',
-        border: '1px solid var(--border-subtle, #e0e0e0)',
-        background: 'var(--surface-secondary, #f5f5f5)',
+        border: '1px solid var(--color-border-default, #e0e0e0)',
+        background: 'var(--color-bg-tertiary, #f5f5f5)',
         color: 'var(--color-text-primary)',
         fontSize: '0.8125rem', cursor: 'pointer',
         transition: 'all 0.15s',

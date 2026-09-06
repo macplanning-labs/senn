@@ -37,12 +37,18 @@
   --color-accent-primary-hover: #7c8aff;
   --color-accent-primary-active: #4a58e0;
   --color-accent: var(--color-accent-primary);
+  /* 半透明のためライト/ダーク共通(下地の色に自然に馴染む) */
+  --color-accent-subtle: rgba(92, 108, 255, 0.12);
+  --color-accent-primary-alpha-10: rgba(92, 108, 255, 0.15);
+  --color-primary-bg: rgba(92, 108, 255, 0.08);
 
   /* ステータスカラー */
   --color-status-open: #a0a0a0;
   --color-status-in-progress: #f5a623;
   --color-status-resolved: #50e3c2;
   --color-status-closed: #5c6cff;
+  --color-status-backlog: #6b7280;
+  --color-status-canceled: #9ca3af;
 
   /* 優先度カラー */
   --color-priority-urgent: #ff4d4f;

@@ -43,7 +43,7 @@
 
 .dashboard__tab--active {
   color: var(--color-text-primary);
-  border-bottom-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-bottom-color: var(--color-accent-primary, hsl(220, 80%, 60%));
 }
 
 .dashboard__tab--add {
@@ -53,7 +53,7 @@
 }
 
 .dashboard__tab--add:hover {
-  color: var(--color-primary, hsl(220, 80%, 60%));
+  color: var(--color-accent-primary, hsl(220, 80%, 60%));
 }
 
 .dashboard__tab--new {
@@ -61,7 +61,7 @@
 }
 
 .dashboard__tab-input {
-  background: var(--color-bg-surface, hsl(225, 15%, 12%));
+  background: var(--color-bg-elevated, hsl(225, 15%, 12%));
   border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.12));
   border-radius: var(--radius-sm, 4px);
   color: var(--color-text-primary);
@@ -72,7 +72,7 @@
 }
 
 .dashboard__tab-input:focus {
-  border-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-color: var(--color-accent-primary, hsl(220, 80%, 60%));
 }
 
 .dashboard__tab-delete {
@@ -130,8 +130,8 @@
 }
 
 .dashboard__add-btn:hover {
-  border-color: var(--color-primary, hsl(220, 80%, 60%));
-  color: var(--color-primary, hsl(220, 80%, 60%));
+  border-color: var(--color-accent-primary, hsl(220, 80%, 60%));
+  color: var(--color-accent-primary, hsl(220, 80%, 60%));
   background: hsla(220, 80%, 60%, 0.06);
 }
 
@@ -171,7 +171,7 @@
 /* D&D ドラッグ中 */
 .widget-card--dragging {
   opacity: 0.5;
-  border-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-color: var(--color-accent-primary, hsl(220, 80%, 60%));
   box-shadow: 0 0 0 2px hsla(220, 80%, 60%, 0.3);
 }
 
@@ -265,9 +265,29 @@
 .stats-cards__item {
   text-align: center;
   padding: var(--space-3);
-  background: var(--color-bg-surface, hsl(225, 15%, 12%));
+  background: var(--color-bg-elevated, hsl(225, 15%, 12%));
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--color-border, hsla(0, 0%, 100%, 0.06));
+}
+
+.stats-cards__item--clickable {
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.stats-cards__item--clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-hover, hsla(0, 0%, 100%, 0.12));
+  background: var(--color-bg-hover, hsl(225, 15%, 15%));
+}
+
+.stats-cards__item--clickable:focus-visible {
+  outline: 2px solid var(--color-border-focus, var(--color-accent-primary));
+  outline-offset: 2px;
+}
+
+.stats-cards__item--zero {
+  opacity: 0.55;
 }
 
 .stats-cards__value {
@@ -319,6 +339,69 @@
   align-items: center;
   gap: var(--space-2);
   font-size: 0.85rem;
+  position: relative;
+}
+
+.ticket-overview__legend-item--clickable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-1);
+  margin: -2px calc(var(--space-1) * -1);
+  transition: background 0.12s ease;
+}
+
+.ticket-overview__legend-item--clickable:hover {
+  background: var(--color-bg-hover, hsl(225, 15%, 15%));
+}
+
+.ticket-overview__tooltip {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: var(--space-1);
+  z-index: 20;
+  width: max-content;
+  max-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+}
+
+.ticket-overview__legend-item:hover .ticket-overview__tooltip {
+  display: block;
+}
+
+.ticket-overview__tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  padding: 2px 0;
+}
+
+.ticket-overview__tooltip-row span:first-child {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.ticket-overview__tooltip-row span:last-child {
+  flex-shrink: 0;
+}
+
+.ticket-overview__tooltip-row--clickable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  transition: background 0.12s ease;
+}
+
+.ticket-overview__tooltip-row--clickable:hover {
+  background: var(--color-bg-hover, hsl(225, 15%, 15%));
 }
 
 .ticket-overview__legend-dot {
@@ -387,7 +470,7 @@ a.widget-list__item:hover {
 }
 
 .widget-list__link:hover {
-  color: var(--color-accent-hover, #79b8ff);
+  color: var(--color-accent-primary-hover, #79b8ff);
   text-decoration: underline;
 }
 
@@ -451,7 +534,7 @@ a.widget-list__item:hover {
   height: 20px;
   padding: 0 6px;
   border-radius: 10px;
-  background: var(--color-primary, hsl(220, 80%, 60%));
+  background: var(--color-accent-primary, hsl(220, 80%, 60%));
   color: white;
   font-size: 0.7rem;
   font-weight: 700;
@@ -525,7 +608,7 @@ a.widget-list__item:hover {
 
 .add-widget-modal__item:hover {
   background: hsla(220, 80%, 60%, 0.06);
-  border-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-color: var(--color-accent-primary, hsl(220, 80%, 60%));
   color: var(--color-text-primary);
 }
 
@@ -579,7 +662,7 @@ a.widget-list__item:hover {
   width: 32px;
   height: 32px;
   border: 3px solid var(--color-border, hsla(0, 0%, 100%, 0.1));
-  border-top-color: var(--color-primary, hsl(220, 80%, 60%));
+  border-top-color: var(--color-accent-primary, hsl(220, 80%, 60%));
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }

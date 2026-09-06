@@ -6,6 +6,14 @@
   max-width: 1200px;
 }
 
+/* ── 固定ヘッダー（ヘッダー行 + フィルタバー） ── */
+.ticket-table__sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky, 10);
+  background-color: var(--color-bg-primary);
+}
+
 /* ── ヘッダー ── */
 .ticket-table__header {
   display: flex;
@@ -54,8 +62,8 @@
 }
 
 .ticket-table__export-btn:hover {
-  border-color: var(--color-accent-emphasis);
-  color: var(--color-accent-emphasis);
+  border-color: var(--color-accent-primary);
+  color: var(--color-accent-primary);
   background: var(--color-accent-subtle);
   transform: translateY(-1px);
 }
@@ -75,8 +83,8 @@
 }
 
 .ticket-table__import-btn:hover {
-  border-color: var(--color-accent-emphasis);
-  color: var(--color-accent-emphasis);
+  border-color: var(--color-accent-primary);
+  color: var(--color-accent-primary);
   background: var(--color-accent-subtle);
   transform: translateY(-1px);
 }
@@ -496,4 +504,34 @@
 
 .ticket-table__bulk-clear:hover {
   color: var(--color-text-primary);
+}
+
+.ticket-table__bulk-select-all {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ticket-table__bulk-delete {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: white;
+  background: var(--color-error);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.ticket-table__bulk-delete:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.ticket-table__bulk-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

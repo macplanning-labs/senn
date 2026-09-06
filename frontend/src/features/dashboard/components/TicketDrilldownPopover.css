@@ -1,0 +1,51 @@
+.drilldown-popover {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: 340px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.drilldown-popover__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-elevated);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.drilldown-popover__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.drilldown-popover__count {
+  font-size: 0.72rem;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.drilldown-popover__body {
+  padding: 0 var(--space-4);
+}
+
+.drilldown-popover__group-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+  padding: var(--space-3) 0 var(--space-1);
+}
+
+.drilldown-popover__row {
+  padding: var(--space-2) 0;
+}

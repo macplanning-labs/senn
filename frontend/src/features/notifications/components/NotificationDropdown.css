@@ -39,18 +39,19 @@
   line-height: 1;
 }
 
-/* ── ドロップダウン ── */
+/* ── ドロップダウン ──
+   document.body へportalし、position: fixedでベルボタン基準の座標(top/right)を
+   インラインstyleで与える。ヘッダーのスタッキングコンテキストに閉じ込められて
+   Z-orderが壊れるのを防ぐ(WIP-000068のドリルダウンポップオーバーと同じ対策)。 */
 .notif__dropdown {
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
+  position: fixed;
   width: 360px;
   max-height: 500px;
   background-color: var(--color-bg-elevated);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
-  z-index: var(--z-dropdown);
+  z-index: var(--z-popover);
   overflow: hidden;
   animation: slideInFromBottom 150ms ease-out;
 }

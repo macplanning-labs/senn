@@ -27,8 +27,8 @@ export function AIAnalysisPanel({ ticketId }: Props) {
       marginTop: '1rem',
       padding: '1rem',
       borderRadius: '8px',
-      background: 'var(--surface-secondary, #f5f5f5)',
-      border: '1px solid var(--border-subtle, #e0e0e0)',
+      background: 'var(--color-bg-tertiary, #1a1a1a)',
+      border: '1px solid var(--color-border-default, #2a2a2a)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
@@ -42,7 +42,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
             padding: '0.375rem 0.75rem',
             borderRadius: '6px',
             border: 'none',
-            background: 'var(--accent-primary, #5b5bd6)',
+            background: 'var(--color-accent-primary, #5c6cff)',
             color: '#fff',
             fontSize: '0.8125rem',
             cursor: mutation.isPending ? 'wait' : 'pointer',
@@ -54,7 +54,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
       </div>
 
       {mutation.isError && (
-        <p style={{ color: 'var(--error, #e54d4d)', marginTop: '0.5rem', fontSize: '0.8125rem' }}>
+        <p style={{ color: 'var(--color-error, #ff4d4f)', marginTop: '0.5rem', fontSize: '0.8125rem' }}>
           AI分析に失敗しました。再試行してください。
         </p>
       )}
@@ -64,7 +64,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
           {/* ルール違反 */}
           {result.rule_violations.length > 0 && (
             <div style={{ marginBottom: '0.75rem' }}>
-              <h5 style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--warning, #e5a100)' }}>
+              <h5 style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--color-warning, #f5a623)' }}>
                 ⚠️ ルール違反 ({result.rule_violations.length}件)
               </h5>
               {result.rule_violations.map((v, i) => (
@@ -74,9 +74,9 @@ export function AIAnalysisPanel({ ticketId }: Props) {
                     padding: '0.5rem',
                     marginBottom: '0.25rem',
                     borderRadius: '4px',
-                    background: 'var(--surface-warning, #fef3cd)',
+                    background: 'rgba(245, 166, 35, 0.15)',
                     fontSize: '0.8125rem',
-                    color: '#1a1a1a',
+                    color: 'var(--color-text-primary)',
                   }}
                 >
                   <strong>{v.rule_title}</strong>
@@ -87,7 +87,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
           )}
 
           {result.rule_violations.length === 0 && (
-            <p style={{ fontSize: '0.8125rem', color: 'var(--success, #2da44e)', marginBottom: '0.5rem' }}>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-success, #50e3c2)', marginBottom: '0.5rem' }}>
               ✅ ルール違反はありません
             </p>
           )}
@@ -96,9 +96,9 @@ export function AIAnalysisPanel({ ticketId }: Props) {
           <div style={{
             padding: '0.5rem',
             borderRadius: '4px',
-            background: 'var(--surface-info, #d9ecff)',
+            background: 'rgba(92, 108, 255, 0.12)',
             fontSize: '0.8125rem',
-            color: '#1a1a1a',
+            color: 'var(--color-text-primary)',
           }}>
             <strong>💡 実装アドバイス</strong>
             <p style={{ margin: '0.25rem 0 0', whiteSpace: 'pre-wrap' }}>

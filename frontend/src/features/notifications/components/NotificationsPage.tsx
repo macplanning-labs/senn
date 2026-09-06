@@ -7,9 +7,10 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
+import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import './NotificationsPage.css';
 
@@ -22,6 +23,7 @@ interface Notification {
   wikiTitle: string | null;
   isRead: boolean;
   createdAt: string;
+  projectKey?: string | null;
 }
 
 type FilterType = 'all' | 'unread' | 'read';
@@ -34,17 +36,24 @@ const CATEGORY_ICONS: Record<string, string> = {
   overdue: '🔥',
   mentioned: '📢',
   wiki_updated: '📄',
+  cycle_auto_completed: '📅',
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  assigned: 'Assigned',
-  commented: 'Comment',
-  status_changed: 'Status',
-  due_soon: 'Due Soon',
-  overdue: 'Overdue',
-  mentioned: 'Mention',
-  wiki_updated: 'Wiki',
-};
+function categoryLabel(category: string, t: (key: string, options?: { defaultValue?: string }) => string): string {
+  if (category === 'cycle_auto_completed') {
+    return t('notifications.cycleAutoCompleted', { defaultValue: 'Cycle auto-completed' });
+  }
+  const labels: Record<string, string> = {
+    assigned: 'Assigned',
+    commented: 'Comment',
+    status_changed: 'Status',
+    due_soon: 'Due Soon',
+    overdue: 'Overdue',
+    mentioned: 'Mention',
+    wiki_updated: 'Wiki',
+  };
+  return labels[category] ?? category;
+}
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -67,6 +76,8 @@ function formatDate(dateStr: string): string {
 
 export function NotificationsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { projectKey: routeProjectKey } = useProject();
   const [filter, setFilter] = useState<FilterType>('all');
 
   // 通知一覧
@@ -126,6 +137,22 @@ export function NotificationsPage() {
     successMessage: t('notifications.markedAllRead', { defaultValue: 'All notifications marked as read' }),
   });
 
+  // 通知クリック時のナビゲーション
+  function handleNotificationClick(notification: Notification) {
+    if (!notification.isRead) {
+      readMutation.mutate(notification.id);
+    }
+
+    if (notification.ticketKey) {
+      navigate(`/tickets`);
+    } else if (notification.category === 'cycle_auto_completed') {
+      const projectKey = notification.projectKey ?? routeProjectKey;
+      if (projectKey) {
+        navigate(`/p/${projectKey}/cycles`);
+      }
+    }
+  }
+
   return (
     <div className="notifications-page" data-testid="notifications-page">
       {/* ヘッダー */}
@@ -176,7 +203,7 @@ export function NotificationsPage() {
             <div
               key={n.id}
               className={`notifications-page__item ${!n.isRead ? 'notifications-page__item--unread' : ''}`}
-              onClick={() => { if (!n.isRead) readMutation.mutate(n.id); }}
+              onClick={() => handleNotificationClick(n)}
               data-testid={`notif-${n.id}`}
             >
               <div className="notifications-page__item-icon">
@@ -185,7 +212,7 @@ export function NotificationsPage() {
               <div className="notifications-page__item-content">
                 <div className="notifications-page__item-header">
                   <span className="notifications-page__item-category">
-                    {CATEGORY_LABELS[n.category] ?? n.category}
+                    {categoryLabel(n.category, t)}
                   </span>
                   <span className="notifications-page__item-time">
                     {formatDate(n.createdAt)}
@@ -196,13 +223,9 @@ export function NotificationsPage() {
                   <span className="notifications-page__item-message">{n.message}</span>
                 )}
                 {n.ticketKey && (
-                  <Link
-                    to={`/tickets`}
-                    className="notifications-page__item-link"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <span className="notifications-page__item-link">
                     {n.ticketKey}
-                  </Link>
+                  </span>
                 )}
               </div>
               {!n.isRead && <span className="notifications-page__unread-dot" />}

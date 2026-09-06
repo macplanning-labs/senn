@@ -168,10 +168,15 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
     <div>
       {/* ヘッダー */}
       <div className="settings-section__header">
-        <h2 className="settings-section__title">
-          Milestones
-          <span className="settings-section__count">({milestones.length})</span>
-        </h2>
+        <div>
+          <h2 className="settings-section__title">
+            Milestones
+            <span className="settings-section__count">({milestones.length})</span>
+          </h2>
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+            {t('settings.milestonesHelp')}
+          </div>
+        </div>
         <button
           className="settings-section__add-btn"
           onClick={openCreateModal}

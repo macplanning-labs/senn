@@ -5,13 +5,19 @@
  * TicketDetail.tsx のコンパクト版。ページ遷移なしで詳細を表示。
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
+import {
+  TICKET_DASHBOARD_INVALIDATE_KEYS,
+} from '@/shared/utils/ticketQueryInvalidation';
+import { useAuthStore } from '@/shared/stores/authStore';
+import { usePromptGenerationStore } from '@/shared/stores/promptGenerationStore';
 import { TimeTracker } from './TimeTracker';
 import { GitActivity } from './GitActivity';
 import ChangeLogTimeline from './ChangeLogTimeline';
@@ -43,6 +49,7 @@ interface TicketData {
   childCount: number;
   comments: CommentData[];
   attachments: AttachmentData[];
+  links: ReferenceLinkData[];
   linkedWikiPages?: { id: number; title: string; slug: string; category: string }[];
   labels: { id: number; name: string; color: string }[];
 }
@@ -53,11 +60,18 @@ interface LabelOption {
   color: string;
 }
 
+interface UserOption {
+  id: number;
+  username: string;
+  displayName: string;
+}
+
 interface CommentData {
   id: number;
   body: string;
   author: { id: number; username: string; displayName: string };
   createdAt: string;
+  updatedAt: string | null;
 }
 
 interface AttachmentData {
@@ -69,6 +83,14 @@ interface AttachmentData {
   createdAt: string;
   uploader: { id: number; username: string; displayName: string };
   fileUrl: string;
+}
+
+interface ReferenceLinkData {
+  id: number;
+  url: string;
+  title: string | null;
+  createdBy: { id: number; displayName: string };
+  createdAt: string;
 }
 
 const STATUS_OPTIONS = [
@@ -123,8 +145,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const [aiSuggestion, setAiSuggestion] = useState<{ suggested_points: number; confidence_score: number; reason: string } | null>(null);
   const [showCloseAnalysis, setShowCloseAnalysis] = useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [linkAdding, setLinkAdding] = useState(false);
+  const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [newLinkTitle, setNewLinkTitle] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
+  const currentUser = useAuthStore((s) => s.user);
+  const { openAndGenerate, phase } = usePromptGenerationStore();
 
   const ticketQueryKey = ['ticket', ticketId];
 
@@ -137,6 +167,14 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     },
     enabled: !!ticketId,
   });
+
+  // 一覧を経由しないステータス変更(他タブ・他セッション・APIの直接更新等)を
+  // 一覧側の表示に反映させるため、詳細取得時に一覧キャッシュを無効化する
+  useEffect(() => {
+    if (ticket) {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    }
+  }, [ticket?.id, ticket?.status, queryClient]);
 
   // プロジェクトで使えるラベル一覧(ピッカー表示用)
   const { data: labelOptionsData } = useQuery<{ results: LabelOption[] }>({
@@ -151,6 +189,28 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   });
   const labelOptions = labelOptionsData?.results ?? [];
 
+  // プロジェクトで使えるユーザー一覧(ピッカー表示用)
+  const { data: userOptionsData } = useQuery<{ results?: UserOption[] } & UserOption[]>({
+    queryKey: ['users', ticket?.project],
+    queryFn: async () => {
+      const res = await apiClient.get<{ results?: UserOption[] } & UserOption[]>('/users/', {
+        params: { project: ticket?.project },
+      });
+      return res.data;
+    },
+    enabled: !!ticket?.project && assigneePickerOpen,
+  });
+  const userOptions: UserOption[] = (userOptionsData as any)?.results ?? (Array.isArray(userOptionsData) ? userOptionsData : []);
+
+  // AI 設定取得（タイムアウトとモデル）
+  const { data: aiSettings } = useQuery<{ ollamaTimeoutSecs: number; ollamaModel: string }>({
+    queryKey: ['settings-ai'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ ollamaTimeoutSecs: number; ollamaModel: string }>('/settings/ai/');
+      return res.data;
+    },
+  });
+
   // 楽観的ステータス変更 — ドロップダウン変更の瞬間にパネルが即更新（0ms）
   const statusMutation = useOptimisticMutation<void, string>({
     mutationFn: async (status) => {
@@ -162,7 +222,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       if (!data) return currentData;
       return { ...data, status };
     },
-    invalidateKeys: [['tickets']],
+    invalidateKeys: TICKET_DASHBOARD_INVALIDATE_KEYS,
     errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
   });
 
@@ -215,7 +275,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       if (!data) return currentData;
       return { ...data, dueDate };
     },
-    invalidateKeys: [['tickets']],
+    invalidateKeys: TICKET_DASHBOARD_INVALIDATE_KEYS,
     errorMessage: '期限の変更に失敗しました。',
   });
 
@@ -234,11 +294,33 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: 'ラベルの変更に失敗しました。',
   });
 
+  // 楽観的担当者変更(全置換)
+  const assigneesMutation = useOptimisticMutation<void, UserOption[]>({
+    mutationFn: async (assignees) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { assignees: assignees.map((a) => a.id) });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, assignees) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, assignees };
+    },
+    invalidateKeys: [['tickets']],
+    errorMessage: '担当者の変更に失敗しました。',
+  });
+
   const toggleLabel = (label: LabelOption) => {
     const current = ticket?.labels ?? [];
     const exists = current.some((l) => l.id === label.id);
     const next = exists ? current.filter((l) => l.id !== label.id) : [...current, label];
     labelsMutation.mutate(next);
+  };
+
+  const toggleAssignee = (user: UserOption) => {
+    const current = ticket?.assignees ?? [];
+    const exists = current.some((a) => a.id === user.id);
+    const next = exists ? current.filter((a) => a.id !== user.id) : [...current, user];
+    assigneesMutation.mutate(next);
   };
 
   // 楽観的コメント追加 — 投稿ボタン押下で即スレッドに表示
@@ -260,6 +342,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             body,
             author: { id: 0, username: 'you', displayName: 'You' },
             createdAt: new Date().toISOString(),
+            updatedAt: null,
           },
         ],
       };
@@ -270,6 +353,45 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: 'コメントの追加に失敗しました。',
   });
 
+  // 経過メモ編集(投稿者本人のみ)
+  const editCommentMutation = useOptimisticMutation<void, { commentId: number; body: string }>({
+    mutationFn: async ({ commentId, body }) => {
+      await apiClient.patch(`/tickets/${ticketId}/comments/${commentId}/`, { body });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, { commentId, body }) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return {
+        ...data,
+        comments: data.comments.map((c) =>
+          c.id === commentId ? { ...c, body, updatedAt: new Date().toISOString() } : c
+        ),
+      };
+    },
+    onSuccessCallback: () => {
+      setEditingCommentId(null);
+      setEditingCommentText('');
+    },
+    errorMessage: '経過メモの編集に失敗しました。',
+  });
+
+  const startEditingComment = (comment: CommentData) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(comment.body);
+  };
+
+  const cancelEditingComment = () => {
+    setEditingCommentId(null);
+    setEditingCommentText('');
+  };
+
+  const saveEditingComment = (commentId: number) => {
+    const trimmed = editingCommentText.trim();
+    if (!trimmed) return;
+    editCommentMutation.mutate({ commentId, body: trimmed });
+  };
+
   // 添付ファイル実際のアップロードとキャッシュ更新
   const uploadAttachmentFile = async (file: File) => {
     const formData = new FormData();
@@ -277,18 +399,15 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
     setAttachmentUploading(true);
     try {
-      const res = await apiClient.post<AttachmentData>(`/tickets/${ticketId}/attachments/`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await apiClient.post<AttachmentData>(`/tickets/${ticketId}/attachments/`, formData);
       // キャッシュを更新（attachmentsが undefined の場合に備える）
-      const currentTicket = ticket;
-      if (currentTicket) {
-        const updatedTicket = {
-          ...currentTicket,
-          attachments: [...(currentTicket.attachments ?? []), res.data],
+      queryClient.setQueryData<TicketData | undefined>(ticketQueryKey, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          attachments: [...(old.attachments ?? []), res.data],
         };
-        queryClient.setQueryData(ticketQueryKey, updatedTicket);
-      }
+      });
     } catch (error) {
       console.error('ファイルアップロード失敗:', error);
       alert('ファイルのアップロードに失敗しました。');
@@ -302,9 +421,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     const files = e.currentTarget.files;
     if (!files || files.length === 0) return;
 
-    const file = files[0];
-    if (!file) return;
-    await uploadAttachmentFile(file);
+    for (const file of Array.from(files)) {
+      await uploadAttachmentFile(file);
+    }
     e.currentTarget.value = ''; // フォームをリセット
   };
 
@@ -312,16 +431,20 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const handleCommentPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
+    const imageFiles: File[] = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item && item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (file) {
-          e.preventDefault();
-          await uploadAttachmentFile(file);
+          imageFiles.push(file);
         }
-        break;
       }
+    }
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    for (const file of imageFiles) {
+      await uploadAttachmentFile(file);
     }
   };
 
@@ -345,6 +468,64 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     }
   };
 
+  // プロンプト生成 — モーダルを開く
+  const handleGeneratePrompt = () => {
+    if (!ticket) return;
+    const timeoutSecs = aiSettings?.ollamaTimeoutSecs ?? 60;
+    const model = aiSettings?.ollamaModel ?? 'unknown';
+    openAndGenerate(
+      { id: ticket.id, ticketKey: ticket.ticketKey, title: ticket.title },
+      timeoutSecs,
+      model
+    );
+  };
+
+  // 参照リンク追加
+  const handleAddLink = async (url: string, title: string) => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) return;
+    setLinkAdding(true);
+    try {
+      const res = await apiClient.post<ReferenceLinkData>(`/tickets/${ticketId}/links/`, {
+        url: trimmedUrl,
+        title: title.trim() || undefined,
+      });
+      queryClient.setQueryData<TicketData | undefined>(ticketQueryKey, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          links: [...(old.links ?? []), res.data],
+        };
+      });
+      setNewLinkUrl('');
+      setNewLinkTitle('');
+    } catch (error) {
+      console.error('参照リンクの追加に失敗:', error);
+      alert('参照リンクの追加に失敗しました。');
+    } finally {
+      setLinkAdding(false);
+    }
+  };
+
+  // 参照リンク削除
+  const handleDeleteLink = async (linkId: number) => {
+    if (!window.confirm('この参照リンクを削除しますか？')) return;
+
+    try {
+      await apiClient.delete(`/tickets/${ticket?.id}/links/${linkId}/`);
+      if (ticket) {
+        const updatedTicket = {
+          ...ticket,
+          links: ticket.links.filter((l) => l.id !== linkId),
+        };
+        queryClient.setQueryData(ticketQueryKey, updatedTicket);
+      }
+    } catch (error) {
+      console.error('参照リンク削除失敗:', error);
+      alert('参照リンクの削除に失敗しました。');
+    }
+  };
+
   // チケット削除(子チケットも再帰的に削除される)
   const deleteTicketMutation = useMutation({
     mutationFn: async () => {
@@ -353,9 +534,6 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tickets'] });
       onClose();
-      if (projectKey) {
-        navigate(`/p/${projectKey}/tickets`);
-      }
     },
     onError: (error) => {
       console.error('チケット削除失敗:', error);
@@ -406,6 +584,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             data-testid="copy-link-btn"
           >
             {linkCopied ? '✅' : '🔗'}
+          </button>
+          <button
+            className="detail-panel__edit-btn detail-panel__prompt-btn"
+            onClick={handleGeneratePrompt}
+            disabled={phase === 'generating'}
+            aria-label={t('ai.generatePrompt')}
+            title={t('ai.generatePrompt')}
+            data-testid="generate-prompt-btn"
+          >
+            📋
           </button>
           <button
             className="detail-panel__edit-btn"
@@ -477,23 +665,80 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         {/* 担当者 */}
         <div className="detail-panel__field">
           <span className="detail-panel__field-label">Assignees</span>
-          <span className="detail-panel__field-value">
-            {ticket.assignees?.length > 0 ? (
-              <span className="detail-panel__assignee">
-                {ticket.assignees.map((a) => (
-                  <span key={a.id} className="detail-panel__avatar" title={a.displayName || a.username}>
-                    {(a.displayName || a.username)[0]?.toUpperCase()}
+          <div style={{ position: 'relative' }}>
+            <div
+              className="detail-panel__field-value"
+              style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center', cursor: 'pointer', minHeight: '22px' }}
+              onClick={() => setAssigneePickerOpen((v) => !v)}
+              data-testid="assignee-picker-toggle"
+            >
+              {ticket.assignees?.length > 0 ? (
+                <span className="detail-panel__assignee">
+                  {ticket.assignees.map((a) => (
+                    <span key={a.id} className="detail-panel__avatar" title={a.displayName || a.username}>
+                      {(a.displayName || a.username)[0]?.toUpperCase()}
+                    </span>
+                  ))}
+                  <span>
+                    {ticket.assignees.map((a) => a.displayName || a.username).join(', ')}
                   </span>
-                ))}
-                <span>
-                  {ticket.assignees.map((a) => a.displayName || a.username).join(', ')}
                 </span>
-              </span>
-            ) : (
-              <span className="detail-panel__unassigned">Unassigned</span>
+              ) : (
+                <span className="detail-panel__unassigned">Unassigned</span>
+              )}
+            </div>
+            {assigneePickerOpen && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+                  onClick={() => setAssigneePickerOpen(false)}
+                />
+                <div
+                  style={{
+                    position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 11,
+                    background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-sm)', padding: '6px', minWidth: '200px',
+                    maxHeight: '240px', overflowY: 'auto', boxShadow: 'var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.3))',
+                  }}
+                  data-testid="assignee-picker-menu"
+                >
+                  {userOptions.length === 0 ? (
+                    <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.6, padding: '4px' }}>
+                      メンバーがいません
+                    </div>
+                  ) : (
+                    userOptions.map((opt) => {
+                      const checked = ticket.assignees?.some((a) => a.id === opt.id) ?? false;
+                      return (
+                        <label
+                          key={opt.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', cursor: 'pointer', fontSize: 'var(--font-size-sm)' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAssignee(opt)}
+                          />
+                          <span>{opt.displayName || opt.username}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </>
             )}
-          </span>
+          </div>
         </div>
+
+        {/* 起票者 */}
+        {ticket.author && (
+          <div className="detail-panel__field">
+            <span className="detail-panel__field-label">Author</span>
+            <span className="detail-panel__field-value">
+              {ticket.author.displayName || ticket.author.username}
+            </span>
+          </div>
+        )}
 
         {/* 期限 */}
         <div className="detail-panel__field">
@@ -675,7 +920,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         <div className="detail-panel__description">
           <h3 className="detail-panel__section-title">Description</h3>
           <div className="detail-panel__description-text">
-            {ticket.description}
+            <ReactMarkdown>{ticket.description}</ReactMarkdown>
           </div>
         </div>
       )}
@@ -686,22 +931,72 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           経過メモ ({ticket.comments?.length ?? 0})
         </h3>
 
-        {ticket.comments?.map((comment) => (
-          <div key={comment.id} className="detail-panel__comment">
-            <div className="detail-panel__comment-header">
-              <span className="detail-panel__comment-avatar">
-                {(comment.author.displayName || comment.author.username)[0]?.toUpperCase()}
-              </span>
-              <span className="detail-panel__comment-author">
-                {comment.author.displayName || comment.author.username}
-              </span>
-              <span className="detail-panel__comment-time">
-                {timeAgo(comment.createdAt)}
-              </span>
+        {ticket.comments?.map((comment) => {
+          const isOwnComment = !!currentUser && currentUser.id === comment.author.id;
+          const isEditing = editingCommentId === comment.id;
+          return (
+            <div key={comment.id} className="detail-panel__comment">
+              <div className="detail-panel__comment-header">
+                <span className="detail-panel__comment-avatar">
+                  {(comment.author.displayName || comment.author.username)[0]?.toUpperCase()}
+                </span>
+                <span className="detail-panel__comment-author">
+                  {comment.author.displayName || comment.author.username}
+                </span>
+                <span className="detail-panel__comment-time">
+                  {timeAgo(comment.createdAt)}
+                  {comment.updatedAt && ' (編集済み)'}
+                </span>
+                {isOwnComment && !isEditing && (
+                  <button
+                    type="button"
+                    className="detail-panel__comment-edit-btn"
+                    onClick={() => startEditingComment(comment)}
+                    aria-label="経過メモを編集"
+                    title="編集"
+                  >
+                    ✏️
+                  </button>
+                )}
+              </div>
+              {isEditing ? (
+                <div className="detail-panel__comment-edit-form">
+                  <textarea
+                    className="detail-panel__comment-input"
+                    value={editingCommentText}
+                    onChange={(e) => setEditingCommentText(e.target.value)}
+                    rows={6}
+                    autoFocus
+                    data-testid="comment-edit-input"
+                  />
+                  <div className="detail-panel__comment-edit-actions">
+                    <button
+                      type="button"
+                      className="detail-panel__comment-cancel"
+                      onClick={cancelEditingComment}
+                      disabled={editCommentMutation.isPending}
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      type="button"
+                      className="detail-panel__comment-submit"
+                      onClick={() => saveEditingComment(comment.id)}
+                      disabled={!editingCommentText.trim() || editCommentMutation.isPending}
+                      data-testid="comment-edit-save"
+                    >
+                      {editCommentMutation.isPending ? '...' : '保存'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="detail-panel__comment-body">
+                  <ReactMarkdown>{comment.body}</ReactMarkdown>
+                </div>
+              )}
             </div>
-            <div className="detail-panel__comment-body">{comment.body}</div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* コメント入力 */}
         <div className="detail-panel__comment-form">
@@ -753,7 +1048,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                     href={att.fileUrl}
                     download={att.filename}
                     style={{
-                      color: 'var(--color-link)',
+                      color: 'var(--color-text-link)',
                       textDecoration: 'none',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -809,12 +1104,126 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             {attachmentUploading ? '📤 Uploading...' : '📤 Click to upload file'}
             <input
               type="file"
+              multiple
               onChange={handleAttachmentUpload}
               disabled={attachmentUploading}
               style={{ display: 'none' }}
               data-testid="attachment-input"
             />
           </label>
+        </div>
+      </div>
+
+      {/* 参照リンク */}
+      <div style={{ marginTop: '1.5rem' }}>
+        <h3 className="detail-panel__section-title">
+          🔗 Reference Links ({ticket.links?.length ?? 0})
+        </h3>
+
+        {ticket.links && ticket.links.length > 0 && (
+          <div style={{ marginBottom: '1rem' }}>
+            {ticket.links.map((link) => (
+              <div
+                key={link.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '0.5rem 0.75rem',
+                  background: 'var(--color-bg-secondary, #f5f5f5)',
+                  borderRadius: '4px',
+                  marginBottom: '0.5rem',
+                  fontSize: '0.8125rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                  <span>🔗</span>
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: 'var(--color-text-link)',
+                      textDecoration: 'none',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={link.url}
+                  >
+                    {link.title || link.url}
+                  </a>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.5rem' }}>
+                  <span style={{ opacity: 0.5, fontSize: '0.75rem' }}>
+                    {timeAgo(link.createdAt)}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteLink(link.id)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px 4px',
+                      color: '#ef4444',
+                      fontSize: '0.75rem',
+                    }}
+                    title="Delete link"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* リンク追加フォーム */}
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <input
+            type="text"
+            placeholder="URL"
+            value={newLinkUrl}
+            onChange={(e) => setNewLinkUrl(e.target.value)}
+            disabled={linkAdding}
+            style={{
+              flex: 2,
+              padding: '0.5rem',
+              border: '1px solid var(--color-border-default, #ccc)',
+              borderRadius: '4px',
+              fontSize: '0.8125rem',
+            }}
+          />
+          <input
+            type="text"
+            placeholder="タイトル(任意)"
+            value={newLinkTitle}
+            onChange={(e) => setNewLinkTitle(e.target.value)}
+            disabled={linkAdding}
+            style={{
+              flex: 1,
+              padding: '0.5rem',
+              border: '1px solid var(--color-border-default, #ccc)',
+              borderRadius: '4px',
+              fontSize: '0.8125rem',
+            }}
+          />
+          <button
+            onClick={() => void handleAddLink(newLinkUrl, newLinkTitle)}
+            disabled={linkAdding || !newLinkUrl.trim()}
+            style={{
+              padding: '0.5rem 0.75rem',
+              border: '1px dashed var(--color-border-default, #ccc)',
+              borderRadius: '4px',
+              cursor: linkAdding || !newLinkUrl.trim() ? 'not-allowed' : 'pointer',
+              background: 'var(--color-bg-tertiary, #fafafa)',
+              opacity: linkAdding || !newLinkUrl.trim() ? 0.6 : 1,
+              fontSize: '0.8125rem',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {linkAdding ? '追加中...' : '追加'}
+          </button>
         </div>
       </div>
 
@@ -837,10 +1246,10 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             {ticket.linkedWikiPages.map((wp: { id: number; title: string; slug: string; category: string }) => (
               <a
                 key={wp.id}
-                href={`/wiki?page=${wp.id}`}
+                href={`/wiki?page=${wp.slug}`}
                 style={{
                   padding: '0.375rem 0.5rem', borderRadius: '4px',
-                  background: 'var(--surface-secondary, #f5f5f5)',
+                  background: 'var(--color-bg-tertiary)',
                   color: 'var(--color-text-primary)',
                   fontSize: '0.8125rem', textDecoration: 'none',
                   display: 'block',

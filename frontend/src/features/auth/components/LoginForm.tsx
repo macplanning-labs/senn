@@ -7,7 +7,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { useAuthStore } from '@/shared/stores/authStore';
@@ -22,6 +22,8 @@ const loginSchema = z.object({
 export function LoginForm() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const resetSuccess = (location.state as { resetSuccess?: boolean } | null)?.resetSuccess;
   const login = useAuthStore((s) => s.login);
   const verifyMfa = useAuthStore((s) => s.verifyMfa);
   const loginWithPasskey = useAuthStore((s) => s.loginWithPasskey);
@@ -170,6 +172,11 @@ export function LoginForm() {
 
         {/* フォーム */}
         <form className="login__form" onSubmit={(e) => { void handleSubmit(e); }} data-testid="login-form">
+          {resetSuccess && (
+            <div className="login__success" role="status">
+              {t('auth.resetSuccess')}
+            </div>
+          )}
           {error && (
             <div className="login__error" data-testid="login-error" role="alert">
               {error}

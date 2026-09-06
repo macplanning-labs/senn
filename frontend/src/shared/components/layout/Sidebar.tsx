@@ -7,12 +7,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useProject, useProjectSwitch, getLastProjectKey } from '@/shared/hooks/useProject';
 import { apiClient } from '@/shared/api/client';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { SavedView } from '@/shared/api/types';
 import './Sidebar.css';
 
 // アイコンはSVGインラインで実装（外部依存なし）
@@ -136,6 +137,23 @@ export function Sidebar() {
   const { projectKey: routeProjectKey, currentProject, projectList, isLoading: projectsLoading } = useProject();
   const { switchProject } = useProjectSwitch();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  // Saved Views データ取得
+  const savedViewsQueryKey = ['saved-views', currentProject?.id];
+  const { data: savedViews = [] } = useQuery<SavedView[]>({
+    queryKey: savedViewsQueryKey,
+    queryFn: async () => {
+      if (!currentProject?.id) return [];
+      const res = await apiClient.get<SavedView[]>(
+        `/projects/${currentProject.id}/saved-views/`
+      );
+      return res.data;
+    },
+    enabled: !!currentProject?.id,
+  });
 
   // projectKey: useParams → URL解析 → localStorage のフォールバック
   const resolvedProjectKey = routeProjectKey
@@ -143,6 +161,33 @@ export function Sidebar() {
       const match = window.location.pathname.match(/^\/p\/([^/]+)/);
       return match?.[1] ?? getLastProjectKey() ?? null;
     })();
+
+  // Saved View クリック時の処理
+  const handleSavedViewClick = (view: SavedView) => {
+    if (!resolvedProjectKey) return;
+    const filters = view.filters ?? { search: '', status: '', priority: '', due: '', status_in: '' };
+    const params = new URLSearchParams();
+    if (filters.search) params.set('search', filters.search);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.priority) params.set('priority', filters.priority);
+    if (filters.due) params.set('due', filters.due);
+    if (filters.status_in) params.set('status_in', filters.status_in);
+    const qs = params.toString();
+    navigate(`/p/${resolvedProjectKey}/tickets${qs ? `?${qs}` : ''}`);
+  };
+
+  // Saved View がアクティブかどうかを判定（tickets 上のみ・空は未指定として一致）
+  const isViewActive = (view: SavedView): boolean => {
+    if (!location.pathname.includes('/tickets')) return false;
+    const filters = view.filters ?? { search: '', status: '', priority: '', due: '', status_in: '' };
+    const filterKeys = ['search', 'status', 'priority', 'due', 'status_in'] as const;
+    for (const key of filterKeys) {
+      const urlValue = searchParams.get(key) || '';
+      const filterValue = filters[key] || '';
+      if (urlValue !== filterValue) return false;
+    }
+    return true;
+  };
 
   // プロジェクト表示用：URL由来の currentProject を優先、なければ resolvedProjectKey で projectList から探す
   const displayProject = currentProject
@@ -239,29 +284,31 @@ export function Sidebar() {
 
         {projectDropdownOpen && (
           <div className="sidebar__project-dropdown" data-testid="project-dropdown">
-            {projectList.map((p) => (
-              <button
-                key={p.id}
-                className={`sidebar__project-option ${p.prefix.toLowerCase() === resolvedProjectKey?.toLowerCase() ? 'sidebar__project-option--active' : ''}`}
-                onClick={() => {
-                  switchProject(p.prefix);
-                  setProjectDropdownOpen(false);
-                }}
-              >
-                <span className="sidebar__project-option-icon">
-                  {p.prefix[0]?.toUpperCase() ?? '?'}
-                </span>
-                <div className="sidebar__project-option-info">
-                  <span className="sidebar__project-option-name">{p.name}</span>
-                  <span className="sidebar__project-option-prefix">{p.prefix}</span>
-                </div>
-              </button>
-            ))}
-            {projectList.length === 0 && !projectsLoading && (
-              <div className="sidebar__project-empty">{t('sidebar.noProjects')}</div>
-            )}
+            <div className="sidebar__project-list">
+              {projectList.map((p) => (
+                <button
+                  key={p.id}
+                  className={`sidebar__project-option ${p.prefix.toLowerCase() === resolvedProjectKey?.toLowerCase() ? 'sidebar__project-option--active' : ''}`}
+                  onClick={() => {
+                    switchProject(p.prefix);
+                    setProjectDropdownOpen(false);
+                  }}
+                >
+                  <span className="sidebar__project-option-icon">
+                    {p.prefix[0]?.toUpperCase() ?? '?'}
+                  </span>
+                  <div className="sidebar__project-option-info">
+                    <span className="sidebar__project-option-name">{p.name}</span>
+                    <span className="sidebar__project-option-prefix">{p.prefix}</span>
+                  </div>
+                </button>
+              ))}
+              {projectList.length === 0 && !projectsLoading && (
+                <div className="sidebar__project-empty">{t('sidebar.noProjects')}</div>
+              )}
+            </div>
 
-            {/* 新規プロジェクト作成 */}
+            {/* 新規プロジェクト作成（常に表示・スクロール対象外） */}
             <div className="sidebar__project-create">
               {showCreateForm ? (
                 <form
@@ -354,6 +401,38 @@ export function Sidebar() {
                 {sidebarOpen && <span className="sidebar__label">{label}</span>}
               </NavLink>
             ))}
+          </>
+        )}
+
+        {/* Saved Views セクション */}
+        {projectNavItems.length > 0 && sidebarOpen && (
+          <>
+            <div className="sidebar__divider" />
+            <div className="sidebar__nav-label">{t('sidebar.savedViews')}</div>
+            {savedViews.length > 0 ? (
+              <div className="sidebar__saved-views">
+                {savedViews.map((view) => (
+                  <button
+                    key={view.id}
+                    className={`sidebar__saved-view-item ${isViewActive(view) ? 'sidebar__saved-view-item--active' : ''}`}
+                    onClick={() => handleSavedViewClick(view)}
+                    title={view.name}
+                  >
+                    <span className="sidebar__saved-view-name">{view.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="sidebar__saved-view-empty">
+                <div>{t('sidebar.savedViewsEmpty')}</div>
+                <NavLink
+                  to={`/p/${resolvedProjectKey}/tickets`}
+                  className="sidebar__saved-view-open-link"
+                >
+                  {t('sidebar.savedViewsOpenTickets')}
+                </NavLink>
+              </div>
+            )}
           </>
         )}
 

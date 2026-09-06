@@ -6,7 +6,7 @@
   position: relative;
   height: calc(100vh - 200px);
   min-height: 480px;
-  border: 1px solid var(--color-border-primary, #e5e7eb);
+  border: 1px solid var(--color-border-default, #e5e7eb);
   border-radius: var(--radius-md, 8px);
   overflow: hidden;
 }
@@ -14,6 +14,74 @@
 .task-dependency-flow__loading {
   padding: var(--space-6) 0;
   color: var(--color-text-secondary, #6b7280);
+}
+
+/* ── React Flow コントロール / ミニマップ / attribution ──
+   @xyflow/react のデフォルト配色はライトテーマ固定(.dark クラス付与が必要)なため、
+   このアプリのダークモード(既定テーマ)でボタン・アイコン・ミニマップが
+   同系色に沈んで視認できなくなる。アプリのCSS変数で明示的に上書きする。 */
+.task-dependency-flow .react-flow__controls-button {
+  background: var(--color-bg-elevated, #1f1f1f);
+  border-bottom-color: var(--color-border-default, #2a2a2a);
+  color: var(--color-text-primary, #f0f0f0);
+}
+
+.task-dependency-flow .react-flow__controls-button:hover {
+  background: var(--color-bg-hover, #252525);
+}
+
+.task-dependency-flow .react-flow__controls-button path {
+  fill: currentColor;
+}
+
+.task-dependency-flow .react-flow__minimap {
+  background-color: var(--color-bg-elevated, #1f1f1f);
+}
+
+.task-dependency-flow .react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.5);
+}
+
+.task-dependency-flow .react-flow__minimap-node {
+  fill: var(--color-bg-hover, #252525);
+}
+
+.task-dependency-flow .react-flow__attribution {
+  background: var(--color-bg-elevated, #1f1f1f);
+}
+
+.task-dependency-flow .react-flow__attribution a {
+  color: var(--color-text-secondary, #a0a0a0);
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__controls-button {
+  background: #fefefe;
+  border-bottom-color: #eee;
+  color: #222;
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__controls-button:hover {
+  background: #f4f4f4;
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__minimap {
+  background-color: #fff;
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__minimap-mask {
+  fill: rgba(240, 240, 240, 0.6);
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__minimap-node {
+  fill: #e2e2e2;
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__attribution {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme='light'] .task-dependency-flow .react-flow__attribution a {
+  color: #999;
 }
 
 /* ── フィルターツールバー ── */
@@ -27,7 +95,7 @@
   gap: var(--space-4, 16px);
   padding: var(--space-2, 8px) var(--space-3, 12px);
   background: var(--color-bg-secondary, #fff);
-  border: 1px solid var(--color-border-primary, #e5e7eb);
+  border: 1px solid var(--color-border-default, #e5e7eb);
   border-radius: var(--radius-md, 8px);
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
   font-size: var(--font-size-sm, 13px);
@@ -43,7 +111,7 @@
 
 .task-dependency-flow__type-select {
   padding: 2px var(--space-2, 8px);
-  border: 1px solid var(--color-border-primary, #e5e7eb);
+  border: 1px solid var(--color-border-default, #e5e7eb);
   border-radius: var(--radius-sm, 4px);
   background: var(--color-bg-primary, #fff);
   color: inherit;
@@ -56,7 +124,7 @@
   width: 260px;
   padding: var(--space-3, 12px);
   background: var(--color-bg-secondary, #fff);
-  border: 1px solid var(--color-border-primary, #e5e7eb);
+  border: 1px solid var(--color-border-default, #e5e7eb);
   border-radius: var(--radius-md, 8px);
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
   font-size: var(--font-size-sm, 13px);
@@ -105,13 +173,24 @@
   font-weight: var(--font-weight-medium, 500);
 }
 
+/* ── 完了タスク(resolved/closed)の視覚的区別 ──
+   TaskNode.tsx の DONE_STATUSES と対応。不透明度を下げ、タイトルに取り消し線を入れることで
+   グラフ上で完了済みタスクを一目で判別できるようにする。 */
+.task-node--done {
+  opacity: 0.55;
+}
+
+.task-node--done .task-node__title {
+  text-decoration: line-through;
+}
+
 /* ── 接続ハンドル ──
    見た目の丸は小さいまま、当たり判定(::after)だけ大きく取って
    離れた位置からでもドラッグ開始・カーソル変化が起きるようにする。 */
 .task-node .react-flow__handle {
   width: 8px;
   height: 8px;
-  background: var(--color-border-primary, #9ca3af);
+  background: var(--color-border-default, #9ca3af);
   border: 2px solid var(--color-bg-secondary, #fff);
   transition: background 120ms ease, transform 120ms ease;
 }
@@ -124,6 +203,6 @@
 }
 
 .task-node .react-flow__handle:hover {
-  background: var(--color-primary, #6366f1);
+  background: var(--color-accent-primary, #6366f1);
   transform: scale(1.6);
 }

@@ -70,7 +70,9 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
   };
 
   const dialogStyle: React.CSSProperties = {
-    background: 'var(--surface-primary, #fff)',
+    background: 'var(--color-bg-elevated, #1f1f1f)',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border-default, #2a2a2a)',
     borderRadius: '12px', padding: '1.5rem',
     maxWidth: '560px', width: '90vw',
     maxHeight: '80vh', overflowY: 'auto',
@@ -97,7 +99,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
         )}
 
         {mutation.isError && (
-          <p style={{ color: 'var(--error, #e54d4d)', fontSize: '0.875rem' }}>
+          <p style={{ color: 'var(--color-error, #e54d4d)', fontSize: '0.875rem' }}>
             AI分析に失敗しました。ダイアログを閉じて再試行してください。
           </p>
         )}
@@ -117,8 +119,8 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
             {result.wiki_draft && (
               <div style={{
                 padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem',
-                background: 'var(--surface-info, #d9ecff)',
-                border: '1px solid var(--border-info, #a8d4ff)',
+                background: 'rgba(92, 108, 255, 0.12)',
+                border: '1px solid rgba(92, 108, 255, 0.4)',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
@@ -133,7 +135,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
                     style={{
                       padding: '0.375rem 0.625rem', borderRadius: '6px',
                       border: 'none', fontSize: '0.75rem', cursor: 'pointer',
-                      background: createdItems.has('wiki') ? '#ccc' : 'var(--accent-primary, #5b5bd6)',
+                      background: createdItems.has('wiki') ? '#666' : 'var(--color-accent-primary, #5c6cff)',
                       color: '#fff',
                     }}
                   >
@@ -158,8 +160,8 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
                     key={i}
                     style={{
                       padding: '0.625rem', borderRadius: '6px', marginBottom: '0.5rem',
-                      background: 'var(--surface-secondary, #f5f5f5)',
-                      border: '1px solid var(--border-subtle, #e0e0e0)',
+                      background: 'var(--color-bg-tertiary, #1a1a1a)',
+                      border: '1px solid var(--color-border-default, #2a2a2a)',
                       display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
                       gap: '0.75rem',
                     }}
@@ -177,7 +179,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
                       style={{
                         padding: '0.375rem 0.625rem', borderRadius: '6px',
                         border: 'none', fontSize: '0.75rem', cursor: 'pointer',
-                        background: createdItems.has(`ticket-${i}`) ? '#ccc' : 'var(--success, #2da44e)',
+                        background: createdItems.has(`ticket-${i}`) ? '#666' : 'var(--color-success, #50e3c2)',
                         color: '#fff', whiteSpace: 'nowrap', flexShrink: 0,
                       }}
                     >
@@ -195,8 +197,8 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
             onClick={onClose}
             style={{
               padding: '0.5rem 1rem', borderRadius: '6px',
-              border: '1px solid var(--border-subtle, #e0e0e0)',
-              background: 'transparent', cursor: 'pointer',
+              border: '1px solid var(--color-border-default, #2a2a2a)',
+              background: 'transparent', color: 'var(--color-text-primary)', cursor: 'pointer',
               fontSize: '0.8125rem',
             }}
           >

@@ -107,13 +107,13 @@
 }
 
 .markdown-import-modal__file-input:hover {
-  border-color: var(--color-primary, #3b82f6);
+  border-color: var(--color-accent-primary, #3b82f6);
   background: var(--color-bg-tertiary, #f3f4f6);
 }
 
 .markdown-import-modal__file-input:focus {
   outline: none;
-  border-color: var(--color-primary, #3b82f6);
+  border-color: var(--color-accent-primary, #3b82f6);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
@@ -170,7 +170,7 @@
   width: 24px;
   height: 24px;
   border-radius: 4px;
-  background: var(--color-primary, #3b82f6);
+  background: var(--color-accent-primary, #3b82f6);
   color: white;
   font-size: 12px;
   font-weight: 600;
@@ -211,7 +211,7 @@
 
 .markdown-import-modal__back-btn:hover:not(:disabled) {
   background: var(--color-bg-secondary, #e5e7eb);
-  border-color: var(--color-border-dark, #9ca3af);
+  border-color: var(--color-border-hover, #9ca3af);
 }
 
 .markdown-import-modal__back-btn:disabled {
@@ -254,14 +254,14 @@
 }
 
 .markdown-import-modal__btn--import {
-  background: var(--color-primary, #3b82f6);
+  background: var(--color-accent-primary, #3b82f6);
   color: white;
-  border: 1px solid var(--color-primary, #3b82f6);
+  border: 1px solid var(--color-accent-primary, #3b82f6);
 }
 
 .markdown-import-modal__btn--import:hover:not(:disabled) {
-  background: var(--color-primary-dark, #2563eb);
-  border-color: var(--color-primary-dark, #2563eb);
+  background: var(--color-accent-primary-active, #2563eb);
+  border-color: var(--color-accent-primary-active, #2563eb);
 }
 
 /* Dark mode */
@@ -337,7 +337,7 @@
 
   .markdown-import-modal__back-btn:hover:not(:disabled) {
     background: var(--color-bg-secondary, #5a6c7d);
-    border-color: var(--color-border-dark, #6b7c8f);
+    border-color: var(--color-border-hover, #6b7c8f);
   }
 
   .markdown-import-modal__footer {

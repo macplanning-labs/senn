@@ -346,3 +346,9 @@
     grid-template-columns: 1fr;
   }
 }
+
+.ticket-detail__description img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}

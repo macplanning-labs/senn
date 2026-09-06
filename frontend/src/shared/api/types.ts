@@ -105,6 +105,8 @@ export interface Project {
   isActive: boolean;
   gracePeriodDays: number;
   ownerTeam: TeamSummary | null;
+  cycleAutoComplete: boolean;
+  cycleAutoCreateNext: boolean;
   createdAt: string;
 }
 
@@ -345,6 +347,7 @@ export interface GitIntegration {
   createdBy: UserSummary | null;
   createdAt: string;
   eventCount: number;
+  autoStatusTransition: boolean;
 }
 
 export interface GitEvent {
@@ -508,4 +511,25 @@ export interface CloseAnalysisResult {
   has_future_challenges: boolean;
   wiki_draft: WikiDraft | null;
   suggested_backlog_tickets: SuggestedBacklogTicket[];
+}
+
+// ============================================================
+// Saved Views (Method P3)
+// ============================================================
+
+export interface SavedViewFilters {
+  search: string;
+  status: string;
+  priority: string;
+  due: string;
+  status_in: string;
+}
+
+export interface SavedView {
+  id: number;
+  project: number;
+  name: string;
+  filters: SavedViewFilters;
+  createdAt: string;
+  updatedAt: string;
 }

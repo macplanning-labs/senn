@@ -110,6 +110,8 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
   const [creatingNewUser, setCreatingNewUser] = useState(false);
   const [newlyCreatedUserId, setNewlyCreatedUserId] = useState<number | null>(null);
   const [editEmail, setEditEmail] = useState('');
+  const [editUsername, setEditUsername] = useState('');
+  const [authUser, setAuthUser] = useState<{ isStaff: boolean } | null>(null);
   const [formData, setFormData] = useState<MemberFormData>({
     user: 0, project: projectId, start_date: new Date().toISOString().slice(0, 10),
     end_date: '', note: '',
@@ -122,6 +124,17 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     last_name: '',
   });
   const [error, setError] = useState('');
+
+  // --- 現在のユーザー情報を取得（staff判定用） ---
+  useQuery({
+    queryKey: ['me'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ isStaff: boolean }>('/auth/me/');
+      setAuthUser({ isStaff: res.data.isStaff });
+      return res.data;
+    },
+    staleTime: Infinity,
+  });
 
   // --- メンバー一覧取得 ---
   const { data, isLoading } = useQuery<{ results: Membership[] }>({
@@ -191,13 +204,13 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     },
   });
 
-  // --- メールアドレス更新(Django Admin代替) ---
-  const updateEmailMutation = useMutation({
-    mutationFn: ({ id, email }: { id: number; email: string }) =>
-      apiClient.patch(`/users/${id}/`, { email }),
+  // --- プロフィール更新（メール・ログイン名） ---
+  const updateUserMutation = useMutation({
+    mutationFn: ({ id, email, username }: { id: number; email: string; username?: string }) =>
+      apiClient.patch(`/users/${id}/`, { email, ...(username && { username }) }),
     onError: (err: unknown) => {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
-      setError(axiosErr.response?.data?.detail || 'メールアドレスの更新に失敗しました');
+      setError(axiosErr.response?.data?.detail || 'ユーザー情報の更新に失敗しました');
     },
   });
 
@@ -271,6 +284,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       note: m.note,
     });
     setEditEmail(m.user.email);
+    setEditUsername(m.user.username);
     setError('');
     setModalOpen(true);
   }, [projectId]);
@@ -281,6 +295,7 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
     setCreatingNewUser(false);
     setNewlyCreatedUserId(null);
     setEditEmail('');
+    setEditUsername('');
     setError('');
     setRegistrationData({
       username: '',
@@ -322,8 +337,13 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
             note: formData.note,
           },
         });
-        if (editEmail && editEmail !== editingMember.user.email) {
-          await updateEmailMutation.mutateAsync({ id: editingMember.user.id, email: editEmail });
+        const hasUsernameChange = authUser?.isStaff && editUsername && editUsername !== editingMember.user.username;
+        if (editEmail !== editingMember.user.email || hasUsernameChange) {
+          await updateUserMutation.mutateAsync({
+            id: editingMember.user.id,
+            email: editEmail,
+            ...(hasUsernameChange && { username: editUsername }),
+          });
         }
         void queryClient.invalidateQueries({ queryKey: ['memberships', projectId] });
         void queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -339,9 +359,9 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
       return;
     }
     addMutation.mutate({ ...formData, user: userToAdd });
-  }, [formData, newlyCreatedUserId, editingMember, editEmail, addMutation, updateMutation, updateEmailMutation, queryClient, projectId, closeModal]);
+  }, [formData, newlyCreatedUserId, editingMember, editEmail, editUsername, authUser, addMutation, updateMutation, updateUserMutation, queryClient, projectId, closeModal]);
 
-  const isSaving = addMutation.isPending || updateMutation.isPending || registerMutation.isPending || updateEmailMutation.isPending;
+  const isSaving = addMutation.isPending || updateMutation.isPending || registerMutation.isPending || updateUserMutation.isPending;
 
   if (isLoading) {
     return <div className="settings-empty"><div className="settings-empty__text">{t('common.loading')}</div></div>;
@@ -560,10 +580,36 @@ export function MemberSettings({ projectId }: MemberSettingsProps) {
               {editingMember && (
                 <>
                   <div className="settings-form__group">
-                    <label className="settings-form__label">ユーザー</label>
+                    <label className="settings-form__label">{t('settings.displayName')}</label>
                     <div className="settings-form__input" style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
                       {editingMember.user.displayName || editingMember.user.username}
                     </div>
+                  </div>
+                  <div className="settings-form__group">
+                    <label className="settings-form__label">{t('settings.loginName')}</label>
+                    {authUser?.isStaff ? (
+                      <>
+                        <input
+                          className="settings-form__input"
+                          type="text"
+                          value={editUsername}
+                          onChange={(e) => setEditUsername(e.target.value)}
+                          data-testid="edit-member-username-input"
+                        />
+                        <small style={{ marginTop: 'var(--space-1)', color: 'var(--color-text-tertiary)', display: 'block' }}>
+                          {t('settings.loginNameHint')}
+                        </small>
+                      </>
+                    ) : (
+                      <>
+                        <div className="settings-form__input" style={{ display: 'flex', alignItems: 'center', background: 'var(--color-bg-secondary)' }}>
+                          {editingMember.user.username}
+                        </div>
+                        <small style={{ marginTop: 'var(--space-1)', color: 'var(--color-text-tertiary)', display: 'block' }}>
+                          {t('settings.loginNameHint')}
+                        </small>
+                      </>
+                    )}
                   </div>
                   <div className="settings-form__group">
                     <label className="settings-form__label">{t('settings.email')}</label>

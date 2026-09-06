@@ -13,6 +13,8 @@ import { Link } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { SprintHealthWidget } from './SprintHealthWidget';
+import { TicketDrilldownPopover } from './TicketDrilldownPopover';
+import type { DrilldownFilter } from './TicketDrilldownPopover';
 import './Dashboard.css';
 
 // ── 型定義 ──────────────────────────────────
@@ -92,37 +94,69 @@ function formatRelativeDate(dateStr: string, t: (key: string, opts?: Record<stri
 function StatsCardsWidget({ data }: WidgetProps) {
   const { t } = useTranslation();
   const d = data as Record<string, number>;
-  const items = [
+  const [drilldown, setDrilldown] = useState<{ anchor: HTMLElement; filter: DrilldownFilter; label: string } | null>(null);
+
+  const items: Array<{
+    key: string; label: string; value: number; color: string; filter?: DrilldownFilter;
+  }> = [
     { key: 'openTickets', label: t('dashboard.openTickets'), value: d.open_tickets ?? 0, color: 'var(--color-accent-primary, hsl(220, 80%, 60%))' },
-    { key: 'overdue', label: t('dashboard.overdue'), value: d.overdue_tickets ?? 0, color: 'var(--color-error, hsl(0, 70%, 60%))' },
+    { key: 'overdue', label: t('dashboard.overdue'), value: d.overdue_tickets ?? 0, color: 'var(--color-error, hsl(0, 70%, 60%))', filter: { kind: 'due', value: 'overdue' } },
     { key: 'done7d', label: t('dashboard.done7d'), value: d.completed_this_week ?? 0, color: 'var(--color-success, hsl(140, 60%, 55%))' },
-    { key: 'dueSoon', label: t('dashboard.dueSoon'), value: d.due_soon_tickets ?? 0, color: 'var(--color-warning, hsl(45, 80%, 55%))' },
+    { key: 'dueSoon', label: t('dashboard.dueSoon'), value: d.due_soon_tickets ?? 0, color: 'var(--color-warning, hsl(45, 80%, 55%))', filter: { kind: 'due', value: 'due_soon' } },
     { key: 'projects', label: t('dashboard.totalProjects'), value: d.total_projects ?? 0, color: 'var(--color-text-secondary)' },
   ];
+
+  const openDrilldown = (e: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>, filter: DrilldownFilter, label: string) => {
+    setDrilldown({ anchor: e.currentTarget as HTMLElement, filter, label });
+  };
+
   return (
     <div className="stats-cards">
-      {items.map((item) => (
-        <div key={item.key} className="stats-cards__item">
-          <div className="stats-cards__value" style={{ color: item.color }}>
-            {item.value}
+      {items.map((item) => {
+        const clickable = !!item.filter;
+        const isZero = clickable && item.value === 0;
+        return (
+          <div
+            key={item.key}
+            className={`stats-cards__item ${clickable && !isZero ? 'stats-cards__item--clickable' : ''} ${isZero ? 'stats-cards__item--zero' : ''}`}
+            role={clickable && !isZero ? 'button' : undefined}
+            tabIndex={clickable && !isZero ? 0 : undefined}
+            onClick={clickable && !isZero ? (e) => openDrilldown(e, item.filter!, item.label) : undefined}
+            onKeyDown={clickable && !isZero ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown(e, item.filter!, item.label); }
+            } : undefined}
+          >
+            <div className="stats-cards__value" style={{ color: item.color }}>{item.value}</div>
+            <div className="stats-cards__label">{item.label}</div>
           </div>
-          <div className="stats-cards__label">{item.label}</div>
-        </div>
-      ))}
+        );
+      })}
+      {drilldown && (
+        <TicketDrilldownPopover
+          anchorEl={drilldown.anchor}
+          filter={drilldown.filter}
+          label={drilldown.label}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
   );
 }
 
 function TicketOverviewWidget({ data }: WidgetProps) {
   const { t } = useTranslation();
-  const d = data as { open: number; in_progress: number; resolved: number; closed: number; total: number };
+  const d = data as {
+    open: number; in_progress: number; resolved: number; closed: number; total: number;
+    by_project: Array<{ project_key: string; project_name: string; open: number; in_progress: number; resolved: number; closed: number }>;
+  };
   const total = d.total || 1;
+  const byProject = d.by_project ?? [];
   const segments = [
     { key: 'open', label: t('ticket.status.open'), count: d.open, color: 'hsl(210, 70%, 55%)' },
     { key: 'in_progress', label: t('ticket.status.in_progress'), count: d.in_progress, color: 'hsl(45, 80%, 55%)' },
     { key: 'resolved', label: t('ticket.status.resolved'), count: d.resolved, color: 'hsl(150, 60%, 50%)' },
     { key: 'closed', label: t('ticket.status.closed'), count: d.closed, color: 'hsl(220, 10%, 50%)' },
-  ];
+  ] as const;
 
   // conic-gradient を生成
   let accum = 0;
@@ -134,23 +168,81 @@ function TicketOverviewWidget({ data }: WidgetProps) {
   });
   const gradient = `conic-gradient(${gradientParts.join(', ')})`;
 
+  const [drilldown, setDrilldown] = useState<{ anchor: HTMLElement; filter: DrilldownFilter; label: string } | null>(null);
+
   return (
     <div className="ticket-overview">
-      <div
-        className="ticket-overview__donut"
-        style={{ background: gradient }}
-      >
+      <div className="ticket-overview__donut" style={{ background: gradient }}>
         <span className="ticket-overview__donut-center">{d.total}</span>
       </div>
       <div className="ticket-overview__legend">
-        {segments.map((seg) => (
-          <div key={seg.key} className="ticket-overview__legend-item">
-            <span className="ticket-overview__legend-dot" style={{ background: seg.color }} />
-            <span>{seg.label}</span>
-            <span className="ticket-overview__legend-count">{seg.count}</span>
-          </div>
-        ))}
+        {segments.map((seg) => {
+          const breakdown = byProject
+            .map((p) => ({ name: p.project_name, key: p.project_key, count: p[seg.key] }))
+            .filter((p) => p.count > 0);
+          return (
+            <div
+              key={seg.key}
+              className="ticket-overview__legend-item ticket-overview__legend-item--clickable"
+              role="button"
+              tabIndex={0}
+              onClick={(e) => setDrilldown({ anchor: e.currentTarget, filter: { kind: 'status', value: seg.key }, label: seg.label })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setDrilldown({ anchor: e.currentTarget, filter: { kind: 'status', value: seg.key }, label: seg.label });
+                }
+              }}
+            >
+              <span className="ticket-overview__legend-dot" style={{ background: seg.color }} />
+              <span>{seg.label}</span>
+              <span className="ticket-overview__legend-count">{seg.count}</span>
+              {breakdown.length > 0 && (
+                <div className="ticket-overview__tooltip" role="tooltip">
+                  {breakdown.map((p) => (
+                    <div
+                      key={p.key}
+                      className="ticket-overview__tooltip-row ticket-overview__tooltip-row--clickable"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDrilldown({
+                          anchor: e.currentTarget,
+                          filter: { kind: 'status', value: seg.key, projectPrefix: p.key },
+                          label: `${p.name} · ${seg.label}`,
+                        });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDrilldown({
+                            anchor: e.currentTarget,
+                            filter: { kind: 'status', value: seg.key, projectPrefix: p.key },
+                            label: `${p.name} · ${seg.label}`,
+                          });
+                        }
+                      }}
+                    >
+                      <span>{p.name}</span>
+                      <span>{p.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+      {drilldown && (
+        <TicketDrilldownPopover
+          anchorEl={drilldown.anchor}
+          filter={drilldown.filter}
+          label={drilldown.label}
+          onClose={() => setDrilldown(null)}
+        />
+      )}
     </div>
   );
 }

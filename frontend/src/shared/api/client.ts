@@ -49,6 +49,10 @@ apiClient.interceptors.request.use(
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // FormData送信時はContent-Typeを外す（JSON化されてファイルが消えるのを防ぐ）
+    if (config.data instanceof FormData) {
+      config.headers.delete('Content-Type');
+    }
     return config;
   },
   (error: AxiosError) => Promise.reject(error),

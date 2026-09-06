@@ -19,6 +19,9 @@ export interface Project {
   prefix: string;
   description: string;
   ticketCount?: number;
+  ownerId?: number | null;
+  cycleAutoComplete?: boolean;
+  cycleAutoCreateNext?: boolean;
 }
 
 /** URLの :projectKey からプロジェクト情報を取得 */

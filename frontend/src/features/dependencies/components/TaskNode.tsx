@@ -15,13 +15,17 @@ const statusColors: Record<string, string> = {
   canceled: 'var(--color-status-canceled, #9ca3af)',
 };
 
+// CycleSummaryBar.tsx の COMPLETE_STATUSES と同じ基準(resolved/closed = 完了)
+const DONE_STATUSES = new Set(['resolved', 'closed']);
+
 export interface TaskNodeData extends DependencyGraphNode {
   [key: string]: unknown;
 }
 
 export function TaskNode({ data }: { data: TaskNodeData }) {
+  const isDone = DONE_STATUSES.has(data.status);
   return (
-    <div className="task-node">
+    <div className={`task-node${isDone ? ' task-node--done' : ''}`}>
       <Handle type="target" position={Position.Left} />
       <div className="task-node__header">
         <span className="task-node__key">{data.ticketKey}</span>
@@ -29,6 +33,7 @@ export function TaskNode({ data }: { data: TaskNodeData }) {
           className="task-node__status"
           style={{ backgroundColor: statusColors[data.status] ?? statusColors.backlog }}
         >
+          {isDone ? '✓ ' : ''}
           {data.status}
         </span>
       </div>

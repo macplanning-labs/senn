@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
+import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
 import { LabelList } from '@/shared/components/ui/LabelBadge';
 import type { Label } from '@/shared/components/ui/LabelBadge';
 import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
@@ -102,7 +103,8 @@ export function KanbanBoard() {
         ),
       };
     },
-    invalidateKeys: [['tickets']],
+    // ['ticket'] も無効化: 開いている詳細パネルが古いステータスのまま残るのを防ぐ
+    invalidateKeys: [...TICKET_DASHBOARD_INVALIDATE_KEYS, ['ticket']],
     errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
   });
 
