@@ -63,6 +63,33 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
     },
   });
 
+  const updateAutoStatusTransitionMutation = useMutation({
+    mutationFn: async (data: { id: number; autoStatusTransition: boolean }) => {
+      await apiClient.patch(`/integrations/${data.id}/`, {
+        autoStatusTransition: data.autoStatusTransition,
+      });
+    },
+    onMutate: async ({ id, autoStatusTransition }) => {
+      await queryClient.cancelQueries({ queryKey: ['integrations', projectId] });
+      const previous = queryClient.getQueryData<GitIntegration[]>(['integrations', projectId]);
+      queryClient.setQueryData<GitIntegration[]>(['integrations', projectId], (old) =>
+        (old ?? []).map((item) =>
+          item.id === id ? { ...item, autoStatusTransition } : item,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['integrations', projectId], context.previous);
+      }
+      toast.error(t('settings.updateFailed'));
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
+    },
+  });
+
   const webhookUrl = `${window.location.origin}/api/v1/webhooks/github/`;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -210,6 +237,35 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
                 >
                   📋
                 </button>
+              </div>
+
+              <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={integration.autoStatusTransition ?? true}
+                    onChange={(e) => {
+                      updateAutoStatusTransitionMutation.mutate({
+                        id: integration.id,
+                        autoStatusTransition: e.target.checked,
+                      });
+                    }}
+                    disabled={updateAutoStatusTransitionMutation.isPending}
+                    style={{ cursor: 'pointer', width: 18, height: 18 }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
+                      {t('integration.autoStatusTransition')}
+                    </div>
+                    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)', whiteSpace: 'pre-wrap' }}>
+                      {t('integration.autoStatusTransitionDesc')}
+                    </div>
+                  </div>
+                </label>
               </div>
 
               <div className="integration-card__footer">

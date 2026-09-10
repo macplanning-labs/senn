@@ -20,6 +20,10 @@ interface UIState {
   sidebarOpen: boolean;
   /** コマンドパレットの開閉状態 */
   commandPaletteOpen: boolean;
+  /** チケット作成モーダルの開閉状態 */
+  ticketFormModalOpen: boolean;
+  /** モーダルでチケットを作成する対象プロジェクトキー */
+  ticketFormModalProjectKey: string | null;
 
   // アクション
   setTheme: (theme: Theme) => void;
@@ -27,6 +31,8 @@ interface UIState {
   setLanguage: (language: Language) => void;
   toggleSidebar: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
+  openTicketFormModal: (projectKey: string) => void;
+  closeTicketFormModal: () => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -36,6 +42,8 @@ export const useUIStore = create<UIState>()(
       language: navigator.language.startsWith('ja') ? 'ja' : 'en',
       sidebarOpen: true,
       commandPaletteOpen: false,
+      ticketFormModalOpen: false,
+      ticketFormModalProjectKey: null,
 
       setTheme: (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -50,6 +58,8 @@ export const useUIStore = create<UIState>()(
       setLanguage: (language) => set({ language }),
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+      openTicketFormModal: (projectKey) => set({ ticketFormModalOpen: true, ticketFormModalProjectKey: projectKey }),
+      closeTicketFormModal: () => set({ ticketFormModalOpen: false, ticketFormModalProjectKey: null }),
     }),
     {
       name: 'wip-ui-preferences',

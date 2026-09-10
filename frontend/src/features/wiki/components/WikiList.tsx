@@ -471,7 +471,7 @@ export function WikiList() {
                         href={`/p/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.ticketKey}`}
                         style={{
                           padding: '0.5rem 0.625rem', borderRadius: '6px',
-                          background: 'var(--color-surface-secondary, #f5f5f5)',
+                          background: 'var(--color-bg-tertiary)',
                           border: '1px solid var(--color-border, #e0e0e0)',
                           color: 'var(--color-text-primary)',
                           fontSize: '0.8125rem', textDecoration: 'none',

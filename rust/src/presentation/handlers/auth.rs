@@ -183,11 +183,22 @@ pub async fn password_change(
         .await
     {
         Ok(true) => {
-            let new_hash = auth_service::hash_password(&form.new_password).unwrap_or_default();
-            let _ = user_repo::update_password(&state.pool, user.user_id, &new_hash).await;
-
-            // セッション更新は不要（次リクエストの require_auth で DBから最新値を取得）
-            Redirect::to("/").into_response()
+            match auth_service::hash_password(&form.new_password) {
+                Ok(new_hash) => match user_repo::update_password(&state.pool, user.user_id, &new_hash).await {
+                    Ok(()) => {
+                        // セッション更新は不要（次リクエストの require_auth で DBから最新値を取得）
+                        Redirect::to("/").into_response()
+                    }
+                    Err(e) => {
+                        tracing::error!("[認証/パスワード変更] 処理=パスワード更新 結果=失敗 影響=新パスワードが保存されていない | {}", e);
+                        Html("<script>alert('パスワードの更新に失敗しました');history.back();</script>").into_response()
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("[認証/パスワード変更] 処理=パスワードハッシュ 結果=失敗 影響=パスワード変更不能 | {}", e);
+                    Html("<script>alert('パスワードの更新に失敗しました');history.back();</script>").into_response()
+                }
+            }
         }
         _ => Html("<script>alert('現在のパスワードが正しくありません');history.back();</script>")
             .into_response(),

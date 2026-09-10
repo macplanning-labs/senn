@@ -18,6 +18,8 @@ pub struct GitIntegrationOut {
     pub webhook_secret: String,
     #[serde(rename = "isActive")]
     pub is_active: bool,
+    #[serde(rename = "autoStatusTransition")]
+    pub auto_status_transition: bool,
     #[serde(rename = "createdBy")]
     pub created_by: Option<UserSummaryOut>,
     #[serde(rename = "createdAt")]
@@ -35,6 +37,8 @@ pub struct GitIntegrationWriteIn {
     pub webhook_secret: String,
     #[serde(default = "default_true")]
     pub is_active: bool,
+    #[serde(default = "default_true", rename = "autoStatusTransition", alias = "auto_status_transition")]
+    pub auto_status_transition: bool,
 }
 
 fn default_provider() -> String {
@@ -51,6 +55,8 @@ pub struct GitIntegrationUpdateIn {
     pub repository_url: Option<String>,
     pub webhook_secret: Option<String>,
     pub is_active: Option<bool>,
+    #[serde(default, rename = "autoStatusTransition", alias = "auto_status_transition")]
+    pub auto_status_transition: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]

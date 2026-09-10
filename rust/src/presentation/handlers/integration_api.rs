@@ -145,7 +145,7 @@ pub async fn github_webhook(
         .iter()
         .find(|i| git_webhook_service::verify_github_signature(&body, signature, &i.webhook_secret));
 
-    let integration = match verified {
+    let active_integration = match verified {
         Some(i) => i,
         None => {
             tracing::warn!("Invalid signature for {}", repo_url);
@@ -153,19 +153,36 @@ pub async fn github_webhook(
         }
     };
 
+    // 完全な integration 情報を取得
+    let integration = match integration_repo::find_by_id(&state.pool, active_integration.id).await {
+        Ok(Some(i)) => i,
+        Ok(None) => {
+            tracing::warn!("Integration {} not found", active_integration.id);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "integration not found").into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+
     let mut created_count = 0;
 
     if event_type == "push" {
-        created_count = process_push_event(&state, integration.id, &payload).await;
+        created_count = process_push_event(&state, &integration, &payload).await;
     } else if event_type == "pull_request" {
-        created_count = process_pull_request_event(&state, integration.id, &payload).await;
+        created_count = process_pull_request_event(&state, &integration, &payload).await;
     }
 
     tracing::info!("Processed {} event: {} events linked", event_type, created_count);
     (StatusCode::OK, format!("OK: {} events linked", created_count)).into_response()
 }
 
-async fn process_push_event(state: &AppState, integration_id: i32, payload: &serde_json::Value) -> i32 {
+async fn process_push_event(
+    state: &AppState,
+    integration: &crate::domain::models::integration_api::GitIntegrationOut,
+    payload: &serde_json::Value,
+) -> i32 {
     let mut created = 0;
     let commits = payload.get("commits").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let branch = payload
@@ -173,6 +190,9 @@ async fn process_push_event(state: &AppState, integration_id: i32, payload: &ser
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .replace("refs/heads/", "");
+
+    // 同一 push 全体で ticket ごとの status 遷移は1回
+    let mut processed_tickets = std::collections::HashSet::new();
 
     for commit in &commits {
         let message = commit.get("message").and_then(|v| v.as_str()).unwrap_or("");
@@ -198,7 +218,7 @@ async fn process_push_event(state: &AppState, integration_id: i32, payload: &ser
             };
 
             match integration_repo::create_commit_event_if_new(
-                &state.pool, integration_id, ticket_id, sha, &title, commit_url, &branch, author_name,
+                &state.pool, integration.id, ticket_id, sha, &title, commit_url, &branch, author_name,
             )
             .await
             {
@@ -207,7 +227,64 @@ async fn process_push_event(state: &AppState, integration_id: i32, payload: &ser
                     tracing::info!("Linked commit {} to {}", &sha[..sha.len().min(7)], key);
                 }
                 Ok(false) => {}
-                Err(e) => tracing::error!("DB operation failed: {:?}", e),
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    continue;
+                }
+            }
+
+            // Status 遷移（フラグ ON・同一 push 内 ticket 1回）
+            if !integration.auto_status_transition {
+                continue;
+            }
+            if !processed_tickets.insert(ticket_id) {
+                continue;
+            }
+
+            let actor_user_id = match git_webhook_service::resolve_git_actor(
+                &state.pool,
+                integration.created_by.as_ref().map(|u| u.id),
+                integration.project,
+            )
+            .await
+            {
+                Ok(Some(actor)) => actor.user_id,
+                Ok(None) => {
+                    tracing::error!("git auto-status: no actor found for project {}", integration.project);
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!("git auto-status: resolve actor failed: {:?}", e);
+                    continue;
+                }
+            };
+
+            match crate::infrastructure::repositories::workflow_status_repo::resolve_status_slug_by_category(
+                &state.pool, integration.project, "started"
+            )
+            .await
+            {
+                Ok(Some(target_slug)) => {
+                    if let Err(e) = git_webhook_service::apply_git_status_transition(
+                        &state.pool, ticket_id, &target_slug, actor_user_id, "push"
+                    )
+                    .await
+                    {
+                        tracing::error!("git auto-status: apply failed for ticket {}: {:?}", ticket_id, e);
+                    }
+                }
+                Ok(None) => {
+                    if let Err(e) = git_webhook_service::apply_git_status_transition(
+                        &state.pool, ticket_id, "in_progress", actor_user_id, "push"
+                    )
+                    .await
+                    {
+                        tracing::error!("git auto-status: apply fallback failed for ticket {}: {:?}", ticket_id, e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("git auto-status: resolve started slug failed: {:?}", e);
+                }
             }
         }
     }
@@ -215,9 +292,16 @@ async fn process_push_event(state: &AppState, integration_id: i32, payload: &ser
     created
 }
 
-async fn process_pull_request_event(state: &AppState, integration_id: i32, payload: &serde_json::Value) -> i32 {
+async fn process_pull_request_event(
+    state: &AppState,
+    integration: &crate::domain::models::integration_api::GitIntegrationOut,
+    payload: &serde_json::Value,
+) -> i32 {
     let mut created = 0;
     let pr = payload.get("pull_request").cloned().unwrap_or(json!({}));
+
+    let action = payload.get("action").and_then(|v| v.as_str()).unwrap_or("");
+    let draft = pr.get("draft").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let title: String = pr.get("title").and_then(|v| v.as_str()).unwrap_or("").chars().take(500).collect();
     let pr_url = pr.get("html_url").and_then(|v| v.as_str()).unwrap_or("");
@@ -250,7 +334,7 @@ async fn process_pull_request_event(state: &AppState, integration_id: i32, paylo
         };
 
         match integration_repo::upsert_pr_event(
-            &state.pool, integration_id, ticket_id, pr_number, &title, pr_url, head_branch,
+            &state.pool, integration.id, ticket_id, pr_number, &title, pr_url, head_branch,
             author_name, author_avatar, pr_state,
         )
         .await
@@ -258,6 +342,104 @@ async fn process_pull_request_event(state: &AppState, integration_id: i32, paylo
             Ok(_created_new) => {
                 created += 1;
                 tracing::info!("Linked PR #{} to {}", pr_number, key);
+
+                // PR opened/reopened/ready_for_review (かつ draft=false) の場合に in_review 相当へ遷移を試みる
+                if integration.auto_status_transition
+                    && matches!(action, "opened" | "reopened" | "ready_for_review")
+                    && !draft
+                {
+                    let actor_user_id = match git_webhook_service::resolve_git_actor(
+                        &state.pool,
+                        integration.created_by.as_ref().map(|u| u.id),
+                        integration.project,
+                    )
+                    .await
+                    {
+                        Ok(Some(actor)) => actor.user_id,
+                        Ok(None) => {
+                            tracing::error!("git auto-status: no actor found for project {}", integration.project);
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!("git auto-status: resolve actor failed: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    // in_review/review/in-review slug を取得
+                    match crate::infrastructure::repositories::workflow_status_repo::resolve_review_status_slug(
+                        &state.pool, integration.project
+                    )
+                    .await
+                    {
+                        Ok(Some(target_slug)) => {
+                            if let Err(e) = git_webhook_service::apply_git_status_transition(
+                                &state.pool, ticket_id, &target_slug, actor_user_id, "pr_opened"
+                            )
+                            .await
+                            {
+                                tracing::error!("git auto-status: apply failed for ticket {}: {:?}", ticket_id, e);
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::debug!("git auto-status: no review status slug found for project {}", integration.project);
+                        }
+                        Err(e) => {
+                            tracing::error!("git auto-status: resolve review slug failed: {:?}", e);
+                        }
+                    }
+                }
+
+                // PR merged の場合だけ status 遷移を試みる
+                if integration.auto_status_transition && pr_state == "merged" {
+                    let actor_user_id = match git_webhook_service::resolve_git_actor(
+                        &state.pool,
+                        integration.created_by.as_ref().map(|u| u.id),
+                        integration.project,
+                    )
+                    .await
+                    {
+                        Ok(Some(actor)) => actor.user_id,
+                        Ok(None) => {
+                            tracing::error!("git auto-status: no actor found for project {}", integration.project);
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!("git auto-status: resolve actor failed: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    // completed カテゴリの先頭 slug を取得
+                    match crate::infrastructure::repositories::workflow_status_repo::resolve_status_slug_by_category(
+                        &state.pool, integration.project, "completed"
+                    )
+                    .await
+                    {
+                        Ok(Some(target_slug)) => {
+                            if let Err(e) = git_webhook_service::apply_git_status_transition(
+                                &state.pool, ticket_id, &target_slug, actor_user_id, "pr_merged"
+                            )
+                            .await
+                            {
+                                tracing::error!("git auto-status: apply failed for ticket {}: {:?}", ticket_id, e);
+                            }
+                        }
+                        Ok(None) => {
+                            // completed カテゴリがない場合はフォールバック
+                            if let Err(e) = git_webhook_service::apply_git_status_transition(
+                                &state.pool, ticket_id, "closed", actor_user_id, "pr_merged"
+                            )
+                            .await
+                            {
+                                tracing::error!("git auto-status: apply fallback failed for ticket {}: {:?}", ticket_id, e);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("git auto-status: resolve completed slug failed: {:?}", e);
+                        }
+                    }
+                }
             }
             Err(e) => tracing::error!("DB operation failed: {:?}", e),
         }

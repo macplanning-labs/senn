@@ -1,12 +1,19 @@
 /**
- * CycleDetail.tsx — サイクル詳細ページ
+ * CycleDetail.tsx — サイクル詳細ページ（タスクファースト）
  *
- * 上部: 進捗サマリー（ドーナツチャート + 統計カード4枚）
- * 下部: サイクル内チケット一覧
+ * ヘッダー + ミニサマリー(CycleSummaryBar) + チケット一覧(TicketTable)をメインに配置し、
+ * バーンダウンチャートはURL(?panel=chart)で開閉するサイドパネルに格納する。
  */
-import { useParams, useNavigate } from 'react-router-dom';
-import { useCycle, useCycleProgress } from '../hooks/useCycles';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useCycle, useCycleProgress, useCycles, useCreateCycle, useCompleteCycle } from '../hooks/useCycles';
 import { BurndownChart } from './BurndownChart';
+import { CycleSummaryBar } from './CycleSummaryBar';
+import { TicketTable } from '@/features/tickets/components/TicketTable';
+import { TicketDetailPanel } from '@/features/tickets/components/TicketDetailPanel';
+import { usePanelResize } from '@/shared/hooks/usePanelResize';
+import { useProject } from '@/shared/hooks/useProject';
+import { useToastStore } from '@/shared/stores/toastStore';
 import './CycleDetail.css';
 import { useTranslation } from 'react-i18next';
 
@@ -16,133 +23,333 @@ const statusLabels: Record<string, string> = {
   completed: '完了',
 };
 
+/** YYYY-MM-DD をローカル日付として日数加算（UTC 解釈のズレを避ける） */
+function parseYmdParts(ymd: string): [number, number, number] {
+  const parts = ymd.split('-');
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    throw new Error(`invalid YMD: ${ymd}`);
+  }
+  return [y, m, d];
+}
+
+function todayYmd(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = parseYmdParts(ymd);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function diffDaysYmd(start: string, end: string): number {
+  const [sy, sm, sd] = parseYmdParts(start);
+  const [ey, em, ed] = parseYmdParts(end);
+  const a = new Date(sy, sm - 1, sd).getTime();
+  const b = new Date(ey, em - 1, ed).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
 export function CycleDetail() {
   const { t } = useTranslation();
-  const { cycleId } = useParams<{ cycleId: string }>();
+  const { projectKey, cycleId, ticketId } = useParams<{
+    projectKey: string;
+    cycleId: string;
+    ticketId?: string;
+  }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { currentProject } = useProject();
+  const { addToast } = useToastStore();
   const { data: cycle, isLoading: cycleLoading } = useCycle(
     cycleId ? parseInt(cycleId) : undefined
   );
   const { data: progress } = useCycleProgress(
     cycleId ? parseInt(cycleId) : undefined
   );
+  const { data: cycles = [] } = useCycles(currentProject?.id);
+  const createMutation = useCreateCycle();
+  const completeMutation = useCompleteCycle(currentProject?.id);
+  const { width: chartWidth, onResizeStart, isResizing } = usePanelResize('cycle-burndown', 420);
+  const { width: panelWidth, onResizeStart: onPanelResizeStart, isResizing: isPanelResizing } = usePanelResize('cycle-ticket-detail', 380);
+
+  const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
+  const [selectedCarryOver, setSelectedCarryOver] = useState<number | 'create' | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
+
+  const chartOpen = searchParams.get('panel') === 'chart';
+  const toggleChart = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (chartOpen) {
+        next.delete('panel');
+      } else {
+        next.set('panel', 'chart');
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  const handleClosePanel = () => {
+    if (projectKey && cycleId) {
+      navigate(`/p/${projectKey}/cycles/${cycleId}`);
+    }
+  };
+
+  const today = todayYmd();
+  const isOverdue = cycle && cycle.status === 'active' && cycle.endDate < today;
+
+  const plannedCycles = cycles.filter(c => c.status === 'planned' && c.project === currentProject?.id);
+
+  const handleCompleteClick = () => {
+    const firstPlanned = plannedCycles[0];
+    if (firstPlanned) {
+      setSelectedCarryOver(firstPlanned.id);
+    } else {
+      setSelectedCarryOver('create');
+    }
+    setCompleteDialogOpen(true);
+  };
+
+  const handleConfirmComplete = async () => {
+    if (!cycle || !currentProject || selectedCarryOver === null) return;
+    setIsCompleting(true);
+
+    try {
+      let carryOverTo: number | undefined;
+      if (selectedCarryOver === 'create') {
+        const start = addDaysYmd(cycle.endDate, 1);
+        const durationDays = diffDaysYmd(cycle.startDate, cycle.endDate);
+        const end = addDaysYmd(start, durationDays > 0 ? durationDays : 14);
+        const newCycle = await createMutation.mutateAsync({
+          project: currentProject.id,
+          name: `Cycle ${cycle.number + 1}`,
+          start_date: start,
+          end_date: end,
+          status: 'planned',
+        });
+        carryOverTo = newCycle.id;
+      } else {
+        carryOverTo = selectedCarryOver;
+      }
+
+      await completeMutation.mutateAsync({
+        cycleId: cycle.id,
+        carryOverTo,
+      });
+      setCompleteDialogOpen(false);
+      addToast({ message: t('cycle.complete'), type: 'success' });
+      setTimeout(() => navigate(-1), 500);
+    } catch {
+      addToast({ message: t('cycle.completeFailed', '完了に失敗しました'), type: 'error' });
+    } finally {
+      setIsCompleting(false);
+    }
+  };
 
   if (cycleLoading || !cycle) {
     return <div className="cycle-detail__loading">{t('common.loading')}</div>;
   }
 
-  const completionPct = progress?.completionRate ?? 0;
-  // SVG conic-gradient equivalent using stroke-dasharray
-  const circumference = 2 * Math.PI * 40;
-  const filled = (completionPct / 100) * circumference;
-
   return (
-    <div className="cycle-detail">
+    <div className="cycle-detail" data-testid="cycle-detail-page">
       {/* ヘッダー */}
       <div className="cycle-detail__header">
         <button
           className="cycle-detail__back"
-          onClick={() => navigate(-1)}
+          onClick={() => projectKey && navigate(`/p/${projectKey}/cycles`)}
+          data-testid="cycle-detail-back"
         >
           ← 戻る
         </button>
         <h1 className="cycle-detail__title">{cycle.name}</h1>
-        <span className="cycle-detail__badge">
-          {statusLabels[cycle.status]}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <span className="cycle-detail__badge">{statusLabels[cycle.status]}</span>
+          {isOverdue && (
+            <span style={{
+              display: 'inline-block',
+              padding: '4px 8px',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 'var(--font-weight-semibold)',
+              color: 'white',
+              background: 'var(--color-error)',
+              borderRadius: 'var(--radius-sm)',
+            }}>
+              {t('cycle.overdue')}
+            </span>
+          )}
+        </div>
         <span className="cycle-detail__dates">
           {cycle.startDate} — {cycle.endDate}
         </span>
+        <button
+          type="button"
+          className={`cycle-detail__chart-toggle ${chartOpen ? 'cycle-detail__chart-toggle--active' : ''}`}
+          onClick={toggleChart}
+          data-testid="burndown-toggle"
+        >
+          📊 {chartOpen ? t('cycle.burndownHide') : t('cycle.burndownShow')}
+        </button>
+        {cycle.status === 'active' && (
+          <button
+            type="button"
+            style={{
+              padding: 'var(--space-2) var(--space-3)',
+              background: 'var(--color-accent-primary)',
+              color: 'white',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              cursor: 'pointer',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 'var(--font-weight-semibold)',
+            }}
+            onClick={handleCompleteClick}
+          >
+            {t('cycle.complete')}
+          </button>
+        )}
       </div>
 
-      {/* 進捗サマリー */}
-      <div className="cycle-detail__summary">
-        {/* ドーナツチャート */}
-        <div className="cycle-detail__donut">
-          <svg viewBox="0 0 100 100" className="cycle-detail__donut-svg">
-            <circle
-              cx="50" cy="50" r="40"
-              fill="none"
-              stroke="var(--color-bg-tertiary)"
-              strokeWidth="8"
-            />
-            <circle
-              cx="50" cy="50" r="40"
-              fill="none"
-              stroke="var(--color-accent)"
-              strokeWidth="8"
-              strokeDasharray={`${filled} ${circumference - filled}`}
-              strokeDashoffset={circumference * 0.25}
-              strokeLinecap="round"
-              style={{ transition: 'stroke-dasharray 0.5s ease' }}
-            />
-            <text
-              x="50" y="50"
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill="var(--color-text-primary)"
-              fontSize="16"
-              fontWeight="700"
-            >
-              {Math.round(completionPct)}%
-            </text>
-          </svg>
-        </div>
+      {/* ミニサマリー */}
+      <CycleSummaryBar progress={progress} />
 
-        {/* 統計カード */}
-        <div className="cycle-detail__stats">
-          <div className="cycle-detail__stat-card">
-            <span className="cycle-detail__stat-value">
-              {progress?.ticketCount ?? 0}
-            </span>
-            <span className="cycle-detail__stat-label">チケット</span>
+      {/* メイン: チケット一覧 + (開いていれば)バーンダウンパネル or 詳細パネル */}
+      <div
+        className={`cycle-detail__body ${ticketId ? 'cycle-detail__body--with-ticket-panel' : (chartOpen ? 'cycle-detail__body--with-panel' : '')} ${isResizing || isPanelResizing ? 'cycle-detail__body--resizing' : ''}`}
+        style={
+          ticketId
+            ? { gridTemplateColumns: `1fr ${panelWidth}px` }
+            : chartOpen
+              ? { gridTemplateColumns: `1fr ${chartWidth}px` }
+              : undefined
+        }
+      >
+        <div className="cycle-detail__main">
+          {cycleId && <TicketTable cycleId={parseInt(cycleId)} />}
+        </div>
+        {ticketId && (
+          <div className="cycle-detail__ticket-panel">
+            <div
+              className="cycle-detail__ticket-resize-handle"
+              onMouseDown={onPanelResizeStart}
+            />
+            <TicketDetailPanel
+              ticketId={ticketId}
+              onClose={handleClosePanel}
+            />
           </div>
-          <div className="cycle-detail__stat-card">
-            <span className="cycle-detail__stat-value cycle-detail__stat-value--accent">
-              {progress?.completedCount ?? 0}
-            </span>
-            <span className="cycle-detail__stat-label">完了</span>
-          </div>
-          <div className="cycle-detail__stat-card">
-            <span className="cycle-detail__stat-value">
-              {progress?.totalPoints ?? 0}
-            </span>
-            <span className="cycle-detail__stat-label">総ポイント</span>
-          </div>
-          <div className="cycle-detail__stat-card">
-            <span className="cycle-detail__stat-value cycle-detail__stat-value--accent">
-              {progress?.completedPoints ?? 0}
-            </span>
-            <span className="cycle-detail__stat-label">完了ポイント</span>
-          </div>
-          {/* スコープ変更バッジ */}
-          {progress && (progress.initialPoints ?? 0) > 0 && (
-            <div className="cycle-detail__stat-card cycle-detail__stat-card--scope" data-testid="cycle-scope-badge">
-              <span className="cycle-detail__stat-label">
-                {t('cycle.initialScope')}
-              </span>
-              <span className="cycle-detail__scope-badge">
-                {progress.initialPoints ?? 0}pt
-                <span className="cycle-detail__scope-arrow">→</span>
-                {progress.totalPoints ?? 0}pt
-                {(progress.scopeChange ?? 0) !== 0 && (
-                  <span className={`cycle-detail__scope-change ${(progress.scopeChange ?? 0) > 0 ? 'cycle-detail__scope-change--added' : 'cycle-detail__scope-change--removed'}`}>
-                    {(progress.scopeChange ?? 0) > 0 ? '+' : ''}{progress.scopeChange}
-                  </span>
-                )}
-              </span>
+        )}
+        {!ticketId && chartOpen && cycleId && (
+          <div className="cycle-detail__chart-panel">
+            <div
+              className="cycle-detail__chart-resize-handle"
+              onMouseDown={onResizeStart}
+              data-testid="chart-panel-resize-handle"
+            />
+            <div className="cycle-detail__chart-panel-header">
+              <span>{t('cycle.burndownShow')}</span>
+              <button
+                type="button"
+                className="cycle-detail__chart-panel-close"
+                onClick={toggleChart}
+                aria-label={t('cycle.burndownHide')}
+              >
+                ×
+              </button>
             </div>
-          )}
+            <BurndownChart cycleId={parseInt(cycleId)} />
+          </div>
+        )}
+      </div>
+
+      {/* 完了確認ダイアログ */}
+      {completeDialogOpen && cycle && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000,
+        }} onClick={() => !isCompleting && setCompleteDialogOpen(false)}>
+          <div style={{
+            background: 'var(--color-bg-primary)', borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-6)', maxWidth: 400, width: '90%',
+            boxShadow: 'var(--shadow-lg)',
+          }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginBottom: 'var(--space-3)', color: 'var(--color-text-primary)' }}>
+              {t('cycle.complete')}
+            </h2>
+            <p style={{ marginBottom: 'var(--space-4)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
+              {cycle.ticketCount - cycle.completedCount} {t('cycle.incompleteCount')} チケットを次の Cycle へ移します。
+            </p>
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <label style={{ display: 'block', marginBottom: 'var(--space-2)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-semibold)', fontSize: 'var(--font-size-sm)' }}>
+                持ち越し先の選択:
+              </label>
+              <select
+                value={selectedCarryOver === null ? '' : String(selectedCarryOver)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedCarryOver(val === 'create' ? 'create' : val ? parseInt(val) : null);
+                }}
+                style={{
+                  width: '100%', padding: 'var(--space-2) var(--space-3)',
+                  background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-default)',
+                  borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-sm)',
+                }}
+                disabled={isCompleting}
+              >
+                <option value="">— 選択してください</option>
+                {plannedCycles.map(pc => (
+                  <option key={pc.id} value={pc.id}>
+                    {pc.name}
+                  </option>
+                ))}
+                <option value="create">📝 次 Cycle を作成して移す</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <button
+                onClick={() => setCompleteDialogOpen(false)}
+                disabled={isCompleting}
+                style={{
+                  flex: 1, padding: 'var(--space-2) var(--space-3)',
+                  background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)',
+                  border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)',
+                  cursor: isCompleting ? 'not-allowed' : 'pointer', fontSize: 'var(--font-size-sm)',
+                  opacity: isCompleting ? 0.6 : 1,
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleConfirmComplete}
+                disabled={isCompleting || selectedCarryOver === null}
+                style={{
+                  flex: 1, padding: 'var(--space-2) var(--space-3)',
+                  background: 'var(--color-accent-primary)', color: 'white',
+                  border: 'none', borderRadius: 'var(--radius-md)',
+                  cursor: (isCompleting || selectedCarryOver === null) ? 'not-allowed' : 'pointer',
+                  fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)',
+                  opacity: (isCompleting || selectedCarryOver === null) ? 0.6 : 1,
+                }}
+              >
+                {isCompleting ? '処理中...' : '確認'}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* バーンダウンチャート */}
-      {cycleId && <BurndownChart cycleId={parseInt(cycleId)} />}
-
-      {/* チケット一覧への誘導 */}
-      <div className="cycle-detail__tickets-hint">
-        <p>{t('cycle.ticketHint')}</p>
-      </div>
+      )}
     </div>
   );
 }

@@ -25,13 +25,21 @@ const statusColors: Record<string, string> = {
   completed: 'var(--color-success)',
 };
 
+function todayYmd(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export function CycleList() {
   const { t } = useTranslation();
   const { currentProject: project } = useProject();
   const { data: cycles = [], isLoading } = useCycles(project?.id);
   const createMutation = useCreateCycle();
   const deleteMutation = useDeleteCycle();
-  const completeMutation = useCompleteCycle();
+  const completeMutation = useCompleteCycle(project?.id);
   const navigate = useNavigate();
 
   const [showForm, setShowForm] = useState(false);
@@ -43,6 +51,9 @@ export function CycleList() {
   const activeCycle = cycles.find(c => c.status === 'active');
   const plannedCycles = cycles.filter(c => c.status === 'planned');
   const completedCycles = cycles.filter(c => c.status === 'completed');
+
+  const today = todayYmd();
+  const isActiveCycleOverdue = activeCycle && activeCycle.endDate < today;
 
   const handleCreate = () => {
     if (!project || !formName || !formStart || !formEnd) {
@@ -84,7 +95,6 @@ export function CycleList() {
     const nextPlanned = plannedCycles[0];
     completeMutation.mutate({
       cycleId: cycle.id,
-      projectId: project.id,
       carryOverTo: nextPlanned?.id,
     });
   };
@@ -157,9 +167,24 @@ export function CycleList() {
       {activeCycle && (
         <div className="cycle-active" data-testid="cycle-active-card" onClick={() => project && navigate(`/p/${project.prefix}/cycles/${activeCycle.id}`)}>
           <div className="cycle-active__header">
-            <span className="cycle-active__badge" style={{ background: statusColors.active }}>
-              {statusLabels.active}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <span className="cycle-active__badge" style={{ background: statusColors.active }}>
+                {statusLabels.active}
+              </span>
+              {isActiveCycleOverdue && (
+                <span style={{
+                  display: 'inline-block',
+                  padding: '4px 8px',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 'var(--font-weight-semibold)',
+                  color: 'white',
+                  background: 'var(--color-error)',
+                  borderRadius: 'var(--radius-sm)',
+                }}>
+                  {t('cycle.overdue')}
+                </span>
+              )}
+            </div>
             <h2 className="cycle-active__name">{activeCycle.name}</h2>
             <span className="cycle-active__dates">
               {activeCycle.startDate} — {activeCycle.endDate}
@@ -248,15 +273,34 @@ function CycleRow({
   onNavigate: () => void;
   onDelete?: () => void;
 }) {
+  const { t } = useTranslation();
   const pct = cycle.ticketCount > 0
     ? Math.round((cycle.completedCount / cycle.ticketCount) * 100)
     : 0;
 
+  const today = todayYmd();
+  const isOverdue = cycle.status === 'active' && cycle.endDate < today;
+
   return (
     <div className="cycle-row" onClick={onNavigate}>
-      <span className="cycle-row__status" style={{ color: statusColors[cycle.status] }}>
-        {statusLabels[cycle.status]}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <span className="cycle-row__status" style={{ color: statusColors[cycle.status] }}>
+          {statusLabels[cycle.status]}
+        </span>
+        {isOverdue && (
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 6px',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 'var(--font-weight-semibold)',
+            color: 'white',
+            background: 'var(--color-error)',
+            borderRadius: 'var(--radius-sm)',
+          }}>
+            {t('cycle.overdue')}
+          </span>
+        )}
+      </div>
       <span className="cycle-row__name">{cycle.name}</span>
       <span className="cycle-row__dates">{cycle.startDate} — {cycle.endDate}</span>
       <span className="cycle-row__progress">{pct}%</span>

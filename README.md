@@ -1,5 +1,3 @@
-<title>WIP</title>
-
 English | [日本語 (Japanese)](./README_JA.md)
 
 # WIP — Project Management Tool
@@ -16,31 +14,64 @@ A lightweight, fast project management tool with ticketing, Gantt charts, a wiki
 
 ## Architecture
 
-The backend (`rust/`) follows Clean Architecture, split into three layers:
+UI is a **hybrid**: a React SPA for interactive app screens, plus **Askama** server-rendered templates where they still fit (login shells, simple server pages, etc.). Askama is kept where appropriate — it is **not** fully removed.
+
+### Backend (`rust/`)
+
+Clean Architecture in three layers:
 
 ```
 rust/src/
 ├── domain/          # Domain models and domain services (business logic)
 ├── infrastructure/  # Repository implementations (PostgreSQL via sqlx), mail sending, etc.
-├── presentation/     # HTTP handlers, middleware
+├── presentation/     # HTTP handlers, middleware, Askama where used
 ├── routes.rs         # Route definitions
 ├── config.rs          # Configuration loaded from environment variables
 └── main.rs            # Entry point
 ```
 
-Authentication is factored out into its own crate at `rust/auth-core/`, handling JWT issuance/verification, TOTP, and WebAuthn (passkeys).
+`rust/templates/` holds Askama templates used for selected server-rendered surfaces.
+Authentication is factored out into `rust/auth-core/` (JWT, TOTP, WebAuthn/passkeys).
 
-The frontend (`frontend/`) is built with Vite + React + TypeScript. The API client is auto-generated from the OpenAPI schema using [orval](https://orval.dev/) (`npm run generate:api`).
+### Frontend (`frontend/`)
+
+Vite + React + TypeScript SPA. API client is generated from OpenAPI via [orval](https://orval.dev/) (`npm run generate:api`).
+
+Within the SPA, UI complexity is intentional:
+
+- **Master / settings** (`features/settings/` and similar) — lightweight CRUD forms
+- **Tickets / boards / Git activity** — richer interactive UI (kanban, panels, modals)
 
 ## Getting Started
 
-### Prerequisites
+### Quick Start (Docker — recommended)
+
+No local Rust / Node / PostgreSQL install needed.
+
+```bash
+cp .env.example .env
+# edit DB_PASSWORD and DJANGO_SECRET_KEY to local values before first run
+docker compose up --build
+```
+
+Open http://localhost:8151 in your browser. Database tables are created automatically on first start (`RUST_RUN_MIGRATIONS=true`). No seed users are bundled — create your first account from the in-app registration screen at http://localhost:8151/register, then log in at http://localhost:8151/login.
+
+To reset the database and start clean:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+### Manual setup (without Docker)
+
+#### Prerequisites
 
 - Rust 1.90+
 - Node.js 20+
 - PostgreSQL 16
 
-### Quick Start
+#### Steps
 
 ```bash
 createdb wip

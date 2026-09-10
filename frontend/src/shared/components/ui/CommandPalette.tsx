@@ -11,6 +11,7 @@ import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/shared/stores/uiStore';
+import { getLastProjectKey } from '@/shared/hooks/useProject';
 import { apiClient } from '@/shared/api/client';
 import './CommandPalette.css';
 
@@ -35,14 +36,14 @@ const NAVIGATION_ITEMS = [
 ] as const;
 
 const ACTION_ITEMS = [
-  { id: 'new-ticket', label: 'ticket.create', action: 'navigate', path: '/tickets/new', icon: '➕' },
+  { id: 'new-ticket', label: 'ticket.create', action: 'create-ticket', icon: '➕' },
   { id: 'toggle-theme', label: 'Toggle Theme', action: 'theme', icon: '🌓' },
 ] as const;
 
 export function CommandPalette() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { commandPaletteOpen, setCommandPaletteOpen, toggleTheme } = useUIStore();
+  const { commandPaletteOpen, setCommandPaletteOpen, toggleTheme, openTicketFormModal } = useUIStore();
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -97,6 +98,13 @@ export function CommandPalette() {
   const handleSelect = (item: { action?: string; path?: string }) => {
     if (item.action === 'theme') {
       toggleTheme();
+    } else if (item.action === 'create-ticket') {
+      const lastKey = getLastProjectKey();
+      if (lastKey) {
+        openTicketFormModal(lastKey);
+      } else {
+        navigate('/tickets/new');
+      }
     } else if (item.path) {
       navigate(item.path);
     }

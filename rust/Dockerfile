@@ -11,7 +11,7 @@ FROM rust:1.90-slim AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config libssl-dev && \
+    pkg-config libssl-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./

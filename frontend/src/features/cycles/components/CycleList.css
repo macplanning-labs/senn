@@ -67,7 +67,7 @@
 
 .cycle-form__error {
   font-size: var(--font-size-xs);
-  color: var(--color-status-critical);
+  color: var(--color-error);
   margin-top: var(--space-1);
 }
 

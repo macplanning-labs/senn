@@ -10,6 +10,9 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { MainLayout } from '@/shared/components/layout/MainLayout';
 import { LoginForm } from '@/features/auth/components/LoginForm';
+import { RegisterForm } from '@/features/auth/components/RegisterForm';
+import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
+import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 import { Dashboard } from '@/features/dashboard/components/Dashboard';
 import { TicketListPage } from '@/features/tickets/components/TicketListPage';
 import { TicketForm } from '@/features/tickets/components/TicketForm';
@@ -26,6 +29,8 @@ import { TeamsPage } from '@/features/teams/components/TeamsPage';
 import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsPage';
 import { WorkloadReportPage } from '@/features/reports/components/WorkloadReportPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
+import { TicketFormModal } from '@/features/tickets/components/TicketFormModal';
+import { GeneratePromptModal } from '@/features/tickets/components/GeneratePromptModal';
 import { ToastContainer } from '@/shared/components/ui/ToastContainer';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { getLastProjectKey } from '@/shared/hooks/useProject';
@@ -110,25 +115,6 @@ function ProjectIndex() {
   return <TicketListPage />;
 }
 
-/** プレースホルダーページ */
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div data-testid={`page-${title.toLowerCase()}`}>
-      <h1 style={{
-        fontSize: 'var(--font-size-2xl)',
-        fontWeight: 'var(--font-weight-bold)',
-        color: 'var(--color-text-primary)',
-        marginBottom: 'var(--space-4)',
-      }}>
-        {title}
-      </h1>
-      <p style={{ color: 'var(--color-text-tertiary)' }}>
-        Coming soon...
-      </p>
-    </div>
-  );
-}
-
 export default function App() {
   const { fetchUser, isAuthenticated } = useAuthStore();
 
@@ -143,7 +129,9 @@ export default function App() {
         <Routes>
           {/* 認証ページ（レイアウトなし） */}
           <Route path="/login" element={<LoginForm />} />
-          <Route path="/register" element={<PlaceholderPage title="Register" />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/register" element={<RegisterForm />} />
 
           {/* メインアプリ（サイドバー付きレイアウト） */}
           <Route
@@ -174,6 +162,7 @@ export default function App() {
               <Route path="gantt" element={<GanttChart />} />
               <Route path="dependencies" element={<TaskDependencyFlow />} />
               <Route path="cycles" element={<CycleList />} />
+              <Route path="cycles/:cycleId/:ticketId" element={<CycleDetail />} />
               <Route path="cycles/:cycleId" element={<CycleDetail />} />
               <Route path="settings" element={<ProjectSettingsPage />} />
             </Route>
@@ -201,6 +190,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <CommandPalette />
+        <TicketFormModal />
+        <GeneratePromptModal />
         <ToastContainer />
       </BrowserRouter>
     </QueryClientProvider>

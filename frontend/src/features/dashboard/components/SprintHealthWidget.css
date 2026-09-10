@@ -33,15 +33,15 @@
   background: var(--color-bg-tertiary);
   border-radius: var(--radius-sm);
   font-size: 10px;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-family-mono, monospace);
 }
 
 .sprint-health__analyze-btn {
   padding: 4px 12px;
-  border: 1px solid var(--color-accent-emphasis);
+  border: 1px solid var(--color-accent-primary);
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-accent-emphasis);
+  color: var(--color-accent-primary);
   font-size: var(--font-size-xs);
   font-weight: 600;
   cursor: pointer;
@@ -50,7 +50,7 @@
 }
 
 .sprint-health__analyze-btn:hover:not(:disabled) {
-  background: var(--color-accent-emphasis);
+  background: var(--color-accent-primary);
   color: #fff;
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
@@ -111,7 +111,7 @@
 .sprint-health__alert-task {
   font-weight: 600;
   margin-right: 6px;
-  color: var(--color-accent-emphasis);
+  color: var(--color-accent-primary);
 }
 
 .sprint-health__actions {

@@ -161,24 +161,73 @@ pub async fn get_recent_activity(pool: &PgPool, user_id: i32, limit: i64, staff:
         .collect())
 }
 
-async fn render_ticket_overview(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Value> {
-    let row = sqlx::query(
+async fn render_ticket_overview(pool: &PgPool, project_id: Option<i32>, user_id: i32, staff: bool) -> anyhow::Result<Value> {
+    let filter_clause = if project_id.is_some() {
+        "t.project_id = $1"
+    } else if !staff {
+        "($1::int4 IS NULL AND EXISTS (
+            SELECT 1 FROM tickets_project_membership m
+            WHERE m.project_id = t.project_id AND m.user_id = $2
+              AND m.start_date <= CURRENT_DATE
+              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        ))"
+    } else {
+        "TRUE"
+    };
+
+    let query = format!(
         "SELECT
-            COUNT(*) FILTER (WHERE status = 'open')::int8 AS open,
-            COUNT(*) FILTER (WHERE status = 'in_progress')::int8 AS in_progress,
-            COUNT(*) FILTER (WHERE status = 'resolved')::int8 AS resolved,
-            COUNT(*) FILTER (WHERE status = 'closed')::int8 AS closed
-         FROM tickets_ticket
-         WHERE ($1::int4 IS NULL OR project_id = $1)"
-    )
-    .bind(project_id)
-    .fetch_one(pool)
-    .await?;
+            COUNT(*) FILTER (WHERE t.status = 'open')::int8 AS open,
+            COUNT(*) FILTER (WHERE t.status = 'in_progress')::int8 AS in_progress,
+            COUNT(*) FILTER (WHERE t.status = 'resolved')::int8 AS resolved,
+            COUNT(*) FILTER (WHERE t.status = 'closed')::int8 AS closed
+         FROM tickets_ticket t
+         WHERE {filter_clause}"
+    );
+
+    let row = sqlx::query(&query)
+        .bind(project_id)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
 
     let open: i64 = row.get("open");
     let in_progress: i64 = row.get("in_progress");
     let resolved: i64 = row.get("resolved");
     let closed: i64 = row.get("closed");
+
+    // プロジェクト別内訳(合計クエリと同じfilter_clauseを適用)
+    let project_query = format!(
+        "SELECT p.prefix, p.name,
+            COUNT(*) FILTER (WHERE t.status = 'open')::int8 AS open,
+            COUNT(*) FILTER (WHERE t.status = 'in_progress')::int8 AS in_progress,
+            COUNT(*) FILTER (WHERE t.status = 'resolved')::int8 AS resolved,
+            COUNT(*) FILTER (WHERE t.status = 'closed')::int8 AS closed
+         FROM tickets_ticket t
+         JOIN tickets_project p ON p.id = t.project_id
+         WHERE {filter_clause}
+         GROUP BY p.id, p.prefix, p.name
+         HAVING COUNT(*) > 0
+         ORDER BY p.prefix"
+    );
+
+    let project_rows = sqlx::query(&project_query)
+        .bind(project_id)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+    let by_project: Vec<Value> = project_rows
+        .iter()
+        .map(|r| json!({
+            "project_key": r.get::<String, _>("prefix"),
+            "project_name": r.get::<String, _>("name"),
+            "open": r.get::<i64, _>("open"),
+            "in_progress": r.get::<i64, _>("in_progress"),
+            "resolved": r.get::<i64, _>("resolved"),
+            "closed": r.get::<i64, _>("closed"),
+        }))
+        .collect();
 
     Ok(json!({
         "open": open,
@@ -186,6 +235,7 @@ async fn render_ticket_overview(pool: &PgPool, project_id: Option<i32>) -> anyho
         "resolved": resolved,
         "closed": closed,
         "total": open + in_progress + resolved + closed,
+        "by_project": by_project,
     }))
 }
 
@@ -288,7 +338,7 @@ pub async fn render_widget_data(
 
     match widget_type {
         "stats_cards" => get_dashboard_stats(pool, user_id, project_id, staff).await,
-        "ticket_overview" => render_ticket_overview(pool, project_id).await,
+        "ticket_overview" => render_ticket_overview(pool, project_id, user_id, staff).await,
         "recent_activity" => {
             let items = get_recent_activity(pool, user_id, if config.get("limit").is_some() { limit } else { 10 }, staff).await?;
             Ok(Value::Array(items))

@@ -8,6 +8,10 @@
   width: 100%;
 }
 
+.layout__content:has(> .ticket-list-page) {
+  overflow: hidden;
+}
+
 .ticket-list-page {
   display: grid;
   grid-template-columns: 1fr;

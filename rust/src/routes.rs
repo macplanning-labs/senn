@@ -10,6 +10,8 @@ use axum::{
 };
 use std::sync::Arc;
 use tower_http::services::ServeDir;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 // Step 2: レート制限(IPトークンバケット)は auth-core::infrastructure::rate_limit へ移行済み。
 use auth_core::infrastructure::rate_limit::{ip_rate_limit_layer, IpRateLimitConfig};
 use auth_core::presentation::middleware::origin_check_middleware;
@@ -17,12 +19,13 @@ use crate::presentation::{
     state::AppState,
     middleware::{auth::require_auth, jwt_auth},
     handlers::{
-        auth, auth_api, dashboard, tickets, tickets_api, gantt, burndown, export,
-        milestones, projects, notifications, notification_api2, wiki, categories,
-        holidays, api, health, resource_api, cycle_api,
+        auth, auth_api, password_reset_api, tickets_api,
+        notification_api2,
+        health, resource_api, cycle_api,
         team_api, membership_api, team_rule_api, workflow_status_api, time_entry_api,
         triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api,
-        external_api, ai_api, ai_agent_api, attachment_api, security_api,
+        external_api, ai_api, ai_agent_api, attachment_api, ticket_link_api, security_api, settings_api, api_doc,
+        saved_view_api,
     },
 };
 
@@ -42,7 +45,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/auth/webauthn", get(auth::webauthn_page))
         .route("/health", get(health::check))
         // REST API（APIキー認証 = セッション不要）
-        .route("/api/tickets", get(api::list_tickets).post(api::create_ticket))
         .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
         .route("/api/v1/auth/register/", post(auth_api::register))
         .merge(login_cookie_routes);
@@ -53,6 +55,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
         .route("/api/v1/auth/passkey/login/begin/", post(security_api::passkey_login_begin))
         .route("/api/v1/auth/passkey/login/complete/", post(security_api::passkey_login_complete))
+        .route(
+            "/api/v1/auth/password-reset/request/",
+            post(password_reset_api::password_reset_request),
+        )
+        .route(
+            "/api/v1/auth/password-reset/confirm/",
+            post(password_reset_api::password_reset_confirm),
+        )
         .layer(ip_rate_limit_layer(IpRateLimitConfig::login_preset()));
 
     // GitHub Webhook: 60 requests/min per IP
@@ -70,9 +80,18 @@ pub fn create_router(state: AppState) -> Router {
     let ai_agent_routes = Router::new()
         .route("/api/v1/ai-agent/projects/", post(ai_agent_api::create_project).get(ai_agent_api::list_projects))
         .route("/api/v1/ai-agent/tickets/{ticket_key}/comments/", post(ai_agent_api::add_comment))
-        .route("/api/v1/ai-agent/tickets/{ticket_key}/", axum::routing::patch(ai_agent_api::patch_ticket))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/", get(ai_agent_api::get_ticket).patch(ai_agent_api::patch_ticket).delete(ai_agent_api::delete_ticket))
         .route("/api/v1/ai-agent/tickets/", post(ai_agent_api::create_ticket).get(ai_agent_api::list_tickets))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/dependencies/", get(ai_agent_api::list_ticket_dependencies).post(ai_agent_api::add_dependency))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/dependencies/{dep_id}/", axum::routing::delete(ai_agent_api::delete_dependency))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/links/", get(ai_agent_api::list_ticket_links).post(ai_agent_api::add_ticket_link))
+        .route("/api/v1/ai-agent/tickets/{ticket_key}/links/{link_id}/", axum::routing::delete(ai_agent_api::delete_ticket_link))
         .route("/api/v1/ai-agent/wiki-pages/", get(ai_agent_api::list_wiki_pages))
+        .route("/api/v1/ai-agent/wiki-pages/{slug}/attachments/", post(ai_agent_api::upload_wiki_attachment).get(ai_agent_api::list_wiki_attachments))
+        .route("/api/v1/ai-agent/wiki-pages/{slug}/attachments/{attachment_id}/", axum::routing::put(ai_agent_api::replace_wiki_attachment).delete(ai_agent_api::delete_wiki_attachment))
+        .route("/api/v1/ai-agent/projects/{project_prefix}/dependencies/", get(ai_agent_api::get_project_dependency_graph))
+        .route("/api/v1/ai-agent/cycles/", post(ai_agent_api::create_cycle).get(ai_agent_api::list_cycles))
+        .route("/api/v1/ai-agent/cycles/{id}/", get(ai_agent_api::get_cycle).patch(ai_agent_api::patch_cycle).delete(ai_agent_api::delete_cycle))
         .layer(ip_rate_limit_layer(IpRateLimitConfig::external_api_preset()));
 
     // 認証不要ルート（すべてのサブルーターを統合）
@@ -84,69 +103,10 @@ pub fn create_router(state: AppState) -> Router {
 
     // 認証必須ルート
     let protected_routes = Router::new()
-        // ダッシュボード
-        .route("/", get(dashboard::index))
-        .route("/dashboard/my-tickets", get(dashboard::my_tickets))
         // 認証
         .route("/auth/logout", post(auth::logout))
         .route("/auth/password", get(auth::password_page).post(auth::password_change))
         .route("/auth/mfa", get(auth::mfa_page))
-        // チケット
-        .route("/tickets", get(tickets::list))
-        .route("/tickets/create", get(tickets::create_page).post(tickets::create_submit))
-        .route("/tickets/export", get(export::ticket_excel))
-        .route("/tickets/{key}", get(tickets::detail))
-        .route("/tickets/{id}/edit", get(tickets::edit_page).post(tickets::edit_submit))
-        .route("/tickets/{id}/status", post(tickets::update_status))
-        .route("/tickets/{id}/delete", post(tickets::delete))
-        .route("/tickets/{id}/watch", post(tickets::toggle_watch))
-        .route("/tickets/{id}/comment", post(tickets::add_comment))
-        .route("/comments/{id}/delete", post(tickets::delete_comment))
-        // ガントチャート
-        .route("/tickets/gantt", get(gantt::page))
-        .route("/tickets/gantt/reorder", post(gantt::reorder))
-        .route("/tickets/gantt/update-dates", post(gantt::update_dates))
-        .route("/tickets/gantt/export", get(export::gantt_excel))
-        // バーンダウン
-        .route("/tickets/burndown", get(burndown::page))
-        // マイルストーン
-        .route("/milestones", get(milestones::list))
-        .route("/milestones/create", post(milestones::create))
-        .route("/milestones/{id}/edit", post(milestones::edit))
-        .route("/milestones/{id}/delete", post(milestones::delete))
-        // プロジェクト
-        .route("/tickets/projects", get(projects::list))
-        .route("/tickets/projects/create", post(projects::create))
-        .route("/tickets/projects/{id}/edit", post(projects::edit))
-        .route("/tickets/projects/{id}/delete", post(projects::delete))
-        .route("/tickets/projects/switch", post(projects::switch))
-        // 通知
-        .route("/notifications", get(notifications::list))
-        .route("/notifications/read/{id}", get(notifications::mark_read))
-        .route("/notifications/read-all", post(notifications::mark_all_read))
-        .route("/notifications/unread-count", get(notifications::unread_count))
-        .route("/notifications/dropdown", get(notifications::dropdown))
-        .route("/notifications/settings", post(notifications::update_settings))
-        // Wiki
-        .route("/wiki/shared", get(wiki::shared_list))
-        .route("/wiki/shared/{slug}/export", get(wiki::shared_export))
-        .route("/wiki/{project_id}", get(wiki::project_list))
-        .route("/wiki/{project_id}/new", get(wiki::create_page).post(wiki::create_submit))
-        .route("/wiki/{project_id}/export-all", get(wiki::export_all))
-        .route("/wiki/{project_id}/{slug}", get(wiki::detail))
-        .route("/wiki/{project_id}/{slug}/edit", get(wiki::edit_page).post(wiki::edit_submit))
-        .route("/wiki/{project_id}/{slug}/delete", post(wiki::delete))
-        .route("/wiki/{project_id}/{slug}/history", get(wiki::history))
-        .route("/wiki/{project_id}/{slug}/revision/{rev_id}", get(wiki::revision))
-        .route("/wiki/{project_id}/{slug}/export", get(wiki::export))
-        // 管理
-        .route("/admin/categories", get(categories::list))
-        .route("/admin/categories/create", post(categories::create))
-        .route("/admin/categories/{id}/edit", post(categories::edit))
-        .route("/admin/categories/{id}/delete", post(categories::delete))
-        .route("/tickets/holidays", get(holidays::list))
-        .route("/tickets/holidays/bulk-add", post(holidays::bulk_add))
-        .route("/tickets/holidays/{id}/delete", post(holidays::delete))
         // 認証ミドルウェア適用
         .layer(axum_middleware::from_fn_with_state(state.clone(), require_auth))
         .layer(axum_middleware::from_fn(origin_check_middleware(allowed_origins.clone())));
@@ -161,8 +121,10 @@ pub fn create_router(state: AppState) -> Router {
         // JSON チケット API
         .route("/api/v1/tickets/", get(tickets_api::list).post(tickets_api::create))
         .route("/api/v1/tickets/bulk-import/", post(tickets_api::bulk_import))
+        .route("/api/v1/tickets/bulk-delete/", post(tickets_api::bulk_delete))
         .route("/api/v1/tickets/{ticket_key}/", get(tickets_api::detail).put(tickets_api::update).patch(tickets_api::patch).delete(tickets_api::delete))
         .route("/api/v1/tickets/{ticket_key}/comments/", get(tickets_api::list_comments).post(tickets_api::add_comment))
+        .route("/api/v1/tickets/{ticket_key}/comments/{comment_id}/", axum::routing::patch(tickets_api::update_comment))
         .route("/api/v1/tickets/{ticket_key}/change-logs/", get(tickets_api::change_logs))
         .route("/api/v1/tickets/{ticket_key}/point-history/", get(tickets_api::point_history))
         .route("/api/v1/tickets/{ticket_key}/dependencies/", get(tickets_api::list_dependencies).post(tickets_api::add_dependency))
@@ -170,6 +132,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/tickets/{ticket_key}/git-events/", get(tickets_api::git_events))
         .route("/api/v1/tickets/{ticket_key}/attachments/", post(attachment_api::upload_attachment).get(attachment_api::list_attachments))
         .route("/api/v1/tickets/{ticket_key}/attachments/{attachment_id}/", axum::routing::delete(attachment_api::delete_attachment))
+        .route("/api/v1/tickets/{ticket_key}/links/", get(ticket_link_api::list_links).post(ticket_link_api::add_link))
+        .route("/api/v1/tickets/{ticket_key}/links/{link_id}/", axum::routing::delete(ticket_link_api::delete_link))
         .route("/api/v1/tickets/export/csv/", get(tickets_api::export_csv))
         // JSON 通知 API (Phase 3 第二弾)
         .route("/api/v1/notifications/", get(notification_api2::list))
@@ -179,20 +143,25 @@ pub fn create_router(state: AppState) -> Router {
         // JSON サイクル API (Phase 3 第二弾)
         .route("/api/v1/cycles/", get(cycle_api::list).post(cycle_api::create))
         .route("/api/v1/cycles/velocity/", get(cycle_api::velocity))
-        .route("/api/v1/cycles/{id}/", get(cycle_api::detail).put(cycle_api::update).delete(cycle_api::delete))
+        .route("/api/v1/cycles/{id}/", get(cycle_api::detail).put(cycle_api::update).patch(cycle_api::patch).delete(cycle_api::delete))
         .route("/api/v1/cycles/{id}/progress/", get(cycle_api::progress))
         .route("/api/v1/cycles/{id}/complete/", post(cycle_api::complete))
         .route("/api/v1/cycles/{id}/burndown/", get(cycle_api::burndown))
         // JSON リソース API (Phase 3)
         .route("/api/v1/projects/", get(resource_api::project_list).post(resource_api::project_create))
-        .route("/api/v1/projects/{id}/", get(resource_api::project_detail).put(resource_api::project_update).delete(resource_api::project_delete))
+        .route("/api/v1/projects/{id}/", get(resource_api::project_detail).put(resource_api::project_update).patch(resource_api::project_patch).delete(resource_api::project_delete))
         .route("/api/v1/projects/{id}/dependencies/", get(resource_api::project_dependency_graph))
+        .route("/api/v1/projects/{project_id}/saved-views/", get(saved_view_api::list).post(saved_view_api::create))
+        .route("/api/v1/saved-views/{id}/", axum::routing::patch(saved_view_api::update).delete(saved_view_api::delete))
         .route("/api/v1/categories/", get(resource_api::category_list).post(resource_api::category_create))
         .route("/api/v1/categories/{id}/", get(resource_api::category_detail).put(resource_api::category_update).delete(resource_api::category_delete))
         .route("/api/v1/milestones/", get(resource_api::milestone_list).post(resource_api::milestone_create))
         .route("/api/v1/milestones/{id}/", get(resource_api::milestone_detail).put(resource_api::milestone_update).delete(resource_api::milestone_delete))
         .route("/api/v1/labels/", get(resource_api::label_list).post(resource_api::label_create))
         .route("/api/v1/labels/{id}/", get(resource_api::label_detail).put(resource_api::label_update).delete(resource_api::label_delete))
+        .route("/api/v1/holidays/", get(resource_api::holiday_list))
+        .route("/api/v1/holidays/bulk-add/", post(resource_api::holiday_bulk_add))
+        .route("/api/v1/holidays/{id}/", axum::routing::delete(resource_api::holiday_delete))
 
         .route("/api/v1/teams/", get(team_api::team_list).post(team_api::team_create))
         .route("/api/v1/teams/{id}/", get(team_api::team_detail).put(team_api::team_update).delete(team_api::team_delete))
@@ -253,10 +222,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/settings/security/passkeys/", get(security_api::list_passkeys))
         .route("/api/v1/settings/security/passkey/{id}/delete/", post(security_api::delete_passkey))
 
+        .route("/api/v1/settings/ai/", get(settings_api::get_ai_settings).patch(settings_api::update_ai_settings))
+
         .route("/api/v1/ai/suggest-points/", post(ai_api::suggest_points))
         .route("/api/v1/ai/sprint-health/", post(ai_api::sprint_health))
         .route("/api/v1/ai/context-analysis/", post(ai_api::context_analysis))
         .route("/api/v1/ai/close-analysis/", post(ai_api::close_analysis))
+        .route("/api/v1/ai/generate-prompt-text/", post(ai_api::generate_prompt_text))
         .route("/api/v1/ai/status/", get(ai_api::ai_status))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
 
@@ -264,6 +236,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(public_routes)
         .merge(protected_routes)
         .merge(jwt_protected_routes)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc::ApiDoc::openapi()))
         // 静的ファイル
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/media", ServeDir::new("media"))

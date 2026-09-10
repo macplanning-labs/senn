@@ -124,6 +124,15 @@
   z-index: var(--z-dropdown);
   padding: var(--space-1);
   animation: dropdownFadeIn 150ms ease;
+  max-height: min(60vh, 420px);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar__project-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 @keyframes dropdownFadeIn {
@@ -192,6 +201,7 @@
 
 /* ── プロジェクト作成 ── */
 .sidebar__project-create {
+  flex-shrink: 0;
   border-top: 1px solid var(--color-border-default);
   padding: var(--space-2);
 }
@@ -414,6 +424,68 @@
 
 .sidebar__logout:hover {
   color: var(--color-error);
+}
+
+/* ── Saved Views セクション ── */
+.sidebar__saved-views {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+}
+
+.sidebar__saved-view-item {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__saved-view-item:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar__saved-view-item--active {
+  background-color: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.sidebar__saved-view-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__saved-view-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-align: left;
+}
+
+.sidebar__saved-view-open-link {
+  color: var(--color-accent-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.sidebar__saved-view-open-link:hover {
+  color: var(--color-accent-primary-hover);
+  text-decoration: underline;
 }
 
 /* ── レスポンシブ: タブレット ── */

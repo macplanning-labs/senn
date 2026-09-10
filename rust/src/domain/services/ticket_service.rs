@@ -24,19 +24,6 @@ pub struct CreateTicketRequest {
     pub due_date: Option<NaiveDate>,
 }
 
-/// チケット更新リクエスト
-pub struct UpdateTicketRequest {
-    pub title: String,
-    pub description: String,
-    pub priority: String,
-    pub ticket_type: String,
-    pub category_id: Option<i32>,
-    pub assignee_id: Option<i32>,
-    pub milestone_id: Option<i32>,
-    pub start_date: Option<NaiveDate>,
-    pub due_date: Option<NaiveDate>,
-}
-
 /// チケット作成（キー自動生成 + 初期ステータス履歴記録）
 pub async fn create_ticket(
     pool: &PgPool,
@@ -74,64 +61,7 @@ pub async fn create_ticket(
     Ok(ticket_id)
 }
 
-/// チケット更新
-pub async fn update_ticket(
-    pool: &PgPool,
-    ticket_id: i32,
-    req: &UpdateTicketRequest,
-) -> anyhow::Result<()> {
-    ticket_repo::update(
-        pool, ticket_id,
-        &req.title, &req.description,
-        &req.priority, &req.ticket_type,
-        req.category_id, req.assignee_id, req.milestone_id,
-        req.start_date, req.due_date,
-    ).await?;
-
-    Ok(())
-}
-
-/// ステータス変更（遷移ルールチェック + 履歴記録）
-pub async fn change_status(
-    pool: &PgPool,
-    ticket_id: i32,
-    new_status_str: &str,
-    changed_by_id: i32,
-) -> anyhow::Result<()> {
-    let ticket = ticket_repo::find_by_id(pool, ticket_id).await?
-        .ok_or_else(|| anyhow::anyhow!("チケットが見つかりません: {}", ticket_id))?;
-
-    let current = TicketStatus::from_db(&ticket.status);
-    let new_status = TicketStatus::from_db(new_status_str);
-
-    // 遷移ルールチェック
-    if !current.can_transition_to(&new_status) {
-        return Err(anyhow::anyhow!(
-            "ステータスを {} から {} に変更できません",
-            current.label(), new_status.label()
-        ));
-    }
-
-    // DB 更新
-    ticket_repo::update_status(pool, ticket_id, new_status.label()).await?;
-
-    // 履歴記録
-    history_repo::save(
-        pool, ticket_id,
-        current.label(), new_status.label(),
-        changed_by_id,
-    ).await?;
-
-    Ok(())
-}
-
-/// チケット削除
-pub async fn delete_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<()> {
-    ticket_repo::delete(pool, ticket_id).await
-}
-
 /// 子チケットの進捗から親チケットの進捗率を計算
-#[allow(dead_code)]
 pub fn calc_parent_progress(children: &[Ticket]) -> i32 {
     if children.is_empty() {
         return 0;
@@ -140,20 +70,4 @@ pub fn calc_parent_progress(children: &[Ticket]) -> i32 {
         .map(|c| TicketStatus::from_db(&c.status).progress_pct())
         .sum();
     total / children.len() as i32
-}
-
-/// ウォッチ切り替え（トグル）
-pub async fn toggle_watch(
-    pool: &PgPool,
-    ticket_id: i32,
-    user_id: i32,
-) -> anyhow::Result<bool> {
-    let watching = ticket_repo::is_watching(pool, ticket_id, user_id).await?;
-    if watching {
-        ticket_repo::remove_watcher(pool, ticket_id, user_id).await?;
-        Ok(false)
-    } else {
-        ticket_repo::add_watcher(pool, ticket_id, user_id).await?;
-        Ok(true)
-    }
 }

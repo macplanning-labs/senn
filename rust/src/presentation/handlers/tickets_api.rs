@@ -5,7 +5,7 @@
 
 use axum::{
     extract::{State, Path, Query},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     http::{StatusCode, HeaderMap, header},
     Json,
     Extension,
@@ -17,7 +17,9 @@ use sqlx::Row;
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::ticket_repo;
+use crate::infrastructure::repositories::resource_repo;
 use crate::domain::models::ticket_api::*;
+use crate::domain::services::notification_service;
 
 // =============================================================================
 // リクエスト構造体
@@ -26,27 +28,21 @@ use crate::domain::models::ticket_api::*;
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub status: Option<String>,
-    #[serde(rename = "status__in")]
-    pub status_in: Option<String>,
+    pub status__in: Option<String>,
     pub priority: Option<String>,
-    #[serde(rename = "priority__in")]
-    pub priority_in: Option<String>,
+    pub priority__in: Option<String>,
     pub assignees: Option<i32>,
     pub project: Option<i32>,
-    #[serde(rename = "project__prefix")]
-    pub project_prefix: Option<String>,
+    pub project__prefix: Option<String>,
     pub milestone: Option<i32>,
+    pub cycle: Option<i32>,
     pub category: Option<i32>,
     pub labels: Option<i32>,
     pub parent: Option<i32>,
-    #[serde(rename = "parent__isnull")]
-    pub parent_isnull: Option<bool>,
-    #[serde(rename = "due_date__gte")]
-    pub due_date_gte: Option<String>,
-    #[serde(rename = "due_date__lte")]
-    pub due_date_lte: Option<String>,
-    #[serde(rename = "due_date__isnull")]
-    pub due_date_isnull: Option<bool>,
+    pub parent__isnull: Option<bool>,
+    pub due_date__gte: Option<String>,
+    pub due_date__lte: Option<String>,
+    pub due_date__isnull: Option<bool>,
     pub search: Option<String>,
     pub ordering: Option<String>,
     pub page: Option<i64>,
@@ -78,6 +74,14 @@ pub struct ErrorResponse {
 // =============================================================================
 
 /// チケット一覧 GET /api/v1/tickets/
+#[utoipa::path(
+    get,
+    path = "/api/v1/tickets/",
+    tag = "tickets",
+    responses(
+        (status = 200, description = "チケット一覧を返す")
+    )
+)]
 pub async fn list(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthUser>,
@@ -90,7 +94,7 @@ pub async fn list(
     if let Some(status_str) = params.status {
         filter.status = Some(vec![status_str]);
     }
-    if let Some(status_in) = params.status_in {
+    if let Some(status_in) = params.status__in {
         filter.status = Some(status_in.split(',').map(|s| s.to_string()).collect());
     }
 
@@ -98,31 +102,32 @@ pub async fn list(
     if let Some(priority_str) = params.priority {
         filter.priority = Some(vec![priority_str]);
     }
-    if let Some(priority_in) = params.priority_in {
+    if let Some(priority_in) = params.priority__in {
         filter.priority = Some(priority_in.split(',').map(|s| s.to_string()).collect());
     }
 
     filter.assignees = params.assignees;
     filter.project = params.project;
-    filter.project_prefix = params.project_prefix;
+    filter.project_prefix = params.project__prefix;
     filter.milestone = params.milestone;
+    filter.cycle = params.cycle;
     filter.category = params.category;
     filter.labels = params.labels;
     filter.parent = params.parent;
-    filter.parent_isnull = params.parent_isnull;
+    filter.parent_isnull = params.parent__isnull;
 
     // due_date
-    if let Some(due_gte) = params.due_date_gte {
+    if let Some(due_gte) = params.due_date__gte {
         if let Ok(date) = NaiveDate::parse_from_str(&due_gte, "%Y-%m-%d") {
             filter.due_date_gte = Some(date);
         }
     }
-    if let Some(due_lte) = params.due_date_lte {
+    if let Some(due_lte) = params.due_date__lte {
         if let Ok(date) = NaiveDate::parse_from_str(&due_lte, "%Y-%m-%d") {
             filter.due_date_lte = Some(date);
         }
     }
-    filter.due_date_isnull = params.due_date_isnull;
+    filter.due_date_isnull = params.due_date__isnull;
 
     let sort = params.ordering.as_deref().unwrap_or("-updated_at");
     let search = params.search.as_deref();
@@ -183,6 +188,18 @@ pub async fn list(
 }
 
 /// チケット詳細 GET /api/v1/tickets/{ticket_key}/
+#[utoipa::path(
+    get,
+    path = "/api/v1/tickets/{ticket_key}/",
+    tag = "tickets",
+    params(
+        ("ticket_key" = String, Path, description = "チケットキー(例: DEMO-000001)")
+    ),
+    responses(
+        (status = 200, description = "チケット詳細を返す"),
+        (status = 404, description = "チケットが見つからない")
+    )
+)]
 pub async fn detail(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthUser>,
@@ -204,13 +221,16 @@ pub async fn detail(
             );
             (StatusCode::OK, headers, Json(ticket)).into_response()
         }
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                detail: "見つかりません".to_string(),
-            }),
-        )
-            .into_response(),
+        Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
@@ -313,6 +333,18 @@ pub async fn create(
             .into_response();
     }
 
+    // 作成者・担当者をウォッチャー登録(以降のコメント/ステータス変更等の通知先になる)
+    if let Err(e) = ticket_repo::add_watcher(&state.pool, ticket_id, auth.user_id).await {
+        tracing::error!("add_watcher failed: {:?}", e);
+    }
+    for &assignee_id in &body.assignees {
+        if assignee_id != auth.user_id {
+            if let Err(e) = ticket_repo::add_watcher(&state.pool, ticket_id, assignee_id).await {
+                tracing::error!("add_watcher failed: {:?}", e);
+            }
+        }
+    }
+
     // 作成後の詳細を取得してLOOKUP
     let ticket_key_result: Option<String> = match sqlx::query_scalar(
         "SELECT ticket_key FROM tickets_ticket WHERE id = $1"
@@ -346,6 +378,48 @@ pub async fn create(
             }),
         )
             .into_response()
+    }
+}
+
+/// ステータス変更・担当者追加の通知を送る(失敗してもチケット更新自体は成功のまま、ログのみ)。
+async fn notify_ticket_change(
+    state: &AppState,
+    actor_id: i32,
+    events: &ticket_repo::TicketChangeEvents,
+) {
+    if let Some((old_status, new_status)) = &events.status_change {
+        if let Err(e) = notification_service::notify_status_change(
+            &state.pool, &state.mail_sender, events.ticket_id, actor_id, old_status, new_status,
+        ).await {
+            tracing::error!("notify_status_change failed: {:?}", e);
+        }
+    }
+
+    if !events.newly_assigned.is_empty() {
+        for &uid in &events.newly_assigned {
+            if let Err(e) = ticket_repo::add_watcher(&state.pool, events.ticket_id, uid).await {
+                tracing::error!("add_watcher failed: {:?}", e);
+            }
+        }
+
+        let names: Result<Vec<String>, _> = sqlx::query_scalar(
+            "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+        )
+        .bind(&events.newly_assigned)
+        .fetch_all(&state.pool)
+        .await;
+
+        match names {
+            Ok(names) if !names.is_empty() => {
+                if let Err(e) = notification_service::notify_assigned(
+                    &state.pool, &state.mail_sender, events.ticket_id, actor_id, &names.join(", "),
+                ).await {
+                    tracing::error!("notify_assigned failed: {:?}", e);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::error!("assignee username lookup failed: {:?}", e),
+        }
     }
 }
 
@@ -447,7 +521,7 @@ pub async fn update(
             )
                 .into_response();
         }
-        Ok(Some(_)) => {
+        Ok(Some(events)) => {
             // コミット
             if let Err(e) = tx.commit().await {
             tracing::error!("transaction commit failed: {:?}", e);
@@ -459,6 +533,8 @@ pub async fn update(
                 )
                     .into_response();
             }
+
+            notify_ticket_change(&state, auth.user_id, &events).await;
 
             // 更新後の詳細を取得
             match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
@@ -473,6 +549,7 @@ pub async fn update(
             }
         }
         Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
             (
                 StatusCode::NOT_FOUND,
@@ -585,7 +662,7 @@ pub async fn patch(
             )
                 .into_response()
         }
-        Ok(Some(_)) => {
+        Ok(Some(events)) => {
             if let Err(e) = tx.commit().await {
                 tracing::error!("transaction commit failed: {:?}", e);
                 return (
@@ -596,6 +673,8 @@ pub async fn patch(
                 )
                     .into_response();
             }
+
+            notify_ticket_change(&state, auth.user_id, &events).await;
 
             match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
@@ -609,6 +688,7 @@ pub async fn patch(
             }
         }
         Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
             (
                 StatusCode::NOT_FOUND,
@@ -629,13 +709,16 @@ pub async fn delete(
 ) -> impl IntoResponse {
     match ticket_repo::api_delete(&state.pool, &ticket_key).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                detail: "見つかりません".to_string(),
-            }),
-        )
-            .into_response(),
+        Ok(false) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
@@ -671,6 +754,7 @@ pub async fn add_comment(
     let ticket_id = match ticket_id_opt {
         Some(id) => id,
         None => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -684,7 +768,14 @@ pub async fn add_comment(
     // コメント追加
     match ticket_repo::api_add_comment(&state.pool, ticket_id, auth.user_id, &body.body).await
     {
-        Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
+        Ok(comment) => {
+            if let Err(e) = notification_service::notify_comment(
+                &state.pool, &state.mail_sender, ticket_id, auth.user_id, &body.body,
+            ).await {
+                tracing::error!("notify_comment failed: {:?}", e);
+            }
+            (StatusCode::CREATED, Json(comment)).into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
@@ -719,6 +810,7 @@ pub async fn list_comments(
     let ticket_id = match ticket_id_opt {
         Some(id) => id,
         None => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -731,7 +823,7 @@ pub async fn list_comments(
 
     // コメント取得
     let comments_rows = match sqlx::query(
-        "SELECT c.id::int4, c.body, c.created_at, c.author_id::int4, u.id::int4, u.username, u.email, u.display_name
+        "SELECT c.id::int4, c.body, c.created_at, c.author_id::int4, u.id::int4, u.username, u.email, u.display_name, c.updated_at
          FROM tickets_comment c
          LEFT JOIN accounts_user u ON c.author_id = u.id
          WHERE c.ticket_id = $1
@@ -769,11 +861,97 @@ pub async fn list_comments(
                 body: row.get(1),
                 author,
                 created_at: row.get(2),
+                updated_at: row.get(8),
             }
         })
         .collect();
 
     (StatusCode::OK, Json(comments)).into_response()
+}
+
+/// コメント編集 PATCH /api/v1/tickets/{ticket_key}/comments/{comment_id}/
+///
+/// 投稿者本人のみ編集可能。他人のコメントを編集しようとした場合は403を返す。
+pub async fn update_comment(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path((ticket_key, comment_id)): Path<(String, i32)>,
+    Json(body): Json<AddCommentIn>,
+) -> impl IntoResponse {
+    // ticket_key から ticket_id を解決
+    let ticket_id_opt: Option<i32> = match sqlx::query_scalar(
+        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+    )
+    .bind(&ticket_key)
+    .fetch_optional(&state.pool)
+    .await
+    {
+        Ok(res) => res,
+        Err(e) => { tracing::error!("ticket lookup failed: {:?}", e); None }
+    };
+
+    let ticket_id = match ticket_id_opt {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    // コメントの所属チケット・投稿者を確認
+    let owner = match ticket_repo::api_find_comment_owner(&state.pool, comment_id).await {
+        Ok(owner) => owner,
+        Err(e) => {
+            tracing::error!("comment lookup failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    let (comment_ticket_id, author_id) = match owner {
+        Some(o) => o,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse { detail: "コメントが見つかりません".to_string() }),
+            )
+                .into_response();
+        }
+    };
+
+    if comment_ticket_id != ticket_id {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse { detail: "コメントが見つかりません".to_string() }),
+        )
+            .into_response();
+    }
+
+    if author_id != auth.user_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse { detail: "自分が投稿したコメントのみ編集できます".to_string() }),
+        )
+            .into_response();
+    }
+
+    match ticket_repo::api_update_comment(&state.pool, comment_id, &body.body).await {
+        Ok(comment) => (StatusCode::OK, Json(comment)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// 変更ログ取得 GET /api/v1/tickets/{ticket_key}/change-logs/
@@ -797,6 +975,7 @@ pub async fn change_logs(
     let ticket_id = match ticket_id_opt {
         Some(id) => id,
         None => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -844,6 +1023,7 @@ pub async fn point_history(
     let ticket_id = match ticket_id_opt {
         Some(id) => id,
         None => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse {
@@ -887,6 +1067,7 @@ pub async fn list_dependencies(
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse { detail: "見つかりません".to_string() }),
@@ -928,6 +1109,7 @@ pub async fn add_dependency(
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse { detail: "見つかりません".to_string() }),
@@ -981,6 +1163,11 @@ pub async fn add_dependency(
             Json(ErrorResponse { detail: "指定されたチケットが見つかりません。".to_string() }),
         )
             .into_response(),
+        Ok(CreateDependencyResult::CircularDependency) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { detail: "この依存関係を追加すると循環依存になります。".to_string() }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
@@ -1003,6 +1190,7 @@ pub async fn delete_dependency(
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse { detail: "見つかりません".to_string() }),
@@ -1047,6 +1235,7 @@ pub async fn git_events(
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse { detail: "見つかりません".to_string() }),
@@ -1196,10 +1385,10 @@ pub async fn bulk_import(
                 imported += 1;
             }
             Err(e) => {
-                tracing::warn!("Failed to create ticket at index {}: {:?}", idx, e);
+                tracing::warn!("Failed to create ticket at index {}: {}", idx, e);
                 errors.push(BulkImportError {
                     index: idx,
-                    error: format!("{}", e),
+                    error: "処理に失敗しました".to_string(),
                 });
             }
         }
@@ -1226,4 +1415,161 @@ pub async fn bulk_import(
         Json(BulkImportOut { imported, errors }),
     )
         .into_response()
+}
+
+// =============================================================================
+// バルク削除（プロジェクトオーナーのみ）
+// =============================================================================
+
+#[derive(Deserialize)]
+pub struct BulkDeleteIn {
+    /// 削除対象のチケットキー（指定時は delete_all より優先）
+    pub ticket_keys: Option<Vec<String>>,
+    /// delete_all=true のとき、プロジェクト内の全チケットを削除
+    pub project_id: Option<i32>,
+    pub delete_all: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct BulkDeleteOut {
+    pub deleted: i32,
+}
+
+/// チケット一括削除 POST /api/v1/tickets/bulk-delete/
+/// プロジェクトオーナーのみ実行可能。物理削除（子チケットも再帰的に削除）。
+pub async fn bulk_delete(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<BulkDeleteIn>,
+) -> impl IntoResponse {
+    let ticket_keys: Vec<String> = if body.delete_all == Some(true) {
+        let project_id = match body.project_id {
+            Some(id) => id,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: "delete_all には project_id が必要です".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+        match ticket_repo::list_root_ticket_keys_by_project(&state.pool, project_id).await {
+            Ok(keys) => keys,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        body.ticket_keys.unwrap_or_default()
+    };
+
+    if ticket_keys.is_empty() {
+        return (StatusCode::OK, Json(BulkDeleteOut { deleted: 0 })).into_response();
+    }
+
+    // 全チケットが同一プロジェクトに属することを確認し、オーナー権限を検証
+    let mut project_id: Option<i32> = None;
+    for key in &ticket_keys {
+        match ticket_repo::get_ticket_project_id(&state.pool, key).await {
+            Ok(Some(pid)) => {
+                if let Some(existing) = project_id {
+                    if existing != pid {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                detail: "異なるプロジェクトのチケットをまとめて削除することはできません".to_string(),
+                            }),
+                        )
+                            .into_response();
+                    }
+                } else {
+                    project_id = Some(pid);
+                }
+            }
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(ErrorResponse {
+                        detail: format!("チケット '{}' が見つかりません", key),
+                    }),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    let project_id = match project_id {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "削除対象のチケットがありません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    match resource_repo::is_project_owner(&state.pool, project_id, auth.user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    detail: "プロジェクトオーナーのみチケットを一括削除できます".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let mut deleted = 0i32;
+    for key in &ticket_keys {
+        match ticket_repo::api_delete(&state.pool, key).await {
+            Ok(true) => deleted += 1,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::error!("bulk delete failed for {}: {:?}", key, e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: format!("削除中にエラーが発生しました（{}件削除済み）", deleted),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(BulkDeleteOut { deleted })).into_response()
 }

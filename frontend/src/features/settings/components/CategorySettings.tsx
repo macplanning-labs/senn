@@ -145,10 +145,15 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
     <div>
       {/* ヘッダー */}
       <div className="settings-section__header">
-        <h2 className="settings-section__title">
-          Categories
-          <span className="settings-section__count">({categories.length})</span>
-        </h2>
+        <div>
+          <h2 className="settings-section__title">
+            Categories
+            <span className="settings-section__count">({categories.length})</span>
+          </h2>
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+            {t('settings.categoriesHelp')}
+          </div>
+        </div>
         <button
           className="settings-section__add-btn"
           onClick={() => openCreateModal(1)}

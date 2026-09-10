@@ -6,8 +6,11 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
+import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import './NotificationDropdown.css';
 
@@ -20,6 +23,7 @@ interface Notification {
   wikiTitle: string | null;
   isRead: boolean;
   createdAt: string;
+  projectKey?: string | null;
 }
 
 const categoryIcons: Record<string, string> = {
@@ -30,6 +34,7 @@ const categoryIcons: Record<string, string> = {
   overdue: '🔥',
   mentioned: '📢',
   wiki_updated: '📄',
+  cycle_auto_completed: '📅',
 };
 
 function timeAgo(dateStr: string): string {
@@ -45,7 +50,11 @@ function timeAgo(dateStr: string): string {
 
 export function NotificationDropdown() {
   const [isOpen, setIsOpen] = useState(false);
+  const bellRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; right: number } | null>(null);
+  const navigate = useNavigate();
+  const { projectKey: routeProjectKey } = useProject();
 
   // 未読数（30秒ポーリング）
   const { data: unreadData } = useQuery<{ count: number }>({
@@ -105,10 +114,24 @@ export function NotificationDropdown() {
     errorMessage: '一括既読に失敗しました。',
   });
 
-  // 外側クリックで閉じる
+  // ドロップダウンを開いた時、ベルボタン基準で位置を計算する(document.bodyへポータルするため)
+  useEffect(() => {
+    if (!isOpen || !bellRef.current) return;
+    const rect = bellRef.current.getBoundingClientRect();
+    setPosition({
+      top: rect.bottom + 8,
+      right: window.innerWidth - rect.right,
+    });
+  }, [isOpen]);
+
+  // 外側クリックで閉じる(ドロップダウンはportalでdocument.body直下にあるためdropdownRefも確認)
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        bellRef.current && !bellRef.current.contains(target) &&
+        (!dropdownRef.current || !dropdownRef.current.contains(target))
+      ) {
         setIsOpen(false);
       }
     }
@@ -118,13 +141,30 @@ export function NotificationDropdown() {
     }
   }, [isOpen]);
 
+  // 通知クリック時のナビゲーション
+  function handleNotificationClick(notification: Notification) {
+    if (!notification.isRead) {
+      readMutation.mutate(notification.id);
+    }
+
+    if (notification.ticketKey) {
+      navigate(`/tickets`);
+    } else if (notification.category === 'cycle_auto_completed') {
+      const projectKey = notification.projectKey ?? routeProjectKey;
+      if (projectKey) {
+        navigate(`/p/${projectKey}/cycles`);
+      }
+    }
+  }
+
   const unreadCount = unreadData?.count ?? 0;
   const notifications = notificationsData?.results ?? [];
 
   return (
-    <div className="notif" ref={dropdownRef} data-testid="notification-dropdown">
+    <div className="notif" data-testid="notification-dropdown">
       {/* ベルアイコン */}
       <button
+        ref={bellRef}
         className="notif__bell"
         onClick={() => setIsOpen(!isOpen)}
         data-testid="notif-bell"
@@ -137,9 +177,14 @@ export function NotificationDropdown() {
         )}
       </button>
 
-      {/* ドロップダウン */}
-      {isOpen && (
-        <div className="notif__dropdown" data-testid="notif-panel">
+      {/* ドロップダウン(document.body直下へportal。ヘッダーのスタッキングコンテキストに閉じ込められてZ-orderが壊れるのを防ぐ) */}
+      {isOpen && position && createPortal(
+        <div
+          ref={dropdownRef}
+          className="notif__dropdown"
+          style={{ top: position.top, right: position.right }}
+          data-testid="notif-panel"
+        >
           <div className="notif__header">
             <span className="notif__header-title">Notifications</span>
             {unreadCount > 0 && (
@@ -161,7 +206,7 @@ export function NotificationDropdown() {
                 <div
                   key={n.id}
                   className={`notif__item ${!n.isRead ? 'notif__item--unread' : ''}`}
-                  onClick={() => { if (!n.isRead) readMutation.mutate(n.id); }}
+                  onClick={() => handleNotificationClick(n)}
                   data-testid={`notif-item-${n.id}`}
                 >
                   <span className="notif__icon">
@@ -179,7 +224,8 @@ export function NotificationDropdown() {
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

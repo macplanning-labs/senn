@@ -12,6 +12,7 @@ import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
 import { SecuritySettings } from './SecuritySettings';
+import { AiSettings } from './AiSettings';
 import './SettingsPage.css';
 
 const LANGUAGES = [
@@ -162,6 +163,9 @@ export function SettingsPage() {
           )}
         </div>
       </section>
+
+      {/* AI / Ollama 設定 */}
+      <AiSettings />
 
       {/* セキュリティ設定 */}
       <SecuritySettings />

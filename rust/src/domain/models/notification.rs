@@ -17,9 +17,9 @@ pub enum NotificationCategory {
     DueSoon,
     Overdue,
     Mentioned,
+    CycleAutoCompleted,
 }
 
-#[allow(dead_code)]
 impl NotificationCategory {
     pub fn label(&self) -> &str {
         match self {
@@ -29,6 +29,7 @@ impl NotificationCategory {
             Self::DueSoon => "期限間近",
             Self::Overdue => "期限超過",
             Self::Mentioned => "メンション",
+            Self::CycleAutoCompleted => "Cycle自動完了",
         }
     }
 
@@ -40,6 +41,7 @@ impl NotificationCategory {
             "due_soon" => Self::DueSoon,
             "overdue" => Self::Overdue,
             "mentioned" => Self::Mentioned,
+            "cycle_auto_completed" => Self::CycleAutoCompleted,
             _ => Self::Commented,
         }
     }
@@ -52,6 +54,7 @@ impl NotificationCategory {
             Self::DueSoon => "due_soon",
             Self::Overdue => "overdue",
             Self::Mentioned => "mentioned",
+            Self::CycleAutoCompleted => "cycle_auto_completed",
         }
     }
 
@@ -63,6 +66,7 @@ impl NotificationCategory {
             Self::DueSoon => "⏰",
             Self::Overdue => "🔥",
             Self::Mentioned => "📢",
+            Self::CycleAutoCompleted => "📅",
         }
     }
 }
@@ -102,7 +106,6 @@ impl Notification {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-#[allow(dead_code)]
 pub struct NotificationLog {
     pub id: i32,
     pub ticket_id: i32,

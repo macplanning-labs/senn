@@ -356,10 +356,10 @@ pub async fn passkey_register_begin(
             ).into_response()
         }
         Err(e) => {
-            tracing::error!("パスキー登録開始エラー: {:?}", e);
+            tracing::error!("[パスキー/登録開始] 処理=登録初期化 結果=失敗 影響=登録できない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"detail": format!("{}", e)})),
+                Json(serde_json::json!({"detail": "内部エラーが発生しました"})),
             ).into_response()
         }
     }

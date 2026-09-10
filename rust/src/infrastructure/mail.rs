@@ -7,16 +7,16 @@ use crate::config::AppConfig;
 use std::sync::Arc;
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct MailSender {
     transport: Option<Arc<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>>>,
     from: String,
 }
 
-#[allow(dead_code)]
 impl MailSender {
     /// 設定から MailSender を構築
     pub fn new(config: &AppConfig) -> Self {
+        let is_production = std::env::var("ENV_NAME").as_deref() == Ok("production");
+
         let transport = match (&config.smtp_host, &config.smtp_user, &config.smtp_password) {
             (Some(host), Some(user), Some(pass)) => {
                 let port = config.smtp_port.unwrap_or(587);
@@ -39,7 +39,11 @@ impl MailSender {
                 }
             }
             _ => {
-                tracing::info!("📧 SMTP not configured, emails will be logged only");
+                if is_production {
+                    tracing::error!("[通知/SMTP] 処理=SMTP初期化 結果=失敗 影響=メール通知が実送信されない（DRY-RUNのみ）");
+                } else {
+                    tracing::info!("📧 SMTP not configured, emails will be logged only");
+                }
                 None
             }
         };
@@ -47,6 +51,11 @@ impl MailSender {
         let from = config.smtp_user.clone().unwrap_or_else(|| "noreply@wip.local".to_string());
 
         Self { transport, from }
+    }
+
+    /// SMTP トランスポートが構成済みか（実送信可能か）
+    pub fn is_configured(&self) -> bool {
+        self.transport.is_some()
     }
 
     /// メール送信

@@ -11,6 +11,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { apiClient } from '@/shared/api/client';
+import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeams } from '@/features/teams/hooks/useTeams';
 import './TicketForm.css';
@@ -77,12 +78,23 @@ interface ParentTicketOption {
   title: string;
 }
 
-export function TicketForm() {
+interface TicketFormProps {
+  /** モーダルから開く場合、URLの:projectKeyが取れないのでこちらを優先する */
+  projectKeyOverride?: string;
+  /** 指定するとモーダルモードになり、成功/キャンセル時にnavigateの代わりにこれを呼ぶ */
+  onClose?: () => void;
+}
+
+export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}) {
   const { t } = useTranslation();
   const { ticketId } = useParams<{ ticketId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { projectKey, currentProject } = useProject();
+  const { projectKey: urlProjectKey, currentProject: urlCurrentProject, projectList } = useProject();
+  const projectKey = projectKeyOverride ?? urlProjectKey;
+  const currentProject = projectKeyOverride
+    ? projectList.find((p) => p.prefix.toLowerCase() === projectKeyOverride.toLowerCase()) ?? null
+    : urlCurrentProject;
   const isEditing = !!ticketId && ticketId !== 'new';
 
   // 編集時は既存データを取得
@@ -168,7 +180,7 @@ export function TicketForm() {
     priority: 'medium',
     ticket_type: 'issue',
     due_date: null,
-    start_date: null,
+    start_date: new Date().toISOString().slice(0, 10),
     story_points: null,
   });
   const [linkCopied, setLinkCopied] = useState(false);
@@ -181,6 +193,7 @@ export function TicketForm() {
   const [teamId, setTeamId] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isInitialized, setIsInitialized] = useState(!isEditing);
+  const [pendingImages, setPendingImages] = useState<{ file: File; previewUrl: string }[]>([]);
 
   // 既存データが取得できたらフォームに反映
   if (isEditing && existingTicket && !isInitialized) {
@@ -217,16 +230,46 @@ export function TicketForm() {
         assigned_team: teamId ? Number(teamId) : null,
         project: currentProject?.id,
       };
+
+      let targetTicketKey: string;
       if (isEditing) {
         await apiClient.patch(`/tickets/${ticketId}/`, payload);
+        targetTicketKey = ticketId as string;
       } else {
-        await apiClient.post('/tickets/', payload);
+        const res = await apiClient.post<{ id: number; ticketKey: string }>('/tickets/', payload);
+        targetTicketKey = res.data.ticketKey;
+      }
+
+      if (pendingImages.length > 0) {
+        const uploaded: { filename: string; fileUrl: string }[] = [];
+        for (const img of pendingImages) {
+          const fileFormData = new FormData();
+          fileFormData.append('file', img.file);
+          const uploadRes = await apiClient.post<{ filename: string; fileUrl: string }>(
+            `/tickets/${targetTicketKey}/attachments/`,
+            fileFormData,
+          );
+          uploaded.push({ filename: uploadRes.data.filename, fileUrl: uploadRes.data.fileUrl });
+        }
+        const imagesMarkdown = uploaded.map((u) => `![${u.filename}](${u.fileUrl})`).join('\n');
+        await apiClient.patch(`/tickets/${targetTicketKey}/`, {
+          ...payload,
+          description: `${payload.description}\n\n${imagesMarkdown}`,
+        });
       }
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+      setPendingImages([]);
+      for (const key of TICKET_DASHBOARD_INVALIDATE_KEYS) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
       if (isEditing) {
         void queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
+      }
+      if (onClose) {
+        onClose();
+        return;
       }
       if (projectKey) {
         navigate(`/p/${projectKey}/tickets`);
@@ -273,6 +316,24 @@ export function TicketForm() {
     return errors[field] ? (
       <span className="ticket-form__error">{errors[field]}</span>
     ) : null;
+  }
+
+  function addPendingImages(files: File[]): boolean {
+    const images = files.filter((f) => f.type.startsWith('image/'));
+    if (images.length === 0) return false;
+    setPendingImages((prev) => [
+      ...prev,
+      ...images.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })),
+    ]);
+    return true;
+  }
+
+  function removePendingImage(index: number) {
+    setPendingImages((prev) => {
+      const target = prev[index];
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
   }
 
   return (
@@ -329,11 +390,38 @@ export function TicketForm() {
             className="ticket-form__textarea"
             value={formData.description}
             onChange={(e) => updateField('description', e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (addPendingImages(files)) e.preventDefault();
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              addPendingImages(Array.from(e.dataTransfer.files));
+            }}
             placeholder="Add a description..."
             rows={6}
             data-testid="ticket-description-input"
           />
           {fieldError('description')}
+          {pendingImages.length > 0 && (
+            <div className="ticket-form__pending-images" data-testid="pending-images">
+              {pendingImages.map((img, idx) => (
+                <div key={idx} className="ticket-form__pending-image">
+                  <img src={img.previewUrl} alt={img.file.name} />
+                  <button
+                    type="button"
+                    className="ticket-form__pending-image-remove"
+                    onClick={() => removePendingImage(idx)}
+                    aria-label="Remove image"
+                    title="Remove image"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 2カラム: ステータス + 優先度 */}
@@ -416,6 +504,9 @@ export function TicketForm() {
                 </option>
               ))}
             </select>
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+              {t('ticket.categoryHelp')}
+            </div>
           </div>
         </div>
 
@@ -524,11 +615,14 @@ export function TicketForm() {
                 </option>
               ))}
             </select>
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+              {t('ticket.milestoneHelp')}
+            </div>
           </div>
 
           <div className="ticket-form__field">
             <label htmlFor="cycle" className="ticket-form__label">
-              Cycle
+              {t('ticket.cycle')}
             </label>
             <select
               id="cycle"
@@ -544,6 +638,9 @@ export function TicketForm() {
                 </option>
               ))}
             </select>
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+              {t('ticket.cycleHelp')}
+            </div>
           </div>
         </div>
 
@@ -589,7 +686,7 @@ export function TicketForm() {
           <button
             type="button"
             className="ticket-form__cancel"
-            onClick={() => navigate(-1)}
+            onClick={() => (onClose ? onClose() : navigate(-1))}
             data-testid="ticket-form-cancel"
           >
             {t('common.cancel')}

@@ -189,3 +189,26 @@
   color: var(--color-text-link);
   font-weight: var(--font-weight-medium);
 }
+
+.login__hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+}
+
+.login__success {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background-color: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.login__back-link {
+  display: inline-block;
+  margin-top: var(--space-4);
+  color: var(--color-text-link);
+  font-size: var(--font-size-sm);
+}

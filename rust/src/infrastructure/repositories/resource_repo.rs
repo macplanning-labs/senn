@@ -19,10 +19,11 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
     let rows = sqlx::query(
         "SELECT
             p.id::int4, p.name, p.prefix, p.description, p.created_at,
-            p.owner_team_id::int4,
+            p.owner_id::int4, p.owner_team_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
             (SELECT COUNT(*)::int8 FROM tickets_project_membership WHERE project_id = p.id) as member_count,
-            t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color
+            t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color,
+            p.cycle_auto_complete, p.cycle_auto_create_next
          FROM tickets_project p
          LEFT JOIN m_team t ON p.owner_team_id = t.id
          ORDER BY p.name ASC
@@ -36,14 +37,14 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
     let projects = rows
         .into_iter()
         .map(|row| {
-            let owner_team_id: Option<i32> = row.get(5);
+            let owner_team_id: Option<i32> = row.get(6);
             let owner_team = owner_team_id.and_then(|_| {
                 Some(TeamSummaryOut {
-                    id: row.get(8),
-                    name: row.get(9),
-                    slug: row.get(10),
-                    icon: row.get(11),
-                    color: row.get(12),
+                    id: row.get(9),
+                    name: row.get(10),
+                    slug: row.get(11),
+                    icon: row.get(12),
+                    color: row.get(13),
                 })
             });
 
@@ -52,10 +53,13 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
                 name: row.get(1),
                 prefix: row.get(2),
                 description: row.get(3),
-                ticket_count: row.get(6),
-                member_count: row.get(7),
+                ticket_count: row.get(7),
+                member_count: row.get(8),
                 owner_team,
+                owner_id: row.get(5),
                 created_at: row.get(4),
+                cycle_auto_complete: row.get(14),
+                cycle_auto_create_next: row.get(15),
             }
         })
         .collect();
@@ -75,10 +79,11 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
     let row_opt = sqlx::query(
         "SELECT
             p.id::int4, p.name, p.prefix, p.description, p.created_at,
-            p.owner_team_id::int4,
+            p.owner_id::int4, p.owner_team_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
             (SELECT COUNT(*)::int8 FROM tickets_project_membership WHERE project_id = p.id) as member_count,
-            t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color
+            t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color,
+            p.cycle_auto_complete, p.cycle_auto_create_next
          FROM tickets_project p
          LEFT JOIN m_team t ON p.owner_team_id = t.id
          WHERE p.id = $1"
@@ -88,14 +93,14 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
     .await?;
 
     let project = row_opt.map(|row| {
-        let owner_team_id: Option<i32> = row.get(5);
+        let owner_team_id: Option<i32> = row.get(6);
         let owner_team = owner_team_id.and_then(|_| {
             Some(TeamSummaryOut {
-                id: row.get(8),
-                name: row.get(9),
-                slug: row.get(10),
-                icon: row.get(11),
-                color: row.get(12),
+                id: row.get(9),
+                name: row.get(10),
+                slug: row.get(11),
+                icon: row.get(12),
+                color: row.get(13),
             })
         });
 
@@ -104,17 +109,24 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
             name: row.get(1),
             prefix: row.get(2),
             description: row.get(3),
-            ticket_count: row.get(6),
-            member_count: row.get(7),
+            ticket_count: row.get(7),
+            member_count: row.get(8),
             owner_team,
+            owner_id: row.get(5),
             created_at: row.get(4),
+            cycle_auto_complete: row.get(14),
+            cycle_auto_create_next: row.get(15),
         }
     });
 
     Ok(project)
 }
 
-pub async fn create_project(pool: &PgPool, input: &ProjectWriteIn) -> anyhow::Result<i32> {
+pub async fn create_project(
+    pool: &PgPool,
+    input: &ProjectWriteIn,
+    owner_id: Option<i32>,
+) -> anyhow::Result<i32> {
     // トランザクション開始
     let mut tx = pool.begin().await?;
 
@@ -122,14 +134,15 @@ pub async fn create_project(pool: &PgPool, input: &ProjectWriteIn) -> anyhow::Re
     // grace_period_days はDjangoの ProjectCreateSerializer に含まれず、モデルのdefault=7が
     // 常に使われる(APIから変更不可)。Rust側も同じ既定値7を使う(0だと猶予なしになりDjangoと乖離する)。
     let project_id: i32 = sqlx::query_scalar(
-        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_team_id)
-         VALUES ($1, $2, $3, NOW(), 7, 'active', $4)
+        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_team_id, owner_id)
+         VALUES ($1, $2, $3, NOW(), 7, 'active', $4, $5)
          RETURNING id::int4"
     )
     .bind(&input.name)
     .bind(&input.prefix)
     .bind(&input.description)
     .bind(input.owner_team)
+    .bind(owner_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -180,6 +193,67 @@ pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> a
     .rows_affected();
 
     Ok(rows_affected > 0)
+}
+
+pub async fn update_owner_team(pool: &PgPool, project_id: i32, owner_team: Option<i32>) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE tickets_project SET owner_team_id = $1 WHERE id = $2"
+    )
+    .bind(owner_team)
+    .bind(project_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &ProjectPatchIn) -> anyhow::Result<bool> {
+    if input.owner_team.is_none()
+        && input.cycle_auto_complete.is_none()
+        && input.cycle_auto_create_next.is_none()
+    {
+        return Ok(false);
+    }
+
+    let mut builder = sqlx::QueryBuilder::new("UPDATE tickets_project SET ");
+    let mut separated = builder.separated(", ");
+
+    if let Some(owner_team) = input.owner_team {
+        separated
+            .push("owner_team_id = ")
+            .push_bind_unseparated(owner_team);
+    }
+    if let Some(cac) = input.cycle_auto_complete {
+        separated
+            .push("cycle_auto_complete = ")
+            .push_bind_unseparated(cac);
+    }
+    if let Some(cacn) = input.cycle_auto_create_next {
+        separated
+            .push("cycle_auto_create_next = ")
+            .push_bind_unseparated(cacn);
+    }
+
+    separated.push_unseparated(" WHERE id = ");
+    builder.push_bind(project_id);
+
+    let rows_affected = builder.build().execute(pool).await?.rows_affected();
+    Ok(rows_affected > 0)
+}
+
+pub async fn get_project_owner_id(pool: &PgPool, project_id: i32) -> anyhow::Result<Option<i32>> {
+    let owner_id: Option<i32> = sqlx::query_scalar(
+        "SELECT owner_id::int4 FROM tickets_project WHERE id = $1"
+    )
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    Ok(owner_id)
+}
+
+pub async fn is_project_owner(pool: &PgPool, project_id: i32, user_id: i32) -> anyhow::Result<bool> {
+    let owner_id = get_project_owner_id(pool, project_id).await?;
+    Ok(owner_id == Some(user_id))
 }
 
 pub enum DeleteProjectResult {
@@ -706,4 +780,123 @@ pub async fn delete_label(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     tx.commit().await?;
     Ok(rows_affected > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support;
+
+    fn write_in(prefix: &str, owner_team: Option<i32>) -> ProjectWriteIn {
+        ProjectWriteIn {
+            name: format!("テストプロジェクト-{prefix}"),
+            prefix: prefix.to_string(),
+            description: "テスト用".to_string(),
+            owner_team,
+        }
+    }
+
+    #[tokio::test]
+    async fn create_and_find_project_roundtrip() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("PRJ{}", &test_support::unique_suffix()[..6]);
+        let input = write_in(&prefix, None);
+
+        let id = create_project(&pool, &input, None).await.unwrap();
+
+        let found = find_project_by_id(&pool, id).await.unwrap();
+        assert!(found.is_some());
+        let project = found.unwrap();
+        assert_eq!(project.id, id);
+        assert_eq!(project.prefix, prefix);
+        assert!(project.owner_team.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_project_changes_fields() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("UPD{}", &test_support::unique_suffix()[..6]);
+        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+
+        let mut updated = write_in(&prefix, None);
+        updated.name = "更新後の名前".to_string();
+        let ok = update_project(&pool, id, &updated).await.unwrap();
+        assert!(ok);
+
+        let found = find_project_by_id(&pool, id).await.unwrap().unwrap();
+        assert_eq!(found.name, "更新後の名前");
+    }
+
+    /// WIP-000037対応: Owner Teamの部分更新(PATCH)が、他フィールドに
+    /// 影響を与えず owner_team_id のみを更新することを確認する。
+    #[tokio::test]
+    async fn update_owner_team_only_changes_owner_team() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("OWN{}", &test_support::unique_suffix()[..6]);
+        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+
+        let team_id: i32 = sqlx::query_scalar(
+            "INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, created_at)
+             VALUES ($1, $2, '', '👥', '#6366f1', '', true, NOW())
+             RETURNING id::int4"
+        )
+        .bind(format!("テストチーム-{}", test_support::unique_suffix()))
+        .bind(format!("team-{}", test_support::unique_suffix()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        update_owner_team(&pool, id, Some(team_id)).await.unwrap();
+
+        let found = find_project_by_id(&pool, id).await.unwrap().unwrap();
+        assert_eq!(found.owner_team.map(|t| t.id), Some(team_id));
+        assert_eq!(found.prefix, prefix, "owner_team以外のフィールドは変化しないこと");
+    }
+
+    #[tokio::test]
+    async fn create_project_sets_owner_id() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "project-owner").await;
+        let prefix = format!("OWN{}", &test_support::unique_suffix()[..6]);
+        let id = create_project(&pool, &write_in(&prefix, None), Some(owner)).await.unwrap();
+
+        let owner_id = get_project_owner_id(&pool, id).await.unwrap();
+        assert_eq!(owner_id, Some(owner));
+    }
+
+    #[tokio::test]
+    async fn delete_project_with_tickets_is_rejected() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let author = test_support::create_test_user(&pool, "del-guard-author").await;
+        let prefix = format!("DEL{}", &test_support::unique_suffix()[..6]);
+        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+        test_support::create_test_ticket(&pool, id, "DELGUARD", author).await;
+
+        let result = delete_project(&pool, id).await.unwrap();
+        assert!(matches!(result, DeleteProjectResult::HasTickets));
+
+        // 削除されていないことを確認
+        let still_there = find_project_by_id(&pool, id).await.unwrap();
+        assert!(still_there.is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_project_without_tickets_succeeds() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("DOK{}", &test_support::unique_suffix()[..6]);
+        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+
+        let result = delete_project(&pool, id).await.unwrap();
+        assert!(matches!(result, DeleteProjectResult::Deleted));
+
+        let found = find_project_by_id(&pool, id).await.unwrap();
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_project_not_found() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let result = delete_project(&pool, 999_999_999).await.unwrap();
+        assert!(matches!(result, DeleteProjectResult::NotFound));
+    }
 }

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
 import { apiClient } from '@/shared/api/client';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { useAuthStore } from '@/shared/stores/authStore';
@@ -213,7 +214,9 @@ export function TicketDetail() {
 
           {/* 説明 */}
           <div className="ticket-detail__description" data-testid="ticket-description">
-            {ticket.description || (
+            {ticket.description ? (
+              <ReactMarkdown>{ticket.description}</ReactMarkdown>
+            ) : (
               <span className="ticket-detail__no-description">
                 No description provided.
               </span>

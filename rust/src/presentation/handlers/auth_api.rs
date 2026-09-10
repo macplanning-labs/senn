@@ -596,6 +596,7 @@ pub async fn set_user_active(
 #[derive(serde::Deserialize)]
 pub struct UpdateProfileIn {
     pub email: String,
+    pub username: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
 }
@@ -641,7 +642,7 @@ pub async fn update_user_profile(
     let first_name = body.first_name.unwrap_or(target.first_name);
     let last_name = body.last_name.unwrap_or(target.last_name);
 
-    let updated = match user_repo::update_profile(&state.pool, target_id, &body.email, &first_name, &last_name).await {
+    let mut updated = match user_repo::update_profile(&state.pool, target_id, &body.email, &first_name, &last_name).await {
         Ok(u) => u,
         Err(e) => {
             let err_str = e.to_string();
@@ -655,6 +656,28 @@ pub async fn update_user_profile(
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
         }
     };
+
+    if let Some(new_username) = body.username {
+        let trimmed_username = new_username.trim();
+        if !trimmed_username.is_empty() && trimmed_username != updated.username {
+            updated = match user_repo::update_username(&state.pool, target_id, trimmed_username).await {
+                Ok(u) => u,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("duplicate key") || err_str.contains("unique") || err_str.contains("23505") {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({"detail": "このログイン名は既に使用されています"})),
+                        ).into_response();
+                    }
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+                }
+            };
+        } else if trimmed_username.is_empty() {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "ログイン名は必須です"}))).into_response();
+        }
+    }
 
     (
         StatusCode::OK,

@@ -17,7 +17,6 @@ pub struct Attachment {
     pub uploader_name: Option<String>,
 }
 
-#[allow(dead_code)]
 impl Attachment {
     /// 画像ファイルかどうか
     pub fn is_image(&self) -> bool {

@@ -45,6 +45,18 @@ interface OptimisticMutationOptions<TData, TVariables> {
 
   /** invalidate する追加の QueryKey 群 */
   invalidateKeys?: QueryKey[];
+
+  /**
+   * 主 queryKey 以外に、同時に楽観更新したい追加キャッシュ。
+   * variables から動的に対象キー（例: 詳細画面の id）を組み立てられるよう関数形式。
+   * 省略時は従来通り単一キーの楽観更新のみ行う（既存呼び出しへの後方互換）。
+   */
+  additionalOptimisticUpdates?: (
+    variables: TVariables,
+  ) => Array<{
+    queryKey: QueryKey;
+    updater: (currentData: unknown, variables: TVariables) => unknown;
+  }>;
 }
 
 /**
@@ -74,8 +86,11 @@ export function useOptimisticMutation<TData = unknown, TVariables = unknown>(
 
     // ① キャッシュを即時書き換え（0ms）
     onMutate: async (variables: TVariables) => {
+      const additional = options.additionalOptimisticUpdates?.(variables) ?? [];
+      const allKeys = [options.queryKey, ...additional.map((u) => u.queryKey)];
+
       // 進行中のリフェッチをキャンセル（楽観更新が上書きされるのを防止）
-      await queryClient.cancelQueries({ queryKey: options.queryKey });
+      await Promise.all(allKeys.map((key) => queryClient.cancelQueries({ queryKey: key })));
 
       // 現在のキャッシュをスナップショット（ロールバック用）
       const previousData = queryClient.getQueryData(options.queryKey);
@@ -88,8 +103,21 @@ export function useOptimisticMutation<TData = unknown, TVariables = unknown>(
         }
       }
 
+      // 追加キャッシュのスナップショット・楽観更新
+      const previousAdditionalData: Array<{ queryKey: QueryKey; data: unknown }> = [];
+      for (const { queryKey, updater } of additional) {
+        const prev = queryClient.getQueryData(queryKey);
+        previousAdditionalData.push({ queryKey, data: prev });
+        if (prev !== undefined) {
+          const updated = updater(prev, variables);
+          if (updated !== undefined) {
+            queryClient.setQueryData(queryKey, updated);
+          }
+        }
+      }
+
       // context としてスナップショットを返す（onError で使用）
-      return { previousData };
+      return { previousData, previousAdditionalData };
     },
 
     // ③-b エラー時: ロールバック + トースト通知
@@ -97,6 +125,13 @@ export function useOptimisticMutation<TData = unknown, TVariables = unknown>(
       // キャッシュをロールバック
       if (context?.previousData !== undefined) {
         queryClient.setQueryData(options.queryKey, context.previousData);
+      }
+      if (context?.previousAdditionalData) {
+        for (const { queryKey, data } of context.previousAdditionalData) {
+          if (data !== undefined) {
+            queryClient.setQueryData(queryKey, data);
+          }
+        }
       }
 
       addToast({
@@ -114,8 +149,16 @@ export function useOptimisticMutation<TData = unknown, TVariables = unknown>(
     },
 
     // 成功・失敗に関わらず、キャッシュを最新化
-    onSettled: () => {
+    onSettled: (_data, _error, variables) => {
       void queryClient.invalidateQueries({ queryKey: options.queryKey });
+
+      // additionalOptimisticUpdates で対象にした追加キャッシュも最新化
+      if (variables !== undefined) {
+        const additional = options.additionalOptimisticUpdates?.(variables) ?? [];
+        for (const { queryKey } of additional) {
+          void queryClient.invalidateQueries({ queryKey });
+        }
+      }
 
       // 追加の invalidate
       if (options.invalidateKeys) {

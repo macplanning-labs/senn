@@ -1,0 +1,92 @@
+/* CycleSummaryBar.css — Cycle詳細画面のミニ進捗サマリー(1行) */
+
+.cycle-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.cycle-summary-bar__ring {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.cycle-summary-bar__pct {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-right: var(--space-2);
+  white-space: nowrap;
+}
+
+.cycle-summary-bar__stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.cycle-summary-bar__stat strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.cycle-summary-bar__stat:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.cycle-summary-bar__stat--active {
+  border-color: var(--color-accent);
+  background: var(--color-bg-tertiary);
+}
+
+.cycle-summary-bar__points {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.cycle-summary-bar__scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.cycle-summary-bar__scope-arrow {
+  color: var(--color-text-tertiary);
+}
+
+.cycle-summary-bar__scope-change {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.cycle-summary-bar__scope-change--added {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--color-warning);
+}
+
+.cycle-summary-bar__scope-change--removed {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--color-success);
+}

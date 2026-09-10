@@ -9,7 +9,7 @@ use crate::domain::models::integration_api::*;
 const SELECT_BASE: &str = "
     SELECT
         gi.id::int4, gi.project_id::int4, gi.provider, gi.repository_url,
-        gi.webhook_secret, gi.is_active, gi.created_at,
+        gi.webhook_secret, gi.is_active, gi.auto_status_transition, gi.created_at,
         cb.id::int4 as cb_id, cb.username as cb_username, cb.email as cb_email, cb.display_name as cb_display_name,
         (SELECT COUNT(*) FROM t_git_event WHERE integration_id = gi.id)::int8 as event_count
      FROM t_git_integration gi
@@ -25,6 +25,7 @@ fn row_to_integration(row: &sqlx::postgres::PgRow) -> GitIntegrationOut {
         repository_url: row.get("repository_url"),
         webhook_secret: row.get("webhook_secret"),
         is_active: row.get("is_active"),
+        auto_status_transition: row.get("auto_status_transition"),
         created_by: cb_id.map(|_| UserSummaryOut {
             id: row.get("cb_id"),
             username: row.get("cb_username"),
@@ -50,8 +51,8 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<GitInte
 
 pub async fn create(pool: &PgPool, input: &GitIntegrationWriteIn, created_by: i32) -> anyhow::Result<i32> {
     let id: i32 = sqlx::query_scalar(
-        "INSERT INTO t_git_integration (project_id, provider, repository_url, webhook_secret, is_active, created_by_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        "INSERT INTO t_git_integration (project_id, provider, repository_url, webhook_secret, is_active, auto_status_transition, created_by_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
          RETURNING id::int4"
     )
     .bind(input.project)
@@ -59,6 +60,7 @@ pub async fn create(pool: &PgPool, input: &GitIntegrationWriteIn, created_by: i3
     .bind(&input.repository_url)
     .bind(&input.webhook_secret)
     .bind(input.is_active)
+    .bind(input.auto_status_transition)
     .bind(created_by)
     .fetch_one(pool)
     .await?;
@@ -77,17 +79,19 @@ pub async fn update(pool: &PgPool, id: i32, input: &GitIntegrationUpdateIn) -> a
     let repository_url = input.repository_url.clone().unwrap_or(existing.repository_url);
     let webhook_secret = input.webhook_secret.clone().unwrap_or(existing.webhook_secret);
     let is_active = input.is_active.unwrap_or(existing.is_active);
+    let auto_status_transition = input.auto_status_transition.unwrap_or(existing.auto_status_transition);
 
     let rows_affected = sqlx::query(
         "UPDATE t_git_integration
-         SET project_id = $1, provider = $2, repository_url = $3, webhook_secret = $4, is_active = $5
-         WHERE id = $6"
+         SET project_id = $1, provider = $2, repository_url = $3, webhook_secret = $4, is_active = $5, auto_status_transition = $6
+         WHERE id = $7"
     )
     .bind(project)
     .bind(&provider)
     .bind(&repository_url)
     .bind(&webhook_secret)
     .bind(is_active)
+    .bind(auto_status_transition)
     .bind(id)
     .execute(pool)
     .await?
@@ -136,7 +140,7 @@ pub async fn find_active_integrations_by_repo_url(pool: &PgPool, repo_url: &str)
 }
 
 /// チケットキーからticket_idを検索する。見つからない場合、prefix+ゼロパディングで再検索する
-/// (例: WIP-123 → WIP-000123)。Djangoの GitWebhookService._find_ticket と同じロジック。
+/// (例: DEMO-123 → DEMO-000123)。Djangoの GitWebhookService._find_ticket と同じロジック。
 pub async fn find_ticket_id_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
     if let Some(id) = crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(pool, ticket_key).await? {
         return Ok(Some(id));

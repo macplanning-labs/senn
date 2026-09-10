@@ -25,9 +25,10 @@ import { MemberSettings } from './MemberSettings';
 import { WorkflowSettings } from './WorkflowSettings';
 import { IntegrationSettings } from './IntegrationSettings';
 import { SecuritySettings } from './SecuritySettings';
+import { HolidaySettings } from './HolidaySettings';
 import './ProjectSettings.css';
 
-type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'members' | 'integrations' | 'security';
+type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'holidays' | 'members' | 'integrations' | 'security';
 
 interface TabDef {
   key: TabKey;
@@ -43,6 +44,7 @@ function getTabs(t: (key: string) => string): TabDef[] {
     { key: 'labels', label: t('settings.labels'), icon: '🏷️' },
     { key: 'categories', label: t('settings.categories'), icon: '📂' },
     { key: 'milestones', label: t('settings.milestones'), icon: '🎯' },
+    { key: 'holidays', label: t('settings.holidays'), icon: '🗓️' },
     { key: 'members', label: t('settings.members'), icon: '👥' },
     { key: 'integrations', label: t('settings.integrations'), icon: '🔗' },
     { key: 'security', label: t('settings.security'), icon: '🔒' },
@@ -67,6 +69,12 @@ function GeneralSettings() {
   const [descriptionEdit, setDescriptionEdit] = useState(false);
   const [descriptionValue, setDescriptionValue] = useState(currentProject?.description ?? '');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [cycleAutoComplete, setCycleAutoComplete] = useState(currentProject?.cycleAutoComplete ?? true);
+  const [cycleAutoCreateNext, setCycleAutoCreateNext] = useState(currentProject?.cycleAutoCreateNext ?? true);
+
+  const canDeleteProject =
+    !!user &&
+    (user.isStaff || currentProject?.ownerId === user.id);
 
   const updateOwnerTeam = useMutation({
     mutationFn: async (ownerTeamId: number | null) => {
@@ -99,6 +107,22 @@ function GeneralSettings() {
     },
   });
 
+  const updateCycleSettings = useMutation({
+    mutationFn: async (payload: {
+      cycleAutoComplete?: boolean;
+      cycleAutoCreateNext?: boolean;
+    }) => {
+      await apiClient.patch(`/projects/${currentProject?.id}/`, payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      addToast({ message: 'サイクル設定を更新しました', type: 'success' });
+    },
+    onError: () => {
+      addToast({ message: 'サイクル設定の更新に失敗しました', type: 'error' });
+    },
+  });
+
   const deleteProject = useMutation({
     mutationFn: async () => {
       await apiClient.delete(`/projects/${currentProject?.id}/`);
@@ -111,9 +135,11 @@ function GeneralSettings() {
     },
     onError: (error: unknown) => {
       const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } };
-      if (axiosErr.response?.status === 409) {
-        const message = axiosErr.response.data?.detail || 'チケットが存在するプロジェクトは削除できません';
-        addToast({ message, type: 'error' });
+      const detail = axiosErr.response?.data?.detail;
+      if (detail) {
+        addToast({ message: detail, type: 'error' });
+      } else if (axiosErr.response?.status === 409) {
+        addToast({ message: 'チケットが存在するプロジェクトは削除できません', type: 'error' });
       } else {
         addToast({ message: t('settings.deleteProjectFailed'), type: 'error' });
       }
@@ -155,6 +181,71 @@ function GeneralSettings() {
                 </option>
               ))}
             </select>
+          </div>
+        </>
+      )}
+
+      {/* サイクル設定 */}
+      {currentProject && (
+        <>
+          <div className="settings-section__header">
+            <h2 className="settings-section__title">Cycle Settings</h2>
+          </div>
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={cycleAutoComplete}
+                  onChange={(e) => {
+                    const newVal = e.target.checked;
+                    setCycleAutoComplete(newVal);
+                    updateCycleSettings.mutate({ cycleAutoComplete: newVal });
+                  }}
+                  disabled={updateCycleSettings.isPending}
+                  style={{ cursor: 'pointer', width: 18, height: 18 }}
+                />
+                <div>
+                  <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
+                    {t('settings.cycleAutoComplete')}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+                    {t('settings.cycleAutoCompleteDesc')}
+                  </div>
+                </div>
+              </label>
+            </div>
+            <div>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={cycleAutoCreateNext}
+                  onChange={(e) => {
+                    const newVal = e.target.checked;
+                    setCycleAutoCreateNext(newVal);
+                    updateCycleSettings.mutate({ cycleAutoCreateNext: newVal });
+                  }}
+                  disabled={updateCycleSettings.isPending}
+                  style={{ cursor: 'pointer', width: 18, height: 18 }}
+                />
+                <div>
+                  <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
+                    {t('settings.cycleAutoCreateNext')}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+                    {t('settings.cycleAutoCreateNextDesc')}
+                  </div>
+                </div>
+              </label>
+            </div>
           </div>
         </>
       )}
@@ -339,7 +430,7 @@ function GeneralSettings() {
       </table>
 
       {/* 危険エリア — プロジェクト削除 */}
-      {currentProject && (
+      {currentProject && canDeleteProject && (
         <>
           <div
             style={{
@@ -368,6 +459,9 @@ function GeneralSettings() {
                 </h3>
                 <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>
                   プロジェクトを完全に削除します。この操作は取り消せません。
+                  {user?.isStaff && currentProject.ownerId !== user.id && (
+                    <> 管理者権限で削除します。</>
+                  )}
                 </p>
               </div>
               <button
@@ -486,6 +580,9 @@ export function ProjectSettingsPage() {
         )}
         {activeTab === 'milestones' && (
           <MilestoneSettings projectId={currentProject.id} />
+        )}
+        {activeTab === 'holidays' && (
+          <HolidaySettings />
         )}
         {activeTab === 'members' && (
           <MemberSettings projectId={currentProject.id} />

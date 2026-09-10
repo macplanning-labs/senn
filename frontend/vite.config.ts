@@ -1,3 +1,5 @@
+/// <reference types="vitest/config" />
+
 /// vite.config.ts — WIP フロントエンド ビルド設定
 ///
 /// パスエイリアス (@/) と開発用APIプロキシを設定。
@@ -22,6 +24,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
   },
 })
 
