@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import './GanttChart.css';
 
 interface GanttTicket {
@@ -50,15 +51,17 @@ function formatShortDate(date: Date): string {
 export function GanttChart() {
   const { t } = useTranslation();
   const { projectKey } = useProject();
+  const { teamSlug } = useTeam();
 
   const { data, isLoading } = useQuery<{ results: GanttTicket[] }>({
-    queryKey: ['tickets', 'gantt', projectKey],
+    queryKey: ['tickets', 'gantt', projectKey, teamSlug],
     queryFn: async () => {
       const res = await apiClient.get<{ results: GanttTicket[] }>('/tickets/', {
         params: {
           due_date__isnull: false,
           ordering: 'gantt_order,due_date',
           ...(projectKey ? { project__prefix: projectKey } : {}),
+          ...(teamSlug ? { team_slug: teamSlug } : {}),
         },
       });
       return res.data;
@@ -184,7 +187,7 @@ export function GanttChart() {
               >
                 {/* 左: ラベル */}
                 <div className="gantt__label-col">
-                  <Link to={projectKey ? `/p/${projectKey}/tickets/${ticket.ticketKey}` : `/tickets/${ticket.ticketKey}`} className="gantt__ticket-link">
+                  <Link to={projectKey ? `/p/${projectKey}/tickets/${ticket.ticketKey}` : teamSlug ? `/t/${teamSlug}/tickets/${ticket.ticketKey}` : `/tickets/${ticket.ticketKey}`} className="gantt__ticket-link">
                     <span className="gantt__ticket-key">{ticket.ticketKey}</span>
                     <span className="gantt__ticket-title">{ticket.title}</span>
                   </Link>

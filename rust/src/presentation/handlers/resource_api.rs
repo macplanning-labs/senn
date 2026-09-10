@@ -19,6 +19,7 @@ use crate::infrastructure::repositories::resource_repo;
 use crate::infrastructure::repositories::ticket_repo;
 use crate::infrastructure::repositories::holiday_repo;
 use crate::infrastructure::repositories::user_repo;
+use crate::infrastructure::repositories::team_repo;
 use crate::domain::models::resource_api::*;
 use crate::domain::models::holiday::Holiday;
 
@@ -40,6 +41,7 @@ pub struct MilestoneListQuery {
 #[derive(Deserialize)]
 pub struct LabelListQuery {
     pub project: Option<i32>,
+    pub team: Option<i32>,
 }
 
 // =============================================================================
@@ -199,6 +201,78 @@ pub async fn project_dependency_graph(
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
     match ticket_repo::find_dependency_graph_for_project(&state.pool, id).await {
+        Ok(graph) => (StatusCode::OK, Json(graph)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/teams/{id}/dependencies/ — チーム版依存関係フロー可視化
+pub async fn team_dependency_graph(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    let caller = match user_repo::find_by_id(&state.pool, auth.user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    detail: "ユーザーが見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let can_access = if caller.is_staff {
+        true
+    } else {
+        match team_repo::check_team_membership_exists(&state.pool, id, auth.user_id).await {
+            Ok(is_member) => is_member,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    if !can_access {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                detail: "このチームにアクセスする権限がありません".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    match ticket_repo::find_dependency_graph_for_team(&state.pool, id).await {
         Ok(graph) => (StatusCode::OK, Json(graph)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -758,7 +832,7 @@ pub async fn label_list(
     Extension(_auth): Extension<AuthUser>,
     Query(params): Query<LabelListQuery>,
 ) -> impl IntoResponse {
-    match resource_repo::find_all_labels(&state.pool, params.project).await {
+    match resource_repo::find_all_labels(&state.pool, params.project, params.team).await {
         Ok(labels) => (
             StatusCode::OK,
             Json(PaginatedLabelsOut {
@@ -815,6 +889,15 @@ pub async fn label_create(
     Extension(_auth): Extension<AuthUser>,
     Json(body): Json<LabelWriteIn>,
 ) -> impl IntoResponse {
+    if body.project.is_none() && body.team_id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                detail: "project または teamId を指定してください".to_string(),
+            }),
+        )
+            .into_response();
+    }
     match resource_repo::create_label(&state.pool, &body).await {
         Ok(label_id) => {
             // 作成したラベルを返す

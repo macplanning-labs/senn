@@ -6,12 +6,15 @@
  * API検索によるチケット・Wiki・プロジェクト横断検索。
  */
 
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useMemo } from 'react';
 import { Command } from 'cmdk';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/shared/stores/uiStore';
+import { useAuthStore } from '@/shared/stores/authStore';
 import { getLastProjectKey } from '@/shared/hooks/useProject';
+import { getLastTeamSlug } from '@/shared/hooks/useTeam';
+import { useTeams } from '@/features/teams/hooks/useTeams';
 import { apiClient } from '@/shared/api/client';
 import './CommandPalette.css';
 
@@ -26,26 +29,64 @@ interface SearchResult {
   icon: string;
 }
 
-const NAVIGATION_ITEMS = [
-  { id: 'dashboard', label: 'nav.dashboard', path: '/dashboard', icon: '📊' },
-  { id: 'tickets', label: 'nav.tickets', path: '/tickets', icon: '🎫' },
-  { id: 'gantt', label: 'nav.gantt', path: '/gantt', icon: '📅' },
-  { id: 'wiki', label: 'nav.wiki', path: '/wiki', icon: '📝' },
-  { id: 'notifications', label: 'nav.notifications', path: '/notifications', icon: '🔔' },
-  { id: 'settings', label: 'nav.settings', path: '/settings', icon: '⚙️' },
-] as const;
+function buildNavItems(teamSlug: string | null, projectKey: string | null) {
+  const items: Array<{ id: string; label: string; path: string; icon: string }> = [
+    { id: 'my-issues', label: 'nav.myIssues', path: '/my-issues', icon: '📋' },
+    { id: 'inbox', label: 'nav.inbox', path: '/notifications', icon: '📥' },
+  ];
+  if (teamSlug) {
+    items.push(
+      { id: 'team-home', label: 'nav.home', path: `/t/${teamSlug}/dashboard`, icon: '🏠' },
+      { id: 'team-tickets', label: 'nav.tickets', path: `/t/${teamSlug}/tickets`, icon: '🎫' },
+      { id: 'team-projects', label: 'nav.projects', path: `/t/${teamSlug}/projects`, icon: '📁' },
+    );
+  }
+  if (projectKey) {
+    items.push(
+      { id: 'board', label: 'nav.board', path: `/p/${projectKey}/board`, icon: '🧱' },
+      { id: 'cycles', label: 'nav.cycles', path: `/p/${projectKey}/cycles`, icon: '🔄' },
+      { id: 'wiki', label: 'nav.wiki', path: `/p/${projectKey}/wiki`, icon: '📝' },
+    );
+  }
+  items.push(
+    { id: 'teams', label: 'nav.teams', path: '/teams', icon: '👥' },
+    { id: 'dashboard', label: 'nav.dashboard', path: '/dashboard', icon: '📊' },
+    { id: 'settings', label: 'nav.settings', path: '/settings', icon: '⚙️' },
+  );
+  return items;
+}
 
 const ACTION_ITEMS = [
   { id: 'new-ticket', label: 'ticket.create', action: 'create-ticket', icon: '➕' },
-  { id: 'toggle-theme', label: 'Toggle Theme', action: 'theme', icon: '🌓' },
+  { id: 'toggle-theme', label: 'commandPalette.toggleTheme', action: 'theme', icon: '🌓' },
 ] as const;
 
 export function CommandPalette() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { commandPaletteOpen, setCommandPaletteOpen, toggleTheme, openTicketFormModal } = useUIStore();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  // App 直下に常駐するため、未ログインの /login 等ではチーム API を叩かない
+  //（401 → window.location=/login の無限リロードを防ぐ）
+  const { data: teams = [] } = useTeams({ enabled: isAuthenticated });
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const teamSlug = useMemo(() => {
+    const match = location.pathname.match(/^\/t\/([^/]+)/);
+    return match?.[1] ?? getLastTeamSlug();
+  }, [location.pathname]);
+
+  const projectKey = useMemo(() => {
+    const match = location.pathname.match(/^\/p\/([^/]+)/);
+    return match?.[1] ?? getLastProjectKey();
+  }, [location.pathname]);
+
+  const navigationItems = useMemo(
+    () => buildNavItems(teamSlug, projectKey),
+    [teamSlug, projectKey],
+  );
 
   // ⌘K / Ctrl+K でトグル
   const handleKeyDown = useCallback(
@@ -99,11 +140,16 @@ export function CommandPalette() {
     if (item.action === 'theme') {
       toggleTheme();
     } else if (item.action === 'create-ticket') {
-      const lastKey = getLastProjectKey();
-      if (lastKey) {
-        openTicketFormModal(lastKey);
+      const teamMatch = window.location.pathname.match(/^\/t\/([^/]+)/);
+      if (teamMatch?.[1]) {
+        openTicketFormModal(null, teamMatch[1]);
       } else {
-        navigate('/tickets/new');
+        const lastKey = getLastProjectKey();
+        if (lastKey) {
+          openTicketFormModal(lastKey);
+        } else {
+          navigate('/my-issues');
+        }
       }
     } else if (item.path) {
       navigate(item.path);
@@ -145,7 +191,7 @@ export function CommandPalette() {
             {/* API検索結果 */}
             {searchResults.length > 0 && (
               <Command.Group
-                heading="検索結果"
+                heading={t('commandPalette.searchResults')}
                 className="command-palette__group"
               >
                 {searchResults.map((result) => (
@@ -172,10 +218,10 @@ export function CommandPalette() {
 
             {/* ナビゲーション */}
             <Command.Group
-              heading="Navigation"
+              heading={t('commandPalette.navigation')}
               className="command-palette__group"
             >
-              {NAVIGATION_ITEMS.map((item) => (
+              {navigationItems.map((item) => (
                 <Command.Item
                   key={item.id}
                   value={`${item.id} ${t(item.label)}`}
@@ -189,23 +235,44 @@ export function CommandPalette() {
               ))}
             </Command.Group>
 
+            {/* チーム切替 */}
+            {teams.length > 0 && (
+              <Command.Group
+                heading={t('commandPalette.openTeam')}
+                className="command-palette__group"
+              >
+                {teams.map((team) => (
+                  <Command.Item
+                    key={`team-${team.id}`}
+                    value={`team ${team.name}`}
+                    onSelect={() => {
+                      navigate(`/t/${team.slug}/tickets`);
+                      setCommandPaletteOpen(false);
+                    }}
+                    className="command-palette__item"
+                  >
+                    <span className="command-palette__item-icon">👥</span>
+                    <span className="command-palette__item-label">{team.name}</span>
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
+
             {/* アクション */}
             <Command.Group
-              heading="Actions"
+              heading={t('commandPalette.actions')}
               className="command-palette__group"
             >
               {ACTION_ITEMS.map((item) => (
                 <Command.Item
                   key={item.id}
-                  value={`${item.id} ${'label' in item && item.label.startsWith('ticket') ? t(item.label) : item.label}`}
+                  value={`${item.id} ${t(item.label)}`}
                   onSelect={() => handleSelect(item)}
                   className="command-palette__item"
                   data-testid={`cmd-${item.id}`}
                 >
                   <span className="command-palette__item-icon">{item.icon}</span>
-                  <span className="command-palette__item-label">
-                    {'label' in item && item.label.startsWith('ticket') ? t(item.label) : item.label}
-                  </span>
+                  <span className="command-palette__item-label">{t(item.label)}</span>
                 </Command.Item>
               ))}
             </Command.Group>
@@ -213,9 +280,9 @@ export function CommandPalette() {
         </Command>
 
         <div className="command-palette__footer">
-          <span className="command-palette__shortcut">↑↓ Navigate</span>
-          <span className="command-palette__shortcut">↵ Select</span>
-          <span className="command-palette__shortcut">Esc Close</span>
+          <span className="command-palette__shortcut">↑↓ {t('commandPalette.navigateHint')}</span>
+          <span className="command-palette__shortcut">↵ {t('commandPalette.selectHint')}</span>
+          <span className="command-palette__shortcut">Esc {t('commandPalette.closeHint')}</span>
         </div>
       </div>
     </>

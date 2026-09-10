@@ -17,7 +17,7 @@ pub async fn create_pool() -> anyhow::Result<PgPool> {
     Ok(pool)
 }
 
-/// DATABASE_URLが未設定でも、DjangoのDB_*環境変数(env.nas/docker-compose)を
+/// DATABASE_URLが未設定でも、DjangoのDB_*環境変数(環境変数・docker-compose)を
 /// 共有しているだけの環境ならそこから接続文字列を組み立てて動作できるようにする。
 pub fn resolve_database_url() -> anyhow::Result<String> {
     match std::env::var("DATABASE_URL") {

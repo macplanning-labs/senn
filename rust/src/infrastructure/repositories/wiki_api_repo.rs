@@ -38,7 +38,7 @@ fn render_content(content: &str, project_id: Option<i32>) -> String {
 
 const LIST_SELECT: &str = "
     SELECT
-        w.id::int4, w.title, w.slug, w.category, w.project_id::int4,
+        w.id::int4, w.title, w.slug, w.category, w.project_id::int4, w.team_id::int4,
         w.created_at, w.updated_at,
         a.id::int4 as a_id, a.username as a_username, a.email as a_email, a.display_name as a_display_name,
         le.id::int4 as le_id, le.username as le_username, le.email as le_email, le.display_name as le_display_name,
@@ -56,6 +56,7 @@ fn row_to_list(row: &sqlx::postgres::PgRow) -> WikiPageListOut {
         slug: row.get("slug"),
         category: row.get("category"),
         project: row.get("project_id"),
+        team: row.get("team_id"),
         author: UserSummaryOut {
             id: row.get("a_id"),
             username: row.get("a_username"),
@@ -77,6 +78,7 @@ fn row_to_list(row: &sqlx::postgres::PgRow) -> WikiPageListOut {
 pub async fn find_all(
     pool: &PgPool,
     project_id: Option<i32>,
+    team_id: Option<i32>,
     category: Option<&str>,
     search: Option<&str>,
     page: i64,
@@ -89,14 +91,16 @@ pub async fn find_all(
     let query = format!(
         "{LIST_SELECT}
          WHERE ($1::int4 IS NULL OR w.project_id = $1)
-           AND ($2::text IS NULL OR w.category = $2)
-           AND ($3::text IS NULL OR w.title ILIKE $3 OR w.content ILIKE $3)
+           AND ($2::int4 IS NULL OR w.team_id = $2)
+           AND ($3::text IS NULL OR w.category = $3)
+           AND ($4::text IS NULL OR w.title ILIKE $4 OR w.content ILIKE $4)
          ORDER BY w.updated_at DESC
-         LIMIT $4 OFFSET $5"
+         LIMIT $5 OFFSET $6"
     );
 
     let rows = sqlx::query(&query)
         .bind(project_id)
+        .bind(team_id)
         .bind(category)
         .bind(&search_pattern)
         .bind(PAGE_SIZE)
@@ -110,6 +114,7 @@ pub async fn find_all(
 pub async fn count_all(
     pool: &PgPool,
     project_id: Option<i32>,
+    team_id: Option<i32>,
     category: Option<&str>,
     search: Option<&str>,
 ) -> anyhow::Result<i64> {
@@ -118,10 +123,12 @@ pub async fn count_all(
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM wiki_page w
          WHERE ($1::int4 IS NULL OR w.project_id = $1)
-           AND ($2::text IS NULL OR w.category = $2)
-           AND ($3::text IS NULL OR w.title ILIKE $3 OR w.content ILIKE $3)"
+           AND ($2::int4 IS NULL OR w.team_id = $2)
+           AND ($3::text IS NULL OR w.category = $3)
+           AND ($4::text IS NULL OR w.title ILIKE $4 OR w.content ILIKE $4)"
     )
     .bind(project_id)
+    .bind(team_id)
     .bind(category)
     .bind(&search_pattern)
     .fetch_one(pool)
@@ -133,7 +140,7 @@ pub async fn count_all(
 pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiPageDetailOut>> {
     let row = sqlx::query(
         "SELECT
-            w.id::int4, w.title, w.slug, w.category, w.project_id::int4, w.content,
+            w.id::int4, w.title, w.slug, w.category, w.project_id::int4, w.team_id::int4, w.content,
             w.created_at, w.updated_at,
             a.id::int4 as a_id, a.username as a_username, a.email as a_email, a.display_name as a_display_name,
             le.id::int4 as le_id, le.username as le_username, le.email as le_email, le.display_name as le_display_name
@@ -182,6 +189,7 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiPag
         slug: row.get("slug"),
         category: row.get("category"),
         project: project_id,
+        team: row.get("team_id"),
         rendered_content: render_content(&content, project_id),
         content,
         author: UserSummaryOut {
@@ -202,7 +210,7 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiPag
     }))
 }
 
-/// ページ作成(初回リビジョン自動生成)。projectスコープ内でslugをユニーク化。
+/// ページ作成(初回リビジョン自動生成)。projectまたはteamスコープ内でslugをユニーク化。
 pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> anyhow::Result<i32> {
     let base_slug = generate_slug(&input.title);
     let mut slug = base_slug.clone();
@@ -210,10 +218,13 @@ pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> 
     loop {
         let existing: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM wiki_page WHERE slug = $1 AND
-             ((project_id IS NULL AND $2::int4 IS NULL) OR project_id = $2)"
+             ((project_id IS NULL AND $2::int4 IS NULL AND team_id IS NULL AND $3::int4 IS NULL) OR
+              (project_id = $2) OR
+              (team_id = $3))"
         )
         .bind(&slug)
         .bind(input.project)
+        .bind(input.team)
         .fetch_one(pool)
         .await?;
 
@@ -227,11 +238,12 @@ pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> 
     let mut tx = pool.begin().await?;
 
     let page_id: i32 = sqlx::query_scalar(
-        "INSERT INTO wiki_page (project_id, title, slug, category, content, author_id, last_editor_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, NOW(), NOW())
+        "INSERT INTO wiki_page (project_id, team_id, title, slug, category, content, author_id, last_editor_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $7, NOW(), NOW())
          RETURNING id::int4"
     )
     .bind(input.project)
+    .bind(input.team)
     .bind(&input.title)
     .bind(&slug)
     .bind(&input.category)
@@ -259,7 +271,7 @@ pub async fn update(pool: &PgPool, id: i32, input: &WikiPageUpdateIn, editor_id:
     let mut tx = pool.begin().await?;
 
     let existing = sqlx::query(
-        "SELECT title, category, project_id::int4, content FROM wiki_page WHERE id = $1"
+        "SELECT title, category, project_id::int4, team_id::int4, content FROM wiki_page WHERE id = $1"
     )
     .bind(id)
     .fetch_optional(&mut *tx)
@@ -273,21 +285,24 @@ pub async fn update(pool: &PgPool, id: i32, input: &WikiPageUpdateIn, editor_id:
     let existing_title: String = existing.get("title");
     let existing_category: String = existing.get("category");
     let existing_project: Option<i32> = existing.get("project_id");
+    let existing_team: Option<i32> = existing.get("team_id");
     let existing_content: String = existing.get("content");
 
     let title = input.title.clone().unwrap_or(existing_title);
     let category = input.category.clone().unwrap_or(existing_category);
     let project = input.project.or(existing_project);
+    let team = input.team.or(existing_team);
     let content = input.content.clone().unwrap_or(existing_content);
 
     sqlx::query(
-        "UPDATE wiki_page SET title = $1, category = $2, project_id = $3, content = $4,
-             last_editor_id = $5, updated_at = NOW()
-         WHERE id = $6"
+        "UPDATE wiki_page SET title = $1, category = $2, project_id = $3, team_id = $4, content = $5,
+             last_editor_id = $6, updated_at = NOW()
+         WHERE id = $7"
     )
     .bind(&title)
     .bind(&category)
     .bind(project)
+    .bind(team)
     .bind(&content)
     .bind(editor_id)
     .bind(id)

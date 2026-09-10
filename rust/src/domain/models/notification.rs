@@ -17,7 +17,9 @@ pub enum NotificationCategory {
     DueSoon,
     Overdue,
     Mentioned,
+    Replied,
     CycleAutoCompleted,
+    Updated,
 }
 
 impl NotificationCategory {
@@ -29,7 +31,9 @@ impl NotificationCategory {
             Self::DueSoon => "期限間近",
             Self::Overdue => "期限超過",
             Self::Mentioned => "メンション",
+            Self::Replied => "返信",
             Self::CycleAutoCompleted => "Cycle自動完了",
+            Self::Updated => "更新",
         }
     }
 
@@ -41,7 +45,9 @@ impl NotificationCategory {
             "due_soon" => Self::DueSoon,
             "overdue" => Self::Overdue,
             "mentioned" => Self::Mentioned,
+            "replied" => Self::Replied,
             "cycle_auto_completed" => Self::CycleAutoCompleted,
+            "updated" => Self::Updated,
             _ => Self::Commented,
         }
     }
@@ -54,7 +60,9 @@ impl NotificationCategory {
             Self::DueSoon => "due_soon",
             Self::Overdue => "overdue",
             Self::Mentioned => "mentioned",
+            Self::Replied => "replied",
             Self::CycleAutoCompleted => "cycle_auto_completed",
+            Self::Updated => "updated",
         }
     }
 
@@ -66,7 +74,9 @@ impl NotificationCategory {
             Self::DueSoon => "⏰",
             Self::Overdue => "🔥",
             Self::Mentioned => "📢",
+            Self::Replied => "↩️",
             Self::CycleAutoCompleted => "📅",
+            Self::Updated => "📝",
         }
     }
 }

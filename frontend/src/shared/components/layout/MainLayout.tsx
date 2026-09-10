@@ -10,6 +10,7 @@ import { Sidebar } from './Sidebar';
 import { NotificationDropdown } from '@/features/notifications/components/NotificationDropdown';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useOfflineStatus } from '@/shared/hooks/useOfflineStatus';
+import { useGoToHotkeys } from '@/shared/hooks/useGoToHotkeys';
 import { startSync, stopSync } from '@/shared/sync/syncEngine';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,6 +33,9 @@ function LanguageToggle() {
 export function MainLayout() {
   const { sidebarOpen, setCommandPaletteOpen } = useUIStore();
   const { isOffline } = useOfflineStatus();
+
+  // Go to ショートカット（G then キー）を有効化
+  useGoToHotkeys();
 
   // 認証済みでマウント時に同期開始
   useEffect(() => {

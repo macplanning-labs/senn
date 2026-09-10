@@ -5,14 +5,14 @@ use crate::domain::models::project::Project;
 
 pub async fn find_all(pool: &PgPool) -> anyhow::Result<Vec<Project>> {
     let rows = sqlx::query_as::<_, Project>(
-        "SELECT id, name, prefix, description, created_at FROM tickets_project ORDER BY name"
+        "SELECT id::int4, name, prefix, description, created_at, owner_id::int4 FROM tickets_project ORDER BY name"
     ).fetch_all(pool).await?;
     Ok(rows)
 }
 
 pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Project>> {
     let row = sqlx::query_as::<_, Project>(
-        "SELECT id, name, prefix, description, created_at FROM tickets_project WHERE id=$1"
+        "SELECT id::int4, name, prefix, description, created_at, owner_id::int4 FROM tickets_project WHERE id=$1"
     ).bind(id).fetch_optional(pool).await?;
     Ok(row)
 }
@@ -38,7 +38,7 @@ pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<()> {
 
 pub async fn find_by_prefix(pool: &PgPool, prefix: &str) -> anyhow::Result<Option<Project>> {
     let row = sqlx::query_as::<_, Project>(
-        "SELECT id, name, prefix, description, created_at FROM tickets_project WHERE prefix=$1"
+        "SELECT id::int4, name, prefix, description, created_at, owner_id::int4 FROM tickets_project WHERE prefix=$1"
     ).bind(prefix).fetch_optional(pool).await?;
     Ok(row)
 }

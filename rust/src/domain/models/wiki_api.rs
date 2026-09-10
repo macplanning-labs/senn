@@ -14,6 +14,7 @@ pub struct WikiPageListOut {
     pub slug: String,
     pub category: String,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub author: UserSummaryOut,
     #[serde(rename = "lastEditor")]
     pub last_editor: Option<UserSummaryOut>,
@@ -42,6 +43,7 @@ pub struct WikiPageDetailOut {
     pub slug: String,
     pub category: String,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub content: String,
     pub author: UserSummaryOut,
     #[serde(rename = "lastEditor")]
@@ -63,6 +65,7 @@ pub struct WikiPageCreateIn {
     #[serde(default = "default_category")]
     pub category: String,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     #[serde(default)]
     pub content: String,
 }
@@ -74,6 +77,7 @@ pub struct WikiPageUpdateIn {
     pub title: Option<String>,
     pub category: Option<String>,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub content: Option<String>,
     #[serde(default)]
     pub revision_comment: String,

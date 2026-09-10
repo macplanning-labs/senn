@@ -15,11 +15,12 @@ use serde::{Deserialize, Serialize};
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::cycle_repo;
-use crate::domain::models::cycle_api::{CycleWriteIn, CyclePatchIn};
+use crate::domain::models::cycle_api::{CycleWriteIn, CyclePatchIn, CycleGraphPositionIn};
 
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub status: Option<String>,
 }
 
@@ -28,7 +29,7 @@ pub struct ErrorResponse {
     pub detail: String,
 }
 
-/// GET /api/v1/cycles/?project=<id>&status=<s> — サイクル一覧
+/// GET /api/v1/cycles/?project=<id>&team=<id>&status=<s> — サイクル一覧
 pub async fn list(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthUser>,
@@ -37,6 +38,7 @@ pub async fn list(
     match cycle_repo::find_all_cycles(
         &state.pool,
         params.project,
+        params.team,
         params.status.as_deref(),
     )
     .await
@@ -123,6 +125,14 @@ pub async fn create(
                     }),
                 )
                     .into_response()
+            } else if e.to_string().contains("teamId or project is required") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: "チームまたはプロジェクトを指定してください".to_string(),
+                    }),
+                )
+                    .into_response()
             } else {
                 tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
                 (
@@ -201,7 +211,7 @@ pub async fn update(
 
 /// PATCH /api/v1/cycles/{id}/ — サイクル部分更新
 ///
-/// フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
+/// WIP-000107: フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
 /// 従来 PUT のみでCycleWriteIn(全フィールド必須)を要求していたため405になっていた。
 /// 既存値を取得し、指定フィールドのみ上書きしてCycleWriteInを組み立てた上で、
 /// ステータス遷移時のactivated_at/completed_at設定を含む既存のupdate_cycleに委譲する
@@ -235,12 +245,18 @@ pub async fn patch(
         }
     };
 
+    let team_id_val = input.team_id
+        .flatten()
+        .or_else(|| existing.team.as_ref().map(|t| t.id));
+
     let merged = CycleWriteIn {
-        project: input.project.unwrap_or(existing.project),
+        project: input.project.or(existing.project),
         name: input.name.unwrap_or(existing.name),
+        description: input.description.unwrap_or(existing.description),
         start_date: input.start_date.unwrap_or(existing.start_date),
         end_date: input.end_date.unwrap_or(existing.end_date),
         status: input.status.unwrap_or(existing.status),
+        team_id: team_id_val,
     };
 
     match cycle_repo::update_cycle(&state.pool, id, &merged).await {
@@ -290,6 +306,35 @@ pub async fn patch(
                 )
                     .into_response()
             }
+        }
+    }
+}
+
+/// PATCH /api/v1/cycles/{id}/graph-position/ — 依存関係グラフ上のCycle枠の表示位置を保存
+pub async fn update_graph_position(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+    Json(input): Json<CycleGraphPositionIn>,
+) -> impl IntoResponse {
+    match cycle_repo::update_cycle_graph_position(&state.pool, id, input.x, input.y).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "サイクルが見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("[サイクル/操作] 処理=依存関係グラフ位置更新 結果=失敗 影響=配置が保存されていない | {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }

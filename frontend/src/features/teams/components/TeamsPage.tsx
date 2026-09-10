@@ -6,12 +6,15 @@
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTeams, useDeleteTeam } from '../hooks/useTeams';
 import { TeamDetailModal } from './TeamDetailModal';
 import { TeamMembersSection } from './TeamMembersSection';
+import { TeamGuestsSection } from './TeamGuestsSection';
 import { TeamRulesSection } from './TeamRulesSection';
 import type { Team } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { useUIStore } from '@/shared/stores/uiStore';
 import './TeamsPage.css';
 import { useTranslation } from 'react-i18next';
 
@@ -20,6 +23,7 @@ export function TeamsPage() {
   const { data: teams, isLoading } = useTeams();
   const deleteTeam = useDeleteTeam();
   const { addToast } = useToastStore();
+  const { openTicketFormModal } = useUIStore();
 
   // モーダル制御
   const [modalOpen, setModalOpen] = useState(false);
@@ -69,7 +73,7 @@ export function TeamsPage() {
         <div>
           <h1 className="teams-page__title">Teams</h1>
           <p className="teams-page__subtitle">
-            チームの管理とメンバーの割り当て
+            所属 Team が主な作業単位です。横断 Project への参加は任意の追加経路です。
           </p>
         </div>
         <button
@@ -135,6 +139,14 @@ export function TeamsPage() {
                     <span className="teams-card__stat-icon">📁</span>
                     {team.projectCount} プロジェクト
                   </span>
+                  <Link
+                    to={`/t/${team.slug}/tickets`}
+                    className="teams-card__tickets-link"
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid={`team-tickets-${team.id}`}
+                  >
+                    チケット
+                  </Link>
                 </div>
                 {!team.isActive && (
                   <span className="teams-card__inactive-badge">無効</span>
@@ -155,7 +167,25 @@ export function TeamsPage() {
         {/* メンバー管理パネル */}
         {selectedTeam && (
           <div className="teams-page__detail">
+            <div className="teams-page__detail-actions">
+              <Link
+                to={`/t/${selectedTeam.slug}/tickets`}
+                className="teams-page__tickets-btn"
+                data-testid="selected-team-tickets"
+              >
+                {selectedTeam.name} のチケット
+              </Link>
+              <button
+                type="button"
+                className="teams-page__create-ticket-btn"
+                onClick={() => openTicketFormModal(null, selectedTeam.slug)}
+                data-testid="selected-team-create-ticket"
+              >
+                + チケット作成
+              </button>
+            </div>
             <TeamMembersSection team={selectedTeam} />
+            <TeamGuestsSection team={selectedTeam} />
             <TeamRulesSection teamId={selectedTeam.id} />
           </div>
         )}

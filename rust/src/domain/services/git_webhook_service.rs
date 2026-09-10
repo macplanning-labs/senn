@@ -7,6 +7,7 @@ use sha2::Sha256;
 use regex::Regex;
 use std::sync::OnceLock;
 use sqlx::PgPool;
+use crate::infrastructure::repositories::workflow_status_repo;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -101,21 +102,22 @@ pub async fn apply_git_status_transition(
         return Ok(StatusTransitionResult::NotChanged);
     }
 
-    let project_id = match ticket.project_id {
-        Some(id) => id,
-        None => {
-            tracing::error!("git auto-status: ticket {} has no project_id", ticket_id);
-            return Ok(StatusTransitionResult::Skipped);
-        }
-    };
-
-    // 2. 現在の status から category を取得
-    let current_category: Option<String> = sqlx::query_scalar(
-        "SELECT category FROM t_workflow_status WHERE project_id = $1 AND slug = $2"
+    let project_id = ticket.project_id;
+    let team_id: Option<i32> = sqlx::query_scalar(
+        "SELECT team_id::int4 FROM tickets_ticket WHERE id = $1"
     )
-    .bind(project_id)
-    .bind(current_status)
+    .bind(ticket_id)
     .fetch_optional(pool)
+    .await?
+    .flatten();
+
+    // 2. 現在の status から category を取得（Project → Team → ワークスペース既定）
+    let current_category = workflow_status_repo::lookup_status_category(
+        pool,
+        project_id,
+        team_id,
+        current_status,
+    )
     .await?;
 
     // 単調性ガード：completed / cancelled からは戻さない
@@ -151,12 +153,12 @@ pub async fn apply_git_status_transition(
     .await?;
 
     // 4. 目標が completed カテゴリ、またはフォールバック完了 slug なら closed_at をセット
-    let target_category: Option<String> = sqlx::query_scalar(
-        "SELECT category FROM t_workflow_status WHERE project_id = $1 AND slug = $2"
+    let target_category = workflow_status_repo::lookup_status_category(
+        pool,
+        project_id,
+        team_id,
+        target_slug,
     )
-    .bind(project_id)
-    .bind(target_slug)
-    .fetch_optional(&mut *tx)
     .await?;
 
     let should_close = matches!(target_category.as_deref(), Some("completed"))
@@ -180,16 +182,50 @@ pub async fn apply_git_status_transition(
     Ok(StatusTransitionResult::Applied)
 }
 
+/// チケットの (project_id, team_id) を取る。
+pub async fn ticket_scope(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<(Option<i32>, Option<i32>)> {
+    let row: Option<(Option<i32>, Option<i32>)> = sqlx::query_as(
+        "SELECT project_id::int4, team_id::int4 FROM tickets_ticket WHERE id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.unwrap_or((None, None)))
+}
+
+/// チケットスコープで category 先頭 slug を解決（Team → ワークスペース既定）。無ければ None。
+pub async fn resolve_target_slug_for_ticket(
+    pool: &PgPool,
+    ticket_id: i32,
+    category: &str,
+) -> anyhow::Result<Option<String>> {
+    let (project_id, team_id) = ticket_scope(pool, ticket_id).await?;
+    workflow_status_repo::resolve_status_slug_by_scope(pool, project_id, team_id, category).await
+}
+
+/// チケットスコープで review 相当 slug を解決。無ければ None（別カテゴリへ飛ばさない）。
+pub async fn resolve_review_slug_for_ticket(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<Option<String>> {
+    let (project_id, team_id) = ticket_scope(pool, ticket_id).await?;
+    workflow_status_repo::resolve_review_status_slug_by_scope(pool, project_id, team_id).await
+}
+
 /// Git integration の actor を解決する。
 ///
 /// 優先順位:
 /// 1. integration.created_by_id
-/// 2. project.owner_id
-/// 3. project membership（accounts_user.is_staff 優先）
+/// 2. project.owner_id（Project 連携時）
+/// 3. project / team membership（is_staff 優先）
 pub async fn resolve_git_actor(
     pool: &PgPool,
     integration_created_by_id: Option<i32>,
-    project_id: i32,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
 ) -> anyhow::Result<Option<GitActor>> {
     // 1. integration.created_by_id
     if let Some(user_id) = integration_created_by_id {
@@ -205,35 +241,57 @@ pub async fn resolve_git_actor(
     }
 
     // 2. project.owner_id
-    let owner: Option<(i32, String)> = sqlx::query_as(
-        "SELECT p.owner_id::int4, u.username
-         FROM tickets_project p
-         JOIN accounts_user u ON p.owner_id = u.id
-         WHERE p.id = $1 AND p.owner_id IS NOT NULL"
-    )
-    .bind(project_id)
-    .fetch_optional(pool)
-    .await?;
+    if let Some(pid) = project_id {
+        let owner: Option<(i32, String)> = sqlx::query_as(
+            "SELECT p.owner_id::int4, u.username
+             FROM tickets_project p
+             JOIN accounts_user u ON p.owner_id = u.id
+             WHERE p.id = $1 AND p.owner_id IS NOT NULL"
+        )
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?;
 
-    if let Some((user_id, username)) = owner {
-        return Ok(Some(GitActor { user_id, username }));
+        if let Some((user_id, username)) = owner {
+            return Ok(Some(GitActor { user_id, username }));
+        }
+
+        // 3a. Projectゲスト(scoped_project_id一致、is_staff 優先)
+        let member: Option<(i32, String)> = sqlx::query_as(
+            "SELECT m.user_id::int4, u.username
+             FROM t_team_membership m
+             JOIN accounts_user u ON u.id = m.user_id
+             WHERE m.scoped_project_id = $1
+             ORDER BY u.is_staff DESC, m.user_id ASC
+             LIMIT 1"
+        )
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some((user_id, username)) = member {
+            return Ok(Some(GitActor { user_id, username }));
+        }
     }
 
-    // 3. project membership（is_staff 優先）
-    let member: Option<(i32, String)> = sqlx::query_as(
-        "SELECT m.user_id::int4, u.username
-         FROM tickets_project_membership m
-         JOIN accounts_user u ON u.id = m.user_id
-         WHERE m.project_id = $1
-         ORDER BY u.is_staff DESC, m.user_id ASC
-         LIMIT 1"
-    )
-    .bind(project_id)
-    .fetch_optional(pool)
-    .await?;
+    // 3b. team membership（is_staff 優先）。L2: Projectゲスト(scoped_project_id付き)は
+    // 「チーム全体メンバー」ではないため除外する
+    if let Some(tid) = team_id {
+        let member: Option<(i32, String)> = sqlx::query_as(
+            "SELECT m.user_id::int4, u.username
+             FROM t_team_membership m
+             JOIN accounts_user u ON u.id = m.user_id
+             WHERE m.team_id = $1 AND m.scoped_project_id IS NULL
+             ORDER BY u.is_staff DESC, m.user_id ASC
+             LIMIT 1"
+        )
+        .bind(tid)
+        .fetch_optional(pool)
+        .await?;
 
-    if let Some((user_id, username)) = member {
-        return Ok(Some(GitActor { user_id, username }));
+        if let Some((user_id, username)) = member {
+            return Ok(Some(GitActor { user_id, username }));
+        }
     }
 
     Ok(None)

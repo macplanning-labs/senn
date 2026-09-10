@@ -1,0 +1,2 @@
+ALTER TABLE accounts_user
+    ADD COLUMN IF NOT EXISTS alias VARCHAR(150) NULL;

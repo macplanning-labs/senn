@@ -82,6 +82,9 @@ export function TeamMembersSection({ team }: Props) {
           {showAddForm ? 'キャンセル' : '+ メンバー追加'}
         </button>
       </div>
+      <p className="team-members__hint" style={{ marginBottom: '1rem', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
+        Role は管理者（admin）とメンバーのみ。所属 Team が主な権限の入口です。
+      </p>
 
       {/* メンバー追加フォーム */}
       {showAddForm && (
@@ -106,7 +109,7 @@ export function TeamMembersSection({ team }: Props) {
             data-testid="member-role-select"
           >
             <option value="member">メンバー</option>
-            <option value="leader">リーダー</option>
+            <option value="admin">管理者</option>
           </select>
           <button
             className="team-members__submit-btn"
@@ -135,7 +138,7 @@ export function TeamMembersSection({ team }: Props) {
                   {membership.user.displayName || membership.user.username}
                 </span>
                 <span className={`team-member-item__role team-member-item__role--${membership.role}`}>
-                  {membership.role === 'leader' ? 'リーダー' : 'メンバー'}
+                  {membership.role === 'admin' ? '管理者' : 'メンバー'}
                 </span>
               </div>
               <button

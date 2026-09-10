@@ -65,12 +65,16 @@ pub async fn login_submit(
     );
 
     if totp_confirmed {
-        let mfa_token = jwt_service::issue_mfa_token(user.id, &state.config.jwt_secret).unwrap();
+        let mfa_token = jwt_service::issue_mfa_token(
+            user.id,
+            &state.config.jwt_secret,
+            state.config.mfa_token_lifetime_seconds,
+        ).unwrap();
         let cookie = build_cookie(
             MFA_COOKIE,
             mfa_token,
             "/auth",
-            300,
+            state.config.mfa_token_lifetime_seconds,
             SameSite::Strict,
             state.config.cookie_secure,
         );
@@ -89,12 +93,17 @@ async fn issue_login_cookies_and_redirect(state: &AppState, user_id: i32, to: &s
 /// ログイン成功時に発行するaccess/refresh Cookie（+ MFA Cookieのクリア）を組み立てる。
 /// レスポンス種別（Redirect / JSON）を問わず共通で使う。
 async fn build_login_cookie_jar(state: &AppState, user_id: i32) -> CookieJar {
-    let pair = jwt_service::issue_token_pair(user_id, &state.config.jwt_secret).unwrap();
+    let pair = jwt_service::issue_token_pair(
+        user_id,
+        &state.config.jwt_secret,
+        state.config.access_token_lifetime_minutes,
+        state.config.refresh_token_lifetime_days,
+    ).unwrap();
     let access_cookie = build_cookie(
         ACCESS_COOKIE,
         pair.access,
         "/",
-        30 * 60,
+        state.config.access_token_lifetime_minutes * 60,
         SameSite::Lax,
         state.config.cookie_secure,
     );
@@ -102,7 +111,7 @@ async fn build_login_cookie_jar(state: &AppState, user_id: i32) -> CookieJar {
         REFRESH_COOKIE,
         pair.refresh,
         "/",
-        7 * 24 * 3600,
+        state.config.refresh_token_lifetime_days * 24 * 3600,
         SameSite::Lax,
         state.config.cookie_secure,
     );

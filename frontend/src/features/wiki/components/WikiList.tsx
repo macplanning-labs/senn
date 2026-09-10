@@ -7,10 +7,12 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { FilterBar } from '@/shared/components/ui/FilterBar';
+import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import './WikiList.css';
 import { QuickCreateTicketButton } from '@/features/tickets/components/QuickCreateTicketButton';
 import type { LinkedTicketSummary } from '@/shared/api/types';
@@ -20,6 +22,7 @@ interface WikiPage {
   slug: string;
   category: string;
   project?: number;
+  team?: number;
   content: string;
   renderedContent: string;
   author: { id: number; displayName: string; username: string };
@@ -33,6 +36,8 @@ interface WikiListItem {
   title: string;
   slug: string;
   category: string;
+  project?: number;
+  team?: number;
   author: { id: number; displayName: string; username: string };
   lastEditor: { id: number; displayName: string; username: string } | null;
   revisionCount: number;
@@ -64,6 +69,11 @@ export function WikiList() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  const { projectKey, teamSlug } = useParams<{ projectKey?: string; teamSlug?: string }>();
+  const { currentProject } = useProject();
+  const { currentTeam } = useTeam();
+  const projectId = currentProject?.id;
+  const teamId = currentTeam?.id;
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -80,16 +90,19 @@ export function WikiList() {
   const [importResult, setImportResult] = useState<{ success: number; failed: string[] } | null>(null);
   const dragCounter = useRef(0);
 
-  // ページ一覧
+  // ページ一覧（API は project/team とも ID。slug/prefix を送ると 400 になる）
   const { data: pages, isLoading } = useQuery<{ results: WikiListItem[] }>({
-    queryKey: ['wiki-pages', categoryFilter, search],
+    queryKey: ['wiki-pages', categoryFilter, search, projectId, teamId],
     queryFn: async () => {
-      const params: Record<string, string> = {};
+      const params: Record<string, string | number> = {};
       if (categoryFilter) params.category = categoryFilter;
       if (search) params.search = search;
+      if (projectId) params.project = projectId;
+      if (teamId) params.team = teamId;
       const res = await apiClient.get<{ results: WikiListItem[] }>('/wiki/', { params });
       return res.data;
     },
+    enabled: !!(projectId || teamId) || (!projectKey && !teamSlug),
   });
 
   // ページ詳細
@@ -105,7 +118,10 @@ export function WikiList() {
   // 作成
   const createMutation = useMutation({
     mutationFn: async (data: { title: string; content: string; category: string }) => {
-      const res = await apiClient.post<WikiPage>('/wiki/', data);
+      const payload: Record<string, string | number> = { ...data };
+      if (projectId) payload.project = projectId;
+      if (teamId) payload.team = teamId;
+      const res = await apiClient.post<WikiPage>('/wiki/', payload);
       return res.data;
     },
     onSuccess: (newPage) => {
@@ -234,11 +250,14 @@ export function WikiList() {
         const content = await file.text();
         // ファイル名から拡張子を除去してタイトルにする
         const title = file.name.replace(/\.(md|markdown|txt)$/, '').replace(/[-_]/g, ' ');
-        await apiClient.post('/wiki/', {
+        const payload: Record<string, string | number> = {
           title,
           content,
           category: 'other',
-        });
+        };
+        if (projectId) payload.project = projectId;
+        if (teamId) payload.team = teamId;
+        await apiClient.post('/wiki/', payload);
         success++;
       } catch {
         failed.push(file.name);
@@ -251,7 +270,7 @@ export function WikiList() {
     // 結果表示（3秒後に自動消去）
     setImportResult({ success, failed });
     setTimeout(() => setImportResult(null), 5000);
-  }, [queryClient]);
+  }, [queryClient, projectId, teamId]);
 
   return (
     <div

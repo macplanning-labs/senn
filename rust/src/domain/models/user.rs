@@ -11,6 +11,7 @@ pub struct User {
     pub username: String,
     pub password_hash: String,
     pub display_name: String,
+    pub alias: Option<String>,
     pub email: String,
     pub first_name: String,
     pub last_name: String,

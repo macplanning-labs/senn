@@ -12,4 +12,11 @@ pub struct Comment {
     pub created_at: DateTime<Utc>,
     // 結合用
     pub author_name: Option<String>,
+    // インラインコメント用アンカー
+    #[sqlx(default)]
+    pub anchor_start: Option<i32>,
+    #[sqlx(default)]
+    pub anchor_end: Option<i32>,
+    #[sqlx(default)]
+    pub anchor_quote: Option<String>,
 }

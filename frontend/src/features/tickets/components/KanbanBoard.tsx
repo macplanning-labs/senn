@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
 import { LabelList } from '@/shared/components/ui/LabelBadge';
@@ -56,12 +57,16 @@ const priorityColors: Record<string, string> = {
 export function KanbanBoard() {
   const navigate = useNavigate();
   const { projectKey, currentProject } = useProject();
+  const { teamSlug, currentTeam } = useTeam();
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  // プロジェクト固有ワークフローステータスを取得
-  const { data: workflowStatuses = [] } = useWorkflowStatuses(currentProject?.id);
+  // プロジェクト/チーム固有ワークフローステータスを取得
+  const { data: workflowStatuses = [] } = useWorkflowStatuses(
+    currentProject?.id,
+    currentTeam?.id
+  );
 
   // 動的カラム生成: ワークフローがあればそれを使用、なければフォールバック
   const columns = workflowStatuses.length > 0
@@ -72,7 +77,7 @@ export function KanbanBoard() {
       }))
     : FALLBACK_COLUMNS;
 
-  const queryKey = ['tickets', 'kanban', currentProject?.id] as const;
+  const queryKey = ['tickets', 'kanban', currentProject?.id, currentTeam?.id] as const;
 
   // Fetch tickets
   const { data, isLoading } = useQuery<{ results: KanbanTicket[] }>({
@@ -80,6 +85,7 @@ export function KanbanBoard() {
     queryFn: async () => {
       const params: Record<string, string> = {};
       if (currentProject?.id) params.project = String(currentProject.id);
+      if (teamSlug) params.team_slug = teamSlug;
       const res = await apiClient.get<{ results: KanbanTicket[] }>('/tickets/', { params });
       return res.data;
     },
@@ -151,7 +157,11 @@ export function KanbanBoard() {
 
   const handleClosePanel = () => {
     setSelectedTicketId(null);
-    if (projectKey) navigate(`/p/${projectKey}/board`);
+    if (projectKey) {
+      navigate(`/p/${projectKey}/board`);
+    } else if (teamSlug) {
+      navigate(`/t/${teamSlug}/board`);
+    }
   };
 
   return (
@@ -211,6 +221,8 @@ export function KanbanBoard() {
                       setSelectedTicketId(ticket.ticketKey);
                       if (projectKey) {
                         navigate(`/p/${projectKey}/board/${ticket.ticketKey}`);
+                      } else if (teamSlug) {
+                        navigate(`/t/${teamSlug}/board/${ticket.ticketKey}`);
                       }
                     }}
                     data-testid={`kanban-card-${ticket.ticketKey}`}

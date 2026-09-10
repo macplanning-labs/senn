@@ -7,43 +7,106 @@
 use sqlx::{PgPool, Row};
 use crate::domain::models::cycle_api::{CycleOut, CycleWriteIn};
 
-/// サイクル一覧（フィルタ対応: project, status）。
+/// サイクル一覧（フィルタ対応: project, team, status）。
 /// ページネーション無し。
 pub async fn find_all_cycles(
     pool: &PgPool,
     project_id: Option<i32>,
+    team_id: Option<i32>,
     status: Option<&str>,
 ) -> anyhow::Result<Vec<CycleOut>> {
     // 条件に応じてクエリを構築
-    let rows = if let (Some(pid), Some(s)) = (project_id, status) {
+    let rows = if let (Some(pid), Some(tid), Some(s)) = (project_id, team_id, status) {
         sqlx::query(
             "SELECT
-                c.id::int4, c.project_id::int4, c.name, c.number, c.status,
-                c.start_date, c.end_date, c.created_at, c.created_by_id::int4
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
              FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
+             WHERE c.project_id = $1::int4 AND c.team_id = $2::int4 AND c.status = $3"
+        )
+        .bind(pid)
+        .bind(tid)
+        .bind(s)
+        .fetch_all(pool)
+        .await?
+    } else if let (Some(pid), Some(tid)) = (project_id, team_id) {
+        sqlx::query(
+            "SELECT
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
+             FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
+             WHERE c.project_id = $1::int4 AND c.team_id = $2::int4"
+        )
+        .bind(pid)
+        .bind(tid)
+        .fetch_all(pool)
+        .await?
+    } else if let (Some(pid), Some(s)) = (project_id, status) {
+        sqlx::query(
+            "SELECT
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
+             FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
              WHERE c.project_id = $1::int4 AND c.status = $2"
         )
         .bind(pid)
         .bind(s)
         .fetch_all(pool)
         .await?
+    } else if let (Some(tid), Some(s)) = (team_id, status) {
+        sqlx::query(
+            "SELECT
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
+             FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
+             WHERE c.team_id = $1::int4 AND c.status = $2"
+        )
+        .bind(tid)
+        .bind(s)
+        .fetch_all(pool)
+        .await?
     } else if let Some(pid) = project_id {
         sqlx::query(
             "SELECT
-                c.id::int4, c.project_id::int4, c.name, c.number, c.status,
-                c.start_date, c.end_date, c.created_at, c.created_by_id::int4
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
              FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
              WHERE c.project_id = $1::int4"
         )
         .bind(pid)
         .fetch_all(pool)
         .await?
+    } else if let Some(tid) = team_id {
+        sqlx::query(
+            "SELECT
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
+             FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
+             WHERE c.team_id = $1::int4"
+        )
+        .bind(tid)
+        .fetch_all(pool)
+        .await?
     } else if let Some(s) = status {
         sqlx::query(
             "SELECT
-                c.id::int4, c.project_id::int4, c.name, c.number, c.status,
-                c.start_date, c.end_date, c.created_at, c.created_by_id::int4
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
              FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id
              WHERE c.status = $1"
         )
         .bind(s)
@@ -52,9 +115,11 @@ pub async fn find_all_cycles(
     } else {
         sqlx::query(
             "SELECT
-                c.id::int4, c.project_id::int4, c.name, c.number, c.status,
-                c.start_date, c.end_date, c.created_at, c.created_by_id::int4
-             FROM t_cycle c"
+                c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+                c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+                tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
+             FROM t_cycle c
+             LEFT JOIN m_team tm ON c.team_id = tm.id"
         )
         .fetch_all(pool)
         .await?
@@ -64,7 +129,7 @@ pub async fn find_all_cycles(
 
     for row in rows {
         let cycle_id: i32 = row.get("id");
-        let project: i32 = row.get("project_id");
+        let project: Option<i32> = row.get("project_id");
         let created_by_id: Option<i32> = row.get("created_by_id");
 
         // created_by の詳細情報を取得
@@ -120,10 +185,23 @@ pub async fn find_all_cycles(
         .fetch_one(pool)
         .await?;
 
+        let team = if let Some(team_id_val) = row.get::<Option<i32>, _>("team_id") {
+            Some(crate::domain::models::ticket_api::TeamSummaryOut {
+                id: team_id_val,
+                name: row.get("team_name"),
+                slug: row.get("team_slug"),
+                icon: row.get("team_icon"),
+                color: row.get("team_color"),
+            })
+        } else {
+            None
+        };
+
         result.push(CycleOut {
             id: cycle_id,
             project,
             name: row.get("name"),
+            description: row.get("description"),
             number: row.get("number"),
             status: row.get("status"),
             start_date: row.get("start_date"),
@@ -134,6 +212,7 @@ pub async fn find_all_cycles(
             completed_count,
             total_points,
             completed_points,
+            team,
         });
     }
 
@@ -145,9 +224,12 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
     // 基本情報を取得
     let row = sqlx::query(
         "SELECT
-            id::int4, project_id::int4, name, number, status,
-            start_date, end_date, created_at, created_by_id::int4
-         FROM t_cycle WHERE id = $1::int4"
+            c.id::int4, c.project_id::int4, c.name, c.description, c.number, c.status,
+            c.start_date, c.end_date, c.created_at, c.created_by_id::int4,
+            tm.id::int4 as team_id, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
+         FROM t_cycle c
+         LEFT JOIN m_team tm ON c.team_id = tm.id
+         WHERE c.id = $1::int4"
     )
     .bind(id)
     .fetch_optional(pool)
@@ -157,7 +239,7 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
         None => Ok(None),
         Some(r) => {
             let cycle_id: i32 = r.get("id");
-            let project: i32 = r.get("project_id");
+            let project: Option<i32> = r.get("project_id");
             let created_by_id: Option<i32> = r.get("created_by_id");
 
             // created_by の詳細情報を取得
@@ -213,10 +295,23 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
             .fetch_one(pool)
             .await?;
 
+            let team = if let Some(team_id_val) = r.get::<Option<i32>, _>("team_id") {
+                Some(crate::domain::models::ticket_api::TeamSummaryOut {
+                    id: team_id_val,
+                    name: r.get("team_name"),
+                    slug: r.get("team_slug"),
+                    icon: r.get("team_icon"),
+                    color: r.get("team_color"),
+                })
+            } else {
+                None
+            };
+
             Ok(Some(CycleOut {
                 id: cycle_id,
                 project,
                 name: r.get("name"),
+                description: r.get("description"),
                 number: r.get("number"),
                 status: r.get("status"),
                 start_date: r.get("start_date"),
@@ -227,17 +322,30 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
                 completed_count,
                 total_points,
                 completed_points,
+                team,
             }))
         }
     }
 }
 
-/// サイクル番号を採番（MAX(number) + 1）。
-pub async fn get_next_cycle_number(pool: &PgPool, project_id: i32) -> anyhow::Result<i32> {
+/// Project 付き Cycle の番号（既存 UNIQUE (project_id, number) と揃える）。
+pub async fn get_next_cycle_number_by_project(pool: &PgPool, project_id: i32) -> anyhow::Result<i32> {
     let max_number: Option<i32> = sqlx::query_scalar(
         "SELECT COALESCE(MAX(number), 0) FROM t_cycle WHERE project_id = $1::int4"
     )
     .bind(project_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(max_number.unwrap_or(0) + 1)
+}
+
+/// Project 無し Cycle の番号（UNIQUE (team_id, number) WHERE project_id IS NULL）。
+pub async fn get_next_cycle_number_by_team(pool: &PgPool, team_id: i32) -> anyhow::Result<i32> {
+    let max_number: Option<i32> = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(number), 0) FROM t_cycle WHERE team_id = $1::int4 AND project_id IS NULL"
+    )
+    .bind(team_id)
     .fetch_one(pool)
     .await?;
 
@@ -256,21 +364,42 @@ pub async fn create_cycle(
         anyhow::bail!("開始日は終了日より前でなければなりません。");
     }
 
-    // サイクル番号を採番
-    let number = get_next_cycle_number(pool, input.project).await?;
+    // G6-1: team_id 必須。Project 付きで省略時は owner_team を補完（422 にしない）
+    let team_id = if let Some(tid) = input.team_id {
+        tid
+    } else if let Some(project_id) = input.project {
+        sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+        )
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?
+        .flatten()
+        .ok_or_else(|| anyhow::anyhow!("teamId or project is required"))?
+    } else {
+        anyhow::bail!("teamId or project is required");
+    };
+
+    let number = if let Some(project_id) = input.project {
+        get_next_cycle_number_by_project(pool, project_id).await?
+    } else {
+        get_next_cycle_number_by_team(pool, team_id).await?
+    };
 
     // INSERT
     let id: i32 = sqlx::query_scalar(
-        "INSERT INTO t_cycle (project_id, name, number, status, start_date, end_date, created_by_id, created_at)
-         VALUES ($1::int4, $2, $3, $4, $5, $6, $7::int4, NOW())
+        "INSERT INTO t_cycle (project_id, name, description, number, status, start_date, end_date, team_id, created_by_id, created_at)
+         VALUES ($1::int4, $2, $3, $4, $5, $6, $7, $8::int4, $9::int4, NOW())
          RETURNING id::int4"
     )
     .bind(input.project)
     .bind(&input.name)
+    .bind(&input.description)
     .bind(number)
     .bind(&input.status)
     .bind(input.start_date)
     .bind(input.end_date)
+    .bind(team_id)
     .bind(created_by)
     .fetch_one(pool)
     .await?;
@@ -303,15 +432,17 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
         // planned → active への遷移: activated_at を設定
         sqlx::query(
             "UPDATE t_cycle SET
-                project_id = $1::int4, name = $2, status = $3,
-                start_date = $4, end_date = $5, activated_at = NOW()
-             WHERE id = $6::int4"
+                project_id = $1::int4, name = $2, description = $3, status = $4,
+                start_date = $5, end_date = $6, team_id = $7::int4, activated_at = NOW()
+             WHERE id = $8::int4"
         )
         .bind(input.project)
         .bind(&input.name)
+        .bind(&input.description)
         .bind(&input.status)
         .bind(input.start_date)
         .bind(input.end_date)
+        .bind(input.team_id)
         .bind(id)
         .execute(pool)
         .await?
@@ -319,15 +450,17 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
         // → completed への遷移: completed_at を設定
         sqlx::query(
             "UPDATE t_cycle SET
-                project_id = $1::int4, name = $2, status = $3,
-                start_date = $4, end_date = $5, completed_at = NOW()
-             WHERE id = $6::int4"
+                project_id = $1::int4, name = $2, description = $3, status = $4,
+                start_date = $5, end_date = $6, team_id = $7::int4, completed_at = NOW()
+             WHERE id = $8::int4"
         )
         .bind(input.project)
         .bind(&input.name)
+        .bind(&input.description)
         .bind(&input.status)
         .bind(input.start_date)
         .bind(input.end_date)
+        .bind(input.team_id)
         .bind(id)
         .execute(pool)
         .await?
@@ -335,19 +468,40 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
         // その他の更新
         sqlx::query(
             "UPDATE t_cycle SET
-                project_id = $1::int4, name = $2, status = $3,
-                start_date = $4, end_date = $5
-             WHERE id = $6::int4"
+                project_id = $1::int4, name = $2, description = $3, status = $4,
+                start_date = $5, end_date = $6, team_id = $7::int4
+             WHERE id = $8::int4"
         )
         .bind(input.project)
         .bind(&input.name)
+        .bind(&input.description)
         .bind(&input.status)
         .bind(input.start_date)
         .bind(input.end_date)
+        .bind(input.team_id)
         .bind(id)
         .execute(pool)
         .await?
     };
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// 依存関係グラフ上のCycle枠の表示位置を保存する。x/yはReact Flowのpixel座標。
+pub async fn update_cycle_graph_position(
+    pool: &PgPool,
+    cycle_id: i32,
+    x: f64,
+    y: f64,
+) -> anyhow::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE t_cycle SET graph_position_x = $1, graph_position_y = $2 WHERE id = $3"
+    )
+    .bind(x)
+    .bind(y)
+    .bind(cycle_id)
+    .execute(pool)
+    .await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -825,20 +979,65 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
 }
 
 /// 期限に基づいてplannedサイクルを自動的にactiveに遷移させ、アクティブ化されたサイクル情報を返す。
-pub async fn auto_activate_due_cycles(pool: &PgPool) -> anyhow::Result<Vec<(i32, i32, String)>> {
-    let activated = sqlx::query(
-        "UPDATE t_cycle
+/// 戻り値: (cycle_id, project_id, name)。Team-only は project_id = None。
+pub async fn auto_activate_due_cycles(pool: &PgPool) -> anyhow::Result<Vec<(i32, Option<i32>, String)>> {
+    // 同一プロジェクトで既にactiveなサイクルがある間は、次のplannedサイクルの
+    // 自動アクティブ化をスキップする(「進行中は常に1件」という前提をスケジューラ側で担保する)。
+    let activated_project = sqlx::query(
+        "WITH candidates AS (
+            SELECT DISTINCT ON (project_id) id
+            FROM t_cycle
+            WHERE status = 'planned'
+              AND project_id IS NOT NULL
+              AND start_date <= CURRENT_DATE
+              AND project_id NOT IN (
+                  SELECT project_id FROM t_cycle WHERE status = 'active' AND project_id IS NOT NULL
+              )
+            ORDER BY project_id, start_date ASC, number ASC
+         )
+         UPDATE t_cycle
          SET status = 'active', activated_at = NOW()
-         WHERE status = 'planned' AND start_date <= CURRENT_DATE
-         RETURNING id::int4, project_id::int4, name"
+         FROM candidates
+         WHERE t_cycle.id = candidates.id
+         RETURNING t_cycle.id::int4, t_cycle.project_id::int4, t_cycle.name"
     )
     .fetch_all(pool)
     .await?;
 
-    Ok(activated
+    // Team-only（project_id IS NULL）も同様に、Team あたり active 1件
+    let activated_team = sqlx::query(
+        "WITH candidates AS (
+            SELECT DISTINCT ON (team_id) id
+            FROM t_cycle
+            WHERE status = 'planned'
+              AND project_id IS NULL
+              AND team_id IS NOT NULL
+              AND start_date <= CURRENT_DATE
+              AND team_id NOT IN (
+                  SELECT team_id FROM t_cycle
+                  WHERE status = 'active' AND project_id IS NULL AND team_id IS NOT NULL
+              )
+            ORDER BY team_id, start_date ASC, number ASC
+         )
+         UPDATE t_cycle
+         SET status = 'active', activated_at = NOW()
+         FROM candidates
+         WHERE t_cycle.id = candidates.id
+         RETURNING t_cycle.id::int4, t_cycle.name"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut result: Vec<(i32, Option<i32>, String)> = activated_project
         .into_iter()
-        .map(|row| (row.get(0), row.get(1), row.get(2)))
-        .collect())
+        .map(|row| (row.get(0), Some(row.get(1)), row.get(2)))
+        .collect();
+    result.extend(
+        activated_team
+            .into_iter()
+            .map(|row| (row.get(0), None, row.get(1))),
+    );
+    Ok(result)
 }
 
 /// 持ち越し先解決の結果。
@@ -852,25 +1051,171 @@ pub enum CarryOverResolve {
     AbortAutoComplete,
 }
 
+/// created_by → Project owner/membership → Team membership の順で actor を決める。
+async fn resolve_cycle_actor_user_id(
+    pool: &PgPool,
+    created_by_id: Option<i32>,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+) -> anyhow::Result<Option<i32>> {
+    if let Some(uid) = created_by_id {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM accounts_user WHERE id = $1::int4)"
+        )
+        .bind(uid)
+        .fetch_one(pool)
+        .await?;
+        if exists {
+            return Ok(Some(uid));
+        }
+    }
+
+    if let Some(pid) = project_id {
+        let owner_id: Option<i32> = sqlx::query_scalar(
+            "SELECT owner_id::int4 FROM tickets_project WHERE id = $1::int4"
+        )
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+        if owner_id.is_some() {
+            return Ok(owner_id);
+        }
+
+        // Projectゲスト(scoped_project_id一致、is_staff 優先)
+        let member_id: Option<i32> = sqlx::query_scalar(
+            "SELECT m.user_id::int4
+             FROM t_team_membership m
+             JOIN accounts_user u ON u.id = m.user_id
+             WHERE m.scoped_project_id = $1::int4
+             ORDER BY u.is_staff DESC, m.user_id ASC
+             LIMIT 1"
+        )
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?;
+        if member_id.is_some() {
+            return Ok(member_id);
+        }
+    }
+
+    if let Some(tid) = team_id {
+        // L2: Projectゲスト(scoped_project_id付き)は「チーム全体メンバー」ではないため除外する
+        let member_id: Option<i32> = sqlx::query_scalar(
+            "SELECT m.user_id::int4
+             FROM t_team_membership m
+             JOIN accounts_user u ON u.id = m.user_id
+             WHERE m.team_id = $1::int4 AND m.scoped_project_id IS NULL
+             ORDER BY u.is_staff DESC, m.user_id ASC
+             LIMIT 1"
+        )
+        .bind(tid)
+        .fetch_optional(pool)
+        .await?;
+        if member_id.is_some() {
+            return Ok(member_id);
+        }
+    }
+
+    Ok(None)
+}
+
 /// 持ち越し先 Cycle を解決する。
-/// 1. 同 project_id の status='planned' を先頭から探索 → CarryTo(id)
-/// 2. 無ければ:
-///    - cycle_auto_create_next = false → CompleteWithoutCarry
-///    - cycle_auto_create_next = true → 次 Cycle を自動作成して CarryTo(id)
-/// 3. created_by / owner / membership(staff 優先) が全て無ければ AbortAutoComplete
+/// Project 付きは従来どおり Project 設定を見る。Team-only は planned → 無ければ次 Cycle 作成（既定 ON）。
+/// actor は Project 経路を残しつつ Team メンバーも候補にする。
 pub async fn resolve_carry_over_target(
     pool: &PgPool,
-    project_id: i32,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
     completed_cycle: &CycleOut,
 ) -> anyhow::Result<CarryOverResolve> {
-    // 1. planned Cycle が存在するか確認
+    if let Some(pid) = project_id {
+        let planned_cycle: Option<i32> = sqlx::query_scalar(
+            "SELECT id::int4 FROM t_cycle
+             WHERE project_id = $1::int4 AND status = 'planned'
+             ORDER BY start_date ASC, id ASC
+             LIMIT 1"
+        )
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some(id) = planned_cycle {
+            return Ok(CarryOverResolve::CarryTo(id));
+        }
+
+        let auto_create_next: bool = sqlx::query_scalar(
+            "SELECT cycle_auto_create_next FROM tickets_project WHERE id = $1::int4"
+        )
+        .bind(pid)
+        .fetch_one(pool)
+        .await?;
+
+        if !auto_create_next {
+            return Ok(CarryOverResolve::CompleteWithoutCarry);
+        }
+
+        let creator_id = resolve_cycle_actor_user_id(
+            pool,
+            completed_cycle.created_by.as_ref().map(|u| u.id),
+            Some(pid),
+            team_id,
+        )
+        .await?;
+
+        let creator_id = match creator_id {
+            Some(uid) => uid,
+            None => {
+                tracing::error!(
+                    "[Cycle 自動完了] project_id={} team_id={:?} 結果=次Cycle作成失敗→自動完了スキップ 理由=created_by_idが決定不可（creator/owner/project membership/team membershipが無い）",
+                    pid, team_id
+                );
+                return Ok(CarryOverResolve::AbortAutoComplete);
+            }
+        };
+
+        let duration_days = (completed_cycle.end_date - completed_cycle.start_date).num_days();
+        let next_start = completed_cycle.end_date + chrono::Duration::days(1);
+        let duration = if duration_days > 0 { duration_days } else { 14 };
+        let next_end = next_start + chrono::Duration::days(duration);
+        let next_number = get_next_cycle_number_by_project(pool, pid).await?;
+        let next_name = format!("Cycle {}", next_number);
+        let next_team_id = completed_cycle.team.as_ref().map(|t| t.id);
+
+        let new_cycle_id: i32 = sqlx::query_scalar(
+            "INSERT INTO t_cycle (project_id, name, number, status, start_date, end_date, team_id, created_by_id, created_at)
+             VALUES ($1::int4, $2, $3, 'planned', $4, $5, $6::int4, $7::int4, NOW())
+             RETURNING id::int4"
+        )
+        .bind(pid)
+        .bind(&next_name)
+        .bind(next_number)
+        .bind(next_start)
+        .bind(next_end)
+        .bind(next_team_id)
+        .bind(creator_id)
+        .fetch_one(pool)
+        .await?;
+
+        return Ok(CarryOverResolve::CarryTo(new_cycle_id));
+    }
+
+    // Team-only Cycle
+    let tid = match team_id {
+        Some(id) => id,
+        None => {
+            tracing::error!("[Cycle 自動完了] project_id=None team_id=None 結果=持ち越し先不明→スキップ");
+            return Ok(CarryOverResolve::AbortAutoComplete);
+        }
+    };
+
     let planned_cycle: Option<i32> = sqlx::query_scalar(
         "SELECT id::int4 FROM t_cycle
-         WHERE project_id = $1::int4 AND status = 'planned'
+         WHERE team_id = $1::int4 AND project_id IS NULL AND status = 'planned'
          ORDER BY start_date ASC, id ASC
          LIMIT 1"
     )
-    .bind(project_id)
+    .bind(tid)
     .fetch_optional(pool)
     .await?;
 
@@ -878,88 +1223,43 @@ pub async fn resolve_carry_over_target(
         return Ok(CarryOverResolve::CarryTo(id));
     }
 
-    // 2. cycle_auto_create_next を確認
-    let auto_create_next: bool = sqlx::query_scalar(
-        "SELECT cycle_auto_create_next FROM tickets_project WHERE id = $1::int4"
+    // Team に auto_create 設定列は無い → 既定 true（次 Cycle を作る）
+    let creator_id = resolve_cycle_actor_user_id(
+        pool,
+        completed_cycle.created_by.as_ref().map(|u| u.id),
+        None,
+        Some(tid),
     )
-    .bind(project_id)
-    .fetch_one(pool)
     .await?;
 
-    if !auto_create_next {
-        return Ok(CarryOverResolve::CompleteWithoutCarry);
-    }
-
-    // 3. 次 Cycle を自動作成
-    // created_by_id を決定
-    let creator_id = if let Some(uid) = completed_cycle.created_by.as_ref().map(|u| u.id) {
-        Some(uid)
-    } else {
-        // owner_id を取得
-        let owner_id: Option<i32> = sqlx::query_scalar(
-            "SELECT owner_id::int4 FROM tickets_project WHERE id = $1::int4"
-        )
-        .bind(project_id)
-        .fetch_one(pool)
-        .await?;
-
-        if owner_id.is_some() {
-            owner_id
-        } else {
-            // membership: is_staff 優先、なければ最初のメンバー
-            let member_id: Option<i32> = sqlx::query_scalar(
-                "SELECT m.user_id::int4
-                 FROM tickets_project_membership m
-                 JOIN accounts_user u ON u.id = m.user_id
-                 WHERE m.project_id = $1::int4
-                 ORDER BY u.is_staff DESC, m.user_id ASC
-                 LIMIT 1"
-            )
-            .bind(project_id)
-            .fetch_optional(pool)
-            .await?;
-
-            member_id
-        }
-    };
-
-    // creator_id が決まらない場合は自動完了ごとスキップ
     let creator_id = match creator_id {
         Some(uid) => uid,
         None => {
             tracing::error!(
-                "[Cycle 自動完了] project_id={} 結果=次Cycle作成失敗→自動完了スキップ 理由=created_by_idが決定不可（creator/owner/membershipが無い）",
-                project_id
+                "[Cycle 自動完了] team_id={} 結果=次Cycle作成失敗→自動完了スキップ 理由=created_by_idが決定不可（creator/team membershipが無い）",
+                tid
             );
             return Ok(CarryOverResolve::AbortAutoComplete);
         }
     };
 
-    // 次 Cycle の期間を計算
     let duration_days = (completed_cycle.end_date - completed_cycle.start_date).num_days();
     let next_start = completed_cycle.end_date + chrono::Duration::days(1);
-    let duration = if duration_days > 0 {
-        duration_days
-    } else {
-        14
-    };
+    let duration = if duration_days > 0 { duration_days } else { 14 };
     let next_end = next_start + chrono::Duration::days(duration);
-
-    // 次 Cycle 番号を取得
-    let next_number = get_next_cycle_number(pool, project_id).await?;
+    let next_number = get_next_cycle_number_by_team(pool, tid).await?;
     let next_name = format!("Cycle {}", next_number);
 
-    // 次 Cycle を作成
     let new_cycle_id: i32 = sqlx::query_scalar(
-        "INSERT INTO t_cycle (project_id, name, number, status, start_date, end_date, created_by_id, created_at)
-         VALUES ($1::int4, $2, $3, 'planned', $4, $5, $6::int4, NOW())
+        "INSERT INTO t_cycle (project_id, name, number, status, start_date, end_date, team_id, created_by_id, created_at)
+         VALUES (NULL, $1, $2, 'planned', $3, $4, $5::int4, $6::int4, NOW())
          RETURNING id::int4"
     )
-    .bind(project_id)
     .bind(&next_name)
     .bind(next_number)
     .bind(next_start)
     .bind(next_end)
+    .bind(tid)
     .bind(creator_id)
     .fetch_one(pool)
     .await?;
@@ -973,14 +1273,19 @@ pub async fn auto_complete_overdue_cycles(
 ) -> anyhow::Result<Vec<crate::domain::models::cycle_api::AutoCompleteLogEntry>> {
     use crate::domain::models::cycle_api::AutoCompleteLogEntry;
 
-    // 対象クエリ
+    // Project 付き（設定 ON）＋ Team-only
     let overdue_cycles = sqlx::query(
-        "SELECT c.id::int4, c.project_id::int4, c.name, c.start_date, c.end_date, c.created_by_id::int4
+        "SELECT c.id::int4, c.project_id::int4, c.name, c.start_date, c.end_date, c.created_by_id::int4, c.team_id::int4,
+                tm.id::int4 as team_id_out, tm.name as team_name, tm.slug as team_slug, tm.icon as team_icon, tm.color as team_color
          FROM t_cycle c
-         JOIN tickets_project p ON p.id = c.project_id
+         LEFT JOIN m_team tm ON c.team_id = tm.id
+         LEFT JOIN tickets_project p ON p.id = c.project_id
          WHERE c.status = 'active'
            AND c.end_date < CURRENT_DATE
-           AND p.cycle_auto_complete = true
+           AND (
+             (c.project_id IS NOT NULL AND p.cycle_auto_complete = true)
+             OR (c.project_id IS NULL AND c.team_id IS NOT NULL)
+           )
          ORDER BY c.end_date ASC, c.id ASC"
     )
     .fetch_all(pool)
@@ -990,23 +1295,35 @@ pub async fn auto_complete_overdue_cycles(
 
     for row in overdue_cycles {
         let cycle_id: i32 = row.get("id");
-        let project_id: i32 = row.get("project_id");
+        let project_id: Option<i32> = row.get("project_id");
         let name: String = row.get("name");
         let start_date: chrono::NaiveDate = row.get("start_date");
         let end_date: chrono::NaiveDate = row.get("end_date");
         let created_by_id: Option<i32> = row.get("created_by_id");
+        let team_id: Option<i32> = row.get("team_id");
 
-        // completed_cycle 用の CycleOut を構築（最小限）
+        let team = if let Some(team_id_val) = row.get::<Option<i32>, _>("team_id_out") {
+            Some(crate::domain::models::ticket_api::TeamSummaryOut {
+                id: team_id_val,
+                name: row.get("team_name"),
+                slug: row.get("team_slug"),
+                icon: row.get("team_icon"),
+                color: row.get("team_color"),
+            })
+        } else {
+            None
+        };
+
         let completed_cycle = CycleOut {
             id: cycle_id,
             project: project_id,
             name: name.clone(),
-            number: 0, // 使用されない
+            description: String::new(),
+            number: 0,
             status: "active".to_string(),
             start_date,
             end_date,
             created_by: if let Some(uid) = created_by_id {
-                // ユーザー情報を取得
                 let user_row = sqlx::query(
                     "SELECT id::int4, username, email,
                             COALESCE(display_name, '') as display_name
@@ -1030,76 +1347,82 @@ pub async fn auto_complete_overdue_cycles(
             completed_count: 0,
             total_points: 0,
             completed_points: 0,
+            team,
         };
 
-        // 持ち越し先を解決
-        let target_id = match resolve_carry_over_target(pool, project_id, &completed_cycle).await {
+        if project_id.is_none() && team_id.is_none() {
+            tracing::warn!(
+                "cycle auto-complete aborted: id={} 理由=project_id/team_id ともに無い",
+                cycle_id
+            );
+            continue;
+        }
+
+        let target_id = match resolve_carry_over_target(pool, project_id, team_id, &completed_cycle).await {
             Ok(CarryOverResolve::CarryTo(id)) => Some(id),
             Ok(CarryOverResolve::CompleteWithoutCarry) => None,
             Ok(CarryOverResolve::AbortAutoComplete) => {
                 tracing::warn!(
-                    "cycle auto-complete aborted: id={} project_id={} 理由=次Cycle作成不可",
-                    cycle_id, project_id
+                    "cycle auto-complete aborted: id={} project_id={:?} team_id={:?} 理由=次Cycle作成不可",
+                    cycle_id, project_id, team_id
                 );
                 continue;
             }
             Err(e) => {
                 tracing::error!(
-                    "[Cycle 自動完了] cycle_id={} project_id={} 結果=失敗（持ち越し先解決） | {}",
-                    cycle_id, project_id, e
+                    "[Cycle 自動完了] cycle_id={} project_id={:?} team_id={:?} 結果=失敗（持ち越し先解決） | {}",
+                    cycle_id, project_id, team_id, e
                 );
                 continue;
             }
         };
 
-        // Cycle を完了
         match complete_cycle(pool, cycle_id, target_id).await {
             Ok(CompleteCycleResult::Success(out)) => {
                 tracing::info!(
-                    "cycle auto-completed: id={} project_id={} carried_over={} target={:?} 処理=期限超過サイクル自動完了",
-                    cycle_id, project_id, out.carried_over, target_id
+                    "cycle auto-completed: id={} project_id={:?} team_id={:?} carried_over={} target={:?} 処理=期限超過サイクル自動完了",
+                    cycle_id, project_id, team_id, out.carried_over, target_id
                 );
 
-                // 通知を作成
                 if let Err(e) = crate::domain::services::notification_service::notify_cycle_auto_completed(
                     pool,
                     project_id,
+                    team_id,
                     cycle_id,
                     &name,
                     out.carried_over,
                     target_id,
                 ).await {
                     tracing::error!(
-                        "[Cycle自動完了通知] 作成失敗 cycle_id={} project_id={}: {}",
-                        cycle_id, project_id, e
+                        "[Cycle自動完了通知] 作成失敗 cycle_id={} project_id={:?} team_id={:?}: {}",
+                        cycle_id, project_id, team_id, e
                     );
                 }
 
                 result.push(AutoCompleteLogEntry {
                     cycle_id,
                     project_id,
+                    team_id,
                     carried_over: out.carried_over,
                     target_cycle_id: target_id,
                 });
             }
             Ok(CompleteCycleResult::AlreadyCompleted) => {
-                // no-op
                 tracing::debug!(
-                    "cycle auto-complete skipped: id={} project_id={} 理由=already_completed",
+                    "cycle auto-complete skipped: id={} project_id={:?} 理由=already_completed",
                     cycle_id, project_id
                 );
             }
             Ok(CompleteCycleResult::NotFound) => {
-                // no-op
                 tracing::debug!(
-                    "cycle auto-complete skipped: id={} project_id={} 理由=not_found",
+                    "cycle auto-complete skipped: id={} project_id={:?} 理由=not_found",
                     cycle_id, project_id
                 );
             }
             Err(e) => {
                 tracing::error!(
-                    "[Cycle 自動完了] cycle_id={} project_id={} 結果=失敗（完了処理） | {}",
-                    cycle_id, project_id, e
+                    "[Cycle 自動完了] cycle_id={} project_id={:?} team_id={:?} 結果=失敗（完了処理） | {}",
+                    cycle_id, project_id, team_id, e
                 );
                 continue;
             }
@@ -1116,6 +1439,130 @@ mod tests {
     use crate::test_support;
 
     #[tokio::test]
+    async fn test_auto_activate_skips_when_project_already_has_active_cycle() {
+        // T0: 同一プロジェクトに既にactiveなサイクルがある場合、start_dateが過ぎたplannedが
+        // あっても自動アクティブ化をスキップする(「進行中は常に1件」をスケジューラ側で担保)。
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "actA").await;
+        let project_id = test_support::create_test_project(&pool, "ACTA", user_id).await;
+
+        let today = chrono::Local::now().naive_local().date();
+
+        create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: Some(project_id),
+                name: "A-Active".to_string(),
+                description: String::new(),
+                start_date: today - Duration::days(3),
+                end_date: today + Duration::days(3),
+                status: "active".to_string(),
+                team_id: None,
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create active cycle");
+
+        let planned_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: Some(project_id),
+                name: "A-Planned-Due".to_string(),
+                description: String::new(),
+                start_date: today - Duration::days(1),
+                end_date: today + Duration::days(10),
+                status: "planned".to_string(),
+                team_id: None,
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create planned cycle");
+
+        let activated = auto_activate_due_cycles(&pool)
+            .await
+            .expect("auto_activate_due_cycles failed");
+
+        assert!(
+            !activated.iter().any(|(id, _, _)| *id == planned_id),
+            "既にactiveなサイクルがあるプロジェクトのplannedが誤ってactive化された"
+        );
+
+        let planned_cycle = find_cycle_by_id(&pool, planned_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Planned cycle not found");
+        assert_eq!(planned_cycle.status, "planned");
+    }
+
+    #[tokio::test]
+    async fn test_auto_activate_picks_earliest_candidate_per_project() {
+        // T0b: activeが無いプロジェクトでplannedが複数同時にstart_date超過している場合、
+        // 1回の呼び出しで複数同時にactiveにしてしまわず、最も早いstart_dateの1件のみactive化する。
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "actB").await;
+        let project_id = test_support::create_test_project(&pool, "ACTB", user_id).await;
+
+        let today = chrono::Local::now().naive_local().date();
+
+        let older_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: Some(project_id),
+                name: "B-Planned-Older".to_string(),
+                description: String::new(),
+                start_date: today - Duration::days(5),
+                end_date: today + Duration::days(1),
+                status: "planned".to_string(),
+                team_id: None,
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create older planned cycle");
+
+        let newer_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: Some(project_id),
+                name: "B-Planned-Newer".to_string(),
+                description: String::new(),
+                start_date: today - Duration::days(2),
+                end_date: today + Duration::days(8),
+                status: "planned".to_string(),
+                team_id: None,
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create newer planned cycle");
+
+        let activated = auto_activate_due_cycles(&pool)
+            .await
+            .expect("auto_activate_due_cycles failed");
+
+        // auto_activate_due_cyclesは全プロジェクトを対象に動く関数のため、共有DBに残る
+        // 他テストの残骸行も一緒に返り得る。このテストのproject_idに絞って検証する。
+        let activated_ids_in_this_project: Vec<i32> = activated
+            .iter()
+            .filter(|(_, pid, _)| *pid == Some(project_id))
+            .map(|(id, _, _)| *id)
+            .collect();
+        assert_eq!(
+            activated_ids_in_this_project,
+            vec![older_id],
+            "start_dateが最も早いサイクルのみが1件active化されるべき"
+        );
+
+        let newer_cycle = find_cycle_by_id(&pool, newer_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Newer cycle not found");
+        assert_eq!(newer_cycle.status, "planned");
+    }
+
+    #[tokio::test]
     async fn test_resolve_carry_over_target_with_planned() {
         // T1: planned あり → 先頭 planned へ持ち越し
         let Some(pool) = test_support::test_pool().await else { return; };
@@ -1126,11 +1573,13 @@ mod tests {
         let active_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
-                project: project_id,
+                project: Some(project_id),
                 name: "Active Cycle".to_string(),
+                description: String::new(),
                 start_date: today - Duration::days(10),
                 end_date: today - Duration::days(1),
                 status: "active".to_string(),
+                team_id: None,
             },
             user_id,
         )
@@ -1140,11 +1589,13 @@ mod tests {
         let planned_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
-                project: project_id,
+                project: Some(project_id),
                 name: "Planned Cycle".to_string(),
+                description: String::new(),
                 start_date: today,
                 end_date: today + Duration::days(14),
                 status: "planned".to_string(),
+                team_id: None,
             },
             user_id,
         )
@@ -1156,7 +1607,7 @@ mod tests {
             .expect("Failed to fetch cycle")
             .expect("Active cycle not found");
 
-        let target = resolve_carry_over_target(&pool, project_id, &active_cycle)
+        let target = resolve_carry_over_target(&pool, Some(project_id), None, &active_cycle)
             .await
             .expect("resolve_carry_over_target failed");
 
@@ -1180,11 +1631,13 @@ mod tests {
         let active_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
-                project: project_id,
+                project: Some(project_id),
                 name: "Active Cycle".to_string(),
+                description: String::new(),
                 start_date: today - Duration::days(10),
                 end_date: today - Duration::days(1),
                 status: "active".to_string(),
+                team_id: None,
             },
             user_id,
         )
@@ -1196,7 +1649,7 @@ mod tests {
             .expect("Failed to fetch cycle")
             .expect("Active cycle not found");
 
-        let target = resolve_carry_over_target(&pool, project_id, &active_cycle)
+        let target = resolve_carry_over_target(&pool, Some(project_id), None, &active_cycle)
             .await
             .expect("resolve_carry_over_target failed");
 
@@ -1230,11 +1683,13 @@ mod tests {
         let active_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
-                project: project_id,
+                project: Some(project_id),
                 name: "Active Cycle".to_string(),
+                description: String::new(),
                 start_date: today - Duration::days(10),
                 end_date: today - Duration::days(1),
                 status: "active".to_string(),
+                team_id: None,
             },
             user_id,
         )
@@ -1246,7 +1701,7 @@ mod tests {
             .expect("Failed to fetch cycle")
             .expect("Active cycle not found");
 
-        let target = resolve_carry_over_target(&pool, project_id, &active_cycle)
+        let target = resolve_carry_over_target(&pool, Some(project_id), None, &active_cycle)
             .await
             .expect("resolve_carry_over_target failed");
 
@@ -1270,11 +1725,13 @@ mod tests {
         let overdue_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
-                project: project_id,
+                project: Some(project_id),
                 name: "Overdue Cycle".to_string(),
+                description: String::new(),
                 start_date: today - Duration::days(10),
                 end_date: today - Duration::days(1),
                 status: "active".to_string(),
+                team_id: None,
             },
             user_id,
         )
@@ -1305,11 +1762,13 @@ mod tests {
         let cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
-                project: project_id,
+                project: Some(project_id),
                 name: "Completed Cycle".to_string(),
+                description: String::new(),
                 start_date: today - Duration::days(10),
                 end_date: today - Duration::days(1),
                 status: "completed".to_string(),
+                team_id: None,
             },
             user_id,
         )
@@ -1321,5 +1780,39 @@ mod tests {
             .expect("auto_complete_overdue_cycles failed");
 
         assert!(!logs.iter().any(|e| e.cycle_id == cycle_id));
+    }
+
+    #[tokio::test]
+    async fn test_update_cycle_graph_position() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cgp").await;
+        let project_id = test_support::create_test_project(&pool, "CGP", user_id).await;
+
+        let today = chrono::Local::now().naive_local().date();
+        let cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: Some(project_id),
+                name: "Position Test Cycle".to_string(),
+                description: String::new(),
+                start_date: today,
+                end_date: today + Duration::days(14),
+                status: "planned".to_string(),
+                team_id: None,
+            },
+            user_id,
+        )
+        .await
+        .expect("Failed to create cycle");
+
+        let updated = update_cycle_graph_position(&pool, cycle_id, 123.5, -45.0)
+            .await
+            .expect("update_cycle_graph_position failed");
+        assert!(updated);
+
+        let not_found = update_cycle_graph_position(&pool, -1, 0.0, 0.0)
+            .await
+            .expect("update_cycle_graph_position failed");
+        assert!(!not_found);
     }
 }

@@ -2,11 +2,11 @@
 
 # WIP — プロジェクト管理ツール
 
-チケット管理・ガントチャート・Wiki・通知を備えたプロジェクト管理ツールです。バックエンドはRust(Axum)、フロントエンドはReact(TypeScript)で構築されています。
+チケット管理・チーム(マルチチーム対応)・ガントチャート・Wiki・通知を備えたプロジェクト管理ツールです。バックエンドはRust(Axum)、フロントエンドはReact(TypeScript)で構築されています。
 
 ## アーキテクチャ
 
-UI は **ハイブリッド** です。対話的なアプリ画面は React SPA、ログインシェルや単純なサーバー描画など適した箇所は **Askama** を使います。Askama は適材適所で維持しており、**完全撤去はしていません**。
+UI は **React SPA** です。以前はダッシュボード・チケット・ガント・Wiki等の一部画面をAskamaでサーバー描画していましたが、現在はすべてSPAに置き換わっています。サーバー描画で残っているのはログイン前の認証画面（`rust/templates/auth/`：ログイン・MFA・パスワードリセット・WebAuthn）のみで、SPAバンドル読み込み前に表示されます。
 
 ### バックエンド (`rust/`)
 
@@ -16,13 +16,13 @@ Clean Architecture に沿った3層構成:
 rust/src/
 ├── domain/          # ドメインモデル・ドメインサービス(ビジネスロジック)
 ├── infrastructure/  # リポジトリ実装(PostgreSQL, sqlx)、メール送信など
-├── presentation/     # HTTPハンドラ、ミドルウェア、Askama 利用箇所
+├── presentation/     # HTTPハンドラ(JSON API + ログイン前の認証画面)、ミドルウェア
 ├── routes.rs         # ルーティング定義
 ├── config.rs          # 環境変数からの設定読み込み
 └── main.rs            # エントリポイント
 ```
 
-`rust/templates/` に Askama テンプレートがあります。
+`rust/templates/auth/` にログイン前の認証画面用Askamaテンプレートがあります。それ以外はすべてSPAが担います。
 認証は `rust/auth-core/`（JWT / TOTP / WebAuthn）。
 
 ### フロントエンド (`frontend/`)

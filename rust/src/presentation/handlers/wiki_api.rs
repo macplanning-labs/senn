@@ -19,6 +19,7 @@ use crate::domain::models::wiki_api::*;
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub category: Option<String>,
     pub search: Option<String>,
     pub page: Option<i64>,
@@ -57,6 +58,7 @@ pub async fn list(
     let items = match wiki_api_repo::find_all(
         &state.pool,
         params.project,
+        params.team,
         params.category.as_deref(),
         params.search.as_deref(),
         page,
@@ -77,6 +79,7 @@ pub async fn list(
     let count = match wiki_api_repo::count_all(
         &state.pool,
         params.project,
+        params.team,
         params.category.as_deref(),
         params.search.as_deref(),
     )

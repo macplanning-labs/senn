@@ -1,0 +1,4 @@
+ALTER TABLE tickets_comment
+    ADD COLUMN IF NOT EXISTS anchor_start INT NULL,
+    ADD COLUMN IF NOT EXISTS anchor_end INT NULL,
+    ADD COLUMN IF NOT EXISTS anchor_quote TEXT NULL;

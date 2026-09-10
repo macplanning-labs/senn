@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkflowStatusOut {
     pub id: i32,
-    pub project: i32,
+    pub project: Option<i32>,
+    #[serde(rename = "teamId")]
+    pub team_id: Option<i32>,
     pub name: String,
     pub slug: String,
     pub category: String,
@@ -20,7 +22,10 @@ pub struct WorkflowStatusOut {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowStatusWriteIn {
-    pub project: i32,
+    #[serde(default)]
+    pub project: Option<i32>,
+    #[serde(default)]
+    pub team_id: Option<i32>,
     pub name: String,
     pub slug: String,
     pub category: String,
@@ -33,6 +38,8 @@ pub struct WorkflowStatusWriteIn {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowStatusUpdateIn {
     pub project: Option<i32>,
+    #[serde(default)]
+    pub team_id: Option<i32>,
     pub name: Option<String>,
     pub slug: Option<String>,
     pub category: Option<String>,

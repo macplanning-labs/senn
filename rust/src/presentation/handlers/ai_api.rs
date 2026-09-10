@@ -142,7 +142,7 @@ pub async fn context_analysis(
         }
     };
 
-    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.assigned_team_id).await {
+    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.team_id).await {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -235,7 +235,7 @@ pub async fn generate_prompt_text(
         }
     };
 
-    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.assigned_team_id).await {
+    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.team_id).await {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);

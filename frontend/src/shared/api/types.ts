@@ -37,7 +37,6 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
-  assignedTeam: TeamSummary | null;
   cycle: number | null;
   cycleName: string | null;
 }
@@ -62,7 +61,6 @@ export interface TicketListItem {
   cycle: number | null;
   cycleName: string | null;
   totalTimeSpent: number;
-  assignedTeam: TeamSummary | null;
 }
 
 // ============================================================
@@ -118,7 +116,8 @@ export interface Label {
   id: number;
   name: string;
   color: string;
-  project: number;
+  project?: number | null;
+  teamId?: number | null;
 }
 
 // ============================================================
@@ -238,11 +237,20 @@ export interface DependencyGraphNode {
   ticketType: string;
   assignees: UserSummary[];
   storyPoints: number | null;
+  cycle: number | null;
+  cycleName: string | null;
+}
+
+export interface DependencyGraphCycle {
+  id: number;
+  graphPositionX: number | null;
+  graphPositionY: number | null;
 }
 
 export interface DependencyGraph {
   nodes: DependencyGraphNode[];
   edges: TaskDependency[];
+  cycles: DependencyGraphCycle[];
 }
 
 // ============================================================
@@ -255,6 +263,7 @@ export interface Cycle {
   id: number;
   project: number;
   name: string;
+  description: string;
   number: number;
   status: CycleStatus;
   startDate: string;
@@ -265,6 +274,7 @@ export interface Cycle {
   completedCount: number;
   totalPoints: number;
   completedPoints: number;
+  team: TeamSummary | null;
 }
 
 export interface CycleProgress {
@@ -320,7 +330,8 @@ export type StatusCategory = 'backlog' | 'unstarted' | 'started' | 'completed' |
 
 export interface WorkflowStatus {
   id: number;
-  project: number;
+  project?: number | null;
+  teamId?: number | null;
   name: string;
   slug: string;
   category: StatusCategory;
@@ -339,7 +350,8 @@ export type PRState = 'open' | 'merged' | 'closed';
 
 export interface GitIntegration {
   id: number;
-  project: number;
+  project: number | null;
+  team?: number | null;
   provider: GitProvider;
   repositoryUrl: string;
   webhookSecret: string;
@@ -401,15 +413,30 @@ export interface Team {
   memberCount: number;
   projectCount: number;
   createdAt: string;
+  prefix?: string | null;
 }
 
-export type TeamRole = 'leader' | 'member';
+export type TeamRole = 'admin' | 'member';
 
 export interface TeamMembership {
   id: number;
   team: number;
   user: UserSummary;
   role: TeamRole;
+  joinedAt: string;
+}
+
+/** L2: Projectに限定されたチームゲスト(scoped_project_id付きのt_team_membership) */
+export interface TeamGuest {
+  id: number;
+  team: number;
+  user: UserSummary;
+  project: number;
+  projectName: string;
+  projectPrefix: string;
+  endDate: string | null;
+  isActive: boolean;
+  isInGracePeriod: boolean;
   joinedAt: string;
 }
 
@@ -527,9 +554,12 @@ export interface SavedViewFilters {
 
 export interface SavedView {
   id: number;
-  project: number;
+  project?: number | null;
+  teamId?: number | null;
   name: string;
   filters: SavedViewFilters;
+  isShared: boolean;
+  ownerId: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -9,9 +9,15 @@ use serde_json::Value as JsonValue;
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct SavedViewOut {
     pub id: i64,
-    pub project: i64,
+    pub project: Option<i64>,
+    #[serde(rename = "teamId")]
+    pub team_id: Option<i64>,
     pub name: String,
     pub filters: JsonValue,
+    #[serde(rename = "isShared")]
+    pub is_shared: bool,
+    #[serde(rename = "ownerId")]
+    pub owner_id: i64,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
@@ -22,10 +28,14 @@ pub struct SavedViewOut {
 pub struct SavedViewCreateIn {
     pub name: String,
     pub filters: JsonValue,
+    #[serde(default, rename = "isShared", alias = "is_shared")]
+    pub is_shared: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SavedViewUpdateIn {
     pub name: Option<String>,
     pub filters: Option<JsonValue>,
+    #[serde(default, rename = "isShared", alias = "is_shared")]
+    pub is_shared: Option<bool>,
 }

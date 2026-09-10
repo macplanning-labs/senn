@@ -103,7 +103,10 @@ pub struct MilestoneWriteIn {
 pub struct LabelWriteIn {
     pub name: String,
     pub color: String,
-    pub project: i32,
+    #[serde(default)]
+    pub project: Option<i32>,
+    #[serde(default, rename = "teamId")]
+    pub team_id: Option<i32>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]

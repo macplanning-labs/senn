@@ -14,13 +14,13 @@ pub struct TicketForAi {
     pub story_points: Option<i16>,
     pub project_id: i32,
     pub project_prefix: String,
-    pub assigned_team_id: Option<i32>,
+    pub team_id: Option<i32>,
 }
 
 pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Option<TicketForAi>> {
     let row = sqlx::query(
         "SELECT t.id::int4, t.ticket_key, t.title, t.description, t.status, t.story_points,
-            t.project_id::int4, p.prefix, t.assigned_team_id::int4
+            t.project_id::int4, p.prefix, t.team_id::int4
          FROM tickets_ticket t
          LEFT JOIN tickets_project p ON t.project_id = p.id
          WHERE t.id = $1"
@@ -38,13 +38,13 @@ pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result
         story_points: r.get("story_points"),
         project_id: r.get("project_id"),
         project_prefix: r.get("prefix"),
-        assigned_team_id: r.get("assigned_team_id"),
+        team_id: r.get("team_id"),
     }))
 }
 
-/// チケットに紐付くTeamRule(直接リンク + 担当チームのルール、重複除去)のテキストを
+/// チケットに紐付くTeamRule(直接リンク + 所属チームのルール、重複除去)のテキストを
 /// Django側の context_analysis_view と同じ書式("## title (category)\ncontent\n")で組み立てる。
-pub async fn build_associated_rules_text(pool: &PgPool, ticket_id: i32, assigned_team_id: Option<i32>) -> anyhow::Result<String> {
+pub async fn build_associated_rules_text(pool: &PgPool, ticket_id: i32, team_id: Option<i32>) -> anyhow::Result<String> {
     let mut text = String::new();
     let mut seen_ids: std::collections::HashSet<i32> = std::collections::HashSet::new();
 
@@ -69,7 +69,7 @@ pub async fn build_associated_rules_text(pool: &PgPool, ticket_id: i32, assigned
         ));
     }
 
-    if let Some(team_id) = assigned_team_id {
+    if let Some(team_id) = team_id {
         let team_rows = sqlx::query(
             "SELECT id::int4, title, category, content FROM m_team_rule WHERE team_id = $1 AND is_active = true"
         )

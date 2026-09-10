@@ -57,7 +57,7 @@ export function RegisterForm() {
         password,
       });
       await completeAuth(data.tokens.access, data.tokens.refresh);
-      navigate('/dashboard');
+      navigate('/my-issues');
     } catch (err) {
       const detail = (err as AxiosError<{ detail?: string }>)?.response?.data?.detail;
       setError(detail || t('auth.registerError', 'Failed to create account'));

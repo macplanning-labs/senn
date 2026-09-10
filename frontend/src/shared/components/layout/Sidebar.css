@@ -16,6 +16,22 @@
   z-index: var(--z-sticky);
 }
 
+.sidebar__resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100vh;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color var(--transition-fast);
+  z-index: calc(var(--z-sticky) + 1);
+}
+
+.sidebar__resize-handle:hover {
+  background-color: var(--color-accent-primary);
+}
+
 .sidebar--open {
   width: var(--sidebar-width);
 }
@@ -312,7 +328,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
   padding: var(--space-2) var(--space-2);
   overflow-y: auto;
 }
@@ -323,7 +339,7 @@
   color: var(--color-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: var(--space-2) var(--space-2) var(--space-1);
+  padding: var(--space-2) var(--space-2) 2px;
 }
 
 .sidebar__divider {
@@ -368,6 +384,141 @@
 .sidebar__label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sidebar__team-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sidebar__team-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+.sidebar__team-row:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.sidebar__team-toggle,
+.sidebar__more-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sidebar__team-toggle {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.sidebar__team-toggle:hover,
+.sidebar__more-toggle:hover {
+  background-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.sidebar__more-toggle:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.sidebar__team-toggle--active {
+  color: var(--color-text-primary);
+}
+
+.sidebar__team-chevron-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.sidebar__team-chevron-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.sidebar__team-chevron {
+  display: flex;
+  transition: transform 0.15s ease;
+  opacity: 0.7;
+}
+
+.sidebar__team-chevron-btn:hover .sidebar__team-chevron {
+  opacity: 1;
+}
+
+.sidebar__nested {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: var(--space-2);
+}
+
+.sidebar__link--nested {
+  padding-left: var(--space-3);
+}
+
+.sidebar__team-toggle--collapsed-group {
+  opacity: 0.85;
+}
+
+.sidebar__collapsed-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--space-2) var(--space-2) var(--space-2);
+  border-left: 2px solid var(--color-border-default);
+  margin-left: 9px;
+}
+
+.sidebar__team-collapsed-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.sidebar__team-collapsed-item:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar__team-collapsed-item--active {
+  color: var(--color-text-primary);
 }
 
 /* ── フッター ── */
@@ -486,6 +637,24 @@
 .sidebar__saved-view-open-link:hover {
   color: var(--color-accent-primary-hover);
   text-decoration: underline;
+}
+
+.sidebar__nav-label--shared {
+  color: var(--color-accent-secondary);
+  margin-top: var(--space-2);
+}
+
+.sidebar__saved-views--shared {
+  opacity: 0.85;
+}
+
+.sidebar__saved-view-item--shared {
+  padding-left: var(--space-4);
+  font-style: italic;
+}
+
+.sidebar__saved-view-item--shared:hover {
+  opacity: 1;
 }
 
 /* ── レスポンシブ: タブレット ── */

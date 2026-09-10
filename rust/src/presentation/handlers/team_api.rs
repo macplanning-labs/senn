@@ -159,14 +159,25 @@ pub async fn team_create(
             }
         }
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    detail: "サーバーエラーが発生しました".to_string(),
-                }),
-            )
-                .into_response()
+            let error_msg = e.to_string();
+            tracing::error!("Create team failed: {:?}", e);
+            if error_msg.contains("Prefix") || error_msg.contains("別のチームで使われています") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: error_msg,
+                    }),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
         }
     }
 }
@@ -200,14 +211,25 @@ pub async fn team_update(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    detail: "サーバーエラーが発生しました".to_string(),
-                }),
-            )
-                .into_response()
+            let error_msg = e.to_string();
+            tracing::error!("Update team failed: {:?}", e);
+            if error_msg.contains("Prefix") || error_msg.contains("別のチームで使われています") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: error_msg,
+                    }),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
         }
     }
 }
@@ -318,8 +340,19 @@ pub async fn team_members_add(
         Ok(false) => {}
     }
 
+    // Role 正規化（admin / member のみ。leader → admin）
+    let Some(role) = crate::domain::models::team_api::normalize_team_role(&body.role) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                detail: "role は admin または member のみです".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
     // メンバー追加
-    match team_repo::add_team_member(&state.pool, team_id, body.user_id, &body.role).await {
+    match team_repo::add_team_member(&state.pool, team_id, body.user_id, role).await {
         Ok(membership_id) => {
             // 追加したメンバーシップを返す
             match team_repo::get_team_member_by_id(&state.pool, membership_id).await {
@@ -353,6 +386,189 @@ pub async fn team_members_remove(
     Path((team_id, user_id)): Path<(i32, i32)>,
 ) -> impl IntoResponse {
     match team_repo::remove_team_member(&state.pool, team_id, user_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+// =============================================================================
+// L2: Project ゲスト(scoped_project_id 付き t_team_membership)
+// =============================================================================
+
+/// Projectゲスト一覧 GET /api/v1/teams/{id}/guests/
+pub async fn team_guests_list(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(team_id): Path<i32>,
+) -> impl IntoResponse {
+    match team_repo::find_team_guests(&state.pool, team_id).await {
+        Ok(guests) => (StatusCode::OK, Json(guests)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(Vec::<TeamGuestOut>::new()),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Projectゲスト追加 POST /api/v1/teams/{id}/guests/
+pub async fn team_guests_add(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(team_id): Path<i32>,
+    Json(body): Json<TeamGuestCreateIn>,
+) -> impl IntoResponse {
+    // ユーザー存在チェック
+    match team_repo::check_user_exists(&state.pool, body.user_id).await {
+        Ok(false) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "指定されたユーザーが見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(true) => {}
+    }
+
+    // 指定Projectがこのチームの所有Projectであることを確認
+    match team_repo::project_belongs_to_team(&state.pool, body.project_id, team_id).await {
+        Ok(false) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "指定されたProjectはこのチームの所有ではありません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(true) => {}
+    }
+
+    // 既にチーム全体のメンバーなら、限定ゲストとして追加する意味が無い
+    match team_repo::check_team_membership_exists(&state.pool, team_id, body.user_id).await {
+        Ok(true) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "このユーザーは既にチーム全体のメンバーです(ゲスト追加は不要です)".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(false) => {}
+    }
+
+    // 重複チェック(同じProjectへの重複ゲスト登録)
+    match team_repo::check_team_guest_exists(&state.pool, team_id, body.user_id, body.project_id).await {
+        Ok(true) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: "このユーザーは既にこのProjectのゲストです".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(false) => {}
+    }
+
+    match team_repo::add_team_guest(&state.pool, team_id, body.user_id, body.project_id, body.end_date).await {
+        Ok(_membership_id) => {
+            match team_repo::find_team_guests(&state.pool, team_id).await {
+                Ok(guests) => (StatusCode::CREATED, Json(guests)).into_response(),
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            detail: "サーバーエラーが発生しました".to_string(),
+                        }),
+                    )
+                        .into_response()
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Projectゲスト削除 DELETE /api/v1/teams/{team_id}/guests/{membership_id}/
+pub async fn team_guests_remove(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path((team_id, membership_id)): Path<(i32, i32)>,
+) -> impl IntoResponse {
+    match team_repo::remove_team_guest(&state.pool, team_id, membership_id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,

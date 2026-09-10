@@ -55,7 +55,7 @@ export function LoginForm() {
         setMfaToken(loginResult.mfaToken);
         return;
       }
-      navigate('/dashboard');
+      navigate('/my-issues');
     } catch {
       setError(t('auth.loginError', 'Invalid username or password'));
     } finally {
@@ -71,7 +71,7 @@ export function LoginForm() {
     setIsLoading(true);
     try {
       await verifyMfa(mfaToken, totpCode);
-      navigate('/dashboard');
+      navigate('/my-issues');
     } catch {
       setError(t('auth.mfaError', 'Invalid authentication code'));
     } finally {
@@ -95,7 +95,7 @@ export function LoginForm() {
       });
 
       await loginWithPasskey(completeRes.data.access, completeRes.data.refresh);
-      navigate('/dashboard');
+      navigate('/my-issues');
     } catch (err: any) {
       const msg = err?.message || '';
       if (/AbortError|NotAllowedError|取消|canceled|cancelled/i.test(msg)) {

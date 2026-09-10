@@ -24,6 +24,14 @@ pub struct AppConfig {
     /// JWT署名鍵。DjangoのSECRET_KEY(DJANGO_SECRET_KEY)と同一の値を使うことで、
     /// Rustが発行したトークンをDjangoのJWTAuthenticationが検証でき、その逆も可能になる。
     pub jwt_secret: String,
+    /// アクセストークンの有効期限(分)。`ACCESS_TOKEN_LIFETIME_MINUTES`で上書き可能。
+    pub access_token_lifetime_minutes: i64,
+    /// リフレッシュトークンの有効期限(日)。`REFRESH_TOKEN_LIFETIME_DAYS`で上書き可能。
+    pub refresh_token_lifetime_days: i64,
+    /// MFAチャレンジトークンの有効期限(秒)。`MFA_TOKEN_LIFETIME_SECONDS`で上書き可能。
+    pub mfa_token_lifetime_seconds: i64,
+    /// パスワードリセットトークンの有効期限(時間)。`PASSWORD_RESET_TOKEN_TTL_HOURS`で上書き可能。
+    pub password_reset_token_ttl_hours: i64,
     /// 外部API(X-API-Key認証)用の共有キー。DjangoのWIP_API_KEYと同じ値を使う。
     pub wip_api_key: Option<String>,
     /// 外部API経由の操作を実行するユーザー名。DjangoのWIP_API_USER相当(デフォルト"管理者")。
@@ -68,7 +76,7 @@ impl AppConfig {
             smtp_port: std::env::var("EMAIL_PORT")
                 .ok()
                 .and_then(|s| s.parse().ok()),
-            // Django互換: .env.nas は EMAIL_HOST_USER / EMAIL_HOST_PASSWORD を使う
+            // Django互換: 環境変数ファイル は EMAIL_HOST_USER / EMAIL_HOST_PASSWORD を使う
             smtp_user: std::env::var("EMAIL_USER")
                 .ok()
                 .or_else(|| std::env::var("EMAIL_HOST_USER").ok()),
@@ -84,6 +92,22 @@ impl AppConfig {
             jwt_secret: std::env::var("DJANGO_SECRET_KEY").unwrap_or_else(|_| {
                 "django-insecure-t)!aocxrf)m)b4sh!jcuthbr6_*em#x%chw@a7976ehs!ct=qb".to_string()
             }),
+            access_token_lifetime_minutes: std::env::var("ACCESS_TOKEN_LIFETIME_MINUTES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30),
+            refresh_token_lifetime_days: std::env::var("REFRESH_TOKEN_LIFETIME_DAYS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(7),
+            mfa_token_lifetime_seconds: std::env::var("MFA_TOKEN_LIFETIME_SECONDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(300),
+            password_reset_token_ttl_hours: std::env::var("PASSWORD_RESET_TOKEN_TTL_HOURS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(24),
             wip_api_key: std::env::var("WIP_API_KEY").ok(),
             wip_api_user: std::env::var("WIP_API_USER").unwrap_or_else(|_| "管理者".to_string()),
             wip_ai_api_key: std::env::var("WIP_AI_API_KEY").ok().filter(|s| !s.is_empty()),

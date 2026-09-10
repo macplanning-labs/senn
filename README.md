@@ -6,7 +6,8 @@ A lightweight, fast project management tool with ticketing, Gantt charts, a wiki
 
 ## Key Features
 
-- **Ticket management** — issues/tickets with status, priority, labels, assignees, and comment threads
+- **Ticket management** — issues/tickets with status, priority, labels, assignees, threaded comments (with @mentions), and Linear-style keyboard navigation
+- **Teams** — multi-team workspaces with per-team roles, guest access, and team-scoped cycles/boards/gantt/wiki
 - **Gantt chart** — visual scheduling and dependency tracking
 - **Wiki** — internal documentation linked to tickets, with revision history
 - **Notifications** — in-app notification feed for ticket and wiki events
@@ -14,7 +15,7 @@ A lightweight, fast project management tool with ticketing, Gantt charts, a wiki
 
 ## Architecture
 
-UI is a **hybrid**: a React SPA for interactive app screens, plus **Askama** server-rendered templates where they still fit (login shells, simple server pages, etc.). Askama is kept where appropriate — it is **not** fully removed.
+The UI is a **React SPA**. The backend previously used Askama for some server-rendered screens (dashboard, tickets, gantt, wiki, etc.); those have since been fully replaced by the SPA. The only server-rendered templates left are the pre-login auth shells (`rust/templates/auth/`) — login, MFA, password reset, WebAuthn — which run before the SPA bundle loads.
 
 ### Backend (`rust/`)
 
@@ -24,13 +25,13 @@ Clean Architecture in three layers:
 rust/src/
 ├── domain/          # Domain models and domain services (business logic)
 ├── infrastructure/  # Repository implementations (PostgreSQL via sqlx), mail sending, etc.
-├── presentation/     # HTTP handlers, middleware, Askama where used
+├── presentation/     # HTTP handlers (JSON API + pre-login auth pages), middleware
 ├── routes.rs         # Route definitions
 ├── config.rs          # Configuration loaded from environment variables
 └── main.rs            # Entry point
 ```
 
-`rust/templates/` holds Askama templates used for selected server-rendered surfaces.
+`rust/templates/auth/` holds the Askama templates for the pre-login auth shells; everything else is served by the SPA.
 Authentication is factored out into `rust/auth-core/` (JWT, TOTP, WebAuthn/passkeys).
 
 ### Frontend (`frontend/`)

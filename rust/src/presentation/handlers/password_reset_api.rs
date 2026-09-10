@@ -14,8 +14,6 @@ use crate::domain::services::auth_service;
 use crate::infrastructure::repositories::{password_reset_repo, user_repo};
 use crate::presentation::state::AppState;
 
-const RESET_TOKEN_TTL: Duration = Duration::hours(24);
-
 #[derive(Deserialize)]
 pub struct PasswordResetRequestBody {
     /// メールアドレスまたはユーザー名
@@ -83,7 +81,7 @@ pub async fn password_reset_request(
         return (StatusCode::OK, Json(response)).into_response();
     }
 
-    let token = OneTimeToken::issue(RESET_TOKEN_TTL);
+    let token = OneTimeToken::issue(Duration::hours(state.config.password_reset_token_ttl_hours));
     let store = password_reset_repo::PasswordResetTokenStore::new(state.pool.clone());
 
     if let Err(e) = store.replace_for_user(user.id, &token).await {

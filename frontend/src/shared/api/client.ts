@@ -38,8 +38,22 @@ export function clearTokens(): void {
   localStorage.removeItem(REFRESH_KEY);
 }
 
-function getRefreshToken(): string | null {
+export function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
+}
+
+/** 認証ページにいるときはフルリロードしない（401 ループ防止） */
+function redirectToLoginIfNeeded(): void {
+  const path = window.location.pathname;
+  if (
+    path === '/login' ||
+    path === '/register' ||
+    path === '/forgot-password' ||
+    path === '/reset-password'
+  ) {
+    return;
+  }
+  window.location.href = '/login';
 }
 
 // ─── リクエストインターセプター（トークン自動付与） ───
@@ -108,16 +122,20 @@ apiClient.interceptors.response.use(
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
         clearTokens();
-        window.location.href = '/login';
+        redirectToLoginIfNeeded();
         return Promise.reject(error);
       }
 
       try {
-        const { data } = await axios.post<{ access: string }>(
+        // バックエンドはリフレッシュのたびにリフレッシュトークンをローテーションし
+        // (古いものはブラックリスト登録)、新しいペアを返す。ここで新しいrefreshを
+        // 保存し損ねると、次回以降のリフレッシュが「無効化済みトークン」で401になり続ける
+        // (WIPAPPDEV-000047)。
+        const { data } = await axios.post<{ access: string; refresh: string }>(
           `${API_BASE_URL}/api/v1/auth/token/refresh/`,
           { refresh: refreshToken },
         );
-        setTokens(data.access, refreshToken);
+        setTokens(data.access, data.refresh);
         processQueue(null, data.access);
 
         if (originalRequest.headers) {
@@ -127,7 +145,7 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
         clearTokens();
-        window.location.href = '/login';
+        redirectToLoginIfNeeded();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

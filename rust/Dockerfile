@@ -3,7 +3,7 @@
 # rust/Dockerfile — WIP Rust(Axum)バックエンド
 # マルチステージビルド(ビルド用イメージ + 軽量実行用イメージ)
 # ビルドコンテキストは rust/ ディレクトリ自身を想定
-#   (docker-compose.nas.yml / docker-compose.yml で build: ./rust を指定)
+#   (docker-compose.production.yml / docker-compose.yml で build: ./rust を指定)
 # ============================================================
 
 FROM rust:1.90-slim AS builder

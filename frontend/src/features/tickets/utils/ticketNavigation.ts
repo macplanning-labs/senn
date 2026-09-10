@@ -1,22 +1,42 @@
 /** チケット詳細へのパスを生成 */
 export function buildTicketDetailPath(
-  projectKey: string,
+  projectKey: string | null | undefined,
   ticketKey: string,
   cycleId?: number,
+  teamSlug?: string | null,
 ): string {
-  if (cycleId != null) {
+  // Team-onlyチケット（project_id なし、team_id あり）の場合
+  if (!projectKey && teamSlug) {
+    return `/t/${teamSlug}/tickets/${ticketKey}`;
+  }
+  // Project付きチケット（従来）
+  if (cycleId != null && projectKey) {
     return `/p/${projectKey}/cycles/${cycleId}/${ticketKey}`;
   }
-  return `/p/${projectKey}/tickets/${ticketKey}`;
+  if (projectKey) {
+    return `/p/${projectKey}/tickets/${ticketKey}`;
+  }
+  // フォールバック（通常は到達しない）
+  return `/tickets/${ticketKey}`;
 }
 
 /** チケット一覧（パネル閉じ）へのパスを生成 */
 export function buildTicketListPath(
-  projectKey: string,
+  projectKey: string | null | undefined,
   cycleId?: number,
+  teamSlug?: string | null,
 ): string {
-  if (cycleId != null) {
+  // Team-onlyの場合
+  if (!projectKey && teamSlug) {
+    return `/t/${teamSlug}/tickets`;
+  }
+  // Project付きの場合（従来）
+  if (cycleId != null && projectKey) {
     return `/p/${projectKey}/cycles/${cycleId}`;
   }
-  return `/p/${projectKey}/tickets`;
+  if (projectKey) {
+    return `/p/${projectKey}/tickets`;
+  }
+  // フォールバック
+  return `/tickets`;
 }

@@ -91,8 +91,9 @@ pub async fn notify_comment(
     author_id: i32,
     comment_body: &str,
 ) -> anyhow::Result<()> {
-    let preview = if comment_body.len() > 100 {
-        format!("{}...", &comment_body[..100])
+    let preview = if comment_body.chars().count() > 100 {
+        let truncated: String = comment_body.chars().take(100).collect();
+        format!("{}...", truncated)
     } else {
         comment_body.to_string()
     };
@@ -100,6 +101,20 @@ pub async fn notify_comment(
     notify_ticket_event(
         pool, mail_sender, ticket_id, author_id,
         NotificationCategory::Commented, &preview,
+    ).await
+}
+
+/// チケットの一般的なフィールド変更時の通知(ステータス変更・担当設定は別カテゴリのため対象外)
+pub async fn notify_updated(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+    ticket_id: i32,
+    actor_id: i32,
+    changed_fields: &str,
+) -> anyhow::Result<()> {
+    notify_ticket_event(
+        pool, mail_sender, ticket_id, actor_id,
+        NotificationCategory::Updated, changed_fields,
     ).await
 }
 
@@ -120,25 +135,50 @@ pub async fn notify_status_change(
 }
 
 /// Cycle 自動完了時の通知
+///
+/// Project メンバー経路は残しつつ、所属 Team メンバーも含める（重複排除）。
 pub async fn notify_cycle_auto_completed(
     pool: &PgPool,
-    project_id: i32,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
     cycle_id: i32,
     cycle_name: &str,
     carried_over: i64,
     target_cycle_id: Option<i32>,
 ) -> anyhow::Result<()> {
-    // プロジェクトのメンバー user_id 一覧（ORDER BY user_id、最大 100）
-    let member_ids: Vec<i32> = sqlx::query_scalar(
-        "SELECT DISTINCT m.user_id::int4
-         FROM tickets_project_membership m
-         WHERE m.project_id = $1::int4
-         ORDER BY m.user_id ASC
-         LIMIT 100"
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
+    let mut member_ids: Vec<i32> = Vec::new();
+
+    if let Some(tid) = team_id {
+        // L2: チーム全体メンバーに加え、このProjectに限定されたゲスト(scoped_project_id一致)も対象にする。
+        // 他Projectに限定されたゲストは対象外(scoped_project_idが別Projectの行は除外)
+        let team_members: Vec<i32> = sqlx::query_scalar(
+            "SELECT DISTINCT m.user_id::int4
+             FROM t_team_membership m
+             WHERE m.team_id = $1::int4
+               AND (m.scoped_project_id IS NULL OR m.scoped_project_id = $2::int4)
+             ORDER BY m.user_id ASC
+             LIMIT 100"
+        )
+        .bind(tid)
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        member_ids.extend(team_members);
+    }
+
+    member_ids.sort_unstable();
+    member_ids.dedup();
+    if member_ids.len() > 100 {
+        member_ids.truncate(100);
+    }
+
+    if member_ids.is_empty() {
+        tracing::warn!(
+            "[Cycle自動完了通知] 通知先なし cycle_id={} project_id={:?} team_id={:?}",
+            cycle_id, project_id, team_id
+        );
+        return Ok(());
+    }
 
     // target_cycle の名前を取得（あれば）
     let target_name = if let Some(target_id) = target_cycle_id {
@@ -161,7 +201,6 @@ pub async fn notify_cycle_auto_completed(
         format!("未完了 {} 件を次 Cycle へ持ち越しました", carried_over)
     };
 
-    // 各メンバーに通知を作成
     for user_id in member_ids {
         if let Err(e) = notification_repo::create(
             pool, user_id, None,
@@ -170,8 +209,8 @@ pub async fn notify_cycle_auto_completed(
             &message,
         ).await {
             tracing::error!(
-                "[Cycle自動完了通知] 失敗 user_id={} cycle_id={} project_id={}: {}",
-                user_id, cycle_id, project_id, e
+                "[Cycle自動完了通知] 失敗 user_id={} cycle_id={} project_id={:?} team_id={:?}: {}",
+                user_id, cycle_id, project_id, team_id, e
             );
         }
     }
@@ -192,6 +231,139 @@ pub async fn notify_assigned(
         pool, mail_sender, ticket_id, actor_id,
         NotificationCategory::Assigned, &msg,
     ).await
+}
+
+/// @ユーザー名メンション通知
+/// 特定のユーザー1人に対してのみ通知を送る（ウォッチャー全員ではない）
+pub async fn notify_mentioned(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+    ticket_id: i32,
+    _actor_id: i32,
+    mentioned_user_id: i32,
+) -> anyhow::Result<()> {
+    // チケット情報取得
+    let ticket = match ticket_repo::find_by_id(pool, ticket_id).await? {
+        Some(t) => t,
+        None => return Ok(()),
+    };
+
+    let title = format!(
+        "{} メンション — {}",
+        NotificationCategory::Mentioned.icon(),
+        ticket.ticket_key
+    );
+
+    let message = format!("コメントでメンションされました: {}", ticket.title);
+
+    // In-app 通知作成
+    notification_repo::create(
+        pool, mentioned_user_id, Some(ticket_id),
+        NotificationCategory::Mentioned.as_db_str(), &title, &message,
+    ).await?;
+
+    // メール送信（重複防止チェック）
+    if let Some(sender) = mail_sender {
+        let already_sent = notification_repo::has_recent_log(
+            pool, ticket_id, mentioned_user_id, NotificationCategory::Mentioned.as_db_str(), 60,
+        ).await?;
+
+        if !already_sent {
+            // ユーザーのメール通知設定確認
+            if let Some(user) = user_repo::find_by_id(pool, mentioned_user_id).await? {
+                if user.email_notifications_enabled && !user.email.is_empty() {
+                    let subject = format!("[WIP] {}", title);
+                    let body = format!(
+                        "コメントでメンションされました\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
+                        ticket.ticket_key, ticket.title
+                    );
+
+                    if let Err(e) = sender.send(&user.email, &subject, &body).await {
+                        tracing::warn!("メール送信失敗 (user={}): {}", mentioned_user_id, e);
+                    }
+
+                    notification_repo::create_log(
+                        pool, ticket_id, mentioned_user_id, NotificationCategory::Mentioned.as_db_str(),
+                    ).await?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 期限到来（当日）/超過リマインダー（担当者本人のみ・1日1回）
+///
+/// `has_recent_log` を24時間弱のしきい値で流用し、バッチ実行間隔に関わらず
+/// 同一チケット×担当者への通知が1日に複数回作成されないようにする。
+async fn notify_due_reminder(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+    ticket_id: i32,
+    ticket_key: &str,
+    ticket_title: &str,
+    user_id: i32,
+    category: NotificationCategory,
+) -> anyhow::Result<()> {
+    if notification_repo::has_recent_log(pool, ticket_id, user_id, category.as_db_str(), 1380).await? {
+        return Ok(());
+    }
+
+    let title = format!("{} {} — {}", category.icon(), category.label(), ticket_key);
+    let message = ticket_title.to_string();
+
+    notification_repo::create(
+        pool, user_id, Some(ticket_id), category.as_db_str(), &title, &message,
+    ).await?;
+    notification_repo::create_log(pool, ticket_id, user_id, category.as_db_str()).await?;
+
+    if let Some(sender) = mail_sender {
+        if let Some(user) = user_repo::find_by_id(pool, user_id).await? {
+            if user.email_notifications_enabled && !user.email.is_empty() {
+                let subject = format!("[WIP] {}", title);
+                let body = format!(
+                    "{}\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
+                    message, ticket_key, ticket_title
+                );
+
+                if let Err(e) = sender.send(&user.email, &subject, &body).await {
+                    tracing::warn!("メール送信失敗 (user={}): {}", user_id, e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 期限到来/超過リマインダーのバッチ実行。
+/// スケジューラから定期的に呼び出される想定（実際の送信は1日1回に制御される）。
+pub async fn run_due_date_reminders(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+) -> anyhow::Result<()> {
+    let targets = ticket_repo::find_due_or_overdue_with_assignees(pool).await?;
+    let today = chrono::Local::now().date_naive();
+
+    for t in targets {
+        let category = if t.due_date < today {
+            NotificationCategory::Overdue
+        } else {
+            NotificationCategory::DueSoon
+        };
+
+        if let Err(e) = notify_due_reminder(
+            pool, mail_sender, t.ticket_id, &t.ticket_key, &t.title, t.user_id, category,
+        ).await {
+            tracing::error!(
+                "notify_due_reminder failed ticket_id={} user_id={}: {:?}",
+                t.ticket_id, t.user_id, e
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -239,5 +411,41 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(author_count, 0, "コメント投稿者自身には通知を作成しないはず");
+    }
+
+    /// 期限超過チケットの担当者に overdue 通知が作成され、
+    /// 同一バッチを2回実行しても1日以内は重複作成されないことを確認する。
+    #[tokio::test]
+    async fn run_due_date_reminders_notifies_assignee_once_per_day() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let author = test_support::create_test_user(&pool, "due-author").await;
+        let assignee = test_support::create_test_user(&pool, "due-assignee").await;
+        let project = test_support::create_test_project(&pool, "DUE", author).await;
+        let ticket_id = test_support::create_test_ticket(&pool, project, "DUE-T", author).await;
+
+        sqlx::query("UPDATE tickets_ticket SET due_date = CURRENT_DATE - INTERVAL '1 day' WHERE id = $1")
+            .bind(ticket_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)")
+            .bind(ticket_id)
+            .bind(assignee)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        run_due_date_reminders(&pool, &None).await.unwrap();
+        run_due_date_reminders(&pool, &None).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM notifications_notification WHERE user_id = $1 AND ticket_id = $2 AND category = 'overdue'"
+        )
+        .bind(assignee)
+        .bind(ticket_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "期限超過通知は1日1回のみ作成されるはず");
     }
 }
