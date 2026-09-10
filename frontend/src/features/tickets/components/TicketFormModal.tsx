@@ -16,9 +16,16 @@ import { TicketForm } from './TicketForm';
 import './TicketFormModal.css';
 
 export function TicketFormModal() {
-  const { ticketFormModalOpen, ticketFormModalProjectKey, closeTicketFormModal } = useUIStore();
+  const {
+    ticketFormModalOpen,
+    ticketFormModalProjectKey,
+    ticketFormModalTeamSlug,
+    ticketFormModalInitialDescription,
+    ticketFormModalInitialParent,
+    closeTicketFormModal,
+  } = useUIStore();
 
-  if (!ticketFormModalOpen || !ticketFormModalProjectKey) return null;
+  if (!ticketFormModalOpen || (!ticketFormModalProjectKey && !ticketFormModalTeamSlug)) return null;
 
   return (
     <div className="ticket-form-modal__overlay">
@@ -31,7 +38,13 @@ export function TicketFormModal() {
         >
           ✕
         </button>
-        <TicketForm projectKeyOverride={ticketFormModalProjectKey} onClose={closeTicketFormModal} />
+        <TicketForm
+          projectKeyOverride={ticketFormModalProjectKey ?? undefined}
+          teamSlugOverride={ticketFormModalTeamSlug ?? undefined}
+          initialDescription={ticketFormModalInitialDescription ?? undefined}
+          initialParent={ticketFormModalInitialParent ?? undefined}
+          onClose={closeTicketFormModal}
+        />
       </div>
     </div>
   );

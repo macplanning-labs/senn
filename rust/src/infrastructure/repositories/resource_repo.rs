@@ -21,7 +21,7 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
             p.id::int4, p.name, p.prefix, p.description, p.created_at,
             p.owner_id::int4, p.owner_team_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
-            (SELECT COUNT(*)::int8 FROM tickets_project_membership WHERE project_id = p.id) as member_count,
+            (SELECT COUNT(*)::int8 FROM t_team_membership tm WHERE tm.team_id = p.owner_team_id AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)) as member_count,
             t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color,
             p.cycle_auto_complete, p.cycle_auto_create_next
          FROM tickets_project p
@@ -81,7 +81,7 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
             p.id::int4, p.name, p.prefix, p.description, p.created_at,
             p.owner_id::int4, p.owner_team_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
-            (SELECT COUNT(*)::int8 FROM tickets_project_membership WHERE project_id = p.id) as member_count,
+            (SELECT COUNT(*)::int8 FROM t_team_membership tm WHERE tm.team_id = p.owner_team_id AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)) as member_count,
             t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color,
             p.cycle_auto_complete, p.cycle_auto_create_next
          FROM tickets_project p
@@ -319,8 +319,7 @@ pub async fn delete_project(pool: &PgPool, id: i32) -> anyhow::Result<DeleteProj
         .bind(id).execute(&mut *tx).await?;
 
     // その他直接の子(on_delete=CASCADE)
-    sqlx::query("DELETE FROM tickets_project_membership WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+    // t_team_membership.scoped_project_id は ON DELETE CASCADE のため明示的な削除は不要
     sqlx::query("DELETE FROM t_cycle WHERE project_id = $1")
         .bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM t_workflow_status WHERE project_id = $1")
@@ -644,38 +643,51 @@ pub async fn delete_milestone(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 // Labels
 // =============================================================================
 
-pub async fn find_all_labels(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<LabelOut>> {
+pub async fn find_all_labels(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+) -> anyhow::Result<Vec<LabelOut>> {
     let rows = sqlx::query(
-        "SELECT id::int4, name, color, created_at, project_id::int4, description, category, is_ai_enabled
+        "SELECT id::int4, name, color, created_at, project_id, team_id, description, category, is_ai_enabled
          FROM m_label
          WHERE ($1::int4 IS NULL OR project_id = $1::int4)
+           AND ($2::int4 IS NULL OR team_id = $2::int4)
          ORDER BY created_at DESC
          LIMIT 100"
     )
     .bind(project_id)
+    .bind(team_id)
     .fetch_all(pool)
     .await?;
 
     let labels = rows
         .into_iter()
-        .map(|row| LabelOut {
-            id: row.get(0),
-            name: row.get(1),
-            color: row.get(2),
-            created_at: row.get(3),
-            project: row.get(4),
-            description: row.get(5),
-            category: row.get(6),
-            is_ai_enabled: row.get(7),
-        })
+        .map(map_label_row)
         .collect();
 
     Ok(labels)
 }
 
+fn map_label_row(row: sqlx::postgres::PgRow) -> LabelOut {
+    let project_id: Option<i64> = row.get(4);
+    let team_id: Option<i64> = row.get(5);
+    LabelOut {
+        id: row.get(0),
+        name: row.get(1),
+        color: row.get(2),
+        created_at: row.get(3),
+        project: project_id.map(|v| v as i32),
+        team_id: team_id.map(|v| v as i32),
+        description: row.get(6),
+        category: row.get(7),
+        is_ai_enabled: row.get(8),
+    }
+}
+
 pub async fn find_label_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<LabelOut>> {
     let row_opt = sqlx::query(
-        "SELECT id::int4, name, color, created_at, project_id::int4, description, category, is_ai_enabled
+        "SELECT id::int4, name, color, created_at, project_id, team_id, description, category, is_ai_enabled
          FROM m_label
          WHERE id = $1"
     )
@@ -683,59 +695,97 @@ pub async fn find_label_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<L
     .fetch_optional(pool)
     .await?;
 
-    let label = row_opt.map(|row| LabelOut {
-        id: row.get(0),
-        name: row.get(1),
-        color: row.get(2),
-        created_at: row.get(3),
-        project: row.get(4),
-        description: row.get(5),
-        category: row.get(6),
-        is_ai_enabled: row.get(7),
-    });
-
-    Ok(label)
+    Ok(row_opt.map(map_label_row))
 }
 
 /// プロジェクト内で名前一致するラベルを探し、無ければ作成してIDを返す。
 /// AI経由のチケット作成など、呼び出し側がラベルIDではなく名前しか持たない場合に使う。
 pub async fn find_or_create_label(pool: &PgPool, project_id: i32, name: &str) -> anyhow::Result<i32> {
-    if let Some(id) = sqlx::query_scalar::<_, i32>(
-        "SELECT id::int4 FROM m_label WHERE project_id = $1 AND name = $2"
-    )
-    .bind(project_id)
-    .bind(name)
-    .fetch_optional(pool)
-    .await?
-    {
-        return Ok(id);
+    find_or_create_label_for_scope(pool, Some(project_id), None, name).await
+}
+
+pub async fn find_or_create_label_for_scope(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    name: &str,
+) -> anyhow::Result<i32> {
+    const DEFAULT_LABEL_COLOR: &str = "#6B7280";
+
+    if let Some(pid) = project_id {
+        if let Some(id) = sqlx::query_scalar::<_, i32>(
+            "SELECT id::int4 FROM m_label WHERE name = $1 AND project_id = $2 LIMIT 1"
+        )
+        .bind(name)
+        .bind(pid)
+        .fetch_optional(pool)
+        .await?
+        {
+            return Ok(id);
+        }
+        let label_id: i32 = sqlx::query_scalar(
+            "INSERT INTO m_label (name, color, created_at, project_id, team_id, description, category, is_ai_enabled)
+             VALUES ($1, $2, NOW(), $3, NULL, NULL, NULL, false)
+             RETURNING id::int4"
+        )
+        .bind(name)
+        .bind(DEFAULT_LABEL_COLOR)
+        .bind(pid)
+        .fetch_one(pool)
+        .await?;
+        return Ok(label_id);
     }
 
-    // 既定色: AIが指定しなかった場合の汎用グレー
-    const DEFAULT_LABEL_COLOR: &str = "#6B7280";
-    let label_id: i32 = sqlx::query_scalar(
-        "INSERT INTO m_label (name, color, created_at, project_id, description, category, is_ai_enabled)
-         VALUES ($1, $2, NOW(), $3, NULL, NULL, false)
-         RETURNING id::int4"
-    )
-    .bind(name)
-    .bind(DEFAULT_LABEL_COLOR)
-    .bind(project_id)
-    .fetch_one(pool)
-    .await?;
+    if let Some(tid) = team_id {
+        if let Some(id) = sqlx::query_scalar::<_, i32>(
+            "SELECT id::int4 FROM m_label
+             WHERE name = $1 AND team_id = $2 AND project_id IS NULL
+             LIMIT 1"
+        )
+        .bind(name)
+        .bind(tid)
+        .fetch_optional(pool)
+        .await?
+        {
+            return Ok(id);
+        }
+        if let Some(id) = sqlx::query_scalar::<_, i32>(
+            "SELECT id::int4 FROM m_label
+             WHERE name = $1 AND project_id IS NULL AND team_id IS NULL
+             LIMIT 1"
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await?
+        {
+            return Ok(id);
+        }
+        let label_id: i32 = sqlx::query_scalar(
+            "INSERT INTO m_label (name, color, created_at, project_id, team_id, description, category, is_ai_enabled)
+             VALUES ($1, $2, NOW(), NULL, $3, NULL, NULL, false)
+             RETURNING id::int4"
+        )
+        .bind(name)
+        .bind(DEFAULT_LABEL_COLOR)
+        .bind(tid)
+        .fetch_one(pool)
+        .await?;
+        return Ok(label_id);
+    }
 
-    Ok(label_id)
+    anyhow::bail!("project or team is required to find or create a label")
 }
 
 pub async fn create_label(pool: &PgPool, input: &LabelWriteIn) -> anyhow::Result<i32> {
     let label_id: i32 = sqlx::query_scalar(
-        "INSERT INTO m_label (name, color, created_at, project_id, description, category, is_ai_enabled)
-         VALUES ($1, $2, NOW(), $3, $4, $5, $6)
+        "INSERT INTO m_label (name, color, created_at, project_id, team_id, description, category, is_ai_enabled)
+         VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7)
          RETURNING id::int4"
     )
     .bind(&input.name)
     .bind(&input.color)
     .bind(input.project)
+    .bind(input.team_id)
     .bind(&input.description)
     .bind(&input.category)
     .bind(input.is_ai_enabled)
@@ -748,12 +798,13 @@ pub async fn create_label(pool: &PgPool, input: &LabelWriteIn) -> anyhow::Result
 pub async fn update_label(pool: &PgPool, id: i32, input: &LabelWriteIn) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE m_label
-         SET name = $1, color = $2, project_id = $3, description = $4, category = $5, is_ai_enabled = $6
-         WHERE id = $7"
+         SET name = $1, color = $2, project_id = $3, team_id = $4, description = $5, category = $6, is_ai_enabled = $7
+         WHERE id = $8"
     )
     .bind(&input.name)
     .bind(&input.color)
     .bind(input.project)
+    .bind(input.team_id)
     .bind(&input.description)
     .bind(&input.category)
     .bind(input.is_ai_enabled)

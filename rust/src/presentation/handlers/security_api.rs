@@ -652,7 +652,12 @@ pub async fn passkey_login_complete(
         }
     }
 
-    let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
+    let token_pair = match jwt_service::issue_token_pair(
+        user.id,
+        &state.config.jwt_secret,
+        state.config.access_token_lifetime_minutes,
+        state.config.refresh_token_lifetime_days,
+    ) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("トークン発行エラー: {:?}", e);

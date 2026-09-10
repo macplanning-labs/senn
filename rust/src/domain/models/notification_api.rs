@@ -15,6 +15,10 @@ pub struct NotificationOut {
     pub message: String,
     #[serde(rename = "ticketKey")]
     pub ticket_key: Option<String>,
+    #[serde(rename = "projectKey")]
+    pub project_key: Option<String>,
+    #[serde(rename = "teamSlug")]
+    pub team_slug: Option<String>,
     #[serde(rename = "wikiTitle")]
     pub wiki_title: Option<String>,
     #[serde(rename = "isRead")]

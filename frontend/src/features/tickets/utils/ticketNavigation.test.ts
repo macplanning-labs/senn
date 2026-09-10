@@ -23,8 +23,20 @@ describe('buildTicketDetailPath', () => {
   });
 
   it('projectKey に小文字 prefix をそのまま使う', () => {
-    expect(buildTicketDetailPath('acme', 'ACME-000001', 3)).toBe(
-      '/p/acme/cycles/3/ACME-000001',
+    expect(buildTicketDetailPath('wip', 'WIP-000001', 3)).toBe(
+      '/p/wip/cycles/3/WIP-000001',
+    );
+  });
+
+  it('project 無し + teamSlug は /t/:teamSlug/tickets/:ticketKey', () => {
+    expect(buildTicketDetailPath(null, 'WIP-000001', undefined, 'wip-app-dev')).toBe(
+      '/t/wip-app-dev/tickets/WIP-000001',
+    );
+  });
+
+  it('project ありのときは teamSlug より /p/:projectKey を使う', () => {
+    expect(buildTicketDetailPath('WIP', 'WIP-000001', undefined, 'wip-app-dev')).toBe(
+      '/p/WIP/tickets/WIP-000001',
     );
   });
 
@@ -71,5 +83,12 @@ describe('ナビゲーション一貫性', () => {
 
     expect(detail.startsWith(list + '/')).toBe(true);
     expect(detail).toBe(`${list}/${ticketKey}`);
+  });
+
+  it('Team だけの詳細から一覧へ戻れる', () => {
+    const detail = buildTicketDetailPath(null, 'WIP-000001', undefined, 'wip-app-dev');
+    const list = buildTicketListPath(null, undefined, 'wip-app-dev');
+    expect(detail.startsWith(list + '/')).toBe(true);
+    expect(detail).toBe(`${list}/WIP-000001`);
   });
 });

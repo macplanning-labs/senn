@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { useCycles, useCreateCycle, useDeleteCycle, useCompleteCycle } from '../hooks/useCycles';
 import { VelocityChart } from './VelocityChart';
 import type { Cycle } from '@/shared/api/types';
@@ -36,41 +37,75 @@ function todayYmd(): string {
 export function CycleList() {
   const { t } = useTranslation();
   const { currentProject: project } = useProject();
-  const { data: cycles = [], isLoading } = useCycles(project?.id);
+  const { currentTeam: team } = useTeam();
+  const projectId = project?.id;
+  const teamId = team?.id;
+  const { data: cycles = [], isLoading } = useCycles(projectId, teamId);
   const createMutation = useCreateCycle();
   const deleteMutation = useDeleteCycle();
-  const completeMutation = useCompleteCycle(project?.id);
+  const completeMutation = useCompleteCycle(projectId, teamId);
   const navigate = useNavigate();
 
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
   const [formStart, setFormStart] = useState('');
   const [formEnd, setFormEnd] = useState('');
+  const [formTeamId, setFormTeamId] = useState<number | null>(project?.ownerTeam?.id ?? team?.id ?? null);
+  const [filterTeamId, setFilterTeamId] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   const activeCycle = cycles.find(c => c.status === 'active');
   const plannedCycles = cycles.filter(c => c.status === 'planned');
   const completedCycles = cycles.filter(c => c.status === 'completed');
 
+  // 一覧に出現するすべてのチームを集約
+  const teamSet = new Map<number, typeof cycles[0]['team']>();
+  cycles.forEach(c => {
+    if (c.team?.id) {
+      teamSet.set(c.team.id, c.team);
+    }
+  });
+  if (project?.ownerTeam?.id) {
+    teamSet.set(project.ownerTeam.id, project.ownerTeam);
+  }
+
+  // フィルタを適用
+  const filteredPlanned = filterTeamId
+    ? plannedCycles.filter(c => c.team?.id === filterTeamId)
+    : plannedCycles;
+  const filteredCompleted = filterTeamId
+    ? completedCycles.filter(c => c.team?.id === filterTeamId)
+    : completedCycles;
+
   const today = todayYmd();
   const isActiveCycleOverdue = activeCycle && activeCycle.endDate < today;
 
   const handleCreate = () => {
-    if (!project || !formName || !formStart || !formEnd) {
+    if (!formName || !formStart || !formEnd) {
       setError('サイクル名・開始日・終了日は必須です');
       return;
     }
+    if (!project && !team) {
+      setError('プロジェクトまたはチームを指定してください');
+      return;
+    }
     createMutation.mutate({
-      project: project.id,
+      project: project?.id,
+      team: team?.id,
       name: formName,
+      description: formDescription,
       start_date: formStart,
       end_date: formEnd,
+      teamId: formTeamId || undefined,
     }, {
       onSuccess: () => {
         setShowForm(false);
         setFormName('');
+        setFormDescription('');
         setFormStart('');
         setFormEnd('');
+        setFormTeamId(project?.ownerTeam?.id ?? team?.id ?? null);
         setError('');
       },
       onError: (err: unknown) => {
@@ -91,7 +126,7 @@ export function CycleList() {
   };
 
   const handleComplete = (cycle: Cycle) => {
-    if (!project) return;
+    if (!project && !team) return;
     const nextPlanned = plannedCycles[0];
     completeMutation.mutate({
       cycleId: cycle.id,
@@ -127,6 +162,13 @@ export function CycleList() {
               setError('');
             }}
           />
+          <textarea
+            className="cycle-form__textarea"
+            placeholder="説明（任意・このサイクルのゴールや注力ドメインなど）"
+            value={formDescription}
+            onChange={e => setFormDescription(e.target.value)}
+            rows={3}
+          />
           <div className="cycle-form__dates">
             <input
               type="date"
@@ -148,10 +190,26 @@ export function CycleList() {
               }}
             />
           </div>
+          <div className="cycle-form__team">
+            <label htmlFor="cycle-team-select" style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
+              Team（任意）
+            </label>
+            <select
+              id="cycle-team-select"
+              className="cycle-form__input"
+              value={formTeamId ?? ''}
+              onChange={e => setFormTeamId(e.target.value ? parseInt(e.target.value) : null)}
+            >
+              <option value="">— 未選択 —</option>
+              {project?.ownerTeam && (
+                <option value={project.ownerTeam.id}>{project.ownerTeam.name} (PJ Owner)</option>
+              )}
+            </select>
+          </div>
           {error && <div className="cycle-form__error">{error}</div>}
           <div className="cycle-form__actions">
-            <button className="cycle-form__btn cycle-form__btn--primary" onClick={handleCreate}>
-              作成
+            <button className="cycle-form__btn cycle-form__btn--primary" onClick={handleCreate} disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating...' : '作成'}
             </button>
             <button className="cycle-form__btn" onClick={() => {
               setShowForm(false);
@@ -163,9 +221,33 @@ export function CycleList() {
         </div>
       )}
 
+      {/* チームフィルタ(2チーム以上のCycleが混在する場合のみ表示。Team画面では常に1チームのため出さない) */}
+      {teamSet.size > 1 && (
+        <div style={{ marginBottom: 'var(--space-3)', display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+          <label style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>Filter by Team:</label>
+          <select
+            className="cycle-form__input"
+            style={{ flex: 1, maxWidth: '200px' }}
+            value={filterTeamId ?? ''}
+            onChange={e => setFilterTeamId(e.target.value ? parseInt(e.target.value) : null)}
+          >
+            <option value="">すべてのTeam</option>
+            {Array.from(teamSet.values()).map(team => (
+              <option key={team!.id} value={team!.id}>{team!.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* アクティブサイクル */}
       {activeCycle && (
-        <div className="cycle-active" data-testid="cycle-active-card" onClick={() => project && navigate(`/p/${project.prefix}/cycles/${activeCycle.id}`)}>
+        <div className="cycle-active" data-testid="cycle-active-card" onClick={() => {
+          if (project) {
+            navigate(`/p/${project.prefix}/cycles/${activeCycle.id}`);
+          } else if (team) {
+            navigate(`/t/${team.slug}/cycles/${activeCycle.id}`);
+          }
+        }}>
           <div className="cycle-active__header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <span className="cycle-active__badge" style={{ background: statusColors.active }}>
@@ -189,6 +271,21 @@ export function CycleList() {
             <span className="cycle-active__dates">
               {activeCycle.startDate} — {activeCycle.endDate}
             </span>
+            {activeCycle.description && (
+              <div style={{
+                marginTop: 'var(--space-2)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-sm)',
+                lineHeight: 1.4,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+              }}>
+                {activeCycle.description}
+              </div>
+            )}
           </div>
           <div className="cycle-active__stats">
             <div className="cycle-active__stat">
@@ -222,32 +319,44 @@ export function CycleList() {
       )}
 
       {/* 計画中 */}
-      {plannedCycles.length > 0 && (
+      {filteredPlanned.length > 0 && (
         <div className="cycle-section">
           <h3 className="cycle-section__title">計画中</h3>
-          {plannedCycles.map(cycle => (
+          {filteredPlanned.map(cycle => (
             <CycleRow
               key={cycle.id}
               cycle={cycle}
-              onNavigate={() => project && navigate(`/p/${project.prefix}/cycles/${cycle.id}`)}
-              onDelete={() => project && deleteMutation.mutate({ id: cycle.id, projectId: project.id })}
+              onNavigate={() => {
+                if (project) {
+                  navigate(`/p/${project.prefix}/cycles/${cycle.id}`);
+                } else if (team) {
+                  navigate(`/t/${team.slug}/cycles/${cycle.id}`);
+                }
+              }}
+              onDelete={() => deleteMutation.mutate({ id: cycle.id, projectId: project?.id, teamId: team?.id })}
             />
           ))}
         </div>
       )}
 
-      {/* ベロシティグラフ */}
-      {project && <VelocityChart projectId={project.id} />}
+      {/* ベロシティグラフ（プロジェクト版のみ） */}
+      {project && project.id && <VelocityChart projectId={project.id} />}
 
       {/* 完了済み */}
-      {completedCycles.length > 0 && (
+      {filteredCompleted.length > 0 && (
         <div className="cycle-section">
           <h3 className="cycle-section__title">{t('cycle.completed')}</h3>
-          {completedCycles.map(cycle => (
+          {filteredCompleted.map(cycle => (
             <CycleRow
               key={cycle.id}
               cycle={cycle}
-              onNavigate={() => project && navigate(`/p/${project.prefix}/cycles/${cycle.id}`)}
+              onNavigate={() => {
+                if (project) {
+                  navigate(`/p/${project.prefix}/cycles/${cycle.id}`);
+                } else if (team) {
+                  navigate(`/t/${team.slug}/cycles/${cycle.id}`);
+                }
+              }}
             />
           ))}
         </div>
@@ -287,6 +396,19 @@ function CycleRow({
         <span className="cycle-row__status" style={{ color: statusColors[cycle.status] }}>
           {statusLabels[cycle.status]}
         </span>
+        {cycle.team && (
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 6px',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 'var(--font-weight-semibold)',
+            color: 'white',
+            background: cycle.team.color || 'var(--color-text-secondary)',
+            borderRadius: 'var(--radius-sm)',
+          }}>
+            {cycle.team.name}
+          </span>
+        )}
         {isOverdue && (
           <span style={{
             display: 'inline-block',
@@ -303,6 +425,22 @@ function CycleRow({
       </div>
       <span className="cycle-row__name">{cycle.name}</span>
       <span className="cycle-row__dates">{cycle.startDate} — {cycle.endDate}</span>
+      {cycle.description && (
+        <span style={{
+          display: '-webkit-box' as any,
+          color: 'var(--color-text-secondary)',
+          fontSize: 'var(--font-size-sm)',
+          lineHeight: 1.4,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          WebkitLineClamp: 1,
+          WebkitBoxOrient: 'vertical',
+          marginTop: '4px',
+          width: '100%',
+        }}>
+          {cycle.description}
+        </span>
+      )}
       <span className="cycle-row__progress">{pct}%</span>
       <div className="cycle-row__bar">
         <div className="cycle-row__bar-fill" style={{ width: `${pct}%` }} />

@@ -308,6 +308,22 @@ pub async fn remove_widget(
     }
 }
 
+/// GET /api/v1/dashboard/team/{team_slug}/summary/
+pub async fn team_summary(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(team_slug): Path<String>,
+) -> impl IntoResponse {
+    match repo::get_team_summary(&state.pool, auth.user_id, &team_slug).await {
+        Ok(Some(data)) => (StatusCode::OK, Json(data)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(err("Team not found"))).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ReorderWidgetsIn {
     #[serde(rename = "widgetOrder", default)]

@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useToastStore } from '@/shared/stores/toastStore';
@@ -29,6 +30,7 @@ import './TicketTable.css';
 import { useColumnResize } from '@/shared/hooks/useColumnResize';
 import type { ColumnDef } from '@/shared/hooks/useColumnResize';
 import type { SavedView, SavedViewFilters } from '@/shared/api/types';
+import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
 import {
   buildTicketDetailPath,
   buildTicketListPath,
@@ -47,6 +49,21 @@ interface Ticket {
   updatedAt: string;
   commentCount: number;
   childCount: number;
+  project?: number | null;
+  projectPrefix?: string | null;
+  team?: { id: number; slug: string } | null;
+}
+
+function ticketDetailPath(
+  ticket: Ticket,
+  pageProjectKey: string | null | undefined,
+  cycleId: number | undefined,
+  pageTeamSlug: string | null,
+): string {
+  // リンクはチケット自身の prefix / Team。prefix も Team も無い旧データだけページ文脈に戻す。
+  const projectKey = ticket.projectPrefix ?? (ticket.team?.slug ? null : pageProjectKey ?? null);
+  const slug = ticket.team?.slug ?? pageTeamSlug;
+  return buildTicketDetailPath(projectKey, ticket.ticketKey, cycleId, slug);
 }
 
 const STATUS_OPTIONS = ['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled'] as const;
@@ -105,6 +122,14 @@ interface TicketTableProps {
 export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const { t } = useTranslation();
   const { projectKey, currentProject } = useProject();
+  const { teamSlug, currentTeam } = useTeam();
+  const { data: workflowStatuses = [] } = useWorkflowStatuses(
+    currentProject?.id,
+    currentProject?.id ? undefined : currentTeam?.id,
+  );
+  const statusOptions = workflowStatuses.length > 0
+    ? workflowStatuses.map((s) => s.slug)
+    : [...STATUS_OPTIONS];
   const { user } = useAuthStore();
   const { addToast } = useToastStore();
   const queryClient = useQueryClient();
@@ -122,20 +147,28 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const [statusInFilter, setStatusInFilter] = useState<string>(() => searchParams.get('status_in') ?? '');
 
   // QueryKey（フィルタ状態を含む）
-  const ticketsQueryKey = ['tickets', currentProject?.id, cycleId, search, statusFilter, priorityFilter, dueFilter, statusInFilter];
+  const ticketsQueryKey = ['tickets', currentProject?.id, teamSlug, cycleId, search, statusFilter, priorityFilter, dueFilter, statusInFilter];
 
   // --- フィルタプリセット（Saved Views） ---
-  const savedViewsQueryKey = ['saved-views', currentProject?.id];
+  const savedViewsQueryKey = ['saved-views', currentProject?.id ?? null, currentTeam?.id ?? null];
   const { data: savedViewsData = [] } = useQuery<SavedView[]>({
     queryKey: savedViewsQueryKey,
     queryFn: async () => {
-      if (!currentProject?.id) return [];
-      const res = await apiClient.get<SavedView[]>(
-        `/projects/${currentProject.id}/saved-views/`
-      );
-      return res.data;
+      if (currentProject?.id) {
+        const res = await apiClient.get<SavedView[]>(
+          `/projects/${currentProject.id}/saved-views/`
+        );
+        return res.data;
+      }
+      if (currentTeam?.id) {
+        const res = await apiClient.get<SavedView[]>(
+          `/teams/${currentTeam.id}/saved-views/`
+        );
+        return res.data;
+      }
+      return [];
     },
-    enabled: !!currentProject?.id,
+    enabled: !!currentProject?.id || !!currentTeam?.id,
   });
 
   const [showPresetMenu, setShowPresetMenu] = useState(false);
@@ -146,7 +179,6 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
 
   const createSavedViewMutation = useMutation({
     mutationFn: async (viewName: string) => {
-      if (!currentProject?.id) throw new Error('No project');
       const filters: SavedViewFilters = {
         search,
         status: statusFilter,
@@ -154,11 +186,21 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
         due: dueFilter,
         status_in: statusInFilter,
       };
-      const res = await apiClient.post<SavedView>(
-        `/projects/${currentProject.id}/saved-views/`,
-        { name: viewName, filters }
-      );
-      return res.data;
+      if (currentProject?.id) {
+        const res = await apiClient.post<SavedView>(
+          `/projects/${currentProject.id}/saved-views/`,
+          { name: viewName, filters }
+        );
+        return res.data;
+      }
+      if (currentTeam?.id) {
+        const res = await apiClient.post<SavedView>(
+          `/teams/${currentTeam.id}/saved-views/`,
+          { name: viewName, filters }
+        );
+        return res.data;
+      }
+      throw new Error('No project or team');
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey });
@@ -406,6 +448,13 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const buildListParams = (page?: number): Record<string, string> => {
     const params: Record<string, string> = {};
     if (currentProject?.id) params.project = String(currentProject.id);
+    // Team-onlyの場合は team_id で絞り込み（APIで実装されていると想定）
+    // NOTE: G6-1 API で team_id パラメータがサポートされていることを前提
+    if (teamSlug && !currentProject?.id) {
+      // チーム情報の取得は useTeam で取得したものが使われるが、
+      // ここではteamSlug を送り、API側で解決するように設計
+      params.team_slug = teamSlug;
+    }
     if (cycleId) params.cycle = String(cycleId);
     if (search) params.search = search;
     if (statusInFilter) {
@@ -461,7 +510,12 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
       setSelectedIds(new Set());
     },
     // ['ticket'] も無効化: 開いている詳細パネルが古いステータスのまま残るのを防ぐ
-    invalidateKeys: [...TICKET_DASHBOARD_INVALIDATE_KEYS, ['ticket']],
+    // cycleId がある場合は Cycle 詳細の進捗サマリー(未完了/完了件数)も無効化する
+    invalidateKeys: [
+      ...TICKET_DASHBOARD_INVALIDATE_KEYS,
+      ['ticket'],
+      ...(cycleId ? [['cycle-progress', cycleId]] : []),
+    ],
     errorMessage: '一括ステータス変更に失敗しました。元に戻しました。',
   });
 
@@ -536,7 +590,12 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
       };
     },
     // ['ticket'] も無効化: 開いている詳細パネルが古いステータスのまま残るのを防ぐ
-    invalidateKeys: [...TICKET_DASHBOARD_INVALIDATE_KEYS, ['ticket']],
+    // cycleId がある場合は Cycle 詳細の進捗サマリー(未完了/完了件数)も無効化する
+    invalidateKeys: [
+      ...TICKET_DASHBOARD_INVALIDATE_KEYS,
+      ['ticket'],
+      ...(cycleId ? [['cycle-progress', cycleId]] : []),
+    ],
     errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
   });
 
@@ -550,15 +609,19 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
     itemCount: tickets.length,
     onOpen: (index) => {
       const ticket = tickets[index];
-      if (ticket && projectKey) {
-        navigate(buildTicketDetailPath(projectKey, ticket.ticketKey, cycleId));
+      if (ticket) {
+        navigate(ticketDetailPath(ticket, projectKey, cycleId, teamSlug));
       }
     },
     onClose: () => {
-      if (projectKey) navigate(buildTicketListPath(projectKey, cycleId));
+      navigate(buildTicketListPath(projectKey, cycleId, teamSlug));
     },
     onCreate: () => {
-      if (projectKey) openTicketFormModal(projectKey);
+      if (projectKey) {
+        openTicketFormModal(projectKey);
+      } else if (teamSlug) {
+        openTicketFormModal(null, teamSlug);
+      }
     },
   });
 
@@ -613,7 +676,15 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             <button
               type="button"
               className="ticket-table__create-btn"
-              onClick={() => (projectKey ? openTicketFormModal(projectKey) : navigate('/tickets/new'))}
+              onClick={() => {
+                if (projectKey) {
+                  openTicketFormModal(projectKey);
+                } else if (teamSlug) {
+                  openTicketFormModal(null, teamSlug);
+                } else {
+                  navigate('/tickets/new');
+                }
+              }}
               data-testid="create-ticket-btn"
             >
               + {t('ticket.create')}
@@ -635,8 +706,8 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             data-testid="status-filter"
           >
             <option value="">All Status</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>{statusLabels[s]}</option>
+            {statusOptions.map((s) => (
+              <option key={s} value={s}>{statusLabels[s] ?? s}</option>
             ))}
           </select>
           <select
@@ -725,8 +796,8 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             data-testid="bulk-status-select"
           >
             <option value="">ステータス変更...</option>
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>{statusLabels[s]}</option>
+            {statusOptions.map((s) => (
+              <option key={s} value={s}>{statusLabels[s] ?? s}</option>
             ))}
           </select>
           {isProjectOwner && (
@@ -818,7 +889,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                   className={`ticket-table__row ${index === selectedIndex ? 'ticket-table__row--selected' : ''}`}
                   data-testid={`ticket-row-${ticket.ticketKey}`}
                   onClick={() => {
-                    if (projectKey) navigate(buildTicketDetailPath(projectKey, ticket.ticketKey, cycleId));
+                    navigate(ticketDetailPath(ticket, projectKey, cycleId, teamSlug));
                   }}
                   style={{ cursor: 'pointer' }}
                 >
@@ -847,7 +918,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
 
                   {/* キー */}
                   <td className="ticket-table__td ticket-table__td--key">
-                    <Link to={buildTicketDetailPath(projectKey || '', ticket.ticketKey, cycleId)} className="ticket-table__key-link">
+                    <Link to={ticketDetailPath(ticket, projectKey, cycleId, teamSlug)} className="ticket-table__key-link">
                       {ticket.ticketKey}
                     </Link>
                   </td>
@@ -878,8 +949,8 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                       }}
                       data-testid={`status-select-${ticket.ticketKey}`}
                     >
-                      {STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>{statusLabels[s]}</option>
+                      {statusOptions.map((s) => (
+                        <option key={s} value={s}>{statusLabels[s] ?? s}</option>
                       ))}
                     </select>
                   </td>

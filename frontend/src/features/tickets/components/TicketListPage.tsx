@@ -7,6 +7,8 @@
  * URLパターン:
  *   /p/:projectKey/tickets       → 一覧のみ
  *   /p/:projectKey/tickets/:id   → 一覧 + 右ペイン
+ *   /t/:teamSlug/tickets         → Team一覧のみ
+ *   /t/:teamSlug/tickets/:id     → Team一覧 + 右ペイン
  */
 
 import { useParams, useNavigate } from 'react-router-dom';
@@ -16,13 +18,15 @@ import { usePanelResize } from '@/shared/hooks/usePanelResize';
 import './TicketListPage.css';
 
 export function TicketListPage() {
-  const { projectKey, ticketId } = useParams<{ projectKey: string; ticketId: string }>();
+  const { projectKey, teamSlug, ticketId } = useParams<{ projectKey?: string; teamSlug?: string; ticketId?: string }>();
   const navigate = useNavigate();
   const { width: panelWidth, onResizeStart, isResizing } = usePanelResize('ticket-detail', 380);
 
   const handleClosePanel = () => {
     if (projectKey) {
       navigate(`/p/${projectKey}/tickets`);
+    } else if (teamSlug) {
+      navigate(`/t/${teamSlug}/tickets`);
     }
   };
 

@@ -54,6 +54,9 @@ async fn main() -> anyhow::Result<()> {
     // 共有ステート構築
     let state = AppState::new(pool, config, Some(mail_sender)).await?;
 
+    // 期限到来/超過リマインダースケジューラを起動
+    infrastructure::scheduler::spawn_due_date_reminders(state.pool.clone(), state.mail_sender.clone());
+
     // ルーター構築
     let app = routes::create_router(state);
 

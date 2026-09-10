@@ -70,15 +70,31 @@ pub async fn create_test_user(pool: &PgPool, username_prefix: &str) -> i32 {
 pub async fn create_test_project(pool: &PgPool, prefix_base: &str, _author_id: i32) -> i32 {
     let prefix = format!("{prefix_base}{}", unique_suffix());
     let prefix = &prefix[..prefix.len().min(20)];
+    let slug = format!("t{}", unique_suffix());
+    let team_id: i32 = sqlx::query_scalar::<_, i32>(
+        r#"
+        INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, prefix, created_at)
+        VALUES ($1, $2, '', '', '#6366f1', '', true, $3, NOW())
+        RETURNING id::int4
+        "#,
+    )
+    .bind(format!("テストチーム-{prefix}"))
+    .bind(&slug)
+    .bind(prefix)
+    .fetch_one(pool)
+    .await
+    .expect("テストチーム作成に失敗");
+
     sqlx::query_scalar::<_, i32>(
         r#"
-        INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-        VALUES ($1, $2, '', 'active', NOW(), 0)
+        INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days, owner_team_id)
+        VALUES ($1, $2, '', 'active', NOW(), 0, $3)
         RETURNING id::int4
         "#,
     )
     .bind(format!("テストプロジェクト-{prefix}"))
     .bind(prefix)
+    .bind(team_id)
     .fetch_one(pool)
     .await
     .expect("テストプロジェクト作成に失敗")

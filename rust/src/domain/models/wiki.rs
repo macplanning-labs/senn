@@ -73,6 +73,7 @@ impl std::fmt::Display for WikiCategory {
 pub struct WikiPage {
     pub id: i32,
     pub project_id: Option<i32>,
+    pub team_id: Option<i32>,
     pub title: String,
     pub slug: String,
     pub category: String,
@@ -85,6 +86,7 @@ pub struct WikiPage {
     pub author_name: Option<String>,
     pub last_editor_name: Option<String>,
     pub project_name: Option<String>,
+    pub team_name: Option<String>,
 }
 
 impl WikiPage {

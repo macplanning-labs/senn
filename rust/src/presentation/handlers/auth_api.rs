@@ -17,6 +17,7 @@ use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo};
 use crate::domain::services::auth_service;
 use crate::domain::services::jwt_service;
+use crate::domain::models::user::User;
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -63,6 +64,7 @@ pub struct RegisterRequest {
     pub password: String,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub alias: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -76,6 +78,7 @@ pub struct UserResponse {
     pub last_name: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
+    pub alias: Option<String>,
     #[serde(rename = "isStaff")]
     pub is_staff: bool,
 }
@@ -92,11 +95,27 @@ pub struct UserListResponse {
     pub username: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
+    pub alias: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct ListUsersQuery {
     pub project: Option<i32>,
+}
+
+#[derive(Deserialize)]
+pub struct SelfProfileUpdateIn {
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub alias: Option<String>,
+    pub email: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct DeactivateMyAccountIn {
+    pub current_password: String,
 }
 
 #[derive(Serialize)]
@@ -110,6 +129,7 @@ pub struct MeResponse {
     pub last_name: String,
     #[serde(rename = "displayName")]
     pub display_name: String,
+    pub alias: Option<String>,
     #[serde(rename = "isStaff")]
     pub is_staff: bool,
 }
@@ -168,7 +188,11 @@ pub async fn login(
 
     if let Some(_device) = totp_device {
         // MFA必須
-        let mfa_token = match jwt_service::issue_mfa_token(user.id, &state.config.jwt_secret) {
+        let mfa_token = match jwt_service::issue_mfa_token(
+            user.id,
+            &state.config.jwt_secret,
+            state.config.mfa_token_lifetime_seconds,
+        ) {
             Ok(token) => token,
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
@@ -187,7 +211,12 @@ pub async fn login(
         ).into_response()
     } else {
         // MFA不要
-        let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
+        let token_pair = match jwt_service::issue_token_pair(
+        user.id,
+        &state.config.jwt_secret,
+        state.config.access_token_lifetime_minutes,
+        state.config.refresh_token_lifetime_days,
+    ) {
             Ok(pair) => pair,
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
@@ -258,7 +287,12 @@ pub async fn login_verify(
     }
 
     // トークンペア発行
-    let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
+    let token_pair = match jwt_service::issue_token_pair(
+        user.id,
+        &state.config.jwt_secret,
+        state.config.access_token_lifetime_minutes,
+        state.config.refresh_token_lifetime_days,
+    ) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -333,7 +367,12 @@ pub async fn token_refresh(
     }
 
     // 新しいトークンペア発行
-    let token_pair = match jwt_service::issue_token_pair(user_id, &state.config.jwt_secret) {
+    let token_pair = match jwt_service::issue_token_pair(
+        user_id,
+        &state.config.jwt_secret,
+        state.config.access_token_lifetime_minutes,
+        state.config.refresh_token_lifetime_days,
+    ) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -377,19 +416,23 @@ pub async fn me(
             first_name: user.first_name,
             last_name: user.last_name,
             display_name: user.display_name,
+            alias: user.alias,
             is_staff: user.is_staff,
         }),
     ).into_response()
 }
 
 /// 5. ログアウト
+///
+/// ボディ省略(Content-Type無し)のリクエストは`Json<LogoutRequest>`だと415で弾かれてしまうため、
+/// `Option<Json<_>>`で受けボディが無ければリフレッシュトークンの無効化をスキップする(WIPAPPDEV-000046)。
 pub async fn logout(
     State(state): State<AppState>,
     Extension(_auth_user): Extension<AuthUser>,
-    Json(body): Json<LogoutRequest>,
+    body: Option<Json<LogoutRequest>>,
 ) -> impl IntoResponse {
     // リフレッシュトークンがあればブラックリスト登録
-    if let Some(refresh_token) = body.refresh {
+    if let Some(refresh_token) = body.and_then(|Json(b)| b.refresh) {
         if let Ok(claims) = jwt_service::decode_token(&refresh_token, &state.config.jwt_secret) {
             if let Some(jti) = claims.jti.as_deref() {
                 let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
@@ -433,7 +476,7 @@ pub async fn register(
     let first_name = body.first_name.unwrap_or_default();
     let last_name = body.last_name.unwrap_or_default();
 
-    let user = match user_repo::create_user(
+    let mut user = match user_repo::create_user(
         &state.pool,
         &body.username,
         &body.email,
@@ -460,8 +503,24 @@ pub async fn register(
         }
     };
 
+    if let Some(alias) = body.alias {
+        if !alias.trim().is_empty() {
+            match user_repo::update_alias(&state.pool, user.id, Some(&alias)).await {
+                Ok(updated) => user = updated,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                }
+            }
+        }
+    }
+
     // トークンペア発行
-    let token_pair = match jwt_service::issue_token_pair(user.id, &state.config.jwt_secret) {
+    let token_pair = match jwt_service::issue_token_pair(
+        user.id,
+        &state.config.jwt_secret,
+        state.config.access_token_lifetime_minutes,
+        state.config.refresh_token_lifetime_days,
+    ) {
         Ok(pair) => pair,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -482,6 +541,7 @@ pub async fn register(
                 first_name: user.first_name,
                 last_name: user.last_name,
                 display_name: user.display_name,
+                alias: user.alias,
                 is_staff: user.is_staff,
             },
             tokens: LoginResponse {
@@ -533,6 +593,7 @@ pub async fn list_users(
             id: u.id,
             username: u.username,
             display_name: u.display_name,
+            alias: u.alias,
         })
         .collect();
 
@@ -599,6 +660,7 @@ pub struct UpdateProfileIn {
     pub username: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub alias: Option<String>,
 }
 
 /// ユーザーのプロフィール(メールアドレス・氏名)を更新する(Django Admin代替)。
@@ -657,6 +719,16 @@ pub async fn update_user_profile(
         }
     };
 
+    if let Some(new_alias) = body.alias {
+        updated = match user_repo::update_alias(&state.pool, target_id, Some(&new_alias)).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+            }
+        };
+    }
+
     if let Some(new_username) = body.username {
         let trimmed_username = new_username.trim();
         if !trimmed_username.is_empty() && trimmed_username != updated.username {
@@ -688,7 +760,188 @@ pub async fn update_user_profile(
             first_name: updated.first_name,
             last_name: updated.last_name,
             display_name: updated.display_name,
+            alias: updated.alias,
             is_staff: updated.is_staff,
         }),
     ).into_response()
+}
+
+/// 本人プロフィール編集（セルフサービス）
+/// 呼び出し元（auth.user_id）の情報のみを更新。Pathでid受け取り不要。
+pub async fn update_my_profile(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<SelfProfileUpdateIn>,
+) -> impl IntoResponse {
+    // 現在のユーザー情報を取得
+    let current = match user_repo::find_by_id(&state.pool, auth.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    let mut updated = current.clone();
+
+    // email/first_name/last_nameのいずれかが Some の場合、update_profileを呼ぶ
+    if body.email.is_some() || body.first_name.is_some() || body.last_name.is_some() {
+        let new_email = body.email.as_deref().unwrap_or(&current.email);
+        let new_first_name = body.first_name.as_deref().unwrap_or(&current.first_name);
+        let new_last_name = body.last_name.as_deref().unwrap_or(&current.last_name);
+
+        updated = match user_repo::update_profile(&state.pool, auth.user_id, new_email, new_first_name, new_last_name).await {
+            Ok(u) => u,
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("duplicate key") || err_str.contains("unique") || err_str.contains("23505") {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"detail": "このメールアドレスは既に使用されています"})),
+                    ).into_response();
+                }
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+            }
+        };
+    }
+
+    // display_name が Some の場合は更新
+    if let Some(new_display_name) = body.display_name {
+        let trimmed = new_display_name.trim();
+        if !trimmed.is_empty() && trimmed != updated.display_name {
+            let update_result: anyhow::Result<User> = sqlx::query_as(
+                "UPDATE accounts_user SET display_name=$2 WHERE id=$1
+                 RETURNING id::int4 AS id, username, password AS password_hash, display_name, email,
+                        first_name, last_name,
+                        is_active, is_staff, must_change_password, email_notifications_enabled"
+            )
+            .bind(auth.user_id)
+            .bind(trimmed)
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| anyhow::anyhow!(e));
+
+            updated = match update_result {
+                Ok(u) => u,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+                }
+            };
+        }
+    }
+
+    // alias（ニックネーム）が Some の場合、update_alias を呼ぶ（空文字はNULL扱い）
+    if let Some(new_alias) = body.alias {
+        updated = match user_repo::update_alias(&state.pool, auth.user_id, Some(&new_alias)).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+            }
+        };
+    }
+
+    // username が Some の場合、update_username を呼ぶ
+    if let Some(new_username) = body.username {
+        let trimmed_username = new_username.trim();
+        if !trimmed_username.is_empty() && trimmed_username != updated.username {
+            updated = match user_repo::update_username(&state.pool, auth.user_id, trimmed_username).await {
+                Ok(u) => u,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("duplicate key") || err_str.contains("unique") || err_str.contains("23505") {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({"detail": "このログイン名は既に使用されています"})),
+                        ).into_response();
+                    }
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+                }
+            };
+        } else if trimmed_username.is_empty() {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "ログイン名は必須です"}))).into_response();
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(UserResponse {
+            id: updated.id,
+            username: updated.username,
+            email: updated.email,
+            first_name: updated.first_name,
+            last_name: updated.last_name,
+            display_name: updated.display_name,
+            alias: updated.alias,
+            is_staff: updated.is_staff,
+        }),
+    ).into_response()
+}
+
+/// 本人がアカウントを無効化する（論理削除）
+/// 現在のパスワードの検証が必須。成功後はJWTをブラックリストに追加して即座に無効化する。
+pub async fn deactivate_my_account(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<DeactivateMyAccountIn>,
+) -> impl IntoResponse {
+    // 現在のユーザー情報を取得（パスワードハッシュが必要）
+    let current = match user_repo::find_by_id(&state.pool, auth.user_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"detail": "ユーザーが見つかりません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    // パスワード検証
+    match auth_service::verify_password(&state.pool, auth.user_id, &body.current_password, &current.password_hash).await {
+        Ok(true) => {
+            // パスワード正しい、続行
+        }
+        Ok(false) => {
+            // パスワード誤り
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "パスワードが正しくありません"}))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("Password verification failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+        }
+    };
+
+    // ユーザーを無効化
+    if let Err(e) = user_repo::deactivate_self(&state.pool, auth.user_id).await {
+        tracing::error!("Failed to deactivate user: {:?}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+    }
+
+    // 現在のアクセストークンをブラックリストに追加
+    if let Some(auth_header) = headers.get("Authorization")
+        .and_then(|v| v.to_str().ok())
+    {
+        if auth_header.starts_with("Bearer ") {
+            let token = &auth_header[7..];
+            if let Ok(claims) = jwt_service::decode_token(token, &state.config.jwt_secret) {
+                if let Some(jti) = claims.jti.as_deref() {
+                    let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
+                        .unwrap_or_else(|| chrono::Utc::now());
+                    if let Err(e) = jwt_blacklist_repo::blacklist(&state.pool, jti, expires_at).await {
+                        tracing::error!("failed to blacklist access token on deactivate: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
 }

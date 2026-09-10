@@ -115,6 +115,8 @@ export async function pushChanges(): Promise<void> {
         }
       }
     }
+  } catch {
+    // キュー取得自体の失敗（DBスキーマ不整合など）は無視
   } finally {
     isSyncing = false;
   }

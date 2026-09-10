@@ -268,13 +268,21 @@ pub async fn approve(
             .fetch_one(&mut *tx)
             .await?;
 
-            let ticket_key = crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(&mut tx, project_id).await?;
+            let owner_team_id: i32 = sqlx::query_scalar::<_, Option<i32>>(
+                "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+            )
+            .bind(project_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("teamId or project is required"))?;
+
+            let ticket_key = crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(&mut tx, owner_team_id).await?;
 
             let new_ticket_id: i32 = sqlx::query_scalar(
                 "INSERT INTO tickets_ticket
                     (ticket_key, title, description, status, priority, ticket_type,
-                     author_id, project_id, gantt_order, created_at, updated_at)
-                 VALUES ($1, $2, $3, 'open', 'medium', 'issue', $4, $5, $6, NOW(), NOW())
+                     author_id, project_id, gantt_order, team_id, created_at, updated_at)
+                 VALUES ($1, $2, $3, 'open', 'medium', 'issue', $4, $5, $6, $7, NOW(), NOW())
                  RETURNING id::int4"
             )
             .bind(&ticket_key)
@@ -283,6 +291,7 @@ pub async fn approve(
             .bind(reviewed_by)
             .bind(project_id)
             .bind(gantt_order)
+            .bind(owner_team_id)
             .fetch_one(&mut *tx)
             .await?;
 

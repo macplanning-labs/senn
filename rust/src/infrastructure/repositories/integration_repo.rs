@@ -8,7 +8,7 @@ use crate::domain::models::integration_api::*;
 
 const SELECT_BASE: &str = "
     SELECT
-        gi.id::int4, gi.project_id::int4, gi.provider, gi.repository_url,
+        gi.id::int4, gi.project_id::int4, gi.team_id::int4, gi.provider, gi.repository_url,
         gi.webhook_secret, gi.is_active, gi.auto_status_transition, gi.created_at,
         cb.id::int4 as cb_id, cb.username as cb_username, cb.email as cb_email, cb.display_name as cb_display_name,
         (SELECT COUNT(*) FROM t_git_event WHERE integration_id = gi.id)::int8 as event_count
@@ -21,6 +21,7 @@ fn row_to_integration(row: &sqlx::postgres::PgRow) -> GitIntegrationOut {
     GitIntegrationOut {
         id: row.get("id"),
         project: row.get("project_id"),
+        team: row.get("team_id"),
         provider: row.get("provider"),
         repository_url: row.get("repository_url"),
         webhook_secret: row.get("webhook_secret"),
@@ -37,9 +38,26 @@ fn row_to_integration(row: &sqlx::postgres::PgRow) -> GitIntegrationOut {
     }
 }
 
-pub async fn find_all(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<GitIntegrationOut>> {
-    let query = format!("{SELECT_BASE} WHERE ($1::int4 IS NULL OR gi.project_id = $1) ORDER BY gi.created_at DESC");
-    let rows = sqlx::query(&query).bind(project_id).fetch_all(pool).await?;
+fn scope_ok(project: Option<i32>, team: Option<i32>) -> bool {
+    matches!((project, team), (Some(_), None) | (None, Some(_)))
+}
+
+pub async fn find_all(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+) -> anyhow::Result<Vec<GitIntegrationOut>> {
+    let query = format!(
+        "{SELECT_BASE}
+         WHERE ($1::int4 IS NULL OR gi.project_id = $1)
+           AND ($2::int4 IS NULL OR gi.team_id = $2)
+         ORDER BY gi.created_at DESC"
+    );
+    let rows = sqlx::query(&query)
+        .bind(project_id)
+        .bind(team_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows.iter().map(row_to_integration).collect())
 }
 
@@ -50,12 +68,17 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<GitInte
 }
 
 pub async fn create(pool: &PgPool, input: &GitIntegrationWriteIn, created_by: i32) -> anyhow::Result<i32> {
+    if !scope_ok(input.project, input.team) {
+        anyhow::bail!("exactly one of project or team is required");
+    }
     let id: i32 = sqlx::query_scalar(
-        "INSERT INTO t_git_integration (project_id, provider, repository_url, webhook_secret, is_active, auto_status_transition, created_by_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        "INSERT INTO t_git_integration
+            (project_id, team_id, provider, repository_url, webhook_secret, is_active, auto_status_transition, created_by_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
          RETURNING id::int4"
     )
     .bind(input.project)
+    .bind(input.team)
     .bind(&input.provider)
     .bind(&input.repository_url)
     .bind(&input.webhook_secret)
@@ -68,13 +91,25 @@ pub async fn create(pool: &PgPool, input: &GitIntegrationWriteIn, created_by: i3
 }
 
 pub async fn update(pool: &PgPool, id: i32, input: &GitIntegrationUpdateIn) -> anyhow::Result<bool> {
-    let existing = find_by_id(pool, id).await?;
-    let existing = match existing {
+    let existing = match find_by_id(pool, id).await? {
         Some(e) => e,
         None => return Ok(false),
     };
 
-    let project = input.project.unwrap_or(existing.project);
+    let project = if input.project.is_some() || input.team.is_some() {
+        input.project
+    } else {
+        existing.project
+    };
+    let team = if input.project.is_some() || input.team.is_some() {
+        input.team
+    } else {
+        existing.team
+    };
+    if !scope_ok(project, team) {
+        anyhow::bail!("exactly one of project or team is required");
+    }
+
     let provider = input.provider.clone().unwrap_or(existing.provider);
     let repository_url = input.repository_url.clone().unwrap_or(existing.repository_url);
     let webhook_secret = input.webhook_secret.clone().unwrap_or(existing.webhook_secret);
@@ -83,10 +118,12 @@ pub async fn update(pool: &PgPool, id: i32, input: &GitIntegrationUpdateIn) -> a
 
     let rows_affected = sqlx::query(
         "UPDATE t_git_integration
-         SET project_id = $1, provider = $2, repository_url = $3, webhook_secret = $4, is_active = $5, auto_status_transition = $6
-         WHERE id = $7"
+         SET project_id = $1, team_id = $2, provider = $3, repository_url = $4,
+             webhook_secret = $5, is_active = $6, auto_status_transition = $7
+         WHERE id = $8"
     )
     .bind(project)
+    .bind(team)
     .bind(&provider)
     .bind(&repository_url)
     .bind(&webhook_secret)
@@ -103,8 +140,10 @@ pub async fn update(pool: &PgPool, id: i32, input: &GitIntegrationUpdateIn) -> a
 pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
-    // t_git_event.integration は on_delete=CASCADE
-    sqlx::query("DELETE FROM t_git_event WHERE integration_id = $1").bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM t_git_event WHERE integration_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM t_git_integration WHERE id = $1")
         .bind(id)
@@ -116,16 +155,15 @@ pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     Ok(rows_affected > 0)
 }
 
-// =============================================================================
-// Webhook処理(GitWebhookService の移植)
-// =============================================================================
-
 pub struct ActiveIntegration {
     pub id: i32,
     pub webhook_secret: String,
 }
 
-pub async fn find_active_integrations_by_repo_url(pool: &PgPool, repo_url: &str) -> anyhow::Result<Vec<ActiveIntegration>> {
+pub async fn find_active_integrations_by_repo_url(
+    pool: &PgPool,
+    repo_url: &str,
+) -> anyhow::Result<Vec<ActiveIntegration>> {
     let rows = sqlx::query(
         "SELECT id::int4, webhook_secret FROM t_git_integration WHERE repository_url = $1 AND is_active = true"
     )
@@ -135,12 +173,13 @@ pub async fn find_active_integrations_by_repo_url(pool: &PgPool, repo_url: &str)
 
     Ok(rows
         .iter()
-        .map(|r| ActiveIntegration { id: r.get("id"), webhook_secret: r.get("webhook_secret") })
+        .map(|r| ActiveIntegration {
+            id: r.get("id"),
+            webhook_secret: r.get("webhook_secret"),
+        })
         .collect())
 }
 
-/// チケットキーからticket_idを検索する。見つからない場合、prefix+ゼロパディングで再検索する
-/// (例: DEMO-123 → DEMO-000123)。Djangoの GitWebhookService._find_ticket と同じロジック。
 pub async fn find_ticket_id_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
     if let Some(id) = crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(pool, ticket_key).await? {
         return Ok(Some(id));
@@ -158,7 +197,6 @@ pub async fn find_ticket_id_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::R
     Ok(None)
 }
 
-/// コミットイベントを作成する(get_or_create相当)。既存なら false(未作成)を返す。
 pub async fn create_commit_event_if_new(
     pool: &PgPool,
     integration_id: i32,
@@ -201,7 +239,6 @@ pub async fn create_commit_event_if_new(
     Ok(true)
 }
 
-/// PRイベントをupsertする(update_or_create相当)。
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_pr_event(
     pool: &PgPool,
@@ -262,7 +299,6 @@ pub async fn upsert_pr_event(
     }
 }
 
-/// 指定チケットのGitイベント一覧(新しい順)。
 pub async fn find_events_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<GitEventOut>> {
     let rows = sqlx::query(
         "SELECT id::int4, event_type, title, url, sha, branch, author_name,

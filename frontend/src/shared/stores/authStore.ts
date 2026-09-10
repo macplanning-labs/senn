@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand';
-import { apiClient, setTokens, clearTokens, getAccessToken } from '@/shared/api/client';
+import { apiClient, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/shared/api/client';
 
 interface User {
   id: number;
@@ -14,6 +14,8 @@ interface User {
   email: string;
   firstName: string;
   lastName: string;
+  displayName: string;
+  alias?: string | null;
   isStaff: boolean;
 }
 
@@ -82,7 +84,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
   logout: async () => {
     try {
-      await apiClient.post('/auth/logout/');
+      // ボディを省略するとContent-Typeが付かずJson抽出器に415で弾かれるため、
+      // リフレッシュトークンを明示的に送る(サーバー側のブラックリスト登録に必要)
+      await apiClient.post('/auth/logout/', { refresh: getRefreshToken() });
     } catch {
       // ログアウトAPI失敗でもローカル状態はクリア
     }

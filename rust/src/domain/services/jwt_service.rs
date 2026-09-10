@@ -14,9 +14,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const ISSUER: &str = "wip";
-const ACCESS_TOKEN_LIFETIME_MINUTES: i64 = 30;
-const REFRESH_TOKEN_LIFETIME_DAYS: i64 = 7;
-const MFA_TOKEN_LIFETIME_SECONDS: i64 = 300;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,12 +67,18 @@ fn build_claims(user_id: i32, token_type: TokenType, ttl: Duration, jti: Option<
     }
 }
 
-/// access/refreshトークンのペアを新規発行する
-pub fn issue_token_pair(user_id: i32, secret: &str) -> Result<TokenPair, AuthError> {
+/// access/refreshトークンのペアを新規発行する。
+/// 各トークンの有効期限は呼び出し側(AppConfig、env変数で上書き可能)から渡す。
+pub fn issue_token_pair(
+    user_id: i32,
+    secret: &str,
+    access_ttl_minutes: i64,
+    refresh_ttl_days: i64,
+) -> Result<TokenPair, AuthError> {
     let access_claims = build_claims(
         user_id,
         TokenType::Access,
-        Duration::minutes(ACCESS_TOKEN_LIFETIME_MINUTES),
+        Duration::minutes(access_ttl_minutes),
         Some(Uuid::new_v4().to_string()),
     );
     let access = encode_claims(&access_claims, secret)?;
@@ -84,7 +87,7 @@ pub fn issue_token_pair(user_id: i32, secret: &str) -> Result<TokenPair, AuthErr
     let refresh_claims = build_claims(
         user_id,
         TokenType::Refresh,
-        Duration::days(REFRESH_TOKEN_LIFETIME_DAYS),
+        Duration::days(refresh_ttl_days),
         Some(refresh_jti.clone()),
     );
     let refresh_expires_at =
@@ -100,11 +103,11 @@ pub fn issue_token_pair(user_id: i32, secret: &str) -> Result<TokenPair, AuthErr
 }
 
 /// アクセストークンのみを新規発行する（サイレントリフレッシュ用）
-pub fn issue_access_token(user_id: i32, secret: &str) -> Result<String, AuthError> {
+pub fn issue_access_token(user_id: i32, secret: &str, access_ttl_minutes: i64) -> Result<String, AuthError> {
     let claims = build_claims(
         user_id,
         TokenType::Access,
-        Duration::minutes(ACCESS_TOKEN_LIFETIME_MINUTES),
+        Duration::minutes(access_ttl_minutes),
         Some(Uuid::new_v4().to_string()),
     );
     encode_claims(&claims, secret)
@@ -116,12 +119,12 @@ pub fn decode_token(token: &str, secret: &str) -> Result<Claims, AuthError> {
     decode_claims::<Claims>(token, secret)
 }
 
-/// MFAチャレンジトークンを発行する（5分間有効）
-pub fn issue_mfa_token(user_id: i32, secret: &str) -> Result<String, AuthError> {
+/// MFAチャレンジトークンを発行する
+pub fn issue_mfa_token(user_id: i32, secret: &str, ttl_seconds: i64) -> Result<String, AuthError> {
     let claims = build_claims(
         user_id,
         TokenType::Mfa,
-        Duration::seconds(MFA_TOKEN_LIFETIME_SECONDS),
+        Duration::seconds(ttl_seconds),
         None,
     );
     encode_claims(&claims, secret)
@@ -143,7 +146,7 @@ mod tests {
     #[test]
     fn access_and_refresh_roundtrip() {
         let secret = "test-secret";
-        let pair = issue_token_pair(42, secret).unwrap();
+        let pair = issue_token_pair(42, secret, 30, 7).unwrap();
 
         let access = decode_token(&pair.access, secret).unwrap();
         assert_eq!(access.token_type, TokenType::Access);
@@ -157,14 +160,14 @@ mod tests {
 
     #[test]
     fn wrong_secret_fails() {
-        let pair = issue_token_pair(1, "correct-secret").unwrap();
+        let pair = issue_token_pair(1, "correct-secret", 30, 7).unwrap();
         assert!(decode_token(&pair.access, "wrong-secret").is_err());
     }
 
     #[test]
     fn mfa_token_roundtrip() {
         let secret = "test-secret";
-        let token = issue_mfa_token(7, secret).unwrap();
+        let token = issue_mfa_token(7, secret, 300).unwrap();
         let claims = decode_mfa_token(&token, secret).unwrap();
         assert_eq!(claims.token_type, TokenType::Mfa);
         assert_eq!(claims.user_id().unwrap(), 7);
@@ -175,7 +178,7 @@ mod tests {
     fn mfa_token_rejected_by_decode_token_type_check() {
         // decode_mfa_tokenはpurpose(token_type)不一致を拒否する
         let secret = "test-secret";
-        let pair = issue_token_pair(1, secret).unwrap();
+        let pair = issue_token_pair(1, secret, 30, 7).unwrap();
         assert!(decode_mfa_token(&pair.access, secret).is_err());
     }
 }

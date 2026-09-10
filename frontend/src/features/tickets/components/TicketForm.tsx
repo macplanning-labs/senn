@@ -5,7 +5,7 @@
  * 開発標準書: Layer 1（フロントバリデーション）準拠。
  */
 
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { apiClient } from '@/shared/api/client';
 import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { useTeams } from '@/features/teams/hooks/useTeams';
 import './TicketForm.css';
 
@@ -42,7 +43,8 @@ interface TicketEditData {
   category: { id: number; name: string } | null;
   cycle: number | null;
   labels: { id: number }[];
-  assignedTeam: { id: number; name: string } | null;
+  team: { id: number; name: string } | null;
+  project: number | null;
   startDate: string | null;
   dueDate: string | null;
   storyPoints: number | null;
@@ -81,16 +83,29 @@ interface ParentTicketOption {
 interface TicketFormProps {
   /** モーダルから開く場合、URLの:projectKeyが取れないのでこちらを優先する */
   projectKeyOverride?: string;
+  /** モーダルから開く場合、URLの:teamSlugが取れないのでこちらを優先する */
+  teamSlugOverride?: string;
   /** 指定するとモーダルモードになり、成功/キャンセル時にnavigateの代わりにこれを呼ぶ */
   onClose?: () => void;
+  /** 新規作成時、descriptionの初期値（コメントから新規チケット化する場合など） */
+  initialDescription?: string;
+  /** 新規作成時、parentの初期値（コメントからサブチケット作成する場合など） */
+  initialParent?: number | null;
 }
 
-export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}) {
+export function TicketForm({
+  projectKeyOverride,
+  teamSlugOverride,
+  onClose,
+  initialDescription,
+  initialParent,
+}: TicketFormProps = {}) {
   const { t } = useTranslation();
   const { ticketId } = useParams<{ ticketId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { projectKey: urlProjectKey, currentProject: urlCurrentProject, projectList } = useProject();
+  const { currentTeam, teamList, teamSlug: urlTeamSlug } = useTeam();
   const projectKey = projectKeyOverride ?? urlProjectKey;
   const currentProject = projectKeyOverride
     ? projectList.find((p) => p.prefix.toLowerCase() === projectKeyOverride.toLowerCase()) ?? null
@@ -173,27 +188,69 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
     },
   });
 
-  const [formData, setFormData] = useState<TicketFormData>({
+  const [formData, setFormData] = useState<TicketFormData>(() => ({
     title: '',
-    description: '',
+    description: initialDescription ?? '',
     status: 'open',
     priority: 'medium',
     ticket_type: 'issue',
     due_date: null,
     start_date: new Date().toISOString().slice(0, 10),
     story_points: null,
-  });
+  }));
   const [linkCopied, setLinkCopied] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [milestoneId, setMilestoneId] = useState<string>('');
   const [cycleId, setCycleId] = useState<string>('');
   const [selectedLabels, setSelectedLabels] = useState<number[]>([]);
-  const [parentId, setParentId] = useState<string>('');
+  const [parentId, setParentId] = useState<string>(
+    () => (initialParent != null ? String(initialParent) : ''),
+  );
   const [categoryId, setCategoryId] = useState<string>('');
   const [teamId, setTeamId] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isInitialized, setIsInitialized] = useState(!isEditing);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [pendingImages, setPendingImages] = useState<{ file: File; previewUrl: string }[]>([]);
+
+  // 新規作成時、初期 Team = 渡された / URL の team slug を先に使う。
+  // /teams ではサイドバーが Project のままなので、ownerTeam を先にすると選んだ Team にならない。
+  useEffect(() => {
+    if (isInitialized || isEditing) return;
+
+    const slug = teamSlugOverride ?? urlTeamSlug;
+    if (slug) {
+      const match =
+        currentTeam?.slug.toLowerCase() === slug.toLowerCase()
+          ? currentTeam
+          : teamList.find((t) => t.slug.toLowerCase() === slug.toLowerCase());
+      if (match) {
+        setTeamId(String(match.id));
+        setIsInitialized(true);
+        return;
+      }
+      if (teamList.length === 0 && !currentTeam) {
+        return;
+      }
+      setIsInitialized(true);
+      return;
+    }
+
+    if (currentProject?.ownerTeam?.id) {
+      setTeamId(String(currentProject.ownerTeam.id));
+      setIsInitialized(true);
+      return;
+    }
+
+    setIsInitialized(true);
+  }, [
+    currentProject?.ownerTeam?.id,
+    currentTeam,
+    isEditing,
+    isInitialized,
+    teamList,
+    teamSlugOverride,
+    urlTeamSlug,
+  ]);
 
   // 既存データが取得できたらフォームに反映
   if (isEditing && existingTicket && !isInitialized) {
@@ -213,7 +270,7 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
     setSelectedLabels(existingTicket.labels?.map((l) => l.id) ?? []);
     setParentId(existingTicket.parent != null ? String(existingTicket.parent) : '');
     setCategoryId(existingTicket.category ? String(existingTicket.category.id) : '');
-    setTeamId(existingTicket.assignedTeam ? String(existingTicket.assignedTeam.id) : '');
+    setTeamId(existingTicket.team ? String(existingTicket.team.id) : '');
     setIsInitialized(true);
   }
 
@@ -227,8 +284,10 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
         labels: selectedLabels,
         parent: parentId ? Number(parentId) : null,
         category: categoryId ? Number(categoryId) : null,
-        assigned_team: teamId ? Number(teamId) : null,
-        project: currentProject?.id,
+        teamId: teamId ? Number(teamId) : null,
+        project: isEditing
+          ? (existingTicket?.project ?? null)
+          : (currentProject?.id ?? null),
       };
 
       let targetTicketKey: string;
@@ -271,7 +330,9 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
         onClose();
         return;
       }
-      if (projectKey) {
+      if (teamSlugOverride) {
+        navigate(`/t/${teamSlugOverride}/tickets`);
+      } else if (projectKey) {
         navigate(`/p/${projectKey}/tickets`);
       } else {
         navigate(-1);
@@ -291,6 +352,11 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
         if (key) fieldErrors[String(key)] = issue.message;
       }
       setErrors(fieldErrors);
+      return;
+    }
+
+    if (!isEditing && !teamId) {
+      setErrors({ teamId: 'Team is required' });
       return;
     }
 
@@ -644,8 +710,9 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
           </div>
         </div>
 
-        {/* 担当チーム */}
-        <TeamSelect teamId={teamId} onTeamChange={setTeamId} />
+        {/* 所属チーム (F3-1: team_id) — 必須 */}
+        <TeamSelect teamId={teamId} onTeamChange={setTeamId} label="Team *" required />
+        {errors.teamId ? <span className="ticket-form__error">{errors.teamId}</span> : null}
 
         {/* ラベル */}
         <div className="ticket-form__field">
@@ -715,20 +782,31 @@ export function TicketForm({ projectKeyOverride, onClose }: TicketFormProps = {}
   );
 }
 
-/** 担当チームセレクト（TicketForm内サブコンポーネント） */
-function TeamSelect({ teamId, onTeamChange }: { teamId: string; onTeamChange: (v: string) => void }) {
+/** チームセレクト（TicketForm内サブコンポーネント） */
+function TeamSelect({
+  teamId,
+  onTeamChange,
+  label = 'Team',
+  required = false,
+}: {
+  teamId: string;
+  onTeamChange: (v: string) => void;
+  label?: string;
+  required?: boolean;
+}) {
   const { data: teams } = useTeams();
   return (
     <div className="ticket-form__field">
-      <label htmlFor="assigned_team" className="ticket-form__label">
-        Team
+      <label htmlFor="team" className="ticket-form__label">
+        {label}
       </label>
       <select
-        id="assigned_team"
+        id="team"
         className="ticket-form__select"
         value={teamId}
         onChange={(e) => onTeamChange(e.target.value)}
         data-testid="ticket-team-input"
+        required={required}
       >
         <option value="">— None</option>
         {(teams ?? []).map((team) => (

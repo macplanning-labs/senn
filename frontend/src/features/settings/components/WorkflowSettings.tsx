@@ -24,10 +24,11 @@ const CATEGORY_OPTIONS: { value: StatusCategory; label: string; color: string }[
   { value: 'cancelled', label: 'キャンセル', color: '#ff4d4f' },
 ];
 
-export function WorkflowSettings() {
+export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
   const { t } = useTranslation();
   const { currentProject } = useProject();
-  const { data: statuses = [], isLoading } = useWorkflowStatuses(currentProject?.id);
+  const projectId = teamId ? undefined : currentProject?.id;
+  const { data: statuses = [], isLoading } = useWorkflowStatuses(projectId, teamId);
   const createMutation = useCreateWorkflowStatus();
   const updateMutation = useUpdateWorkflowStatus();
   const deleteMutation = useDeleteWorkflowStatus();
@@ -38,14 +39,15 @@ export function WorkflowSettings() {
   const [newColor, setNewColor] = useState('#a0a0a0');
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  if (!currentProject) {
+  if (!teamId && !currentProject) {
     return <p className="workflow-settings__empty">{t('settings.selectProject')}</p>;
   }
 
   const handleCreate = () => {
     if (!newName.trim() || !newSlug.trim()) return;
     createMutation.mutate({
-      project: currentProject.id,
+      project: teamId ? null : currentProject?.id,
+      teamId: teamId ?? null,
       name: newName.trim(),
       slug: newSlug.trim().toLowerCase().replace(/\s+/g, '_'),
       category: newCategory,
@@ -71,7 +73,7 @@ export function WorkflowSettings() {
 
   const handleDelete = (status: WorkflowStatus) => {
     if (status.isDefault) return;
-    deleteMutation.mutate({ id: status.id, projectId: currentProject.id });
+    deleteMutation.mutate({ id: status.id, projectId: currentProject?.id, teamId });
   };
 
   if (isLoading) return <p>Loading...</p>;
@@ -81,7 +83,9 @@ export function WorkflowSettings() {
       <div className="workflow-settings__header">
         <h3 className="workflow-settings__title">ワークフローステータス</h3>
         <p className="workflow-settings__desc">
-          プロジェクト固有のステータスを定義します。カンバンカラムはこの順序で表示されます。
+          {teamId
+            ? 'チーム固有のステータスを定義します。Team だけのチケットはこのマスタを使います。'
+            : 'プロジェクト固有のステータスを定義します。カンバンカラムはこの順序で表示されます。'}
         </p>
       </div>
 

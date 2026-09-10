@@ -95,13 +95,17 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
                         }
                     };
                     if !blacklisted {
-                        if let Ok(new_access) = jwt_service::issue_access_token(user_id, &state.config.jwt_secret) {
+                        if let Ok(new_access) = jwt_service::issue_access_token(
+                            user_id,
+                            &state.config.jwt_secret,
+                            state.config.access_token_lifetime_minutes,
+                        ) {
                             if let Some(user) = build_session_user(state, user_id, jar).await {
                                 let cookie = build_cookie(
                                     ACCESS_COOKIE,
                                     new_access,
                                     "/",
-                                    30 * 60,
+                                    state.config.access_token_lifetime_minutes * 60,
                                     SameSite::Lax,
                                     state.config.cookie_secure,
                                 );

@@ -23,6 +23,7 @@ use crate::domain::models::workflow_status_api::*;
 #[derive(Deserialize)]
 pub struct WorkflowStatusListQuery {
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub page: Option<i64>,
 }
 
@@ -61,6 +62,7 @@ pub async fn workflow_status_list(
         &state.pool,
         page,
         params.project,
+        params.team,
     )
     .await
     {
@@ -78,7 +80,7 @@ pub async fn workflow_status_list(
     };
 
     // 件数取得
-    let count = match workflow_status_repo::count_workflow_statuses(&state.pool, params.project)
+    let count = match workflow_status_repo::count_workflow_statuses(&state.pool, params.project, params.team)
         .await
     {
         Ok(c) => c,
@@ -171,6 +173,15 @@ pub async fn workflow_status_create(
     Extension(_auth): Extension<AuthUser>,
     Json(body): Json<WorkflowStatusWriteIn>,
 ) -> impl IntoResponse {
+    if body.project.is_none() && body.team_id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                detail: "project または teamId を指定してください".to_string(),
+            }),
+        )
+            .into_response();
+    }
     match workflow_status_repo::create_workflow_status(&state.pool, &body).await {
         Ok(status_id) => {
             // 作成したワークフロー状態を返す

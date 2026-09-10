@@ -5,8 +5,8 @@
  * バーンダウンチャートはURL(?panel=chart)で開閉するサイドパネルに格納する。
  */
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { useState } from 'react';
-import { useCycle, useCycleProgress, useCycles, useCreateCycle, useCompleteCycle } from '../hooks/useCycles';
+import { useState, useEffect } from 'react';
+import { useCycle, useCycleProgress, useCycles, useCreateCycle, useCompleteCycle, useUpdateCycle } from '../hooks/useCycles';
 import { BurndownChart } from './BurndownChart';
 import { CycleSummaryBar } from './CycleSummaryBar';
 import { TicketTable } from '@/features/tickets/components/TicketTable';
@@ -63,11 +63,17 @@ function diffDaysYmd(start: string, end: string): number {
 
 export function CycleDetail() {
   const { t } = useTranslation();
-  const { projectKey, cycleId, ticketId } = useParams<{
+  const { projectKey, teamSlug, cycleId, ticketId } = useParams<{
     projectKey: string;
+    teamSlug: string;
     cycleId: string;
     ticketId?: string;
   }>();
+  // Projectスコープ(/p/:projectKey/cycles/:cycleId)とTeamスコープ(/t/:teamSlug/cycles/:cycleId)の
+  // どちらでマウントされたかでURLの組み立て先を切り替える(WIPAPPDEV-000045)
+  const cyclesListPath = projectKey ? `/p/${projectKey}/cycles` : `/t/${teamSlug}/cycles`;
+  const cycleDetailPath = (id: string) =>
+    projectKey ? `/p/${projectKey}/cycles/${id}` : `/t/${teamSlug}/cycles/${id}`;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentProject } = useProject();
@@ -81,12 +87,22 @@ export function CycleDetail() {
   const { data: cycles = [] } = useCycles(currentProject?.id);
   const createMutation = useCreateCycle();
   const completeMutation = useCompleteCycle(currentProject?.id);
+  const updateCycleMutation = useUpdateCycle(currentProject?.id);
   const { width: chartWidth, onResizeStart, isResizing } = usePanelResize('cycle-burndown', 420);
   const { width: panelWidth, onResizeStart: onPanelResizeStart, isResizing: isPanelResizing } = usePanelResize('cycle-ticket-detail', 380);
 
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [selectedCarryOver, setSelectedCarryOver] = useState<number | 'create' | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+
+  useEffect(() => {
+    if (cycle) {
+      setNameDraft(cycle.name);
+      setDescriptionDraft(cycle.description || '');
+    }
+  }, [cycle?.id, cycle?.name, cycle?.description]);
 
   const chartOpen = searchParams.get('panel') === 'chart';
   const toggleChart = () => {
@@ -102,8 +118,8 @@ export function CycleDetail() {
   };
 
   const handleClosePanel = () => {
-    if (projectKey && cycleId) {
-      navigate(`/p/${projectKey}/cycles/${cycleId}`);
+    if (cycleId) {
+      navigate(cycleDetailPath(cycleId));
     }
   };
 
@@ -168,12 +184,25 @@ export function CycleDetail() {
       <div className="cycle-detail__header">
         <button
           className="cycle-detail__back"
-          onClick={() => projectKey && navigate(`/p/${projectKey}/cycles`)}
+          onClick={() => navigate(cyclesListPath)}
           data-testid="cycle-detail-back"
         >
           ← 戻る
         </button>
-        <h1 className="cycle-detail__title">{cycle.name}</h1>
+        <input
+          className="cycle-detail__title-input"
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={() => {
+            if (!cycle) return;
+            if (nameDraft.trim() && nameDraft !== cycle.name) {
+              updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, name: nameDraft.trim() });
+            } else {
+              setNameDraft(cycle.name);
+            }
+          }}
+          data-testid="cycle-name-input"
+        />
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <span className="cycle-detail__badge">{statusLabels[cycle.status]}</span>
           {isOverdue && (
@@ -190,9 +219,23 @@ export function CycleDetail() {
             </span>
           )}
         </div>
-        <span className="cycle-detail__dates">
-          {cycle.startDate} — {cycle.endDate}
-        </span>
+        <div className="cycle-detail__date-inputs">
+          <input
+            type="date"
+            className="cycle-detail__date-input"
+            value={cycle.startDate}
+            onChange={(e) => updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, start_date: e.target.value })}
+            data-testid="cycle-start-date-input"
+          />
+          <span>—</span>
+          <input
+            type="date"
+            className="cycle-detail__date-input"
+            value={cycle.endDate}
+            onChange={(e) => updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, end_date: e.target.value })}
+            data-testid="cycle-end-date-input"
+          />
+        </div>
         <button
           type="button"
           className={`cycle-detail__chart-toggle ${chartOpen ? 'cycle-detail__chart-toggle--active' : ''}`}
@@ -219,6 +262,24 @@ export function CycleDetail() {
             {t('cycle.complete')}
           </button>
         )}
+      </div>
+
+      {/* 説明欄 */}
+      <div className="cycle-detail__description">
+        <textarea
+          className="cycle-detail__description-input"
+          placeholder="このサイクルのゴールや注力ドメインを記載..."
+          value={descriptionDraft}
+          onChange={(e) => setDescriptionDraft(e.target.value)}
+          onBlur={() => {
+            if (!cycle) return;
+            if (descriptionDraft !== (cycle.description || '')) {
+              updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, description: descriptionDraft });
+            }
+          }}
+          rows={3}
+          data-testid="cycle-description-input"
+        />
       </div>
 
       {/* ミニサマリー */}

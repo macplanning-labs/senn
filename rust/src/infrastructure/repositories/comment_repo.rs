@@ -6,7 +6,7 @@ use crate::domain::models::comment::Comment;
 pub async fn find_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<Comment>> {
     let rows = sqlx::query_as::<_, Comment>(
         "SELECT c.id::int4, c.ticket_id::int4, c.author_id::int4, c.body, c.created_at,
-                u.display_name as author_name
+                u.display_name as author_name, c.anchor_start, c.anchor_end, c.anchor_quote
          FROM tickets_comment c
          LEFT JOIN accounts_user u ON c.author_id = u.id
          WHERE c.ticket_id = $1

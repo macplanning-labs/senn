@@ -15,6 +15,8 @@ pub async fn find_all_for_user(pool: &PgPool, user_id: i32) -> anyhow::Result<Ve
             n.title,
             n.message,
             t.ticket_key as ticket_key,
+            proj.prefix as project_key,
+            tm.slug as team_slug,
             wp.title as wiki_title,
             n.is_read,
             n.created_at,
@@ -22,6 +24,8 @@ pub async fn find_all_for_user(pool: &PgPool, user_id: i32) -> anyhow::Result<Ve
             n.wiki_page_id::int4 as wiki_page
          FROM notifications_notification n
          LEFT JOIN tickets_ticket t ON n.ticket_id = t.id
+         LEFT JOIN tickets_project proj ON t.project_id = proj.id
+         LEFT JOIN m_team tm ON t.team_id = tm.id
          LEFT JOIN wiki_page wp ON n.wiki_page_id = wp.id
          WHERE n.user_id = $1::int4
          ORDER BY n.created_at DESC"

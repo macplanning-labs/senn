@@ -4,13 +4,14 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use crate::domain::models::ticket_api::UserSummaryOut;
+use crate::domain::models::ticket_api::{UserSummaryOut, TeamSummaryOut};
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct CycleOut {
     pub id: i32,
-    pub project: i32,
+    pub project: Option<i32>,
     pub name: String,
+    pub description: String,
     pub number: i32,
     pub status: String,
     #[serde(rename = "startDate")]
@@ -29,16 +30,21 @@ pub struct CycleOut {
     pub total_points: i64,
     #[serde(rename = "completedPoints")]
     pub completed_points: i64,
+    pub team: Option<TeamSummaryOut>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CycleWriteIn {
-    pub project: i32,
+    pub project: Option<i32>,
     pub name: String,
+    #[serde(default)]
+    pub description: String,
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
     #[serde(default = "default_cycle_status")]
     pub status: String,
+    #[serde(default, alias = "teamId")]
+    pub team_id: Option<i32>,
 }
 
 /// PATCH /api/v1/cycles/{id}/ 用の部分更新入力。指定したフィールドのみ上書きする。
@@ -46,9 +52,19 @@ pub struct CycleWriteIn {
 pub struct CyclePatchIn {
     pub project: Option<i32>,
     pub name: Option<String>,
+    pub description: Option<String>,
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
     pub status: Option<String>,
+    #[serde(default, alias = "teamId")]
+    pub team_id: Option<Option<i32>>,
+}
+
+/// PATCH /api/v1/cycles/{id}/graph-position/ 用の入力。
+#[derive(Debug, Clone, Deserialize)]
+pub struct CycleGraphPositionIn {
+    pub x: f64,
+    pub y: f64,
 }
 
 fn default_cycle_status() -> String {
@@ -120,7 +136,8 @@ pub struct BurndownPointOut {
 #[derive(Debug, Clone, Serialize)]
 pub struct AutoCompleteLogEntry {
     pub cycle_id: i32,
-    pub project_id: i32,
+    pub project_id: Option<i32>,
+    pub team_id: Option<i32>,
     pub carried_over: i64,
     pub target_cycle_id: Option<i32>,
 }

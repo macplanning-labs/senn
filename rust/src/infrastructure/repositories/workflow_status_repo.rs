@@ -6,72 +6,67 @@ use sqlx::{PgPool, Row};
 
 use crate::domain::models::workflow_status_api::*;
 
+const WF_SELECT: &str = "SELECT id::int4 AS id, project_id, team_id, name, slug, category, color, position, is_default
+             FROM t_workflow_status";
+
+fn map_wf_row(row: sqlx::postgres::PgRow) -> WorkflowStatusOut {
+    let project_id: Option<i64> = row.get("project_id");
+    let team_id: Option<i64> = row.get("team_id");
+    WorkflowStatusOut {
+        id: row.get("id"),
+        project: project_id.map(|v| v as i32),
+        team_id: team_id.map(|v| v as i32),
+        name: row.get("name"),
+        slug: row.get("slug"),
+        category: row.get("category"),
+        color: row.get("color"),
+        position: row.get("position"),
+        is_default: row.get("is_default"),
+    }
+}
+
 pub async fn find_all_workflow_statuses(
     pool: &PgPool,
     page: i64,
     project: Option<i32>,
+    team: Option<i32>,
 ) -> anyhow::Result<Vec<WorkflowStatusOut>> {
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
 
-    let rows = if let Some(project_id) = project {
-        sqlx::query(
-            "SELECT id::int4, project_id::int4, name, slug, category, color, position, is_default
-             FROM t_workflow_status
-             WHERE project_id = $1
-             ORDER BY position ASC
-             LIMIT $2 OFFSET $3"
-        )
-        .bind(project_id as i64)
+    let sql = format!(
+        "{WF_SELECT}
+         WHERE ($1::bigint IS NULL OR project_id = $1)
+           AND ($2::bigint IS NULL OR team_id = $2)
+         ORDER BY position ASC
+         LIMIT $3 OFFSET $4"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(project.map(|p| p as i64))
+        .bind(team.map(|t| t as i64))
         .bind(PAGE_SIZE)
         .bind(offset)
         .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query(
-            "SELECT id::int4, project_id::int4, name, slug, category, color, position, is_default
-             FROM t_workflow_status
-             ORDER BY position ASC
-             LIMIT $1 OFFSET $2"
-        )
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    };
+        .await?;
 
-    let statuses = rows
-        .into_iter()
-        .map(|row| WorkflowStatusOut {
-            id: row.get(0),
-            project: row.get(1),
-            name: row.get(2),
-            slug: row.get(3),
-            category: row.get(4),
-            color: row.get(5),
-            position: row.get(6),
-            is_default: row.get(7),
-        })
-        .collect();
-
-    Ok(statuses)
+    Ok(rows.into_iter().map(map_wf_row).collect())
 }
 
 pub async fn count_workflow_statuses(
     pool: &PgPool,
     project: Option<i32>,
+    team: Option<i32>,
 ) -> anyhow::Result<i64> {
-    let count: i64 = if let Some(project_id) = project {
-        sqlx::query_scalar("SELECT COUNT(*) FROM t_workflow_status WHERE project_id = $1")
-            .bind(project_id as i64)
-            .fetch_one(pool)
-            .await?
-    } else {
-        sqlx::query_scalar("SELECT COUNT(*) FROM t_workflow_status")
-            .fetch_one(pool)
-            .await?
-    };
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM t_workflow_status
+         WHERE ($1::bigint IS NULL OR project_id = $1)
+           AND ($2::bigint IS NULL OR team_id = $2)"
+    )
+    .bind(project.map(|p| p as i64))
+    .bind(team.map(|t| t as i64))
+    .fetch_one(pool)
+    .await?;
 
     Ok(count)
 }
@@ -80,27 +75,13 @@ pub async fn find_workflow_status_by_id(
     pool: &PgPool,
     id: i32,
 ) -> anyhow::Result<Option<WorkflowStatusOut>> {
-    let row_opt = sqlx::query(
-        "SELECT id::int4, project_id::int4, name, slug, category, color, position, is_default
-         FROM t_workflow_status
-         WHERE id = $1"
-    )
-    .bind(id as i64)
-    .fetch_optional(pool)
-    .await?;
+    let sql = format!("{WF_SELECT} WHERE id = $1");
+    let row_opt = sqlx::query(&sql)
+        .bind(id as i64)
+        .fetch_optional(pool)
+        .await?;
 
-    let status = row_opt.map(|row| WorkflowStatusOut {
-        id: row.get(0),
-        project: row.get(1),
-        name: row.get(2),
-        slug: row.get(3),
-        category: row.get(4),
-        color: row.get(5),
-        position: row.get(6),
-        is_default: row.get(7),
-    });
-
-    Ok(status)
+    Ok(row_opt.map(map_wf_row))
 }
 
 pub async fn create_workflow_status(
@@ -108,11 +89,12 @@ pub async fn create_workflow_status(
     input: &WorkflowStatusWriteIn,
 ) -> anyhow::Result<i32> {
     let status_id: i32 = sqlx::query_scalar(
-        "INSERT INTO t_workflow_status (project_id, name, slug, category, color, position, is_default)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "INSERT INTO t_workflow_status (project_id, team_id, name, slug, category, color, position, is_default)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id::int4"
     )
-    .bind(input.project as i64)
+    .bind(input.project.map(|p| p as i64))
+    .bind(input.team_id.map(|t| t as i64))
     .bind(&input.name)
     .bind(&input.slug)
     .bind(&input.category)
@@ -132,10 +114,11 @@ pub async fn update_workflow_status(
 ) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE t_workflow_status
-         SET project_id = $1, name = $2, slug = $3, category = $4, color = $5, position = $6, is_default = $7
-         WHERE id = $8"
+         SET project_id = $1, team_id = $2, name = $3, slug = $4, category = $5, color = $6, position = $7, is_default = $8
+         WHERE id = $9"
     )
-    .bind(input.project as i64)
+    .bind(input.project.map(|p| p as i64))
+    .bind(input.team_id.map(|t| t as i64))
     .bind(&input.name)
     .bind(&input.slug)
     .bind(&input.category)
@@ -164,7 +147,8 @@ pub async fn partial_update_workflow_status(
     let existing = existing.unwrap();
 
     // 更新値を決定（指定されない場合は既存値を使用）
-    let project = input.project.unwrap_or(existing.project);
+    let project = input.project.or(existing.project);
+    let team_id = input.team_id.or(existing.team_id);
     let name = input.name.as_ref().unwrap_or(&existing.name).clone();
     let slug = input.slug.as_ref().unwrap_or(&existing.slug).clone();
     let category = input.category.as_ref().unwrap_or(&existing.category).clone();
@@ -174,10 +158,11 @@ pub async fn partial_update_workflow_status(
 
     let rows_affected = sqlx::query(
         "UPDATE t_workflow_status
-         SET project_id = $1, name = $2, slug = $3, category = $4, color = $5, position = $6, is_default = $7
-         WHERE id = $8"
+         SET project_id = $1, team_id = $2, name = $3, slug = $4, category = $5, color = $6, position = $7, is_default = $8
+         WHERE id = $9"
     )
-    .bind(project as i64)
+    .bind(project.map(|p| p as i64))
+    .bind(team_id.map(|t| t as i64))
     .bind(&name)
     .bind(&slug)
     .bind(&category)
@@ -252,49 +237,172 @@ pub async fn resolve_status_slug_by_category(
     Ok(slug_opt)
 }
 
+/// Team マスタ → ワークスペース既定 の順で slug を探す。Project 付きは Project マスタのみ。
+pub async fn resolve_status_slug_by_scope(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    category: &str,
+) -> anyhow::Result<Option<String>> {
+    if let Some(pid) = project_id {
+        return resolve_status_slug_by_category(pool, pid, category).await;
+    }
+    if let Some(tid) = team_id {
+        let slug: Option<String> = sqlx::query_scalar(
+            "SELECT slug FROM t_workflow_status
+             WHERE team_id = $1 AND project_id IS NULL AND category = $2
+             ORDER BY position ASC, id ASC
+             LIMIT 1"
+        )
+        .bind(tid as i64)
+        .bind(category)
+        .fetch_optional(pool)
+        .await?;
+        if slug.is_some() {
+            return Ok(slug);
+        }
+    }
+    let slug: Option<String> = sqlx::query_scalar(
+        "SELECT slug FROM t_workflow_status
+         WHERE project_id IS NULL AND team_id IS NULL AND category = $1
+         ORDER BY position ASC, id ASC
+         LIMIT 1"
+    )
+    .bind(category)
+    .fetch_optional(pool)
+    .await?;
+    Ok(slug)
+}
+
+pub async fn lookup_status_category(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    slug: &str,
+) -> anyhow::Result<Option<String>> {
+    if let Some(pid) = project_id {
+        return sqlx::query_scalar(
+            "SELECT category FROM t_workflow_status WHERE project_id = $1 AND slug = $2"
+        )
+        .bind(pid as i64)
+        .bind(slug)
+        .fetch_optional(pool)
+        .await
+        .map_err(Into::into);
+    }
+    if let Some(tid) = team_id {
+        let cat: Option<String> = sqlx::query_scalar(
+            "SELECT category FROM t_workflow_status
+             WHERE team_id = $1 AND project_id IS NULL AND slug = $2"
+        )
+        .bind(tid as i64)
+        .bind(slug)
+        .fetch_optional(pool)
+        .await?;
+        if cat.is_some() {
+            return Ok(cat);
+        }
+    }
+    let cat: Option<String> = sqlx::query_scalar(
+        "SELECT category FROM t_workflow_status
+         WHERE project_id IS NULL AND team_id IS NULL AND slug = $1"
+    )
+    .bind(slug)
+    .fetch_optional(pool)
+    .await?;
+    Ok(cat)
+}
+
+pub async fn status_slug_exists_for_scope(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    slug: &str,
+) -> anyhow::Result<bool> {
+    Ok(lookup_status_category(pool, project_id, team_id, slug)
+        .await?
+        .is_some())
+}
+
 pub async fn resolve_review_status_slug(
     pool: &PgPool,
     project_id: i32,
 ) -> anyhow::Result<Option<String>> {
-    let rows = sqlx::query(
-        "SELECT slug, category, position FROM t_workflow_status
-         WHERE project_id = $1
-         ORDER BY position ASC, id ASC"
-    )
-    .bind(project_id as i64)
-    .fetch_all(pool)
-    .await?;
+    resolve_review_status_slug_by_scope(pool, Some(project_id), None).await
+}
 
+/// Project → Team → ワークスペース既定の順で review 相当 slug を探す。
+pub async fn resolve_review_status_slug_by_scope(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+) -> anyhow::Result<Option<String>> {
+    if let Some(pid) = project_id {
+        if let Some(slug) = pick_review_slug_from_rows(
+            &sqlx::query(
+                "SELECT slug, category, position FROM t_workflow_status
+                 WHERE project_id = $1
+                 ORDER BY position ASC, id ASC"
+            )
+            .bind(pid as i64)
+            .fetch_all(pool)
+            .await?,
+        ) {
+            return Ok(Some(slug));
+        }
+        return Ok(None);
+    }
+
+    if let Some(tid) = team_id {
+        if let Some(slug) = pick_review_slug_from_rows(
+            &sqlx::query(
+                "SELECT slug, category, position FROM t_workflow_status
+                 WHERE team_id = $1 AND project_id IS NULL
+                 ORDER BY position ASC, id ASC"
+            )
+            .bind(tid as i64)
+            .fetch_all(pool)
+            .await?,
+        ) {
+            return Ok(Some(slug));
+        }
+    }
+
+    Ok(pick_review_slug_from_rows(
+        &sqlx::query(
+            "SELECT slug, category, position FROM t_workflow_status
+             WHERE project_id IS NULL AND team_id IS NULL
+             ORDER BY position ASC, id ASC"
+        )
+        .fetch_all(pool)
+        .await?,
+    ))
+}
+
+fn pick_review_slug_from_rows(rows: &[sqlx::postgres::PgRow]) -> Option<String> {
     let target_slugs = ["in_review", "review", "in-review"];
 
-    // Priority 1: category = 'started' かつ slug が in_review/review/in-review のいずれかで先頭マッチ
-    for row in &rows {
+    for row in rows {
         let category: String = row.get(1);
         let slug: String = row.get(0);
         if category == "started" && target_slugs.contains(&slug.as_str()) {
-            return Ok(Some(slug));
+            return Some(slug);
         }
     }
-
-    // Priority 2: category = 'review' で先頭マッチ
-    for row in &rows {
+    for row in rows {
         let category: String = row.get(1);
         let slug: String = row.get(0);
         if category == "review" {
-            return Ok(Some(slug));
+            return Some(slug);
         }
     }
-
-    // Priority 3: slug のみ一致（category 不問）、position 順
-    for row in &rows {
+    for row in rows {
         let slug: String = row.get(0);
         if target_slugs.contains(&slug.as_str()) {
-            return Ok(Some(slug));
+            return Some(slug);
         }
     }
-
-    // No match
-    Ok(None)
+    None
 }
 
 #[cfg(test)]

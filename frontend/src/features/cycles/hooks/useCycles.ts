@@ -6,17 +6,18 @@ import { apiClient } from '@/shared/api/client';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import type { Cycle, VelocityData, CycleProgress, BurndownPoint } from '@/shared/api/types';
 
-/** サイクル一覧を取得 */
-export function useCycles(projectId: number | undefined) {
+/** サイクル一覧を取得（project/team両対応） */
+export function useCycles(projectId: number | undefined, teamId: number | undefined = undefined) {
   return useQuery<Cycle[]>({
-    queryKey: ['cycles', projectId],
+    queryKey: ['cycles', projectId, teamId],
     queryFn: async () => {
-      const { data } = await apiClient.get('/cycles/', {
-        params: { project: projectId },
-      });
+      const params: Record<string, number> = {};
+      if (projectId) params.project = projectId;
+      if (teamId) params.team = teamId;
+      const { data } = await apiClient.get('/cycles/', { params });
       return data;
     },
-    enabled: !!projectId,
+    enabled: !!(projectId || teamId),
   });
 }
 
@@ -70,22 +71,30 @@ export function useBurndown(cycleId: number | undefined) {
   });
 }
 
-/** サイクル作成 */
+/** サイクル作成（project/team両対応） */
 export function useCreateCycle() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: {
-      project: number;
+      project?: number;
+      team?: number;
       name: string;
+      description?: string;
       start_date: string;
       end_date: string;
       status?: string;
+      teamId?: number;
     }) => {
       const { data } = await apiClient.post('/cycles/', payload);
       return data as Cycle;
     },
     onSuccess: (_data, variables) => {
-      void qc.invalidateQueries({ queryKey: ['cycles', variables.project] });
+      if (variables.project) {
+        void qc.invalidateQueries({ queryKey: ['cycles', variables.project] });
+      }
+      if (variables.team) {
+        void qc.invalidateQueries({ queryKey: ['cycles', undefined, variables.team] });
+      }
     },
   });
 }
@@ -104,9 +113,11 @@ export function useUpdateCycle(projectId: number | undefined) {
     id: number;
     project: number;
     name?: string;
+    description?: string;
     start_date?: string;
     end_date?: string;
     status?: string;
+    teamId?: number;
   }>({
     mutationFn: async ({ id, ...payload }) => {
       const { data } = await apiClient.patch(`/cycles/${id}/`, payload);
@@ -135,12 +146,11 @@ export function useUpdateCycle(projectId: number | undefined) {
 /**
  * サイクル完了（楽観的UI）
  *
- * projectId はフック生成時に固定。mutate() 時には cycleId のみ渡す
- * （呼び出し元の変更を最小化するための設計。詳細設計書 §2.3 参照）。
+ * projectId/teamId はフック生成時に固定。mutate() 時には cycleId のみ渡す。
  * 一覧・詳細の両キャッシュを同時に 'completed' へ即時反映する。
  * velocity は完了操作の結果に依存するため楽観更新はせず invalidate のみ行う。
  */
-export function useCompleteCycle(projectId: number | undefined) {
+export function useCompleteCycle(projectId: number | undefined, teamId: number | undefined = undefined) {
   return useOptimisticMutation<unknown, {
     cycleId: number;
     carryOverTo?: number;
@@ -151,7 +161,7 @@ export function useCompleteCycle(projectId: number | undefined) {
       });
       return data;
     },
-    queryKey: ['cycles', projectId],
+    queryKey: ['cycles', projectId, teamId],
     updater: (currentData, variables) => {
       const cycles = currentData as Cycle[] | undefined;
       if (!cycles) return currentData;
@@ -169,20 +179,25 @@ export function useCompleteCycle(projectId: number | undefined) {
         },
       },
     ],
-    invalidateKeys: [['velocity', projectId]],
+    invalidateKeys: projectId ? [['velocity', projectId]] : [],
     errorMessage: 'サイクルの完了に失敗しました。元に戻しました。',
   });
 }
 
-/** サイクル削除 */
+/** サイクル削除（project/team両対応） */
 export function useDeleteCycle() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, projectId: _projectId }: { id: number; projectId: number }) => {
+    mutationFn: async ({ id }: { id: number; projectId?: number; teamId?: number }) => {
       await apiClient.delete(`/cycles/${id}/`);
     },
     onSuccess: (_data, variables) => {
-      void qc.invalidateQueries({ queryKey: ['cycles', variables.projectId] });
+      if (variables.projectId) {
+        void qc.invalidateQueries({ queryKey: ['cycles', variables.projectId] });
+      }
+      if (variables.teamId) {
+        void qc.invalidateQueries({ queryKey: ['cycles', undefined, variables.teamId] });
+      }
     },
   });
 }

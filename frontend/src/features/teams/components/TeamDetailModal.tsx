@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { useCreateTeam, useUpdateTeam } from '../hooks/useTeams';
+import { useCreateTeam, useUpdateTeam, type TeamFormData } from '../hooks/useTeams';
 import type { Team } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
 import { useTranslation } from 'react-i18next';
@@ -35,8 +35,22 @@ export function TeamDetailModal({ team, onClose }: Props) {
   const [color, setColor] = useState(team?.color ?? '#6366f1');
   const [slackWebhookUrl, setSlackWebhookUrl] = useState(team?.slackWebhookUrl ?? '');
   const [isActive, setIsActive] = useState(team?.isActive ?? true);
+  const [prefix, setPrefix] = useState(team?.prefix ?? '');
   const [error, setError] = useState('');
   const isEdit = team !== null;
+
+  const validatePrefix = (value: string): string => {
+    if (!value.trim()) {
+      if (isEdit) {
+        return 'Prefix は必須です';
+      }
+      return '';
+    }
+    if (!/^[A-Z0-9]{1,20}$/.test(value)) {
+      return 'Prefix は英数字1〜20文字です';
+    }
+    return '';
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,17 +61,26 @@ export function TeamDetailModal({ team, onClose }: Props) {
       return;
     }
 
+    const prefixError = validatePrefix(prefix);
+    if (prefixError) {
+      setError(prefixError);
+      return;
+    }
+
     try {
-      const data = {
+      const trimmedPrefix = prefix.trim().toUpperCase();
+      const data: TeamFormData = {
         name: name.trim(),
         description: description.trim(),
         icon,
         color,
-        slack_webhook_url: slackWebhookUrl.trim() || undefined,
-        is_active: isActive,
+        slackWebhookUrl: slackWebhookUrl.trim() || undefined,
+        isActive: isActive,
+        ...(trimmedPrefix ? { prefix: trimmedPrefix } : {}),
+        ...(isEdit && team ? { slug: team.slug } : {}),
       };
 
-      if (isEdit) {
+      if (isEdit && team) {
         await updateTeam.mutateAsync({ id: team.id, data });
         addToast({ message: 'チームを更新しました', type: 'success' });
       } else {
@@ -127,6 +150,21 @@ export function TeamDetailModal({ team, onClose }: Props) {
               autoFocus
               data-testid="team-name-input"
             />
+          </div>
+
+          {/* チーム Prefix */}
+          <div className="teams-modal__field">
+            <label className="teams-modal__label">チーム Prefix {isEdit && '*'}</label>
+            <input
+              className="teams-modal__input"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+              placeholder="例: DEMO"
+              data-testid="team-prefix-input"
+            />
+            <div className="teams-modal__helper-text">
+              新規チケットキーの先頭（例: DEMO-000001）。既存キーは変わりません。
+            </div>
           </div>
 
           {/* スラッグはバックエンドで自動生成されるため非表示 */}

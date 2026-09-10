@@ -54,7 +54,9 @@ pub struct LabelOut {
     pub id: i32,
     pub name: String,
     pub color: String,
-    pub project: i32,
+    pub project: Option<i32>,
+    #[serde(rename = "teamId")]
+    pub team_id: Option<i32>,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
     pub description: Option<String>,
@@ -110,7 +112,9 @@ pub struct TicketListOut {
     pub author: UserSummaryOut,
     pub category: Option<CategoryOut>,
     pub milestone: Option<MilestoneOut>,
-    pub project: i32,
+    pub project: Option<i32>,
+    #[serde(rename = "projectPrefix")]
+    pub project_prefix: Option<String>,
     pub parent: Option<i32>,
     pub labels: Vec<LabelOut>,
     #[serde(rename = "startDate")]
@@ -122,8 +126,7 @@ pub struct TicketListOut {
     pub cycle: Option<i32>,
     #[serde(rename = "cycleName")]
     pub cycle_name: Option<String>,
-    #[serde(rename = "assignedTeam")]
-    pub assigned_team: Option<TeamSummaryOut>,
+    pub team: Option<TeamSummaryOut>,
     #[serde(rename = "commentCount")]
     pub comment_count: i64,
     #[serde(rename = "childCount")]
@@ -147,6 +150,21 @@ pub struct CommentOut {
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
     pub updated_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "anchorStart")]
+    pub anchor_start: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "anchorEnd")]
+    pub anchor_end: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "anchorQuote")]
+    pub anchor_quote: Option<String>,
+    #[serde(rename = "parentCommentId")]
+    pub parent_comment_id: Option<i32>,
+    #[serde(rename = "isDeleted")]
+    pub is_deleted: bool,
+    #[serde(rename = "replyCount")]
+    pub reply_count: i32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,6 +209,8 @@ pub struct TicketDetailOut {
     pub linked_rules: Vec<TeamRuleSummaryOut>,
     #[serde(rename = "linkedWikiPages")]
     pub linked_wiki_pages: Vec<LinkedWikiPageOut>,
+    #[serde(rename = "isWatching")]
+    pub is_watching: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -239,7 +259,7 @@ pub struct TicketWriteIn {
     #[serde(default)]
     pub assignees: Vec<i32>,
     pub category: Option<i32>,
-    pub project: i32,
+    pub project: Option<i32>,
     pub milestone: Option<i32>,
     pub parent: Option<i32>,
     pub start_date: Option<NaiveDate>,
@@ -248,7 +268,9 @@ pub struct TicketWriteIn {
     pub labels: Vec<i32>,
     pub story_points: Option<i16>,
     pub cycle: Option<i32>,
-    pub assigned_team: Option<i32>,
+    #[serde(default)]
+    #[serde(alias = "teamId")]
+    pub team_id: Option<i32>,
     #[serde(default)]
     pub linked_rules: Vec<i32>,
 }
@@ -302,7 +324,8 @@ pub struct TicketPatchIn {
     #[serde(default, deserialize_with = "deserialize_present")]
     pub cycle: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_present")]
-    pub assigned_team: Option<Option<i32>>,
+    #[serde(alias = "teamId")]
+    pub team_id: Option<Option<i32>>,
     #[serde(default, deserialize_with = "deserialize_present")]
     pub start_date: Option<Option<NaiveDate>>,
     #[serde(default, deserialize_with = "deserialize_present")]

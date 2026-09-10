@@ -5,17 +5,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { WorkflowStatus } from '@/shared/api/types';
 
-/** プロジェクトのワークフローステータス一覧 */
-export function useWorkflowStatuses(projectId: number | undefined) {
+export function useWorkflowStatuses(projectId?: number, teamId?: number) {
   return useQuery<WorkflowStatus[]>({
-    queryKey: ['workflow-statuses', projectId],
+    queryKey: ['workflow-statuses', projectId ?? null, teamId ?? null],
     queryFn: async () => {
       const { data } = await apiClient.get('/workflow-statuses/', {
-        params: { project: projectId },
+        params: {
+          ...(projectId ? { project: projectId } : {}),
+          ...(teamId ? { team: teamId } : {}),
+        },
       });
       return (data.results ?? data) as WorkflowStatus[];
     },
-    enabled: !!projectId,
+    enabled: !!projectId || !!teamId,
   });
 }
 
@@ -27,8 +29,8 @@ export function useCreateWorkflowStatus() {
       const { data } = await apiClient.post('/workflow-statuses/', payload);
       return data as WorkflowStatus;
     },
-    onSuccess: (_data, variables) => {
-      void qc.invalidateQueries({ queryKey: ['workflow-statuses', variables.project] });
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workflow-statuses'] });
     },
   });
 }
@@ -41,7 +43,7 @@ export function useUpdateWorkflowStatus() {
       const { data } = await apiClient.patch(`/workflow-statuses/${id}/`, payload);
       return data as WorkflowStatus;
     },
-    onSuccess: (_data, _variables) => {
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['workflow-statuses'] });
     },
   });
@@ -51,12 +53,11 @@ export function useUpdateWorkflowStatus() {
 export function useDeleteWorkflowStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, projectId }: { id: number; projectId: number }) => {
+    mutationFn: async ({ id }: { id: number; projectId?: number; teamId?: number }) => {
       await apiClient.delete(`/workflow-statuses/${id}/`);
-      return { projectId };
     },
-    onSuccess: (_data, variables) => {
-      void qc.invalidateQueries({ queryKey: ['workflow-statuses', variables.projectId] });
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workflow-statuses'] });
     },
   });
 }
@@ -65,12 +66,11 @@ export function useDeleteWorkflowStatus() {
 export function useReorderWorkflowStatuses() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ order, projectId }: { order: number[]; projectId: number }) => {
+    mutationFn: async ({ order }: { order: number[]; projectId?: number; teamId?: number }) => {
       await apiClient.post('/workflow-statuses/reorder/', { order });
-      return { projectId };
     },
-    onSuccess: (_data, variables) => {
-      void qc.invalidateQueries({ queryKey: ['workflow-statuses', variables.projectId] });
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['workflow-statuses'] });
     },
   });
 }

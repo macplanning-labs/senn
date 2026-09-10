@@ -24,6 +24,12 @@ interface UIState {
   ticketFormModalOpen: boolean;
   /** モーダルでチケットを作成する対象プロジェクトキー */
   ticketFormModalProjectKey: string | null;
+  /** モーダルでチケットを作成する対象TeamSlug */
+  ticketFormModalTeamSlug: string | null;
+  /** モーダルでチケット作成時、descriptionの初期値（コメントから新規チケット作成する場合など） */
+  ticketFormModalInitialDescription: string | null;
+  /** モーダルでチケット作成時、parentの初期値（コメントからサブチケット作成する場合など） */
+  ticketFormModalInitialParent: number | null;
 
   // アクション
   setTheme: (theme: Theme) => void;
@@ -31,7 +37,11 @@ interface UIState {
   setLanguage: (language: Language) => void;
   toggleSidebar: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
-  openTicketFormModal: (projectKey: string) => void;
+  openTicketFormModal: (
+    projectKey?: string | null,
+    teamSlug?: string | null,
+    options?: { initialDescription?: string; initialParent?: number | null },
+  ) => void;
   closeTicketFormModal: () => void;
 }
 
@@ -44,6 +54,9 @@ export const useUIStore = create<UIState>()(
       commandPaletteOpen: false,
       ticketFormModalOpen: false,
       ticketFormModalProjectKey: null,
+      ticketFormModalTeamSlug: null,
+      ticketFormModalInitialDescription: null,
+      ticketFormModalInitialParent: null,
 
       setTheme: (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -58,8 +71,22 @@ export const useUIStore = create<UIState>()(
       setLanguage: (language) => set({ language }),
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
       setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
-      openTicketFormModal: (projectKey) => set({ ticketFormModalOpen: true, ticketFormModalProjectKey: projectKey }),
-      closeTicketFormModal: () => set({ ticketFormModalOpen: false, ticketFormModalProjectKey: null }),
+      openTicketFormModal: (projectKey, teamSlug, options) =>
+        set({
+          ticketFormModalOpen: true,
+          ticketFormModalProjectKey: projectKey ?? null,
+          ticketFormModalTeamSlug: teamSlug ?? null,
+          ticketFormModalInitialDescription: options?.initialDescription ?? null,
+          ticketFormModalInitialParent: options?.initialParent ?? null,
+        }),
+      closeTicketFormModal: () =>
+        set({
+          ticketFormModalOpen: false,
+          ticketFormModalProjectKey: null,
+          ticketFormModalTeamSlug: null,
+          ticketFormModalInitialDescription: null,
+          ticketFormModalInitialParent: null,
+        }),
     }),
     {
       name: 'wip-ui-preferences',

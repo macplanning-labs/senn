@@ -416,6 +416,15 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
+/* ダークモードのdate/calendarアイコン対応(TicketForm.cssと同じパターン) */
+.settings-form__input[type="date"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] .settings-form__input[type="date"] {
+  color-scheme: light;
+}
+
 .settings-form__textarea {
   min-height: 80px;
   resize: vertical;

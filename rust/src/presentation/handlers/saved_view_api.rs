@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{saved_view_repo, membership_repo, resource_repo};
+use crate::infrastructure::repositories::{saved_view_repo, resource_repo, team_repo};
 use crate::domain::models::saved_view_api::{
     SavedViewCreateIn, SavedViewUpdateIn,
 };
@@ -29,7 +29,7 @@ async fn ensure_project_access(
     project_id: i32,
     user_id: i32,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    let is_member = membership_repo::check_membership_exists(&state.pool, project_id, user_id)
+    let is_member = team_repo::check_project_access(&state.pool, project_id, user_id)
         .await
         .map_err(|e| {
             tracing::error!("DB operation failed: {:?}", e);
@@ -61,6 +61,33 @@ async fn ensure_project_access(
         StatusCode::FORBIDDEN,
         Json(ErrorResponse {
             detail: "このプロジェクトのメンバーではありません".to_string(),
+        }),
+    ))
+}
+
+async fn ensure_team_access(
+    state: &AppState,
+    team_id: i32,
+    user_id: i32,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let is_member = team_repo::check_team_membership_exists(&state.pool, team_id, user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+        })?;
+    if is_member {
+        return Ok(());
+    }
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse {
+            detail: "このチームのメンバーではありません".to_string(),
         }),
     ))
 }
@@ -132,12 +159,91 @@ pub async fn create(
         owner_id,
         name,
         &input.filters,
+        input.is_shared,
     )
     .await
     {
         Ok(view) => (StatusCode::CREATED, Json(view)).into_response(),
         Err(e) => {
             // UNIQUE 制約違反チェック
+            if e.to_string().contains("duplicate") || e.to_string().contains("UNIQUE") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: "同じ名前のビューが既にあります".to_string(),
+                    }),
+                )
+                    .into_response()
+            } else {
+                tracing::error!("DB operation failed: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+/// GET /api/v1/teams/{team_id}/saved-views/ — Team スコープの Saved View 一覧
+pub async fn list_by_team(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(team_id): Path<i64>,
+) -> impl IntoResponse {
+    let owner_id: i64 = auth.user_id.into();
+
+    if let Err(resp) = ensure_team_access(&state, team_id as i32, auth.user_id).await {
+        return resp.into_response();
+    }
+
+    match saved_view_repo::list_by_team_and_owner(&state.pool, team_id, owner_id).await {
+        Ok(views) => (StatusCode::OK, Json(views)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /api/v1/teams/{team_id}/saved-views/ — Team スコープの Saved View 作成
+pub async fn create_for_team(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(team_id): Path<i64>,
+    Json(input): Json<SavedViewCreateIn>,
+) -> impl IntoResponse {
+    let owner_id: i64 = auth.user_id.into();
+    let name = input.name.trim();
+
+    if let Err(resp) = validate_view_name(name) {
+        return resp.into_response();
+    }
+    if let Err(resp) = ensure_team_access(&state, team_id as i32, auth.user_id).await {
+        return resp.into_response();
+    }
+
+    match saved_view_repo::create_for_team(
+        &state.pool,
+        team_id,
+        owner_id,
+        name,
+        &input.filters,
+        input.is_shared,
+    )
+    .await
+    {
+        Ok(view) => (StatusCode::CREATED, Json(view)).into_response(),
+        Err(e) => {
             if e.to_string().contains("duplicate") || e.to_string().contains("UNIQUE") {
                 (
                     StatusCode::BAD_REQUEST,
@@ -183,6 +289,7 @@ pub async fn update(
         owner_id,
         trimmed_name.as_deref(),
         input.filters.as_ref(),
+        input.is_shared,
     )
     .await
     {

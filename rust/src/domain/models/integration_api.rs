@@ -10,7 +10,8 @@ pub use crate::domain::models::ticket_api::UserSummaryOut;
 #[derive(Debug, Clone, Serialize)]
 pub struct GitIntegrationOut {
     pub id: i32,
-    pub project: i32,
+    pub project: Option<i32>,
+    pub team: Option<i32>,
     pub provider: String,
     #[serde(rename = "repositoryUrl")]
     pub repository_url: String,
@@ -30,7 +31,8 @@ pub struct GitIntegrationOut {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GitIntegrationWriteIn {
-    pub project: i32,
+    pub project: Option<i32>,
+    pub team: Option<i32>,
     #[serde(default = "default_provider")]
     pub provider: String,
     pub repository_url: String,
@@ -51,6 +53,7 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Deserialize)]
 pub struct GitIntegrationUpdateIn {
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub provider: Option<String>,
     pub repository_url: Option<String>,
     pub webhook_secret: Option<String>,

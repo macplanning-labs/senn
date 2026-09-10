@@ -5,113 +5,163 @@ use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use crate::domain::models::saved_view_api::SavedViewOut;
 
-/// Saved View 一覧取得（owner_id で絞込み）
+type SavedViewRow = (
+    i64,
+    Option<i64>,
+    Option<i64>,
+    String,
+    JsonValue,
+    bool,
+    i64,
+    DateTime<Utc>,
+    DateTime<Utc>,
+);
+
+fn row_to_out(r: SavedViewRow) -> SavedViewOut {
+    SavedViewOut {
+        id: r.0,
+        project: r.1,
+        team_id: r.2,
+        name: r.3,
+        filters: r.4,
+        is_shared: r.5,
+        owner_id: r.6,
+        created_at: r.7,
+        updated_at: r.8,
+    }
+}
+
+const SAVED_VIEW_SELECT: &str =
+    "SELECT id, project_id, team_id, name, filters, is_shared, owner_id, created_at, updated_at
+     FROM t_saved_view";
+
+/// Saved View 一覧取得：所有者の View ＋ 同一 project の共有 View
 pub async fn list_by_project_and_owner(
     pool: &PgPool,
     project_id: i64,
     owner_id: i64,
 ) -> anyhow::Result<Vec<SavedViewOut>> {
-    let rows = sqlx::query_as::<_, (i64, i64, String, JsonValue, DateTime<Utc>, DateTime<Utc>)>(
-        "SELECT id, project_id, name, filters, created_at, updated_at
-         FROM t_saved_view
-         WHERE project_id = $1 AND owner_id = $2
+    let rows = sqlx::query_as::<_, SavedViewRow>(&format!(
+        "{SAVED_VIEW_SELECT}
+         WHERE project_id = $1 AND (owner_id = $2 OR is_shared = true)
          ORDER BY updated_at DESC, id DESC"
-    )
+    ))
     .bind(project_id)
     .bind(owner_id)
     .fetch_all(pool)
     .await?;
 
-    let views = rows
-        .into_iter()
-        .map(|(id, project, name, filters, created_at, updated_at)| SavedViewOut {
-            id,
-            project,
-            name,
-            filters,
-            created_at,
-            updated_at,
-        })
-        .collect();
-
-    Ok(views)
+    Ok(rows.into_iter().map(row_to_out).collect())
 }
 
-/// Saved View 作成
+/// Saved View 一覧取得：所有者の View ＋ 同一 Team の共有 View
+pub async fn list_by_team_and_owner(
+    pool: &PgPool,
+    team_id: i64,
+    owner_id: i64,
+) -> anyhow::Result<Vec<SavedViewOut>> {
+    let rows = sqlx::query_as::<_, SavedViewRow>(&format!(
+        "{SAVED_VIEW_SELECT}
+         WHERE team_id = $1 AND (owner_id = $2 OR is_shared = true)
+         ORDER BY updated_at DESC, id DESC"
+    ))
+    .bind(team_id)
+    .bind(owner_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(row_to_out).collect())
+}
+
+/// Saved View 作成（Project スコープ）
 pub async fn create(
     pool: &PgPool,
     project_id: i64,
     owner_id: i64,
     name: &str,
     filters: &JsonValue,
+    is_shared: bool,
 ) -> anyhow::Result<SavedViewOut> {
-    let row = sqlx::query_as::<_, (i64, i64, String, JsonValue, DateTime<Utc>, DateTime<Utc>)>(
-        "INSERT INTO t_saved_view (project_id, owner_id, name, filters, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW())
-         RETURNING id, project_id, name, filters, created_at, updated_at"
+    let row = sqlx::query_as::<_, SavedViewRow>(
+        "INSERT INTO t_saved_view (project_id, team_id, owner_id, name, filters, is_shared, created_at, updated_at)
+         VALUES ($1, NULL, $2, $3, $4, $5, NOW(), NOW())
+         RETURNING id, project_id, team_id, name, filters, is_shared, owner_id, created_at, updated_at"
     )
     .bind(project_id)
     .bind(owner_id)
     .bind(name)
     .bind(filters)
+    .bind(is_shared)
     .fetch_one(pool)
     .await?;
 
-    Ok(SavedViewOut {
-        id: row.0,
-        project: row.1,
-        name: row.2,
-        filters: row.3,
-        created_at: row.4,
-        updated_at: row.5,
-    })
+    Ok(row_to_out(row))
 }
 
-/// Saved View 更新
+/// Saved View 作成（Team スコープ）
+pub async fn create_for_team(
+    pool: &PgPool,
+    team_id: i64,
+    owner_id: i64,
+    name: &str,
+    filters: &JsonValue,
+    is_shared: bool,
+) -> anyhow::Result<SavedViewOut> {
+    let row = sqlx::query_as::<_, SavedViewRow>(
+        "INSERT INTO t_saved_view (project_id, team_id, owner_id, name, filters, is_shared, created_at, updated_at)
+         VALUES (NULL, $1, $2, $3, $4, $5, NOW(), NOW())
+         RETURNING id, project_id, team_id, name, filters, is_shared, owner_id, created_at, updated_at"
+    )
+    .bind(team_id)
+    .bind(owner_id)
+    .bind(name)
+    .bind(filters)
+    .bind(is_shared)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row_to_out(row))
+}
+
+/// Saved View 更新（所有者のみ）
 pub async fn update(
     pool: &PgPool,
     id: i64,
     owner_id: i64,
     name: Option<&str>,
     filters: Option<&JsonValue>,
+    is_shared: Option<bool>,
 ) -> anyhow::Result<Option<SavedViewOut>> {
-    // 現在の値を取得
-    let current = sqlx::query_as::<_, (String, JsonValue)>(
-        "SELECT name, filters FROM t_saved_view WHERE id = $1 AND owner_id = $2"
+    let current = sqlx::query_as::<_, (String, JsonValue, bool)>(
+        "SELECT name, filters, is_shared FROM t_saved_view WHERE id = $1 AND owner_id = $2"
     )
     .bind(id)
     .bind(owner_id)
     .fetch_optional(pool)
     .await?;
 
-    if current.is_none() {
+    let Some((current_name, current_filters, current_is_shared)) = current else {
         return Ok(None);
-    }
+    };
 
-    let (current_name, current_filters) = current.unwrap();
     let new_name = name.unwrap_or(&current_name);
     let new_filters = filters.unwrap_or(&current_filters);
+    let new_is_shared = is_shared.unwrap_or(current_is_shared);
 
-    let row = sqlx::query_as::<_, (i64, i64, String, JsonValue, DateTime<Utc>, DateTime<Utc>)>(
-        "UPDATE t_saved_view SET name = $2, filters = $3, updated_at = NOW()
-         WHERE id = $1 AND owner_id = $4
-         RETURNING id, project_id, name, filters, created_at, updated_at"
+    let row = sqlx::query_as::<_, SavedViewRow>(
+        "UPDATE t_saved_view SET name = $2, filters = $3, is_shared = $4, updated_at = NOW()
+         WHERE id = $1 AND owner_id = $5
+         RETURNING id, project_id, team_id, name, filters, is_shared, owner_id, created_at, updated_at"
     )
     .bind(id)
     .bind(new_name)
     .bind(new_filters)
+    .bind(new_is_shared)
     .bind(owner_id)
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| SavedViewOut {
-        id: r.0,
-        project: r.1,
-        name: r.2,
-        filters: r.3,
-        created_at: r.4,
-        updated_at: r.5,
-    }))
+    Ok(row.map(row_to_out))
 }
 
 /// Saved View 削除
@@ -137,22 +187,14 @@ pub async fn get_by_id_and_owner(
     id: i64,
     owner_id: i64,
 ) -> anyhow::Result<Option<SavedViewOut>> {
-    let row = sqlx::query_as::<_, (i64, i64, String, JsonValue, DateTime<Utc>, DateTime<Utc>)>(
-        "SELECT id, project_id, name, filters, created_at, updated_at
-         FROM t_saved_view
+    let row = sqlx::query_as::<_, SavedViewRow>(&format!(
+        "{SAVED_VIEW_SELECT}
          WHERE id = $1 AND owner_id = $2"
-    )
+    ))
     .bind(id)
     .bind(owner_id)
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| SavedViewOut {
-        id: r.0,
-        project: r.1,
-        name: r.2,
-        filters: r.3,
-        created_at: r.4,
-        updated_at: r.5,
-    }))
+    Ok(row.map(row_to_out))
 }

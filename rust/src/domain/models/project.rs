@@ -10,4 +10,5 @@ pub struct Project {
     pub prefix: String,
     pub description: String,
     pub created_at: DateTime<Utc>,
+    pub owner_id: Option<i32>,
 }

@@ -25,11 +25,14 @@ pub async fn get_dashboard_stats(
     let filter_clause = if project_id.is_some() {
         "t.project_id = $2"
     } else if !staff {
-        "($2::int4 IS NULL AND EXISTS (
-            SELECT 1 FROM tickets_project_membership m
-            WHERE m.project_id = t.project_id AND m.user_id = $1
-              AND m.start_date <= CURRENT_DATE
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        "($2::int4 IS NULL AND t.team_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM t_team_membership tm
+            LEFT JOIN tickets_project sp ON tm.scoped_project_id = sp.id
+            WHERE tm.team_id = t.team_id AND tm.user_id = $1 AND (
+                tm.scoped_project_id IS NULL OR
+                (t.project_id IS NOT NULL AND tm.scoped_project_id = t.project_id AND
+                    (tm.end_date IS NULL OR NOW()::date <= tm.end_date + (sp.grace_period_days || ' days')::interval))
+            )
         ))"
     } else {
         "TRUE"
@@ -56,9 +59,12 @@ pub async fn get_dashboard_stats(
     } else {
         sqlx::query_scalar(
             "SELECT COUNT(DISTINCT p.id) FROM tickets_project p
-             JOIN tickets_project_membership m ON m.project_id = p.id
-             WHERE m.user_id = $1 AND m.start_date <= CURRENT_DATE
-               AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)"
+             JOIN t_team_membership tm ON tm.team_id = p.owner_team_id
+             WHERE tm.user_id = $1 AND (
+                 tm.scoped_project_id IS NULL OR
+                 (tm.scoped_project_id = p.id AND
+                     (tm.end_date IS NULL OR NOW()::date <= tm.end_date + (p.grace_period_days || ' days')::interval))
+             )"
         )
         .bind(user_id)
         .fetch_one(pool)
@@ -113,12 +119,15 @@ pub async fn get_recent_activity(pool: &PgPool, user_id: i32, limit: i64, staff:
     let filter_clause = if staff {
         "TRUE"
     } else {
-        "EXISTS (
-            SELECT 1 FROM tickets_project_membership m
-            WHERE m.project_id = t.project_id AND m.user_id = $1
-              AND m.start_date <= CURRENT_DATE
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
-        )"
+        "(t.team_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM t_team_membership tm
+            LEFT JOIN tickets_project sp ON tm.scoped_project_id = sp.id
+            WHERE tm.team_id = t.team_id AND tm.user_id = $1 AND (
+                tm.scoped_project_id IS NULL OR
+                (t.project_id IS NOT NULL AND tm.scoped_project_id = t.project_id AND
+                    (tm.end_date IS NULL OR NOW()::date <= tm.end_date + (sp.grace_period_days || ' days')::interval))
+            )
+        ))"
     };
 
     let query = format!(
@@ -165,11 +174,14 @@ async fn render_ticket_overview(pool: &PgPool, project_id: Option<i32>, user_id:
     let filter_clause = if project_id.is_some() {
         "t.project_id = $1"
     } else if !staff {
-        "($1::int4 IS NULL AND EXISTS (
-            SELECT 1 FROM tickets_project_membership m
-            WHERE m.project_id = t.project_id AND m.user_id = $2
-              AND m.start_date <= CURRENT_DATE
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        "($1::int4 IS NULL AND t.team_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM t_team_membership tm
+            LEFT JOIN tickets_project sp ON tm.scoped_project_id = sp.id
+            WHERE tm.team_id = t.team_id AND tm.user_id = $2 AND (
+                tm.scoped_project_id IS NULL OR
+                (t.project_id IS NOT NULL AND tm.scoped_project_id = t.project_id AND
+                    (tm.end_date IS NULL OR NOW()::date <= tm.end_date + (sp.grace_period_days || ' days')::interval))
+            )
         ))"
     } else {
         "TRUE"
@@ -669,4 +681,69 @@ pub async fn reorder_widgets(pool: &PgPool, widget_order: &[i32], user_id: i32) 
         }
     }
     Ok(())
+}
+
+/// Team スコープのチケット集計（薄い集計）
+pub async fn get_team_summary(pool: &PgPool, user_id: i32, team_slug: &str) -> anyhow::Result<Option<Value>> {
+    let is_staff: bool = sqlx::query_scalar("SELECT is_staff FROM accounts_user WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+
+    // Team 存在確認。staff 以外はメンバーシップ必須
+    let team_row = if is_staff {
+        sqlx::query("SELECT m.id::int4 FROM m_team m WHERE m.slug = $1")
+            .bind(team_slug)
+            .fetch_optional(pool)
+            .await?
+    } else {
+        sqlx::query(
+            "SELECT m.id::int4 FROM m_team m
+             WHERE m.slug = $1
+             AND EXISTS (
+               SELECT 1 FROM t_team_membership tm
+               WHERE tm.team_id = m.id AND tm.user_id = $2
+                 AND tm.start_date <= CURRENT_DATE
+                 AND (tm.end_date IS NULL OR tm.end_date >= CURRENT_DATE)
+             )"
+        )
+        .bind(team_slug)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+    };
+
+    let team_row = match team_row {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+
+    let team_id: i32 = team_row.get("id");
+
+    // チケット集計（所属 Team）。canceled は分母に入れない。backlog は open 側に含める
+    let stats_row = sqlx::query(
+        "SELECT
+            COUNT(*) FILTER (WHERE t.status IN ('open', 'backlog'))::int8 AS open,
+            COUNT(*) FILTER (WHERE t.status = 'in_progress')::int8 AS in_progress,
+            COUNT(*) FILTER (WHERE t.status = 'resolved')::int8 AS resolved,
+            COUNT(*) FILTER (WHERE t.status = 'closed')::int8 AS closed
+         FROM tickets_ticket t
+         WHERE t.team_id = $1
+           AND t.status <> 'canceled'"
+    )
+    .bind(team_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(Some(json!({
+        "team_id": team_id,
+        "team_slug": team_slug,
+        "tickets": {
+            "open": stats_row.get::<i64, _>("open"),
+            "in_progress": stats_row.get::<i64, _>("in_progress"),
+            "resolved": stats_row.get::<i64, _>("resolved"),
+            "closed": stats_row.get::<i64, _>("closed"),
+            "total": stats_row.get::<i64, _>("open") + stats_row.get::<i64, _>("in_progress") + stats_row.get::<i64, _>("resolved") + stats_row.get::<i64, _>("closed"),
+        }
+    })))
 }

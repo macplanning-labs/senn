@@ -18,19 +18,68 @@ import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
 import { isAxiosError } from 'axios';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { useToast } from '@/shared/stores/toastStore';
 import {
   useCreateDependency,
   useDeleteDependency,
   useDependencyGraph,
+  useUpdateCycleGraphPosition,
 } from '../hooks/useDependencyGraph';
 import { TaskNode, type TaskNodeData } from './TaskNode';
+import { CycleGroupNode, type CycleGroupNodeData } from './CycleGroupNode';
 import './TaskDependencyFlow.css';
 
-const nodeTypes = { task: TaskNode };
+const nodeTypes = { task: TaskNode, cycleGroup: CycleGroupNode };
 
 const NODE_WIDTH = 260;
 const NODE_HEIGHT = 90;
+const GROUP_PADDING = { top: 36, right: 16, bottom: 16, left: 16 };
+const GROUP_GAP = 32;
+const CYCLE_PALETTE = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#a855f7'];
+
+function cycleClusterId(cycle: number): string {
+  return `cycle-${cycle}`;
+}
+
+// dagreはクラスタの外枠をタスク位置のみから算出するため、後から加える
+// GROUP_PADDING(ラベル分の余白)を考慮していない。パディング込みの矩形で
+// 重なりが出たクラスタをY方向に押し出して解消する。
+// pinnedIds に含まれるノードは位置を移動しない。
+function resolveClusterOverlaps(groupNodes: Node[], pinnedIds: Set<string>): void {
+  const sorted = [...groupNodes].sort((a, b) => a.position.y - b.position.y);
+  const box = (n: Node) => ({
+    x: n.position.x,
+    y: n.position.y,
+    width: (n.style as { width?: number } | undefined)?.width ?? 0,
+    height: (n.style as { height?: number } | undefined)?.height ?? 0,
+  });
+  const overlaps = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) =>
+    a.x < b.x + b.width + GROUP_GAP &&
+    b.x < a.x + a.width + GROUP_GAP &&
+    a.y < b.y + b.height + GROUP_GAP &&
+    b.y < a.y + a.height + GROUP_GAP;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    if (!current || pinnedIds.has(current.id)) continue; // ユーザーが手動配置した枠は動かさない
+    let moved = true;
+    while (moved) {
+      moved = false;
+      const bBox = box(current);
+      for (let j = 0; j < i; j++) {
+        const other = sorted[j];
+        if (!other) continue;
+        const aBox = box(other);
+        if (overlaps(aBox, bBox)) {
+          current.position.y = aBox.y + aBox.height + GROUP_GAP;
+          moved = true;
+          break;
+        }
+      }
+    }
+  }
+}
 
 // TicketForm.tsxのticket_typeセレクトと表記を統一
 const TYPE_LABELS: Record<string, string> = {
@@ -40,35 +89,129 @@ const TYPE_LABELS: Record<string, string> = {
   task: '📋 Task',
 };
 
-function layoutWithDagre(nodes: Node[], edges: Edge[]): Node[] {
-  const g = new dagre.graphlib.Graph();
+function layoutWithDagre(
+  nodes: Node<TaskNodeData>[],
+  edges: Edge[],
+  pinnedPositions: Map<string, { x: number; y: number }>,
+): Node[] {
+  const g = new dagre.graphlib.Graph({ compound: true });
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 100 });
 
-  nodes.forEach((n) => g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
+  // Cycleごとのクラスタ(親)ノードを登録
+  const cycleNameById = new Map<string, string>();
+  const cycleIdByClusterId = new Map<string, number>();
+  nodes.forEach((n) => {
+    const { cycle, cycleName } = n.data;
+    if (cycle != null) {
+      const clusterId = cycleClusterId(cycle);
+      if (!cycleNameById.has(clusterId)) {
+        cycleNameById.set(clusterId, cycleName ?? `Cycle ${cycle}`);
+      }
+      cycleIdByClusterId.set(clusterId, cycle);
+    }
+  });
+  cycleNameById.forEach((_label, clusterId) => g.setNode(clusterId, {}));
+
+  nodes.forEach((n) => {
+    g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    const { cycle } = n.data;
+    if (cycle != null) {
+      g.setParent(n.id, cycleClusterId(cycle));
+    }
+  });
   edges.forEach((e) => g.setEdge(e.source, e.target));
 
   dagre.layout(g);
 
-  return nodes.map((n) => {
-    const pos = g.node(n.id);
+  // dagreが自動算出するクラスタ(親)ノード自身のbboxは、クラスタをまたぐ
+  // エッジがあると子タスクを完全に内包しないことがある(dagreのcompound
+  // graphの既知の制限)。実際に配置された子タスクの位置から直接クラスタの
+  // 外枠を算出することで、子を必ず内包することを保証する。
+  const clusterBBox = new Map<string, { x: number; y: number; width: number; height: number }>();
+  cycleNameById.forEach((_label, clusterId) => {
+    const memberPositions = nodes
+      .filter((n) => n.data.cycle != null && cycleClusterId(n.data.cycle) === clusterId)
+      .map((n) => g.node(n.id));
+    const left = Math.min(...memberPositions.map((p) => p.x - NODE_WIDTH / 2));
+    const right = Math.max(...memberPositions.map((p) => p.x + NODE_WIDTH / 2));
+    const top = Math.min(...memberPositions.map((p) => p.y - NODE_HEIGHT / 2));
+    const bottom = Math.max(...memberPositions.map((p) => p.y + NODE_HEIGHT / 2));
+    clusterBBox.set(clusterId, {
+      x: (left + right) / 2,
+      y: (top + bottom) / 2,
+      width: right - left,
+      height: bottom - top,
+    });
+  });
+
+  const clusterIds = Array.from(cycleNameById.keys());
+  const groupNodes: Node[] = clusterIds.map((clusterId, index) => {
+    const pos = clusterBBox.get(clusterId)!;
+    const pinned = pinnedPositions.get(clusterId);
     return {
-      ...n,
-      position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
+      id: clusterId,
+      type: 'cycleGroup',
+      position: pinned ?? {
+        x: pos.x - pos.width / 2 - GROUP_PADDING.left,
+        y: pos.y - pos.height / 2 - GROUP_PADDING.top,
+      },
+      style: {
+        width: pos.width + GROUP_PADDING.left + GROUP_PADDING.right,
+        height: pos.height + GROUP_PADDING.top + GROUP_PADDING.bottom,
+      },
+      data: {
+        label: cycleNameById.get(clusterId) ?? '',
+        color: CYCLE_PALETTE[index % CYCLE_PALETTE.length],
+        cycleId: cycleIdByClusterId.get(clusterId) ?? 0,
+      },
+      selectable: false,
+      draggable: true,
+      connectable: false,
+      zIndex: -1,
     };
   });
+
+  const pinnedIds = new Set(pinnedPositions.keys());
+  resolveClusterOverlaps(groupNodes, pinnedIds);
+
+  const taskNodes: Node[] = nodes.map((n) => {
+    const pos = g.node(n.id);
+    const { cycle } = n.data;
+    if (cycle != null) {
+      const clusterId = cycleClusterId(cycle);
+      const parentPos = clusterBBox.get(clusterId)!;
+      const parentLeft = parentPos.x - parentPos.width / 2 - GROUP_PADDING.left;
+      const parentTop = parentPos.y - parentPos.height / 2 - GROUP_PADDING.top;
+      return {
+        ...n,
+        parentId: clusterId,
+        extent: 'parent' as const,
+        position: {
+          x: pos.x - NODE_WIDTH / 2 - parentLeft,
+          y: pos.y - NODE_HEIGHT / 2 - parentTop,
+        },
+      };
+    }
+    return { ...n, position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 } };
+  });
+
+  return [...groupNodes, ...taskNodes];
 }
 
 export function TaskDependencyFlow() {
   const { currentProject } = useProject();
+  const { currentTeam } = useTeam();
   const projectId = currentProject?.id;
+  const teamId = currentTeam?.id;
   const toast = useToast();
 
-  const { data: graph, isLoading } = useDependencyGraph(projectId);
-  const createDependency = useCreateDependency(projectId);
-  const deleteDependency = useDeleteDependency(projectId);
+  const { data: graph, isLoading } = useDependencyGraph(projectId, teamId);
+  const createDependency = useCreateDependency(projectId, teamId);
+  const deleteDependency = useDeleteDependency(projectId, teamId);
+  const updateCyclePosition = useUpdateCycleGraphPosition();
 
-  const [showIsolated, setShowIsolated] = useState(false);
+  const [showIsolated, setShowIsolated] = useState(true);
   const [selectedType, setSelectedType] = useState('all');
 
   const allNodes: Node<TaskNodeData>[] = useMemo(() => {
@@ -120,9 +263,19 @@ export function TaskDependencyFlow() {
     return allEdges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
   }, [allEdges, filteredNodes]);
 
+  const pinnedPositions = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    graph?.cycles.forEach((c) => {
+      if (c.graphPositionX != null && c.graphPositionY != null) {
+        map.set(cycleClusterId(c.id), { x: c.graphPositionX, y: c.graphPositionY });
+      }
+    });
+    return map;
+  }, [graph]);
+
   const layoutedNodes = useMemo(
-    () => layoutWithDagre(filteredNodes, filteredEdges),
-    [filteredNodes, filteredEdges],
+    () => layoutWithDagre(filteredNodes, filteredEdges, pinnedPositions),
+    [filteredNodes, filteredEdges, pinnedPositions],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
@@ -175,6 +328,21 @@ export function TaskDependencyFlow() {
     [graph, deleteDependency, toast],
   );
 
+  const onNodeDragStop = useCallback(
+    (_event: unknown, node: Node) => {
+      if (node.type !== 'cycleGroup') return;
+      const cycleId = (node.data as CycleGroupNodeData).cycleId;
+      if (!cycleId) return;
+      updateCyclePosition.mutate(
+        { cycleId, x: node.position.x, y: node.position.y },
+        {
+          onError: () => toast.error('サイクルの位置の保存に失敗しました'),
+        },
+      );
+    },
+    [updateCyclePosition, toast],
+  );
+
   if (isLoading) {
     return <div className="task-dependency-flow__loading">読み込み中...</div>;
   }
@@ -214,6 +382,7 @@ export function TaskDependencyFlow() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgeClick={onEdgeClick}
+        onNodeDragStop={onNodeDragStop}
         fitView
       >
         <Background />

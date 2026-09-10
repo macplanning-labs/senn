@@ -1,0 +1,211 @@
+/**
+ * MyIssuesPage.css — My issues 一覧 + 右ペイン
+ */
+
+.layout__content > .my-issues {
+  max-width: none;
+  width: 100%;
+}
+
+.layout__content:has(> .my-issues--with-panel) {
+  overflow: hidden;
+}
+
+.my-issues {
+  display: grid;
+  grid-template-columns: 1fr;
+  height: 100%;
+  transition: grid-template-columns 200ms ease;
+  background: var(--color-bg-primary);
+}
+
+.my-issues--with-panel {
+  grid-template-columns: 1fr 380px;
+}
+
+.my-issues--resizing {
+  transition: none;
+}
+
+.my-issues__main {
+  overflow-y: auto;
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+}
+
+.my-issues__header {
+  margin-bottom: var(--space-4);
+}
+
+.my-issues__title {
+  font-size: var(--font-size-xl, 1.25rem);
+  font-weight: 650;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-3);
+}
+
+.my-issues__tabs {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.my-issues__tab {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+}
+
+.my-issues__tab--active {
+  color: var(--color-text-primary);
+  background: var(--color-bg-active);
+}
+
+.my-issues__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.my-issues__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  border: none;
+  border-bottom: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.my-issues__row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.my-issues__row--selected {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.my-issues__priority {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  width: 2rem;
+  color: var(--color-text-tertiary);
+}
+
+.my-issues__key {
+  flex-shrink: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  min-width: 5.5rem;
+}
+
+.my-issues__row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+
+.my-issues__status {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  text-transform: capitalize;
+}
+
+.my-issues__due {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.my-issues__due--overdue {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.my-issues__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-4);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.my-issues__create-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.my-issues__hint {
+  font-size: var(--font-size-sm);
+}
+
+.my-issues__hint kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.my-issues__panel {
+  height: 100%;
+  overflow: hidden;
+  min-width: 0;
+  position: relative;
+  border-left: 1px solid var(--color-border-default);
+}
+
+.my-issues__resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.my-issues__resize-handle:hover,
+.my-issues--resizing .my-issues__resize-handle {
+  background: var(--color-accent-primary);
+  opacity: 0.5;
+}
+
+@media (max-width: 1024px) {
+  .my-issues--with-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .my-issues--with-panel .my-issues__panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 420px;
+    max-width: 90vw;
+    height: 100vh;
+    z-index: 100;
+    background: var(--color-bg-primary);
+  }
+}

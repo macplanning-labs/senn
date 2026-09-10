@@ -128,6 +128,11 @@
   background: color-mix(in srgb, var(--color-accent-primary) 8%, transparent);
 }
 
+.notifications-page__item--selected {
+  background: var(--color-bg-hover);
+  border-left: 3px solid var(--color-accent-primary);
+}
+
 .notifications-page__item-icon {
   flex-shrink: 0;
   width: 32px;

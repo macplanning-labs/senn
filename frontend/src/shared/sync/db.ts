@@ -79,4 +79,12 @@ db.version(1).stores({
   syncQueue: '++id, entity, entityId, operation, createdAt',
 });
 
+// v2: syncQueue に retryCount インデックスを追加（pushChanges の where('retryCount') に必要）
+db.version(2).stores({
+  tickets: 'id, ticketKey, status, priority, projectId, assigneeId, updatedAt, _dirty',
+  projects: 'id, prefix, updatedAt, _dirty',
+  wikiPages: 'id, slug, category, updatedAt, _dirty',
+  syncQueue: '++id, entity, entityId, operation, createdAt, retryCount',
+});
+
 export { db };

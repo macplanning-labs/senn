@@ -442,7 +442,7 @@ async fn resolve_ticket(
     ticket_key_or_id: &str,
 ) -> anyhow::Result<Option<crate::domain::models::ticket_api::TicketDetailOut>> {
     // 最初にキーで検索
-    if let Some(ticket) = ticket_repo::api_find_by_key(&state.pool, ticket_key_or_id).await? {
+    if let Some(ticket) = ticket_repo::api_find_by_key(&state.pool, ticket_key_or_id, None).await? {
         return Ok(Some(ticket));
     }
 
@@ -457,7 +457,7 @@ async fn resolve_ticket(
         .await?
         {
             // ticket_key で検索
-            return ticket_repo::api_find_by_key(&state.pool, &ticket_key).await;
+            return ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await;
         }
     }
 

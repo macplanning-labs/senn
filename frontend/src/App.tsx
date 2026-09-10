@@ -14,7 +14,9 @@ import { RegisterForm } from '@/features/auth/components/RegisterForm';
 import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 import { Dashboard } from '@/features/dashboard/components/Dashboard';
+import { TeamDashboard } from '@/features/dashboard/components/TeamDashboard';
 import { TicketListPage } from '@/features/tickets/components/TicketListPage';
+import { MyIssuesPage } from '@/features/tickets/components/MyIssuesPage';
 import { TicketForm } from '@/features/tickets/components/TicketForm';
 import { KanbanBoard } from '@/features/tickets/components/KanbanBoard';
 import { GanttChart } from '@/features/gantt/components/GanttChart';
@@ -24,8 +26,10 @@ import { CycleDetail } from '@/features/cycles/components/CycleDetail';
 import { WikiList } from '@/features/wiki/components/WikiList';
 import { SettingsPage } from '@/features/settings/components/SettingsPage';
 import { ProjectSettingsPage } from '@/features/settings/components/ProjectSettingsPage';
+import { TeamSettingsPage } from '@/features/settings/components/TeamSettingsPage';
 import { NotificationsPage } from '@/features/notifications/components/NotificationsPage';
 import { TeamsPage } from '@/features/teams/components/TeamsPage';
+import { TeamProjectsPage } from '@/features/teams/components/TeamProjectsPage';
 import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsPage';
 import { WorkloadReportPage } from '@/features/reports/components/WorkloadReportPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
@@ -102,8 +106,7 @@ function RedirectToProject({ subpath }: { subpath: string }) {
     if (lastKey) {
       navigate(`/p/${lastKey}/${subpath}`, { replace: true });
     } else {
-      // プロジェクトキーがない場合、ダッシュボードへ
-      navigate('/dashboard', { replace: true });
+      navigate('/my-issues', { replace: true });
     }
   }, [isAuthenticated, navigate, subpath]);
 
@@ -142,6 +145,8 @@ export default function App() {
             }
           >
             {/* グローバルページ */}
+            <Route path="/my-issues" element={<MyIssuesPage />} />
+            <Route path="/my-issues/:ticketId" element={<MyIssuesPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/teams" element={<TeamsPage />} />
             <Route path="/triage" element={<TriageRequestsPage />} />
@@ -167,6 +172,25 @@ export default function App() {
               <Route path="settings" element={<ProjectSettingsPage />} />
             </Route>
 
+            {/* Teamスコープ（Team-onlyチケット） */}
+            <Route path="/t/:teamSlug">
+              <Route path="tickets" element={<TicketListPage />} />
+              <Route path="tickets/new" element={<TicketForm />} />
+              <Route path="tickets/:ticketId/edit" element={<TicketForm />} />
+              <Route path="tickets/:ticketId" element={<TicketListPage />} />
+              <Route path="board" element={<KanbanBoard />} />
+              <Route path="board/:ticketId" element={<KanbanBoard />} />
+              <Route path="gantt" element={<GanttChart />} />
+              <Route path="wiki" element={<WikiList />} />
+              <Route path="dependencies" element={<TaskDependencyFlow />} />
+              <Route path="cycles" element={<CycleList />} />
+              <Route path="cycles/:cycleId/:ticketId" element={<CycleDetail />} />
+              <Route path="cycles/:cycleId" element={<CycleDetail />} />
+              <Route path="dashboard" element={<TeamDashboard />} />
+              <Route path="projects" element={<TeamProjectsPage />} />
+              <Route path="settings" element={<TeamSettingsPage />} />
+            </Route>
+
             {/* 旧URL後方互換リダイレクト */}
             <Route path="/tickets" element={<RedirectToProject subpath="tickets" />} />
             <Route path="/tickets/*" element={<RedirectToProject subpath="tickets" />} />
@@ -179,7 +203,7 @@ export default function App() {
             path="/"
             element={
               isAuthenticated ? (
-                <Navigate to="/dashboard" replace />
+                <Navigate to="/my-issues" replace />
               ) : (
                 <Navigate to="/login" replace />
               )

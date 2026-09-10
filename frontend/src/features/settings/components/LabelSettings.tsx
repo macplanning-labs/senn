@@ -17,7 +17,8 @@ interface Label {
   id: number;
   name: string;
   color: string;
-  project: number;
+  project?: number | null;
+  teamId?: number | null;
   createdAt: string;
   description: string | null;
   category: string | null;
@@ -33,7 +34,8 @@ interface LabelFormData {
 }
 
 interface LabelSettingsProps {
-  projectId: number;
+  projectId?: number;
+  teamId?: number;
 }
 
 // ─── カテゴリ選択肢(プレフィックス自動補完用) ──────
@@ -74,7 +76,7 @@ function getTextColor(bgColor: string): string {
 
 // ─── コンポーネント ──────────────────────────────
 
-export function LabelSettings({ projectId }: LabelSettingsProps) {
+export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
@@ -82,16 +84,21 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<Label | null>(null);
   const [formData, setFormData] = useState<LabelFormData>(EMPTY_FORM_DATA);
   const [error, setError] = useState('');
+  const labelsQueryKey = ['labels', projectId ?? null, teamId ?? null];
 
   // --- データ取得 ---
   const { data, isLoading } = useQuery<{ results: Label[] }>({
-    queryKey: ['labels', projectId],
+    queryKey: labelsQueryKey,
     queryFn: async () => {
       const res = await apiClient.get<{ results: Label[] }>('/labels/', {
-        params: { project: projectId },
+        params: {
+          ...(projectId ? { project: projectId } : {}),
+          ...(teamId ? { team: teamId } : {}),
+        },
       });
       return res.data;
     },
+    enabled: !!projectId || !!teamId,
   });
 
   const labels = data?.results ?? [];
@@ -100,7 +107,8 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   const toPayload = (data: LabelFormData) => ({
     name: data.name,
     color: data.color,
-    project: projectId,
+    project: projectId ?? null,
+    teamId: teamId ?? null,
     description: data.description || null,
     category: data.category || null,
     isAiEnabled: data.isAiEnabled,
@@ -110,7 +118,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   const createMutation = useMutation({
     mutationFn: (data: LabelFormData) => apiClient.post('/labels/', toPayload(data)),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
+      void queryClient.invalidateQueries({ queryKey: labelsQueryKey });
       closeModal();
     },
     onError: () => setError(t('common.createFailed')),
@@ -121,7 +129,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
     mutationFn: ({ id, data }: { id: number; data: LabelFormData }) =>
       apiClient.put(`/labels/${id}/`, toPayload(data)),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
+      void queryClient.invalidateQueries({ queryKey: labelsQueryKey });
       closeModal();
     },
     onError: () => setError(t('common.updateFailed')),
@@ -131,7 +139,7 @@ export function LabelSettings({ projectId }: LabelSettingsProps) {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/labels/${id}/`),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['labels', projectId] });
+      void queryClient.invalidateQueries({ queryKey: labelsQueryKey });
       setDeleteConfirm(null);
     },
     onError: () => setError(t('common.deleteFailed')),

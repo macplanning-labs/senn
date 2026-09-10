@@ -22,6 +22,7 @@ export interface Project {
   ownerId?: number | null;
   cycleAutoComplete?: boolean;
   cycleAutoCreateNext?: boolean;
+  ownerTeam?: { id: number; name: string; slug: string; icon: string; color: string } | null;
 }
 
 /** URLの :projectKey からプロジェクト情報を取得 */

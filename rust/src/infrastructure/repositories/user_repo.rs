@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use crate::domain::models::user::{User, TotpDevice, WebAuthnCredential};
 use webauthn_rs::prelude::Passkey;
 
-const USER_COLUMNS: &str = "id::int4 AS id, username, password AS password_hash, display_name, email,
+const USER_COLUMNS: &str = "id::int4 AS id, username, password AS password_hash, display_name, alias, email,
         first_name, last_name,
         is_active, is_staff, must_change_password, email_notifications_enabled";
 
@@ -21,10 +21,11 @@ pub async fn find_all(pool: &PgPool) -> anyhow::Result<Vec<User>> {
 }
 
 pub async fn find_project_members(pool: &PgPool, project_id: i32) -> anyhow::Result<Vec<User>> {
-    // プロジェクトメンバーのうち、有効期限内のユーザーのみを返す
+    // プロジェクトにアクセスできるユーザー(所属チーム全体メンバー、またはこのProjectに限定された
+    // 有効期限内のゲスト)のみを返す。
     // 有効性判定: end_date IS NULL OR (end_date + grace_period_days) >= CURRENT_DATE
     //
-    // accounts_user/tickets_project_membership/tickets_projectを直接JOINしてしまうと、
+    // accounts_user/t_team_membership/tickets_projectを直接JOINしてしまうと、
     // 全テーブルにidカラムがあるためUSER_COLUMNS内の無修飾"id"が曖昧参照エラーになる。
     // そのためJOINせず、メンバーシップ判定はサブクエリ(IN)側に閉じ込める。
     let sql = format!(
@@ -32,11 +33,14 @@ pub async fn find_project_members(pool: &PgPool, project_id: i32) -> anyhow::Res
          FROM accounts_user
          WHERE is_active = true
            AND id IN (
-             SELECT m.user_id
-             FROM tickets_project_membership m
-             INNER JOIN tickets_project p ON p.id = m.project_id
-             WHERE m.project_id = $1
-               AND (m.end_date IS NULL OR (m.end_date + (p.grace_period_days || ' days')::interval) >= CURRENT_DATE)
+             SELECT tm.user_id
+             FROM t_team_membership tm
+             INNER JOIN tickets_project p ON p.owner_team_id = tm.team_id
+             WHERE p.id = $1 AND (
+               tm.scoped_project_id IS NULL OR
+               (tm.scoped_project_id = $1 AND
+                 (tm.end_date IS NULL OR (tm.end_date + (p.grace_period_days || ' days')::interval) >= CURRENT_DATE))
+             )
            )
          ORDER BY username"
     );
@@ -102,6 +106,16 @@ pub async fn set_active(pool: &PgPool, id: i32, is_active: bool) -> anyhow::Resu
     Ok(())
 }
 
+/// ユーザー自身がアカウントを無効化する（セルフサービス論理削除）。
+/// is_active=false に設定し、以降ログインできなくなる。
+pub async fn deactivate_self(pool: &PgPool, user_id: i32) -> anyhow::Result<()> {
+    sqlx::query("UPDATE accounts_user SET is_active=false WHERE id=$1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// ユーザーのプロフィール(メールアドレス・氏名)を更新する(Django Admin代替、
 /// is_staffのみ呼び出し可能)。emailのUNIQUE制約違反はsqlx::Errorとして
 /// 呼び出し元に伝播する(create_userと同じ扱い)。
@@ -121,6 +135,22 @@ pub async fn update_profile(
         .bind(email)
         .bind(first_name)
         .bind(last_name)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
+/// ニックネーム（エイリアス）を更新する。空文字はNULL（未設定）として扱う。
+/// メンションでも使われるため一意性は求めないが、表示用途を想定した短い文字列。
+pub async fn update_alias(pool: &PgPool, id: i32, alias: Option<&str>) -> anyhow::Result<User> {
+    let normalized = alias.map(str::trim).filter(|s| !s.is_empty());
+    let sql = format!(
+        "UPDATE accounts_user SET alias=$2 WHERE id=$1
+         RETURNING {USER_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, User>(&sql)
+        .bind(id)
+        .bind(normalized)
         .fetch_one(pool)
         .await?;
     Ok(row)

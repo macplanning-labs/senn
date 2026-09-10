@@ -58,10 +58,23 @@ pub struct DependencyGraphNodeOut {
     pub assignees: Vec<UserSummaryOut>,
     #[serde(rename = "storyPoints")]
     pub story_points: Option<i16>,
+    pub cycle: Option<i32>,
+    #[serde(rename = "cycleName")]
+    pub cycle_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DependencyGraphCycleOut {
+    pub id: i32,
+    #[serde(rename = "graphPositionX")]
+    pub graph_position_x: Option<f64>,
+    #[serde(rename = "graphPositionY")]
+    pub graph_position_y: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DependencyGraphOut {
     pub nodes: Vec<DependencyGraphNodeOut>,
     pub edges: Vec<TaskDependencyOut>,
+    pub cycles: Vec<DependencyGraphCycleOut>,
 }

@@ -1,7 +1,7 @@
 /**
  * IntegrationSettings.tsx — Git連携設定UI
  *
- * プロジェクト設定の Integrations タブ。
+ * Project または Team 設定の Integrations タブ。
  * GitHub/GitLab Webhook連携の追加・削除・シークレット表示。
  */
 
@@ -14,10 +14,11 @@ import './IntegrationSettings.css';
 import { useTranslation } from 'react-i18next';
 
 interface IntegrationSettingsProps {
-  projectId: number;
+  projectId?: number;
+  teamId?: number;
 }
 
-export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
+export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -29,21 +30,28 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
   });
   const [revealedSecrets, setRevealedSecrets] = useState<Set<number>>(new Set());
 
+  const scopeKey = projectId != null ? `project:${projectId}` : `team:${teamId}`;
+  const listQuery =
+    projectId != null
+      ? `/integrations/?project=${projectId}`
+      : `/integrations/?team=${teamId}`;
+
   const { data: integrations = [], isLoading } = useQuery<GitIntegration[]>({
-    queryKey: ['integrations', projectId],
+    queryKey: ['integrations', scopeKey],
     queryFn: async () => {
-      const res = await apiClient.get(`/integrations/?project=${projectId}`);
+      const res = await apiClient.get(listQuery);
       return res.data;
     },
+    enabled: projectId != null || teamId != null,
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: typeof formData & { project: number }) => {
+    mutationFn: async (data: typeof formData & { project?: number; team?: number }) => {
       const res = await apiClient.post('/integrations/', data);
       return res.data;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['integrations', scopeKey] });
       setShowAddForm(false);
       setFormData({ provider: 'github', repository_url: '', webhook_secret: '' });
       toast.success(t('integration.added'));
@@ -58,7 +66,7 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
       await apiClient.delete(`/integrations/${id}/`);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['integrations', scopeKey] });
       toast.success(t('integration.deleted'));
     },
   });
@@ -70,9 +78,9 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
       });
     },
     onMutate: async ({ id, autoStatusTransition }) => {
-      await queryClient.cancelQueries({ queryKey: ['integrations', projectId] });
-      const previous = queryClient.getQueryData<GitIntegration[]>(['integrations', projectId]);
-      queryClient.setQueryData<GitIntegration[]>(['integrations', projectId], (old) =>
+      await queryClient.cancelQueries({ queryKey: ['integrations', scopeKey] });
+      const previous = queryClient.getQueryData<GitIntegration[]>(['integrations', scopeKey]);
+      queryClient.setQueryData<GitIntegration[]>(['integrations', scopeKey], (old) =>
         (old ?? []).map((item) =>
           item.id === id ? { ...item, autoStatusTransition } : item,
         ),
@@ -81,12 +89,12 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
     },
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(['integrations', projectId], context.previous);
+        queryClient.setQueryData(['integrations', scopeKey], context.previous);
       }
       toast.error(t('settings.updateFailed'));
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['integrations', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['integrations', scopeKey] });
     },
   });
 
@@ -94,7 +102,11 @@ export function IntegrationSettings({ projectId }: IntegrationSettingsProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    createMutation.mutate({ ...formData, project: projectId });
+    if (projectId != null) {
+      createMutation.mutate({ ...formData, project: projectId });
+    } else if (teamId != null) {
+      createMutation.mutate({ ...formData, team: teamId });
+    }
   };
 
   const handleCopy = async (text: string, label: string) => {

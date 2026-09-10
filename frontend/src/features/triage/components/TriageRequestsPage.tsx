@@ -6,14 +6,13 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import {
   useTriageRequests,
   useCreateTriageRequest,
   useApproveTriageRequest,
   useRejectTriageRequest,
 } from '../hooks/useTriageRequests';
-import { apiClient } from '@/shared/api/client';
+import { useProject } from '@/shared/hooks/useProject';
 import { FilterBar } from '@/shared/components/ui/FilterBar';
 import type { TriageRequest, TriageStatus } from '@/shared/api/types';
 
@@ -46,13 +45,7 @@ export function TriageRequestsPage() {
   const [approveProjectId, setApproveProjectId] = useState<number | null>(null);
 
   // プロジェクト一覧取得
-  const { data: projects } = useQuery<{ id: number; name: string; key: string }[]>({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ id: number; name: string; key: string }[]>('/projects/');
-      return Array.isArray(res) ? res : (res as { results?: { id: number; name: string; key: string }[] }).results ?? [];
-    },
-  });
+  const { projectList: projects } = useProject();
 
   function handleCreate() {
     if (!newTitle.trim()) return;
@@ -335,8 +328,8 @@ export function TriageRequestsPage() {
                             }}
                           >
                             <option value="">起票先プロジェクト</option>
-                            {(projects ?? []).map((p) => (
-                              <option key={p.id} value={p.id}>{p.key} — {p.name}</option>
+                            {projects.map((p) => (
+                              <option key={p.id} value={p.id}>{p.prefix} — {p.name}</option>
                             ))}
                           </select>
                           <div style={{ display: 'flex', gap: 4 }}>

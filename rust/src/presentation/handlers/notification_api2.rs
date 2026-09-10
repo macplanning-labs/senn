@@ -14,6 +14,12 @@ use serde::Serialize;
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::notification_repo2;
+use crate::domain::models::notification_api::NotificationOut;
+
+#[derive(Serialize)]
+pub struct NotificationListOut {
+    pub results: Vec<NotificationOut>,
+}
 
 #[derive(Serialize)]
 pub struct StatusResponse {
@@ -41,7 +47,13 @@ pub async fn list(
     Extension(auth): Extension<AuthUser>,
 ) -> impl IntoResponse {
     match notification_repo2::find_all_for_user(&state.pool, auth.user_id).await {
-        Ok(notifications) => (StatusCode::OK, Json(notifications)).into_response(),
+        Ok(notifications) => (
+            StatusCode::OK,
+            Json(NotificationListOut {
+                results: notifications,
+            }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (

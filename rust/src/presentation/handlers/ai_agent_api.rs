@@ -19,9 +19,8 @@ use uuid::Uuid;
 use crate::presentation::state::AppState;
 use crate::domain::models::resource_api::ProjectWriteIn;
 use crate::domain::models::ticket_api::{TicketWriteIn, TicketPatchIn};
-use crate::domain::models::membership_api::MembershipCreateIn;
 use crate::domain::models::cycle_api::CycleWriteIn;
-use crate::infrastructure::repositories::{resource_repo, ticket_repo, user_repo, membership_repo, wiki_repo, cycle_repo, wiki_attachment_repo};
+use crate::infrastructure::repositories::{resource_repo, ticket_repo, user_repo, wiki_repo, cycle_repo, wiki_attachment_repo, team_repo};
 
 fn err(detail: impl Into<String>) -> serde_json::Value {
     json!({"error": detail.into()})
@@ -98,6 +97,7 @@ pub struct CreateAiProjectIn {
     pub prefix: Option<String>,
     #[serde(default)]
     pub description: String,
+    pub owner_team: Option<i32>,
 }
 
 /// POST /api/v1/ai-agent/projects/
@@ -123,7 +123,7 @@ pub async fn create_project(
         name: name.clone(),
         prefix: prefix.clone(),
         description: body.description.clone(),
-        owner_team: None,
+        owner_team: body.owner_team,
     };
 
     match resource_repo::create_project(&state.pool, &input, None).await {
@@ -146,6 +146,8 @@ pub async fn create_project(
 #[derive(Deserialize)]
 pub struct CreateAiTicketIn {
     pub project_prefix: Option<String>,
+    pub team_id: Option<i32>,
+    pub team_slug: Option<String>,
     pub title: Option<String>,
     #[serde(default)]
     pub description: String,
@@ -175,47 +177,125 @@ pub async fn create_ticket(
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
-    let project_prefix = match &body.project_prefix {
-        Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix と title は必須です"))).into_response(),
-    };
     let title = match &body.title {
         Some(t) if !t.is_empty() => t,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix と title は必須です"))).into_response(),
+        _ => return (StatusCode::BAD_REQUEST, Json(err("title は必須です"))).into_response(),
     };
 
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({
-                    "error": format!("プロジェクト '{}' が見つかりません", project_prefix),
-                    "available_projects": available.into_iter().map(|(p, n)| json!({"prefix": p, "name": n})).collect::<Vec<_>>(),
-                })),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
-        }
-    };
-
-    // ラベルは名前指定 → プロジェクト内で見つからなければ新規作成
-    let mut label_ids = Vec::with_capacity(body.labels.len());
-    for name in &body.labels {
-        match resource_repo::find_or_create_label(&state.pool, project_id, name).await {
-            Ok(id) => label_ids.push(id),
+    // Resolve Team ID from team_id, team_slug, or project_prefix's owner_team
+    let team_id: i32 = if let Some(tid) = body.team_id {
+        tid
+    } else if let Some(slug) = &body.team_slug {
+        match sqlx::query_scalar::<_, i32>(
+            "SELECT id::int4 FROM m_team WHERE slug = $1"
+        )
+        .bind(slug)
+        .fetch_optional(&state.pool)
+        .await
+        {
+            Ok(Some(tid)) => tid,
+            Ok(None) => {
+                return (StatusCode::BAD_REQUEST, Json(err(format!("チーム '{}' が見つかりません", slug)))).into_response();
+            }
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
                 return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
             }
         }
+    } else if let Some(project_prefix) = &body.project_prefix {
+        // Resolve project by prefix and get its owner_team
+        let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({
+                        "error": format!("プロジェクト '{}' が見つかりません", project_prefix),
+                        "available_projects": available.into_iter().map(|(p, n)| json!({"prefix": p, "name": n})).collect::<Vec<_>>(),
+                    })),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            }
+        };
+
+        let project = match resource_repo::find_project_by_id(&state.pool, project_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            }
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            }
+        };
+
+        match project.owner_team {
+            Some(team) => team.id,
+            None => {
+                return (StatusCode::BAD_REQUEST, Json(err(
+                    format!("プロジェクト '{}' に所属 Team がありません", project_prefix)
+                ))).into_response();
+            }
+        }
+    } else {
+        return (StatusCode::BAD_REQUEST, Json(err("project_prefix, team_id, または team_slug のいずれかが必須です"))).into_response();
+    };
+
+    // Verify team exists
+    match team_repo::find_team_by_id(&state.pool, team_id).await {
+        Ok(Some(_)) => {},
+        Ok(None) => {
+            return (StatusCode::BAD_REQUEST, Json(err(format!("チーム ID {} が見つかりません", team_id)))).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
     }
 
-    // 担当者はユーザー名 → user_id に解決。未参加ならプロジェクトメンバーに追加してから割り当てる。
+    // Get project_id if project_prefix was specified
+    let project_id = if let Some(project_prefix) = &body.project_prefix {
+        match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+            Ok(Some(id)) => Some(id),
+            Ok(None) => {
+                return (StatusCode::NOT_FOUND, Json(err(format!("プロジェクト '{}' が見つかりません", project_prefix)))).into_response();
+            }
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            }
+        }
+    } else {
+        None
+    };
+
+    // ラベルは名前指定。Project があれば Project マスタ、無ければ所属 Team マスタ。
+    let mut label_ids = Vec::with_capacity(body.labels.len());
+    if !body.labels.is_empty() {
+        for name in &body.labels {
+            match resource_repo::find_or_create_label_for_scope(
+                &state.pool,
+                project_id,
+                Some(team_id),
+                name,
+            )
+            .await
+            {
+                Ok(id) => label_ids.push(id),
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                }
+            }
+        }
+    }
+
+    // 担当者はユーザー名 → user_id に解決
     let mut assignee_ids = Vec::with_capacity(body.assignee_usernames.len());
     for username in &body.assignee_usernames {
         let user = match user_repo::find_by_username(&state.pool, username).await {
@@ -229,24 +309,20 @@ pub async fn create_ticket(
             }
         };
 
-        let is_member = match membership_repo::check_membership_exists(&state.pool, project_id, user.id).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
-            }
-        };
-        if !is_member {
-            let membership_in = MembershipCreateIn {
-                user_id: user.id,
-                project: project_id,
-                start_date: chrono::Utc::now().date_naive(),
-                end_date: None,
-                note: Some("AIエージェントによるチケット割り当てのため自動追加".to_string()),
+        // L2②: Project限定ゲストとしての追加はproject_idがある場合のみ(team_idはこのprojectの所有チーム)
+        if let Some(pid) = project_id {
+            let is_member = match team_repo::check_project_access(&state.pool, pid, user.id).await {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                }
             };
-            if let Err(e) = membership_repo::create_membership(&state.pool, &membership_in, ai_user_id).await {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            if !is_member {
+                if let Err(e) = team_repo::add_team_guest(&state.pool, team_id, user.id, pid, None).await {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                }
             }
         }
 
@@ -269,7 +345,7 @@ pub async fn create_ticket(
         labels: label_ids,
         story_points: None,
         cycle: None,
-        assigned_team: None,
+        team_id: Some(team_id),
         linked_rules: Vec::new(),
     };
 
@@ -477,7 +553,7 @@ pub async fn get_ticket(
         return (status, Json(payload)).into_response();
     }
 
-    match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
+    match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await {
         Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
         Err(e) => {
@@ -547,7 +623,7 @@ pub async fn patch_ticket(
                     .into_response();
             }
 
-            match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
+            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -605,7 +681,7 @@ pub async fn delete_ticket(
 
     // 監査コメントを先に投稿(ステータス変更が失敗しても、少なくとも削除が試みられた記録は残る)
     let comment_body = format!("[AI Agent] このチケットはAIエージェント経由で削除(ステータス変更: canceled)されました。理由: {}", reason);
-    if let Err(e) = ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &comment_body).await {
+    if let Err(e) = ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &comment_body, None, None).await {
         tracing::error!("Failed to post audit comment: {:?}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("監査コメントの投稿に失敗しました"))).into_response();
     }
@@ -629,7 +705,7 @@ pub async fn delete_ticket(
                 tracing::error!("transaction commit failed: {:?}", e);
                 return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
             }
-            match ticket_repo::api_find_by_key(&state.pool, &ticket_key).await {
+            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
             }
@@ -683,7 +759,7 @@ pub async fn add_comment(
         }
     };
 
-    match ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &body.body).await {
+    match ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &body.body, None, None).await {
         Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -704,6 +780,8 @@ pub async fn add_comment(
 pub struct CreateAiCycleIn {
     pub project_prefix: Option<String>,
     pub name: Option<String>,
+    #[serde(default)]
+    pub description: String,
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
     #[serde(default = "default_cycle_status")]
@@ -756,12 +834,34 @@ pub async fn create_cycle(
         }
     };
 
+    // ownerTeam を取得して team_id を決定
+    let owner_team_id: Option<i32> = sqlx::query_scalar(
+        "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1::int4"
+    )
+    .bind(project_id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+
+    let team_id = match owner_team_id {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("owner_team_id is required")),
+            )
+                .into_response();
+        }
+    };
+
     let cycle_in = CycleWriteIn {
-        project: project_id,
+        project: Some(project_id),
         name: name.clone(),
+        description: body.description.clone(),
         start_date,
         end_date,
         status: body.status.clone(),
+        team_id: Some(team_id),
     };
 
     match cycle_repo::create_cycle(&state.pool, &cycle_in, ai_user_id).await {
@@ -1024,7 +1124,7 @@ pub async fn list_cycles(
         _ => None,
     };
 
-    match cycle_repo::find_all_cycles(&state.pool, project_id, params.status.as_deref()).await {
+    match cycle_repo::find_all_cycles(&state.pool, project_id, None, params.status.as_deref()).await {
         Ok(cycles) => (StatusCode::OK, Json(cycles)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -1056,9 +1156,12 @@ pub async fn get_cycle(
 #[derive(Deserialize)]
 pub struct CyclePatchIn {
     pub name: Option<String>,
+    pub description: Option<String>,
     pub start_date: Option<NaiveDate>,
     pub end_date: Option<NaiveDate>,
     pub status: Option<String>,
+    #[serde(alias = "teamId")]
+    pub team_id: Option<Option<i32>>,
 }
 
 /// PATCH /api/v1/ai-agent/cycles/{id}/
@@ -1081,12 +1184,16 @@ pub async fn patch_cycle(
         }
     };
 
+    let team_id_val = body.team_id.flatten().or_else(|| existing.team.as_ref().map(|t| t.id));
+
     let merged = CycleWriteIn {
         project: existing.project,
         name: body.name.clone().unwrap_or(existing.name.clone()),
+        description: body.description.clone().unwrap_or(existing.description.clone()),
         start_date: body.start_date.unwrap_or(existing.start_date),
         end_date: body.end_date.unwrap_or(existing.end_date),
         status: body.status.clone().unwrap_or(existing.status.clone()),
+        team_id: team_id_val,
     };
 
     if merged.start_date >= merged.end_date {
@@ -1463,6 +1570,86 @@ pub async fn delete_ticket_link(
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// チーム（一覧・作成）
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CreateAiTeamIn {
+    pub name: Option<String>,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub color: String,
+    pub slack_webhook_url: Option<String>,
+    /// 省略時 true（AI経由は有効なチームを作る）
+    #[serde(default = "default_team_is_active")]
+    pub is_active: bool,
+}
+fn default_team_is_active() -> bool { true }
+
+/// GET /api/v1/ai-agent/teams/
+pub async fn list_teams(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err((status, payload)) = authenticate_ai(&state, &headers).await {
+        return (status, Json(payload)).into_response();
+    }
+
+    match crate::infrastructure::repositories::team_repo::find_all_teams(&state.pool, 1).await {
+        Ok(teams) => (StatusCode::OK, Json(teams)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+        }
+    }
+}
+
+/// POST /api/v1/ai-agent/teams/
+pub async fn create_team(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateAiTeamIn>,
+) -> impl IntoResponse {
+    if let Err((status, payload)) = authenticate_ai(&state, &headers).await {
+        return (status, Json(payload)).into_response();
+    }
+
+    let name = match &body.name {
+        Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+        _ => return (StatusCode::BAD_REQUEST, Json(err("name は必須です"))).into_response(),
+    };
+
+    let input = crate::domain::models::team_api::TeamWriteIn {
+        name,
+        slug: body.slug,
+        description: body.description,
+        icon: if body.icon.is_empty() { "👥".to_string() } else { body.icon },
+        color: if body.color.is_empty() { "#6366f1".to_string() } else { body.color },
+        slack_webhook_url: body.slack_webhook_url,
+        is_active: body.is_active,
+        prefix: None,
+    };
+
+    match crate::infrastructure::repositories::team_repo::create_team(&state.pool, &input).await {
+        Ok(team_id) => {
+            match crate::infrastructure::repositories::team_repo::find_team_by_id(&state.pool, team_id).await {
+                Ok(Some(team)) => (StatusCode::CREATED, Json(team)).into_response(),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
+            }
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("チームを作成できませんでした"))).into_response()
         }
     }
 }

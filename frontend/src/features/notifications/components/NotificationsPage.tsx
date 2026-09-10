@@ -5,13 +5,14 @@
  * Linear思想1: コンテキスト維持（ページ遷移なしでチケットに飛べる）。
  */
 
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
+import { buildTicketDetailPath } from '@/features/tickets/utils/ticketNavigation';
 import './NotificationsPage.css';
 
 interface Notification {
@@ -24,6 +25,7 @@ interface Notification {
   isRead: boolean;
   createdAt: string;
   projectKey?: string | null;
+  teamSlug?: string | null;
 }
 
 type FilterType = 'all' | 'unread' | 'read';
@@ -37,6 +39,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   mentioned: '📢',
   wiki_updated: '📄',
   cycle_auto_completed: '📅',
+  updated: '📝',
 };
 
 function categoryLabel(category: string, t: (key: string, options?: { defaultValue?: string }) => string): string {
@@ -51,6 +54,7 @@ function categoryLabel(category: string, t: (key: string, options?: { defaultVal
     overdue: 'Overdue',
     mentioned: 'Mention',
     wiki_updated: 'Wiki',
+    updated: 'Updated',
   };
   return labels[category] ?? category;
 }
@@ -74,18 +78,32 @@ function formatDate(dateStr: string): string {
   });
 }
 
+function isInputFocused(): boolean {
+  const active = document.activeElement;
+  if (!active) return false;
+  const tag = active.tagName.toLowerCase();
+  return (
+    tag === 'input' ||
+    tag === 'textarea' ||
+    tag === 'select' ||
+    (active as HTMLElement).isContentEditable
+  );
+}
+
 export function NotificationsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { projectKey: routeProjectKey } = useProject();
   const [filter, setFilter] = useState<FilterType>('all');
+  const [selectedIndex, setSelectedIndex] = useState(-1);
 
   // 通知一覧
   const { data } = useQuery<{ results: Notification[] }>({
     queryKey: ['notifications'],
     queryFn: async () => {
-      const res = await apiClient.get<{ results: Notification[] }>('/notifications/');
-      return res.data;
+      const res = await apiClient.get<Notification[] | { results: Notification[] }>('/notifications/');
+      const body = res.data;
+      return { results: Array.isArray(body) ? body : (body.results ?? []) };
     },
   });
 
@@ -99,6 +117,48 @@ export function NotificationsPage() {
   });
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  // キーボードナビゲーション
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (isInputFocused()) return;
+
+      switch (e.key) {
+        case 'j':
+        case 'ArrowDown': {
+          e.preventDefault();
+          const next = Math.min(selectedIndex + 1, filtered.length - 1);
+          setSelectedIndex(next);
+          break;
+        }
+        case 'k':
+        case 'ArrowUp': {
+          e.preventDefault();
+          const prev = Math.max(selectedIndex - 1, 0);
+          setSelectedIndex(prev);
+          break;
+        }
+        case 'Enter': {
+          if (selectedIndex >= 0 && filtered[selectedIndex]) {
+            e.preventDefault();
+            handleNotificationClick(filtered[selectedIndex]);
+          }
+          break;
+        }
+        case 'Escape': {
+          e.preventDefault();
+          setSelectedIndex(-1);
+          break;
+        }
+      }
+    },
+    [selectedIndex, filtered],
+  );
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   // 楽観的既読マーク
   const readMutation = useOptimisticMutation<void, number>({
@@ -144,7 +204,7 @@ export function NotificationsPage() {
     }
 
     if (notification.ticketKey) {
-      navigate(`/tickets`);
+      navigate(buildTicketDetailPath(notification.projectKey, notification.ticketKey, undefined, notification.teamSlug));
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {
@@ -199,10 +259,10 @@ export function NotificationsPage() {
             <p>{filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}</p>
           </div>
         ) : (
-          filtered.map((n) => (
+          filtered.map((n, index) => (
             <div
               key={n.id}
-              className={`notifications-page__item ${!n.isRead ? 'notifications-page__item--unread' : ''}`}
+              className={`notifications-page__item ${!n.isRead ? 'notifications-page__item--unread' : ''} ${index === selectedIndex ? 'notifications-page__item--selected' : ''}`}
               onClick={() => handleNotificationClick(n)}
               data-testid={`notif-${n.id}`}
             >

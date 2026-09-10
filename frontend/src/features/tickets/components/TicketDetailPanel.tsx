@@ -5,19 +5,31 @@
  * TicketDetail.tsx のコンパクト版。ページ遷移なしで詳細を表示。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
+import { useEditor, useEditorState, EditorContent, ReactRenderer } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import TiptapPlaceholder from '@tiptap/extension-placeholder';
+import TiptapMention from '@tiptap/extension-mention';
+import tippy from 'tippy.js';
+import type { Instance as TippyInstance, GetReferenceClientRect } from 'tippy.js';
+import { MentionList } from './MentionList';
+import type { MentionListRef, MentionListItem } from './MentionList';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
+import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import {
   TICKET_DASHBOARD_INVALIDATE_KEYS,
 } from '@/shared/utils/ticketQueryInvalidation';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { useUIStore } from '@/shared/stores/uiStore';
 import { usePromptGenerationStore } from '@/shared/stores/promptGenerationStore';
+import { useToast } from '@/shared/stores/toastStore';
 import { TimeTracker } from './TimeTracker';
 import { GitActivity } from './GitActivity';
 import ChangeLogTimeline from './ChangeLogTimeline';
@@ -38,6 +50,8 @@ interface TicketData {
   category: { id: number; name: string; color: string } | null;
   milestone: { id: number; name: string; dueDate: string | null } | null;
   project: number | null;
+  projectPrefix?: string | null;
+  team?: { id: number; slug: string; name: string } | null;
   parent: number | null;
   startDate: string | null;
   dueDate: string | null;
@@ -52,6 +66,7 @@ interface TicketData {
   links: ReferenceLinkData[];
   linkedWikiPages?: { id: number; title: string; slug: string; category: string }[];
   labels: { id: number; name: string; color: string }[];
+  isWatching: boolean;
 }
 
 interface LabelOption {
@@ -64,6 +79,7 @@ interface UserOption {
   id: number;
   username: string;
   displayName: string;
+  alias?: string | null;
 }
 
 interface CommentData {
@@ -72,6 +88,12 @@ interface CommentData {
   author: { id: number; username: string; displayName: string };
   createdAt: string;
   updatedAt: string | null;
+  anchorStart?: number | null;
+  anchorEnd?: number | null;
+  anchorQuote?: string | null;
+  parentCommentId: number | null;
+  isDeleted: boolean;
+  replyCount: number;
 }
 
 interface AttachmentData {
@@ -135,12 +157,78 @@ interface Props {
   onClose: () => void;
 }
 
+// @メンション拡張の共通ファクトリ。メインのコメント入力欄・返信入力欄の
+// 両方で同じサジェスト挙動(候補一覧・キーボード操作)を使うために切り出した。
+function createMentionExtension(userOptionsRef: React.MutableRefObject<UserOption[]>) {
+  return TiptapMention.extend({
+    // 注意: `@[label](id)` のような丸括弧付き形式はMarkdownのリンク記法と
+    // 完全に一致してしまい、ReactMarkdownが実際にリンクとしてパースしてしまう
+    // （このメンション検出ロジックが動く前に消費される）ため、コロン区切りの
+    // 単一角括弧形式にする（`[text]`単体はCommonMarkのリンクにはならない）。
+    renderText({ node }) {
+      return `@[${node.attrs.label ?? node.attrs.id}:${node.attrs.id}]`;
+    },
+  }).configure({
+    HTMLAttributes: { class: 'mention-node' },
+    suggestion: {
+      items: ({ query }: { query: string }): MentionListItem[] => {
+        const q = query.toLowerCase();
+        return userOptionsRef.current
+          .filter((u) =>
+            q.length === 0
+            || u.username.toLowerCase().startsWith(q)
+            || (u.displayName ?? '').toLowerCase().includes(q)
+            || (u.alias ?? '').toLowerCase().includes(q)
+          )
+          .slice(0, 10);
+      },
+      render: () => {
+        let component: ReactRenderer<MentionListRef, any>;
+        let popup: TippyInstance[];
+        return {
+          onStart: (props) => {
+            component = new ReactRenderer(MentionList, { props, editor: props.editor });
+            if (!props.clientRect) return;
+            popup = tippy('body', {
+              getReferenceClientRect: props.clientRect as GetReferenceClientRect,
+              appendTo: () => document.body,
+              content: component.element,
+              showOnCreate: true,
+              interactive: true,
+              trigger: 'manual',
+              placement: 'bottom-start',
+            });
+          },
+          onUpdate: (props) => {
+            component.updateProps(props);
+            if (!props.clientRect) return;
+            popup[0]?.setProps({ getReferenceClientRect: props.clientRect as GetReferenceClientRect });
+          },
+          onKeyDown: (props) => {
+            if (props.event.key === 'Escape') {
+              popup[0]?.hide();
+              return true;
+            }
+            return component.ref?.onKeyDown(props) ?? false;
+          },
+          onExit: () => {
+            popup[0]?.destroy();
+            component.destroy();
+          },
+        };
+      },
+    },
+  });
+}
+
 export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
+  const toast = useToast();
   const { projectKey } = useProject();
+  const { teamSlug } = useTeam();
   const queryClient = useQueryClient();
-  const [commentText, setCommentText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<{ suggested_points: number; confidence_score: number; reason: string } | null>(null);
   const [showCloseAnalysis, setShowCloseAnalysis] = useState(false);
@@ -153,8 +241,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const [newLinkTitle, setNewLinkTitle] = useState('');
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
+  const [openMenuCommentId, setOpenMenuCommentId] = useState<number | null>(null);
+  const [replyingToRootId, setReplyingToRootId] = useState<number | null>(null);
+  const [showInlineCommentForm, setShowInlineCommentForm] = useState(false);
+  const [inlineCommentAnchor, setInlineCommentAnchor] = useState<{ start: number; end: number; quote: string } | null>(null);
+  const [inlineCommentText, setInlineCommentText] = useState('');
+  const [inlineCommentFloatingPos, setInlineCommentFloatingPos] = useState<{ x: number; y: number } | null>(null);
+  const descriptionRef = useRef<HTMLDivElement>(null);
   const currentUser = useAuthStore((s) => s.user);
   const { openAndGenerate, phase } = usePromptGenerationStore();
+  const { openTicketFormModal } = useUIStore();
 
   const ticketQueryKey = ['ticket', ticketId];
 
@@ -176,20 +272,28 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     }
   }, [ticket?.id, ticket?.status, queryClient]);
 
-  // プロジェクトで使えるラベル一覧(ピッカー表示用)
+  const { data: workflowStatuses = [] } = useWorkflowStatuses(
+    ticket?.project ?? undefined,
+    ticket?.project ? undefined : ticket?.team?.id,
+  );
+
+  // プロジェクト／Team で使えるラベル一覧(ピッカー表示用)
   const { data: labelOptionsData } = useQuery<{ results: LabelOption[] }>({
-    queryKey: ['labels', ticket?.project],
+    queryKey: ['labels', ticket?.project ?? null, ticket?.team?.id ?? null],
     queryFn: async () => {
       const res = await apiClient.get<{ results: LabelOption[] }>('/labels/', {
-        params: { project: ticket?.project },
+        params: {
+          ...(ticket?.project ? { project: ticket.project } : {}),
+          ...(!ticket?.project && ticket?.team?.id ? { team: ticket.team.id } : {}),
+        },
       });
       return res.data;
     },
-    enabled: !!ticket?.project && labelPickerOpen,
+    enabled: (!!ticket?.project || !!ticket?.team?.id) && labelPickerOpen,
   });
   const labelOptions = labelOptionsData?.results ?? [];
 
-  // プロジェクトで使えるユーザー一覧(ピッカー表示用)
+  // プロジェクトで使えるユーザー一覧(ピッカー表示用、コメント欄の@メンション候補・ハイライトにも使う)
   const { data: userOptionsData } = useQuery<{ results?: UserOption[] } & UserOption[]>({
     queryKey: ['users', ticket?.project],
     queryFn: async () => {
@@ -198,9 +302,128 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       });
       return res.data;
     },
-    enabled: !!ticket?.project && assigneePickerOpen,
+    enabled: !!ticket?.project,
   });
   const userOptions: UserOption[] = (userOptionsData as any)?.results ?? (Array.isArray(userOptionsData) ? userOptionsData : []);
+
+  // userOptionsはReact Queryで非同期に更新されるが、TipTapのMention拡張の
+  // suggestion.items()はエディタ生成時に一度だけクロージャとして固定されるため、
+  // refで常に最新値を参照できるようにする。
+  const userOptionsRef = useRef<UserOption[]>(userOptions);
+  useEffect(() => {
+    userOptionsRef.current = userOptions;
+  }, [userOptions]);
+
+  // コメントメニューの外側クリックで閉じる
+  useEffect(() => {
+    if (openMenuCommentId == null) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.detail-panel__comment-menu-wrapper')) {
+        setOpenMenuCommentId(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openMenuCommentId]);
+
+  // URLハッシュ(#comment-{id})で指定されたコメントへ自動スクロール＋一時ハイライト
+  useEffect(() => {
+    if (!ticket) return;
+    const match = location.hash.match(/^#comment-(\d+)$/);
+    if (!match) return;
+    const el = document.getElementById(`comment-${match[1]}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('detail-panel__comment--highlighted');
+    const timer = setTimeout(() => {
+      el.classList.remove('detail-panel__comment--highlighted');
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [ticket, location.hash]);
+
+  // メインのコメント入力欄（TipTap）。@メンションのリアルタイム候補・色付けに対応する。
+  // 保存形式は今まで通りプレーンなMarkdown文字列のまま。メンション部分だけ
+  // editor.getText()で `@[表示名](ユーザーID)` 形式に変換して送信する
+  // （renderTextでカスタマイズ。バックエンドのfind_mentioned_user_idsで
+  // ID直接参照として検出、既存の素の@usernameも後方互換で検出し続ける）。
+  const commentEditor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: false,
+        bulletList: false,
+        orderedList: false,
+        blockquote: false,
+        codeBlock: false,
+        horizontalRule: false,
+        bold: false,
+        italic: false,
+        strike: false,
+        code: false,
+      }),
+      TiptapPlaceholder.configure({
+        placeholder: 'Add a comment... (@username でメンションできます)',
+      }),
+      createMentionExtension(userOptionsRef),
+    ],
+    editorProps: {
+      attributes: { 'data-testid': 'comment-input' },
+      handlePaste: (_view, event) => {
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+        const imageFiles: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) imageFiles.push(file);
+          }
+        }
+        if (imageFiles.length === 0) return false;
+        imageFiles.forEach((file) => { void uploadAttachmentFile(file); });
+        return true;
+      },
+    },
+    content: '',
+  });
+
+  // TipTap v3ではuseEditorがトランザクションごとに自動再描画しないため、
+  // 「空かどうか」の最新状態をuseEditorStateで購読してボタンの活性/非活性に使う。
+  const commentEditorIsEmpty = useEditorState({
+    editor: commentEditor,
+    selector: ({ editor }) => !editor || editor.isEmpty,
+  });
+
+  // 返信入力欄用エディタ(メインのコメント欄と同じ@メンション機能を提供する)。
+  // 返信は同時に1スレッドしか開けない(replyingToRootId)ため、インスタンスは1つでよい。
+  const replyEditor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: false,
+        bulletList: false,
+        orderedList: false,
+        blockquote: false,
+        codeBlock: false,
+        horizontalRule: false,
+        bold: false,
+        italic: false,
+        strike: false,
+        code: false,
+      }),
+      TiptapPlaceholder.configure({
+        placeholder: '返信を入力... (@username でメンションできます)',
+      }),
+      createMentionExtension(userOptionsRef),
+    ],
+    editorProps: {
+      attributes: { 'data-testid': 'comment-reply-input' },
+    },
+    content: '',
+  });
+
+  const replyEditorIsEmpty = useEditorState({
+    editor: replyEditor,
+    selector: ({ editor }) => !editor || editor.isEmpty,
+  });
 
   // AI 設定取得（タイムアウトとモデル）
   const { data: aiSettings } = useQuery<{ ollamaTimeoutSecs: number; ollamaModel: string }>({
@@ -264,6 +487,21 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: 'ストーリーポイント変更に失敗しました。',
   });
 
+  // 楽観的開始日変更
+  const startDateMutation = useOptimisticMutation<void, string | null>({
+    mutationFn: async (startDate) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { start_date: startDate });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, startDate) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, startDate };
+    },
+    invalidateKeys: TICKET_DASHBOARD_INVALIDATE_KEYS,
+    errorMessage: '開始日の変更に失敗しました。',
+  });
+
   // 楽観的期限変更
   const dueDateMutation = useOptimisticMutation<void, string | null>({
     mutationFn: async (dueDate) => {
@@ -324,12 +562,17 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   };
 
   // 楽観的コメント追加 — 投稿ボタン押下で即スレッドに表示
-  const commentMutation = useOptimisticMutation<void, string>({
-    mutationFn: async (body) => {
-      await apiClient.post(`/tickets/${ticketId}/comments/`, { body });
+  interface CommentPayload {
+    body: string;
+    anchor?: { start: number; end: number; quote: string };
+    parentCommentId?: number;
+  }
+  const commentMutation = useOptimisticMutation<void, CommentPayload>({
+    mutationFn: async (payload) => {
+      await apiClient.post(`/tickets/${ticketId}/comments/`, payload);
     },
     queryKey: ticketQueryKey,
-    updater: (currentData, body) => {
+    updater: (currentData, payload) => {
       const data = currentData as TicketData | undefined;
       if (!data) return currentData;
       return {
@@ -339,16 +582,30 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           ...data.comments,
           {
             id: -Date.now(), // 仮 ID（onSettled でサーバーの真値に置換）
-            body,
+            body: payload.body,
             author: { id: 0, username: 'you', displayName: 'You' },
             createdAt: new Date().toISOString(),
             updatedAt: null,
+            anchorStart: payload.anchor?.start,
+            anchorEnd: payload.anchor?.end,
+            anchorQuote: payload.anchor?.quote,
+            parentCommentId: payload.parentCommentId ?? null,
+            isDeleted: false,
+            replyCount: 0,
           },
         ],
       };
     },
-    onSuccessCallback: () => {
-      setCommentText('');
+    onSuccessCallback: (_data, variables) => {
+      if (variables.parentCommentId) {
+        setReplyingToRootId(null);
+        replyEditor?.commands.clearContent();
+      } else {
+        commentEditor?.commands.clearContent();
+        setShowInlineCommentForm(false);
+        setInlineCommentText('');
+        setInlineCommentAnchor(null);
+      }
     },
     errorMessage: 'コメントの追加に失敗しました。',
   });
@@ -374,6 +631,46 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       setEditingCommentText('');
     },
     errorMessage: '経過メモの編集に失敗しました。',
+  });
+
+  // コメント削除(投稿者本人のみ)
+  const deleteCommentMutation = useOptimisticMutation<void, number>({
+    mutationFn: async (commentId) => {
+      await apiClient.delete(`/tickets/${ticketId}/comments/${commentId}/`);
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, commentId) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return {
+        ...data,
+        comments: data.comments.map((c) =>
+          c.id === commentId ? { ...c, isDeleted: true, body: '' } : c
+        ),
+      };
+    },
+    onSuccessCallback: () => {
+      setOpenMenuCommentId(null);
+    },
+    errorMessage: 'コメントの削除に失敗しました。',
+  });
+
+  // チケット全体のウォッチトグル
+  const watchMutation = useOptimisticMutation<void, { watch: boolean }>({
+    mutationFn: async ({ watch }) => {
+      if (watch) {
+        await apiClient.post(`/tickets/${ticketId}/watch/`);
+      } else {
+        await apiClient.delete(`/tickets/${ticketId}/watch/`);
+      }
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, { watch }) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, isWatching: watch };
+    },
+    errorMessage: 'ウォッチ設定の変更に失敗しました。',
   });
 
   const startEditingComment = (comment: CommentData) => {
@@ -428,26 +725,6 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   };
 
   // コメント入力エリアへの画像ペースト処理
-  const handleCommentPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const imageFiles: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item && item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          imageFiles.push(file);
-        }
-      }
-    }
-    if (imageFiles.length === 0) return;
-    e.preventDefault();
-    for (const file of imageFiles) {
-      await uploadAttachmentFile(file);
-    }
-  };
-
   // 添付ファイル削除
   const handleDeleteAttachment = async (attachmentId: number) => {
     if (!window.confirm('このファイルを削除しますか？')) return;
@@ -478,6 +755,145 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       timeoutSecs,
       model
     );
+  };
+
+  // 説明文のテキスト選択を処理
+  const handleDescriptionMouseUp = (_e: React.MouseEvent<HTMLDivElement>) => {
+    const selection = window.getSelection();
+    if (!selection || selection.toString().trim().length === 0) {
+      setShowInlineCommentForm(false);
+      setInlineCommentFloatingPos(null);
+      return;
+    }
+
+    // 選択範囲が説明文コンテナ内にあるか確認
+    if (!descriptionRef.current || !descriptionRef.current.contains(selection.anchorNode as Node)) {
+      setShowInlineCommentForm(false);
+      return;
+    }
+
+    // テキストオフセットを計算
+    const range = selection.getRangeAt(0);
+    const preCaretRange = range.cloneRange();
+    preCaretRange.selectNodeContents(descriptionRef.current);
+    preCaretRange.setEnd(range.endContainer, range.endOffset);
+    const end = preCaretRange.toString().length;
+    const start = end - selection.toString().length;
+
+    // フローティングボタンの位置を計算（position: fixed で使うためビューポート基準のまま渡す）
+    const rect = range.getBoundingClientRect();
+    setInlineCommentFloatingPos({
+      x: rect.left,
+      y: rect.top - 50,
+    });
+
+    // アンカー情報を保存
+    setInlineCommentAnchor({
+      start,
+      end,
+      quote: selection.toString(),
+    });
+  };
+
+  // Phase E: チケットキーと@プロジェクトprefixをMarkdownリンク形式に変換
+  const convertMentionsToMarkdownLinks = (text: string): string => {
+    // IME入力中に@が全角「＠」になることがあるため、判定前に半角へ正規化する
+    let result = text.replace(/＠/g, '@');
+
+    // 1. チケットキーパターン: @([A-Z]{2,10}-\d{6}) → [@$1](/p/PREFIX/tickets/$1)
+    // チケットキーのプレフィックス部分をプロジェクトキーとして使用
+    result = result.replace(/@([A-Z]{2,10})-(\d{6})/g, (_match, prefix, number) => {
+      const ticketKey = `${prefix}-${number}`;
+      return `[@${ticketKey}](/p/${prefix}/tickets/${ticketKey})`;
+    });
+
+    // 2. プロジェクトprefixパターン: @([A-Z]{2,10})(?!-\d) → [@$1](/p/$1)
+    // ネガティブルックアヘッド (?!-\d) により、直後にハイフン+数字が続かないことを確認
+    result = result.replace(/@([A-Z]{2,10})(?!-\d)/g, (_match, prefix) => {
+      return `[@${prefix}](/p/${prefix})`;
+    });
+
+    return result;
+  };
+
+  // コメント表示時のメンション処理（テキストノード内での処理用）
+  //
+  // usernameは`n.hidaka@macplanning.com`のようにメール形式（内部に@を含む）のことが
+  // 多いため、文字クラスベースの正規表現（例: /@([A-Za-z0-9_.-]+)/）では内部の@で
+  // 途切れて誤検出する。プロジェクトメンバーの実在するusername/表示名の一覧を先に
+  // 用意し、本文中の@の直後にどのトークンが（最長一致で）続くかを走査する方式にする
+  // ことで、username自体に@を含む場合や表示名（日本語含む）でも正しく検出できる。
+  const renderMentionHighlight = (rawText: string) => {
+    // IME入力中に@が全角「＠」になることがあるため、判定前に半角へ正規化する
+    const text = rawText.replace(/＠/g, '@');
+    // トークン(username/表示名/エイリアス)→そのユーザーの逆引きマップ。
+    // 表示時は実際に打った文字に関わらず、そのユーザーの表示名で統一して見せる。
+    const tokenToUser = new Map<string, UserOption>();
+    const userById = new Map<number, UserOption>();
+    userOptions.forEach((u) => {
+      userById.set(u.id, u);
+      [u.username, u.displayName, u.alias].forEach((t) => {
+        if (t) tokenToUser.set(t, u);
+      });
+    });
+    const tokens = Array.from(tokenToUser.keys()).sort((a, b) => b.length - a.length);
+
+    // TipTapのMention拡張がeditor.getText()で出力する `@[表示名](ユーザーID)` 形式の
+    // マッチ範囲を先に洗い出しておく。IDで現在のユーザー情報を引き直すことで、
+    // 投稿後にユーザーが表示名を変更していても常に最新の表示名で表示できる。
+    const bracketRegex = /@\[[^:\]]*:(\d+)\]/g;
+    const bracketMatches: { start: number; end: number; userId: number }[] = [];
+    let bm: RegExpExecArray | null;
+    while ((bm = bracketRegex.exec(text)) !== null) {
+      bracketMatches.push({ start: bm.index, end: bm.index + bm[0].length, userId: Number(bm[1]) });
+    }
+
+    const parts: React.ReactNode[] = [];
+    let i = 0;
+    let lastFlush = 0;
+
+    while (i < text.length) {
+      const bracketMatch = bracketMatches.find((m) => m.start === i);
+      if (bracketMatch) {
+        const matchedUser = userById.get(bracketMatch.userId);
+        if (i > lastFlush) {
+          parts.push(text.substring(lastFlush, i));
+        }
+        parts.push(
+          <span key={`mention-${i}`} style={{ color: '#f97316', fontWeight: 500 }}>
+            {`@${matchedUser?.displayName || matchedUser?.alias || matchedUser?.username || 'ユーザー'}`}
+          </span>
+        );
+        i = bracketMatch.end;
+        lastFlush = i;
+        continue;
+      }
+      if (text[i] === '@') {
+        const rest = text.slice(i + 1);
+        const matchedToken = tokens.find((t) => rest.startsWith(t));
+        if (matchedToken) {
+          const matchedUser = tokenToUser.get(matchedToken);
+          if (i > lastFlush) {
+            parts.push(text.substring(lastFlush, i));
+          }
+          parts.push(
+            <span key={`mention-${i}`} style={{ color: '#f97316', fontWeight: 500 }}>
+              {`@${matchedUser?.displayName || matchedUser?.username || matchedToken}`}
+            </span>
+          );
+          i += 1 + matchedToken.length;
+          lastFlush = i;
+          continue;
+        }
+      }
+      i += 1;
+    }
+
+    if (lastFlush < text.length) {
+      parts.push(text.substring(lastFlush));
+    }
+
+    return parts.length > 0 ? parts : [text];
   };
 
   // 参照リンク追加
@@ -550,6 +966,23 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     deleteTicketMutation.mutate();
   };
 
+  // コメント一覧のグルーピング(Hooksは早期returnより前で呼ぶ必要があるため、
+  // isLoading/!ticketの分岐より前に置く)
+  const { topLevelComments, repliesByParent } = useMemo(() => {
+    const top: CommentData[] = [];
+    const replies = new Map<number, CommentData[]>();
+    for (const c of ticket?.comments ?? []) {
+      if (c.parentCommentId == null) {
+        top.push(c);
+      } else {
+        const list = replies.get(c.parentCommentId) ?? [];
+        list.push(c);
+        replies.set(c.parentCommentId, list);
+      }
+    }
+    return { topLevelComments: top, repliesByParent: replies };
+  }, [ticket?.comments]);
+
   if (isLoading) {
     return (
       <div className="detail-panel detail-panel--loading" data-testid="detail-panel">
@@ -563,7 +996,198 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   if (!ticket) return null;
 
-  const currentStatus = STATUS_OPTIONS.find((s) => s.value === ticket.status);
+  const statusChoices = workflowStatuses.length > 0
+    ? workflowStatuses.map((s) => ({ value: s.slug, label: s.name, color: s.color }))
+    : STATUS_OPTIONS;
+  const currentStatus = statusChoices.find((s) => s.value === ticket.status);
+
+  // renderComment関数の定義
+  const renderComment = (comment: CommentData, isReply: boolean) => {
+    const isOwnComment = !!currentUser && currentUser.id === comment.author.id;
+    const isEditing = editingCommentId === comment.id;
+    return (
+      <div
+        key={comment.id}
+        id={`comment-${comment.id}`}
+        className={isReply ? 'detail-panel__comment detail-panel__comment--reply' : 'detail-panel__comment'}
+      >
+        <div className="detail-panel__comment-header">
+          <span className="detail-panel__comment-avatar">
+            {(comment.author.displayName || comment.author.username)[0]?.toUpperCase()}
+          </span>
+          <span className="detail-panel__comment-author">
+            {comment.author.displayName || comment.author.username}
+          </span>
+          <span className="detail-panel__comment-time">
+            {timeAgo(comment.createdAt)}
+            {comment.updatedAt && ' (編集済み)'}
+          </span>
+          {!isEditing && !comment.isDeleted && comment.id > 0 && (
+            <div className="detail-panel__comment-menu-wrapper">
+              <button
+                type="button"
+                className="detail-panel__comment-menu-trigger"
+                onClick={() => setOpenMenuCommentId(openMenuCommentId === comment.id ? null : comment.id)}
+                aria-label="コメントメニュー"
+                title="メニュー"
+              >
+                ⋯
+              </button>
+              {openMenuCommentId === comment.id && (
+                <div className="detail-panel__comment-menu">
+                  {isOwnComment && (
+                    <button
+                      type="button"
+                      className="detail-panel__comment-menu-item"
+                      onClick={() => {
+                        startEditingComment(comment);
+                        setOpenMenuCommentId(null);
+                      }}
+                    >
+                      編集
+                    </button>
+                  )}
+                  {isOwnComment && (
+                    <button
+                      type="button"
+                      className="detail-panel__comment-menu-item detail-panel__comment-menu-item--danger"
+                      onClick={() => {
+                        if (window.confirm('このコメントを削除しますか？')) {
+                          deleteCommentMutation.mutate(comment.id);
+                        }
+                        setOpenMenuCommentId(null);
+                      }}
+                    >
+                      削除
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="detail-panel__comment-menu-item"
+                    onClick={() => {
+                      const url = `${window.location.origin}/p/${projectKey}/tickets/${ticket.ticketKey}#comment-${comment.id}`;
+                      void navigator.clipboard.writeText(url);
+                      toast.success('コメントへのリンクをコピーしました');
+                      setOpenMenuCommentId(null);
+                    }}
+                  >
+                    リンクをコピー
+                  </button>
+                  {!comment.isDeleted && (
+                    <button
+                      type="button"
+                      className="detail-panel__comment-menu-item"
+                      onClick={() => {
+                        openTicketFormModal(projectKey ?? undefined, undefined, { initialDescription: comment.body });
+                        setOpenMenuCommentId(null);
+                      }}
+                    >
+                      このコメントから新規チケット作成
+                    </button>
+                  )}
+                  {!comment.isDeleted && (
+                    <button
+                      type="button"
+                      className="detail-panel__comment-menu-item"
+                      onClick={() => {
+                        openTicketFormModal(projectKey ?? undefined, undefined, {
+                          initialDescription: comment.body,
+                          initialParent: ticket.id,
+                        });
+                        setOpenMenuCommentId(null);
+                      }}
+                    >
+                      このコメントからサブチケット作成
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {isEditing ? (
+          <div className="detail-panel__comment-edit-form">
+            <textarea
+              className="detail-panel__comment-input"
+              value={editingCommentText}
+              onChange={(e) => setEditingCommentText(e.target.value)}
+              rows={6}
+              autoFocus
+              data-testid="comment-edit-input"
+            />
+            <div className="detail-panel__comment-edit-actions">
+              <button
+                type="button"
+                className="detail-panel__comment-cancel"
+                onClick={cancelEditingComment}
+                disabled={editCommentMutation.isPending}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="detail-panel__comment-submit"
+                onClick={() => saveEditingComment(comment.id)}
+                disabled={!editingCommentText.trim() || editCommentMutation.isPending}
+                data-testid="comment-edit-save"
+              >
+                {editCommentMutation.isPending ? '...' : '保存'}
+              </button>
+            </div>
+          </div>
+        ) : comment.isDeleted ? (
+          <div className="detail-panel__comment-body">
+            <p className="detail-panel__comment-deleted">このコメントは削除されました</p>
+          </div>
+        ) : (
+          <div className="detail-panel__comment-body">
+            {/* インラインコメントの引用テキスト表示 */}
+            {comment.anchorQuote && (
+              <blockquote
+                style={{
+                  borderLeft: '3px solid #007bff',
+                  paddingLeft: '12px',
+                  marginLeft: 0,
+                  marginBottom: '8px',
+                  color: '#666',
+                  fontStyle: 'italic',
+                  fontSize: '0.95em',
+                }}
+              >
+                {comment.anchorQuote}
+              </blockquote>
+            )}
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => (
+                  <p>
+                    {Array.isArray(children) ? children.map((child, idx) => {
+                      if (typeof child === 'string') {
+                        return <span key={idx}>{renderMentionHighlight(child)}</span>;
+                      }
+                      return child;
+                    }) : renderMentionHighlight(String(children))}
+                  </p>
+                ),
+                li: ({ children }) => (
+                  <li>
+                    {Array.isArray(children) ? children.map((child, idx) => {
+                      if (typeof child === 'string') {
+                        return <span key={idx}>{renderMentionHighlight(child)}</span>;
+                      }
+                      return child;
+                    }) : renderMentionHighlight(String(children))}
+                  </li>
+                ),
+              }}
+            >
+              {convertMentionsToMarkdownLinks(comment.body)}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="detail-panel" data-testid="detail-panel">
@@ -586,6 +1210,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             {linkCopied ? '✅' : '🔗'}
           </button>
           <button
+            className="detail-panel__edit-btn"
+            onClick={() => watchMutation.mutate({ watch: !ticket.isWatching })}
+            disabled={watchMutation.isPending}
+            aria-label={ticket.isWatching ? 'Unwatch ticket' : 'Watch ticket'}
+            title={ticket.isWatching ? 'ウォッチ解除' : 'ウォッチする'}
+            data-testid="watch-ticket-btn"
+          >
+            {ticket.isWatching ? '🔔' : '🔕'}
+          </button>
+          <button
             className="detail-panel__edit-btn detail-panel__prompt-btn"
             onClick={handleGeneratePrompt}
             disabled={phase === 'generating'}
@@ -598,8 +1232,12 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           <button
             className="detail-panel__edit-btn"
             onClick={() => {
-              if (projectKey) {
-                navigate(`/p/${projectKey}/tickets/${ticket.ticketKey}/edit`);
+              const prefix = ticket.projectPrefix ?? projectKey;
+              const slug = ticket.team?.slug ?? teamSlug;
+              if (prefix) {
+                navigate(`/p/${prefix}/tickets/${ticket.ticketKey}/edit`);
+              } else if (slug) {
+                navigate(`/t/${slug}/tickets/${ticket.ticketKey}/edit`);
               }
             }}
             aria-label="Edit ticket"
@@ -642,7 +1280,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             onChange={(e) => handleStatusChange(e.target.value)}
             style={{ color: currentStatus?.color }}
           >
-            {STATUS_OPTIONS.map((s) => (
+            {statusChoices.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
@@ -739,6 +1377,18 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             </span>
           </div>
         )}
+
+        {/* 開始日 */}
+        <div className="detail-panel__field">
+          <span className="detail-panel__field-label">Start date</span>
+          <input
+            type="date"
+            className="detail-panel__field-select"
+            value={ticket.startDate ? ticket.startDate.slice(0, 10) : ''}
+            onChange={(e) => startDateMutation.mutate(e.target.value || null)}
+            data-testid="start-date-input"
+          />
+        </div>
 
         {/* 期限 */}
         <div className="detail-panel__field">
@@ -919,9 +1569,110 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       {ticket.description && (
         <div className="detail-panel__description">
           <h3 className="detail-panel__section-title">Description</h3>
-          <div className="detail-panel__description-text">
+          <div
+            ref={descriptionRef}
+            className="detail-panel__description-text"
+            onMouseUp={handleDescriptionMouseUp}
+            style={{ position: 'relative' }}
+          >
             <ReactMarkdown>{ticket.description}</ReactMarkdown>
           </div>
+          {/* インラインコメント追加ボタン */}
+          {inlineCommentFloatingPos && inlineCommentAnchor && !showInlineCommentForm && (
+            <button
+              onClick={() => setShowInlineCommentForm(true)}
+              style={{
+                position: 'fixed',
+                left: inlineCommentFloatingPos.x,
+                top: inlineCommentFloatingPos.y,
+                padding: '6px 12px',
+                backgroundColor: 'var(--color-primary, #007bff)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                zIndex: 1000,
+                fontSize: '12px',
+              }}
+            >
+              コメントを追加
+            </button>
+          )}
+          {/* インラインコメントミニフォーム */}
+          {showInlineCommentForm && inlineCommentAnchor && (
+            <div
+              style={{
+                position: 'fixed',
+                left: inlineCommentFloatingPos?.x || 0,
+                top: (inlineCommentFloatingPos?.y || 0) + 40,
+                backgroundColor: '#fff',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                padding: '12px',
+                minWidth: '300px',
+                zIndex: 1001,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              }}
+            >
+              <textarea
+                value={inlineCommentText}
+                onChange={(e) => setInlineCommentText(e.target.value)}
+                placeholder="コメントを入力..."
+                style={{
+                  width: '100%',
+                  minHeight: '80px',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontFamily: 'inherit',
+                  fontSize: '14px',
+                  marginBottom: '8px',
+                }}
+              />
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => {
+                    setShowInlineCommentForm(false);
+                    setInlineCommentText('');
+                    setInlineCommentAnchor(null);
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#f0f0f0',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                  }}
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => {
+                    if (inlineCommentText.trim() && inlineCommentAnchor) {
+                      commentMutation.mutate({
+                        body: inlineCommentText.trim(),
+                        anchor: inlineCommentAnchor,
+                      });
+                    }
+                  }}
+                  disabled={!inlineCommentText.trim() || commentMutation.isPending}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: 'var(--color-primary, #007bff)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: commentMutation.isPending ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    opacity: commentMutation.isPending || !inlineCommentText.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {commentMutation.isPending ? '...' : 'コメント'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -931,88 +1682,70 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           経過メモ ({ticket.comments?.length ?? 0})
         </h3>
 
-        {ticket.comments?.map((comment) => {
-          const isOwnComment = !!currentUser && currentUser.id === comment.author.id;
-          const isEditing = editingCommentId === comment.id;
-          return (
-            <div key={comment.id} className="detail-panel__comment">
-              <div className="detail-panel__comment-header">
-                <span className="detail-panel__comment-avatar">
-                  {(comment.author.displayName || comment.author.username)[0]?.toUpperCase()}
-                </span>
-                <span className="detail-panel__comment-author">
-                  {comment.author.displayName || comment.author.username}
-                </span>
-                <span className="detail-panel__comment-time">
-                  {timeAgo(comment.createdAt)}
-                  {comment.updatedAt && ' (編集済み)'}
-                </span>
-                {isOwnComment && !isEditing && (
-                  <button
-                    type="button"
-                    className="detail-panel__comment-edit-btn"
-                    onClick={() => startEditingComment(comment)}
-                    aria-label="経過メモを編集"
-                    title="編集"
-                  >
-                    ✏️
-                  </button>
-                )}
-              </div>
-              {isEditing ? (
+        {topLevelComments.map((comment) => (
+          <div key={comment.id}>
+            {renderComment(comment, false)}
+            {(repliesByParent.get(comment.id) ?? []).map((reply) => renderComment(reply, true))}
+            {comment.id > 0 && (
+            <div className="detail-panel__comment-reply-row">
+              {replyingToRootId === comment.id ? (
                 <div className="detail-panel__comment-edit-form">
-                  <textarea
-                    className="detail-panel__comment-input"
-                    value={editingCommentText}
-                    onChange={(e) => setEditingCommentText(e.target.value)}
-                    rows={6}
-                    autoFocus
-                    data-testid="comment-edit-input"
-                  />
+                  <EditorContent editor={replyEditor} className="detail-panel__comment-editor" />
                   <div className="detail-panel__comment-edit-actions">
                     <button
                       type="button"
                       className="detail-panel__comment-cancel"
-                      onClick={cancelEditingComment}
-                      disabled={editCommentMutation.isPending}
+                      onClick={() => {
+                        setReplyingToRootId(null);
+                        replyEditor?.commands.clearContent();
+                      }}
+                      disabled={commentMutation.isPending}
                     >
                       キャンセル
                     </button>
                     <button
                       type="button"
                       className="detail-panel__comment-submit"
-                      onClick={() => saveEditingComment(comment.id)}
-                      disabled={!editingCommentText.trim() || editCommentMutation.isPending}
-                      data-testid="comment-edit-save"
+                      onClick={() => {
+                        const body = replyEditor?.getText({ blockSeparator: '\n' }).trim();
+                        if (!body) return;
+                        commentMutation.mutate({ body, parentCommentId: comment.id });
+                      }}
+                      disabled={replyEditorIsEmpty || commentMutation.isPending}
                     >
-                      {editCommentMutation.isPending ? '...' : '保存'}
+                      {commentMutation.isPending ? '...' : '返信'}
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="detail-panel__comment-body">
-                  <ReactMarkdown>{comment.body}</ReactMarkdown>
-                </div>
+                <button
+                  type="button"
+                  className="detail-panel__comment-reply-link"
+                  onClick={() => {
+                    setReplyingToRootId(comment.id);
+                    replyEditor?.commands.clearContent();
+                  }}
+                >
+                  返信
+                </button>
               )}
             </div>
-          );
-        })}
+            )}
+          </div>
+        ))}
 
-        {/* コメント入力 */}
-        <div className="detail-panel__comment-form">
-          <textarea
-            className="detail-panel__comment-input"
-            placeholder="Add a comment..."
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            onPaste={(e) => { void handleCommentPaste(e); }}
-            rows={10}
-            data-testid="comment-input"
-          />
+        {/* コメント入力（TipTap。@メンションは投稿前からリアルタイムで色付け表示される） */}
+        <div className="detail-panel__comment-form" style={{ position: 'relative' }}>
+          <EditorContent editor={commentEditor} className="detail-panel__comment-editor" />
           <button
             className="detail-panel__comment-submit"
-            disabled={!commentText.trim() || commentMutation.isPending}
-            onClick={() => commentText.trim() && commentMutation.mutate(commentText.trim())}
+            disabled={commentEditorIsEmpty || commentMutation.isPending}
+            onClick={() => {
+              const body = commentEditor?.getText({ blockSeparator: '\n' }).trim();
+              if (body) {
+                commentMutation.mutate({ body });
+              }
+            }}
             data-testid="comment-submit"
           >
             {commentMutation.isPending ? '...' : 'Comment'}

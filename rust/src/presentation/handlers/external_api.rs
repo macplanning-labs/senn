@@ -204,7 +204,7 @@ pub async fn create_comment(
         }
     };
 
-    match ticket_repo::api_add_comment(&state.pool, ticket_id, author_id, comment_body).await {
+    match ticket_repo::api_add_comment(&state.pool, ticket_id, author_id, comment_body, None, None).await {
         Ok(comment) => (
             StatusCode::CREATED,
             Json(json!({

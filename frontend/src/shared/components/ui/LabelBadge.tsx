@@ -11,7 +11,7 @@ export interface Label {
   id: number;
   name: string;
   color: string;
-  project: number;
+  project?: number | null;
   createdAt?: string;
 }
 

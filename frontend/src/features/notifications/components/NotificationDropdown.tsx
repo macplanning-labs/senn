@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
+import { buildTicketDetailPath } from '@/features/tickets/utils/ticketNavigation';
 import './NotificationDropdown.css';
 
 interface Notification {
@@ -24,6 +25,7 @@ interface Notification {
   isRead: boolean;
   createdAt: string;
   projectKey?: string | null;
+  teamSlug?: string | null;
 }
 
 const categoryIcons: Record<string, string> = {
@@ -35,6 +37,7 @@ const categoryIcons: Record<string, string> = {
   mentioned: '📢',
   wiki_updated: '📄',
   cycle_auto_completed: '📅',
+  updated: '📝',
 };
 
 function timeAgo(dateStr: string): string {
@@ -70,8 +73,9 @@ export function NotificationDropdown() {
   const { data: notificationsData } = useQuery<{ results: Notification[] }>({
     queryKey: ['notifications'],
     queryFn: async () => {
-      const res = await apiClient.get<{ results: Notification[] }>('/notifications/');
-      return res.data;
+      const res = await apiClient.get<Notification[] | { results: Notification[] }>('/notifications/');
+      const data = res.data;
+      return { results: Array.isArray(data) ? data : (data.results ?? []) };
     },
     enabled: isOpen,
   });
@@ -148,7 +152,7 @@ export function NotificationDropdown() {
     }
 
     if (notification.ticketKey) {
-      navigate(`/tickets`);
+      navigate(buildTicketDetailPath(notification.projectKey, notification.ticketKey, undefined, notification.teamSlug));
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {

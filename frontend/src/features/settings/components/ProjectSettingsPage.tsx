@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useProject } from '@/shared/hooks/useProject';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
@@ -21,7 +21,6 @@ import { useToastStore } from '@/shared/stores/toastStore';
 import { LabelSettings } from './LabelSettings';
 import { CategorySettings } from './CategorySettings';
 import { MilestoneSettings } from './MilestoneSettings';
-import { MemberSettings } from './MemberSettings';
 import { WorkflowSettings } from './WorkflowSettings';
 import { IntegrationSettings } from './IntegrationSettings';
 import { SecuritySettings } from './SecuritySettings';
@@ -131,7 +130,7 @@ function GeneralSettings() {
       addToast({ message: t('settings.projectDeleted'), type: 'success' });
       setDeleteConfirm(false);
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
-      navigate('/dashboard');
+      navigate('/my-issues');
     },
     onError: (error: unknown) => {
       const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } };
@@ -585,7 +584,15 @@ export function ProjectSettingsPage() {
           <HolidaySettings />
         )}
         {activeTab === 'members' && (
-          <MemberSettings projectId={currentProject.id} />
+          <div className="settings-empty">
+            <div className="settings-empty__icon">👥</div>
+            <div className="settings-empty__text">
+              メンバー管理は Team 設定に統合されました。所属 Team のメンバー・
+              Project 限定ゲストは<Link to="/teams">チーム設定</Link>
+              {currentProject.ownerTeam ? `(${currentProject.ownerTeam.name})` : ''}
+              から管理してください。
+            </div>
+          </div>
         )}
         {activeTab === 'integrations' && (
           <IntegrationSettings projectId={currentProject.id} />
