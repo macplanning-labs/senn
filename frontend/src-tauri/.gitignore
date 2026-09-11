@@ -1,0 +1,15 @@
+# Rust
+# Cargo.lock はコミットする(アプリケーションのためビルド再現性を優先。ライブラリではないので除外しない)
+target/
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
