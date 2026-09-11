@@ -1,6 +1,6 @@
 English | [日本語 (Japanese)](./README_JA.md)
 
-# WIP — Project Management Tool
+# SENN — Project Management Tool
 
 A lightweight, fast project management tool with ticketing, Gantt charts, a wiki, and notifications. The backend is built with Rust (Axum), and the frontend with React (TypeScript).
 
