@@ -21,8 +21,7 @@ pub struct AppConfig {
     pub smtp_password: Option<String>,
     pub webauthn_rp_id: String,
     pub webauthn_rp_origin: String,
-    /// JWT署名鍵。DjangoのSECRET_KEY(DJANGO_SECRET_KEY)と同一の値を使うことで、
-    /// Rustが発行したトークンをDjangoのJWTAuthenticationが検証でき、その逆も可能になる。
+    /// JWT署名鍵。`JWT_SECRET_KEY`環境変数で設定する。
     pub jwt_secret: String,
     /// アクセストークンの有効期限(分)。`ACCESS_TOKEN_LIFETIME_MINUTES`で上書き可能。
     pub access_token_lifetime_minutes: i64,
@@ -87,10 +86,10 @@ impl AppConfig {
                 .unwrap_or_else(|_| "localhost".to_string()),
             webauthn_rp_origin: std::env::var("WEBAUTHN_RP_ORIGIN")
                 .unwrap_or_else(|_| "http://localhost:8150".to_string()),
-            // config/settings.py の SECRET_KEY と同じフォールバック値
-            // (DJANGO_SECRET_KEY未設定時はDjango側もこの値を使う)
-            jwt_secret: std::env::var("DJANGO_SECRET_KEY").unwrap_or_else(|_| {
-                "django-insecure-t)!aocxrf)m)b4sh!jcuthbr6_*em#x%chw@a7976ehs!ct=qb".to_string()
+            // 未設定時はゼロコンフィグ起動用のフォールバック値を使う。
+            // 本番運用では必ず`JWT_SECRET_KEY`に十分な長さのランダム値を設定すること。
+            jwt_secret: std::env::var("JWT_SECRET_KEY").unwrap_or_else(|_| {
+                "insecure-dev-only-change-me-t)!aocxrf)m)b4sh!jcuthbr6_*em#x%chw@a7976ehs!ct=qb".to_string()
             }),
             access_token_lifetime_minutes: std::env::var("ACCESS_TOKEN_LIFETIME_MINUTES")
                 .ok()

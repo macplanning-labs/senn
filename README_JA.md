@@ -42,7 +42,7 @@ Rust / Node / PostgreSQL のホストへの個別インストールは不要で�
 
 ```bash
 cp .env.example .env
-# 初回起動前に DB_PASSWORD と DJANGO_SECRET_KEY をローカル用の値に書き換える
+# 初回起動前に DB_PASSWORD と JWT_SECRET_KEY をローカル用の値に書き換える
 docker compose up --build
 ```
 

@@ -39,7 +39,7 @@ services:
       PORT: "8151"
       BASE_URL: ${BASE_URL:-http://localhost:8151}
       COOKIE_SECURE: "false"
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       RUST_RUN_MIGRATIONS: "true"
       WEBAUTHN_RP_ID: localhost
       WEBAUTHN_RP_ORIGIN: ${BASE_URL:-http://localhost:8151}

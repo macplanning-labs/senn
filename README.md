@@ -51,7 +51,7 @@ No local Rust / Node / PostgreSQL install needed.
 
 ```bash
 cp .env.example .env
-# edit DB_PASSWORD and DJANGO_SECRET_KEY to local values before first run
+# edit DB_PASSWORD and JWT_SECRET_KEY to local values before first run
 docker compose up --build
 ```
 
