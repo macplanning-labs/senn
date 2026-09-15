@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     // サーバー起動
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("🚀 WIP server listening on {}", addr);
+    tracing::info!("🚀 SENN server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     // レート制限のSmartIpKeyExtractorがX-Forwarded-For等のヘッダーを

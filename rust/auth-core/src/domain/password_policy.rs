@@ -1,7 +1,7 @@
 //! domain/password_policy.rs — パスワード強度バリデータ（方針ドキュメント5章）
 //!
 //! バリデータ本体はauth-core、パラメータ（最小長・文字種要件）は各アプリが注入する。
-//! WIP・Sophiaで異なるポリシーを維持したい場合にも対応できる。
+//! SENN・Sophiaで異なるポリシーを維持したい場合にも対応できる。
 
 use serde::{Deserialize, Serialize};
 
