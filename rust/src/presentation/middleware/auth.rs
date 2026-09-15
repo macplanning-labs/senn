@@ -1,6 +1,6 @@
 /// presentation/middleware/auth.rs — 認証ミドルウェア
 ///
-/// Cookie（wip_access_token / wip_refresh_token）からJWTを取得し、
+/// Cookie（senn_access_token / senn_refresh_token）からJWTを取得し、
 /// DBから最新のユーザー情報を引いてリクエスト拡張に SessionUser を注入する。
 /// 未ログインなら /auth/login にリダイレクト。
 /// must_change_password なら /auth/password に強制リダイレクト。
@@ -19,10 +19,10 @@ use crate::domain::services::jwt_service;
 use crate::infrastructure::repositories::{jwt_blacklist_repo, project_repo, user_repo};
 use crate::presentation::state::AppState;
 
-pub const ACCESS_COOKIE: &str = "wip_access_token";
-pub const REFRESH_COOKIE: &str = "wip_refresh_token";
-pub const MFA_COOKIE: &str = "wip_mfa_token";
-pub const PROJECT_COOKIE: &str = "wip_current_project_id";
+pub const ACCESS_COOKIE: &str = "senn_access_token";
+pub const REFRESH_COOKIE: &str = "senn_refresh_token";
+pub const MFA_COOKIE: &str = "senn_mfa_token";
+pub const PROJECT_COOKIE: &str = "senn_current_project_id";
 
 /// 認証済みユーザーのセッションデータ
 #[derive(Clone, Debug)]
@@ -164,7 +164,7 @@ async fn build_session_user(state: &AppState, user_id: i32, jar: &CookieJar) -> 
 /// 旧`require_auth`は`mfa_pending`のチェックを持っていたが、新設計ではこの
 /// チェックは不要になる。有効なアクセストークンを持っている時点でMFA
 /// （必要な場合）は既にログイン時に完了しているため。MFA未完了のユーザーは
-/// `wip_access_token`をそもそも持たず、`resolve_session_user`が
+/// `senn_access_token`をそもそも持たず、`resolve_session_user`が
 /// `Unauthenticated`を返して`/auth/login`へリダイレクトされる。
 pub async fn require_auth(
     State(state): State<AppState>,

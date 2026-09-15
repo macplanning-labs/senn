@@ -64,7 +64,7 @@ export function ResetPasswordPage() {
       <div className="login" data-testid="reset-password-page">
         <div className="login__card">
           <div className="login__header">
-            <h1 className="login__logo">WIP</h1>
+            <h1 className="login__logo">SENN</h1>
           </div>
           <div className="login__error" role="alert">
             {t('auth.resetTokenMissing', 'リセットリンクが無効です。再度パスワードリセットを申請してください。')}
@@ -81,7 +81,7 @@ export function ResetPasswordPage() {
     <div className="login" data-testid="reset-password-page">
       <div className="login__card">
         <div className="login__header">
-          <h1 className="login__logo">WIP</h1>
+          <h1 className="login__logo">SENN</h1>
           <p className="login__tagline">
             {t('auth.resetPasswordTitle', '新しいパスワードを設定')}
           </p>

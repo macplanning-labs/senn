@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 
-/// vite.config.ts — WIP フロントエンド ビルド設定
+/// vite.config.ts — SENN フロントエンド ビルド設定
 ///
 /// パスエイリアス (@/) と開発用APIプロキシを設定。
 

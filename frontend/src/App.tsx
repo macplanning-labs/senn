@@ -1,5 +1,5 @@
 /**
- * App.tsx — WIP アプリケーションルート
+ * App.tsx — SENN アプリケーションルート
  *
  * React Router v7 によるルーティング。
  * プロジェクトスコープURL: /p/:projectKey/tickets 等

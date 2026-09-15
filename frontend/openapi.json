@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "WIP — Project Management API",
+    "title": "SENN — Project Management API",
     "version": "1.0.0",
     "description": "REST API for WIP project management tool. Built with Django REST Framework."
   },

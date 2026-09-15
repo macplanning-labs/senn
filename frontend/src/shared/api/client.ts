@@ -21,8 +21,8 @@ export const apiClient = axios.create({
 });
 
 // ─── トークン管理 ───────────────────────────────
-const TOKEN_KEY = 'wip_access_token';
-const REFRESH_KEY = 'wip_refresh_token';
+const TOKEN_KEY = 'senn_access_token';
+const REFRESH_KEY = 'senn_refresh_token';
 
 export function getAccessToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);

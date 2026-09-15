@@ -52,7 +52,7 @@ export function ForgotPasswordPage() {
     <div className="login" data-testid="forgot-password-page">
       <div className="login__card">
         <div className="login__header">
-          <h1 className="login__logo">WIP</h1>
+          <h1 className="login__logo">SENN</h1>
           <p className="login__tagline">
             {t('auth.forgotPasswordTitle', 'パスワードをリセット')}
           </p>

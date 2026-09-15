@@ -1,5 +1,5 @@
 /**
- * i18n.ts — WIP 国際化設定
+ * i18n.ts — SENN 国際化設定
  *
  * i18next + react-i18next による日英バイリンガル対応。
  * 翻訳ファイルは public/locales/{lang}.json に配置。
@@ -13,7 +13,7 @@ const resources = {
   en: {
     translation: {
       app: {
-        name: 'WIP',
+        name: 'SENN',
         tagline: 'Project management that never lags.',
       },
       nav: {
@@ -233,7 +233,7 @@ const resources = {
         updateFailed: 'Failed to update settings',
         aiTitle: 'AI (Ollama)',
         aiOllamaStatus: 'Ollama connection',
-        aiModelLabel: 'Model for WIP AI features',
+        aiModelLabel: 'Model for SENN AI features',
         aiEnvDefault: 'Environment default: {{model}}',
         aiModelSaved: 'AI model updated',
         aiModelReset: 'Reset to environment default',
@@ -317,7 +317,7 @@ const resources = {
         webhookHint: 'Set the URL above in your GitHub repo Settings → Webhooks. Choose Content type: application/json, and events: push and pull_request.',
         deleteConfirm: 'Delete this integration?',
         autoStatusTransition: 'Auto-update status on commits/PRs',
-        autoStatusTransitionDesc: 'Automatically update ticket status when commits or PRs with WIP-123 format keys are pushed or merged.\nWhen a PR with a key is opened or marked ready for review, the ticket transitions to a review status (if your workflow includes a status like in_review).',
+        autoStatusTransitionDesc: 'Automatically update ticket status when commits or PRs with SENN-123 format keys are pushed or merged.\nWhen a PR with a key is opened or marked ready for review, the ticket transitions to a review status (if your workflow includes a status like in_review).',
       },
       team: {
         descriptionPlaceholder: 'Team description (optional)',
@@ -411,7 +411,7 @@ const resources = {
   ja: {
     translation: {
       app: {
-        name: 'WIP',
+        name: 'SENN',
         tagline: '止まらないプロジェクト管理。',
       },
       nav: {
@@ -631,7 +631,7 @@ const resources = {
         updateFailed: '設定の更新に失敗しました',
         aiTitle: 'AI（Ollama）',
         aiOllamaStatus: 'Ollama 接続状態',
-        aiModelLabel: 'WIP の AI 機能で使うモデル',
+        aiModelLabel: 'SENN の AI 機能で使うモデル',
         aiEnvDefault: '環境変数の既定値: {{model}}',
         aiModelSaved: 'AI モデルを更新しました',
         aiModelReset: '環境変数の既定値に戻しました',
@@ -715,7 +715,7 @@ const resources = {
         webhookHint: 'GitHubリポジトリの Settings → Webhooks に上記URLを設定してください。Content type は application/json、イベントは push と pull_request を選択してください。',
         deleteConfirm: 'この連携を削除しますか？',
         autoStatusTransition: 'PR/コミットでステータスを自動更新',
-        autoStatusTransitionDesc: 'ブランチ名またはコミット／PR タイトルに WIP-123 形式のキーが含まれる場合、ステータスを自動で進めます。\nキー付き PR をオープンするか、作成済み PR をレビュー対象にするとレビュー相当のステータスへ進みます（ワークフローに in_review 等がある場合）。',
+        autoStatusTransitionDesc: 'ブランチ名またはコミット／PR タイトルに SENN-123 形式のキーが含まれる場合、ステータスを自動で進めます。\nキー付き PR をオープンするか、作成済み PR をレビュー対象にするとレビュー相当のステータスへ進みます（ワークフローに in_review 等がある場合）。',
       },
       team: {
         descriptionPlaceholder: 'チームの説明（任意）',

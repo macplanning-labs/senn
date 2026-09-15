@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ============================================================
-# rust/Dockerfile — WIP Rust(Axum)バックエンド
+# rust/Dockerfile — SENN Rust(Axum)バックエンド
 # マルチステージビルド(ビルド用イメージ + 軽量実行用イメージ)
 # ビルドコンテキストは rust/ ディレクトリ自身を想定
 #   (docker-compose.production.yml / docker-compose.yml で build: ./rust を指定)
@@ -35,11 +35,11 @@ COPY static ./static
 # という重大な事故が実際に発生した(ステージングで起動直後にコンテナが
 # 無限リスタートするクラッシュループとして発現)。キャッシュマウント方式は
 # 常に実ソースからビルドするため、この種の取り違えが原理的に起きない。
-# ビルド成果物はキャッシュマウント外の/app/wipにコピーしてイメージに残す
+# ビルド成果物はキャッシュマウント外の/app/sennにコピーしてイメージに残す
 # (キャッシュマウント自体の中身はイメージレイヤーに含まれないため)。
 RUN --mount=type=cache,target=/app/target,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    cargo build --release && cp target/release/wip /app/wip
+    cargo build --release && cp target/release/senn /app/senn
 
 FROM debian:trixie-slim AS runtime
 
@@ -49,11 +49,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/wip /app/wip
+COPY --from=builder /app/senn /app/senn
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/templates /app/templates
 COPY --from=builder /app/static /app/static
 
 EXPOSE 8151
 
-CMD ["/app/wip"]
+CMD ["/app/senn"]

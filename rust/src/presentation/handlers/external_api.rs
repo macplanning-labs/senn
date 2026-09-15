@@ -1,8 +1,8 @@
 /// presentation/handlers/external_api.rs — 外部API(X-API-Keyヘッダー認証)
 ///
 /// Django apps/api/views/external.py, apps/api/auth.py の移植。
-/// JWT/セッション認証を使わず、X-API-Keyヘッダーの値をWIP_API_KEYと比較する。
-/// 認証成功時はWIP_API_USER(デフォルト"管理者")のユーザーとして操作する。
+/// JWT/セッション認証を使わず、X-API-Keyヘッダーの値をSENN_API_KEYと比較する。
+/// 認証成功時はSENN_API_USER(デフォルト"管理者")のユーザーとして操作する。
 
 use axum::{
     extract::{State, Path},
@@ -28,7 +28,7 @@ async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<i32, (Sta
         None => {
             return Err((
                 StatusCode::UNAUTHORIZED,
-                json!({"error": "WIP_API_KEY が設定されていません"}),
+                json!({"error": "SENN_API_KEY が設定されていません"}),
             ));
         }
     };

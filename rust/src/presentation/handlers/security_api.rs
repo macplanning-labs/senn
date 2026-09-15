@@ -27,8 +27,8 @@ use webauthn_rs::prelude::*;
 
 /// WebAuthnのRP名 / TOTPのissuer名。移植元のWIP実装が固定していた値
 /// （旧 webauthn_service.rs の rp_name、旧 totp_service.rs の issuer="WIP"）を踏襲する。
-pub(crate) const WIP_RP_NAME: &str = "WIP — プロジェクト管理ツール";
-const WIP_TOTP_ISSUER: &str = "WIP";
+pub(crate) const WIP_RP_NAME: &str = "SENN";
+const TOTP_ISSUER: &str = "SENN";
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -113,7 +113,7 @@ pub async fn totp_begin(
 ) -> impl IntoResponse {
     let secret_bytes = totp_service::generate_secret();
 
-    let qr_base64 = match totp_service::generate_qr_base64(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string()) {
+    let qr_base64 = match totp_service::generate_qr_base64(&secret_bytes, TOTP_ISSUER, &auth_user.user_id.to_string()) {
         Ok(qr) => qr,
         Err(e) => {
             tracing::error!("QR code generation failed: {:?}", e);
@@ -162,7 +162,7 @@ pub async fn totp_confirm(
     };
 
     // TOTP コード検証
-    match totp_service::verify_code(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string(), &body.code) {
+    match totp_service::verify_code(&secret_bytes, TOTP_ISSUER, &auth_user.user_id.to_string(), &body.code) {
         Ok(true) => {}
         Ok(false) => {
             return (
@@ -251,7 +251,7 @@ pub async fn totp_disable(
                 Ok(Some(device)) if device.confirmed => {
                     match totp_service::decrypt_secret(&device.secret, &state.config.jwt_secret) {
                         Ok(secret_bytes) => {
-                            match totp_service::verify_code(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string(), code) {
+                            match totp_service::verify_code(&secret_bytes, TOTP_ISSUER, &auth_user.user_id.to_string(), code) {
                                 Ok(true) => verified = true,
                                 Ok(false) => {}
                                 Err(e) => {

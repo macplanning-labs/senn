@@ -1,8 +1,8 @@
 /// presentation/handlers/ai_agent_api.rs — AI専用外部API(X-AI-Api-Keyヘッダー認証)
 ///
-/// external_api.rs(WIP_API_KEY)と同じ「共有キー→固定ユーザーとして操作」の形だが、
+/// external_api.rs(SENN_API_KEY)と同じ「共有キー→固定ユーザーとして操作」の形だが、
 /// 鍵とユーザーを完全に分離する: Claude等のAIエージェントが起こした操作を、
-/// 人間/他システムからのWIP_API_KEY操作と別アカウント・別鍵として区別できるようにする。
+/// 人間/他システムからのSENN_API_KEY操作と別アカウント・別鍵として区別できるようにする。
 /// 対象: プロジェクト作成、チケット作成(ラベル・担当者は名前/ユーザー名指定)。
 
 use axum::{
@@ -38,7 +38,7 @@ async fn authenticate_ai(state: &AppState, headers: &HeaderMap) -> Result<i32, (
     let expected_key = match &state.config.wip_ai_api_key {
         Some(k) => k,
         None => {
-            return Err((StatusCode::UNAUTHORIZED, err("WIP_AI_API_KEY が設定されていません")));
+            return Err((StatusCode::UNAUTHORIZED, err("SENN_AI_API_KEY が設定されていません")));
         }
     };
 
