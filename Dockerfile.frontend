@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ============================================================
-# Dockerfile.frontend — WIP OSS フロントエンド(Vite SPA) + nginx
+# Dockerfile.frontend — SENN OSS フロントエンド(Vite SPA) + nginx
 # docker compose up --build で db + backend(Rust) + web(このイメージ) を起動する想定
 # nginxが / をSPA静的配信、/api /auth /static /media /health 等をbackendへプロキシする
 # ============================================================

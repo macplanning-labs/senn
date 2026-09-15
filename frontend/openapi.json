@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "WIP — Project Management API",
+    "title": "SENN — Project Management API",
     "version": "1.0.0",
-    "description": "REST API for WIP project management tool. Built with Django REST Framework."
+    "description": "REST API for SENN project management tool. Built with Django REST Framework."
   },
   "paths": {
     "/api/v1/auth/login/": {
@@ -2668,7 +2668,7 @@
       "cookieAuth": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "wip_sessionid"
+        "name": "senn_sessionid"
       },
       "jwtAuth": {
         "type": "http",

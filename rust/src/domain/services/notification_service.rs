@@ -61,7 +61,7 @@ pub async fn notify_ticket_event(
                 // ユーザーのメール通知設定確認
                 if let Some(user) = user_repo::find_by_id(pool, watcher_id).await? {
                     if user.email_notifications_enabled && !user.email.is_empty() {
-                        let subject = format!("[WIP] {}", title);
+                        let subject = format!("[SENN] {}", title);
                         let body = format!(
                             "{}\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
                             message, ticket.ticket_key, ticket.title
@@ -272,7 +272,7 @@ pub async fn notify_mentioned(
             // ユーザーのメール通知設定確認
             if let Some(user) = user_repo::find_by_id(pool, mentioned_user_id).await? {
                 if user.email_notifications_enabled && !user.email.is_empty() {
-                    let subject = format!("[WIP] {}", title);
+                    let subject = format!("[SENN] {}", title);
                     let body = format!(
                         "コメントでメンションされました\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
                         ticket.ticket_key, ticket.title
@@ -321,7 +321,7 @@ async fn notify_due_reminder(
     if let Some(sender) = mail_sender {
         if let Some(user) = user_repo::find_by_id(pool, user_id).await? {
             if user.email_notifications_enabled && !user.email.is_empty() {
-                let subject = format!("[WIP] {}", title);
+                let subject = format!("[SENN] {}", title);
                 let body = format!(
                     "{}\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
                     message, ticket_key, ticket_title

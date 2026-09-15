@@ -25,7 +25,7 @@ use crate::error::AuthError;
 ///
 /// - `rp_id` — Relying Party ID（ドメイン名、例: "localhost", "wip.example.com"）
 /// - `rp_origin` — Relying Party Origin（例: "http://localhost:3000"）
-/// - `rp_name` — 表示名（例: "WIP — プロジェクト管理ツール"）
+/// - `rp_name` — 表示名（例: "SENN"）
 pub fn create_webauthn(rp_id: &str, rp_origin: &str, rp_name: &str) -> Result<Webauthn, AuthError> {
     let origin = Url::parse(rp_origin)
         .map_err(|e| AuthError::WebAuthn(format!("無効なRP Origin '{rp_origin}': {e}")))?;

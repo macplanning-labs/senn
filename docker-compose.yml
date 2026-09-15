@@ -1,5 +1,5 @@
 # ============================================================
-# docker-compose.yml — WIP OSS ローカル一発起動
+# docker-compose.yml — SENN OSS ローカル一発起動
 # ============================================================
 # 使い方:
 #   cp .env.example .env
@@ -9,21 +9,21 @@
 # 秘密は .env のみ（本ファイルに平文で埋め込まない）
 # ============================================================
 
-name: wip-oss
+name: senn-oss
 
 services:
   db:
     image: postgres:16-alpine
-    container_name: wip-oss-db
+    container_name: senn-oss-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: wip
-      POSTGRES_USER: wip
+      POSTGRES_DB: senn
+      POSTGRES_USER: senn
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - wip_pgdata:/var/lib/postgresql/data
+      - senn_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wip -d wip"]
+      test: ["CMD-SHELL", "pg_isready -U senn -d senn"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -32,10 +32,10 @@ services:
     build:
       context: ./rust
       dockerfile: Dockerfile
-    container_name: wip-oss-backend
+    container_name: senn-oss-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://wip:${DB_PASSWORD}@db:5432/wip
+      DATABASE_URL: postgres://senn:${DB_PASSWORD}@db:5432/senn
       PORT: "8151"
       BASE_URL: ${BASE_URL:-http://localhost:8151}
       COOKIE_SECURE: "false"
@@ -45,9 +45,9 @@ services:
       WEBAUTHN_RP_ORIGIN: ${BASE_URL:-http://localhost:8151}
       MEDIA_DIR: /app/media
       # AIエージェント(Claude等)専用の外部API用キー。既定値はローカルお試し用のダミー値。
-      WIP_AI_API_KEY: ${WIP_AI_API_KEY:-wip-ai-demo-key}
+      SENN_AI_API_KEY: ${SENN_AI_API_KEY:-senn-ai-demo-key}
     volumes:
-      - wip_media:/app/media
+      - senn_media:/app/media
     depends_on:
       db:
         condition: service_healthy
@@ -56,7 +56,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: wip-oss-web
+    container_name: senn-oss-web
     restart: unless-stopped
     ports:
       - "${PORT:-8151}:80"
@@ -64,5 +64,5 @@ services:
       - backend
 
 volumes:
-  wip_pgdata:
-  wip_media:
+  senn_pgdata:
+  senn_media:

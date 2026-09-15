@@ -207,10 +207,10 @@ mod tests {
 
     #[test]
     fn base32_roundtrip_matches_current_code() {
-        let (secret_base32, _uri) = generate_totp_setup("WIP", "alice").unwrap();
+        let (secret_base32, _uri) = generate_totp_setup("SENN", "alice").unwrap();
         let secret_bytes = Secret::Encoded(secret_base32.clone()).to_bytes().unwrap();
-        let totp = build_totp(&secret_bytes, "WIP", "alice").unwrap();
+        let totp = build_totp(&secret_bytes, "SENN", "alice").unwrap();
         let code = totp.generate_current().unwrap();
-        assert!(verify_code_base32(&secret_base32, "WIP", &code).unwrap());
+        assert!(verify_code_base32(&secret_base32, "SENN", &code).unwrap());
     }
 }

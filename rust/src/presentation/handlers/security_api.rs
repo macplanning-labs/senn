@@ -25,10 +25,10 @@ use auth_core::domain::webauthn as webauthn_service;
 use crate::domain::services::jwt_service;
 use webauthn_rs::prelude::*;
 
-/// WebAuthnのRP名 / TOTPのissuer名。移植元のWIP実装が固定していた値
-/// （旧 webauthn_service.rs の rp_name、旧 totp_service.rs の issuer="WIP"）を踏襲する。
-pub(crate) const WIP_RP_NAME: &str = "WIP — プロジェクト管理ツール";
-const WIP_TOTP_ISSUER: &str = "WIP";
+/// WebAuthnのRP名 / TOTPのissuer名。移植元の旧実装が固定していた値
+/// （旧 webauthn_service.rs の rp_name、旧 totp_service.rs の issuer="SENN"）を踏襲する。
+pub(crate) const SENN_RP_NAME: &str = "SENN";
+const TOTP_ISSUER: &str = "SENN";
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -113,7 +113,7 @@ pub async fn totp_begin(
 ) -> impl IntoResponse {
     let secret_bytes = totp_service::generate_secret();
 
-    let qr_base64 = match totp_service::generate_qr_base64(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string()) {
+    let qr_base64 = match totp_service::generate_qr_base64(&secret_bytes, TOTP_ISSUER, &auth_user.user_id.to_string()) {
         Ok(qr) => qr,
         Err(e) => {
             tracing::error!("QR code generation failed: {:?}", e);
@@ -162,7 +162,7 @@ pub async fn totp_confirm(
     };
 
     // TOTP コード検証
-    match totp_service::verify_code(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string(), &body.code) {
+    match totp_service::verify_code(&secret_bytes, TOTP_ISSUER, &auth_user.user_id.to_string(), &body.code) {
         Ok(true) => {}
         Ok(false) => {
             return (
@@ -251,7 +251,7 @@ pub async fn totp_disable(
                 Ok(Some(device)) if device.confirmed => {
                     match totp_service::decrypt_secret(&device.secret, &state.config.jwt_secret) {
                         Ok(secret_bytes) => {
-                            match totp_service::verify_code(&secret_bytes, WIP_TOTP_ISSUER, &auth_user.user_id.to_string(), code) {
+                            match totp_service::verify_code(&secret_bytes, TOTP_ISSUER, &auth_user.user_id.to_string(), code) {
                                 Ok(true) => verified = true,
                                 Ok(false) => {}
                                 Err(e) => {
@@ -307,7 +307,7 @@ pub async fn passkey_register_begin(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     // リクエストヘッダーから WebAuthn インスタンスを構築
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -319,7 +319,7 @@ pub async fn passkey_register_begin(
     };
 
     // 既存パスキーを取得（exclude list 構築用）
-    // NOTE: WIP の DB schema では credential_id と public_key をバイナリで保存するため、
+    // NOTE: SENN の DB schema では credential_id と public_key をバイナリで保存するため、
     // 完全な Passkey を復元することはできない。exclude list は省略（同じ端末から複数登録可能）。
     let existing_credentials = None;
 
@@ -376,7 +376,7 @@ pub async fn passkey_register_complete(
     Json(body): Json<PasskeyRegisterCompleteRequest>,
 ) -> impl IntoResponse {
     // リクエストヘッダーから WebAuthn インスタンスを構築
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -426,7 +426,7 @@ pub async fn passkey_register_complete(
         }
     };
 
-    // credential_id のバイナリ表現（WIP schema では public_key として保存、実際の public key は JSON に含まれる）
+    // credential_id のバイナリ表現（SENN schema では public_key として保存、実際の public key は JSON に含まれる）
     let public_key_bin = credential_id.clone();
 
     // DB に保存
@@ -545,7 +545,7 @@ pub struct PasskeyLoginBeginResponse {
 pub async fn passkey_login_begin(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -583,7 +583,7 @@ pub async fn passkey_login_complete(
     headers: axum::http::HeaderMap,
     Json(body): Json<PasskeyLoginCompleteRequest>,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);

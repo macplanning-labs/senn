@@ -2551,6 +2551,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "senn"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "askama",
+ "async-trait",
+ "auth-core",
+ "axum",
+ "axum-extra",
+ "base64 0.22.1",
+ "chrono",
+ "dotenvy",
+ "governor",
+ "hmac",
+ "jsonwebtoken",
+ "lettre",
+ "pbkdf2",
+ "pulldown-cmark",
+ "rand 0.8.6",
+ "regex",
+ "reqwest",
+ "rust_xlsxwriter",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "totp-rs",
+ "tower",
+ "tower-http",
+ "tower_governor",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "utoipa",
+ "utoipa-swagger-ui",
+ "uuid",
+ "webauthn-rs",
+ "webauthn-rs-proto",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3988,52 +4034,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "wip"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "askama",
- "async-trait",
- "auth-core",
- "axum",
- "axum-extra",
- "base64 0.22.1",
- "chrono",
- "dotenvy",
- "governor",
- "hmac",
- "jsonwebtoken",
- "lettre",
- "pbkdf2",
- "pulldown-cmark",
- "rand 0.8.6",
- "regex",
- "reqwest",
- "rust_xlsxwriter",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "totp-rs",
- "tower",
- "tower-http",
- "tower_governor",
- "tracing",
- "tracing-subscriber",
- "url",
- "utoipa",
- "utoipa-swagger-ui",
- "uuid",
- "webauthn-rs",
- "webauthn-rs-proto",
 ]
 
 [[package]]

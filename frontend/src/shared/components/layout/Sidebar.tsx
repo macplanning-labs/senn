@@ -2,7 +2,7 @@
  * Sidebar.tsx — Linear 型 IA のサイドバー
  *
  * 自分のチケット / 通知 → 所属チーム（ダッシュボード / チケット / プロジェクト）→ その他
- * UX は Linear 寄り、表示用語は WIP（Issue / Inbox 等は使わない）。
+ * UX は Linear 寄り、表示用語は SENN（Issue / Inbox 等は使わない）。
  */
 
 import { useState, useEffect } from 'react';
@@ -317,7 +317,7 @@ export function Sidebar() {
       )}
       <div className="sidebar__header">
         {sidebarOpen && (
-          <span className="sidebar__logo" data-testid="sidebar-logo">WIP</span>
+          <span className="sidebar__logo" data-testid="sidebar-logo">SENN</span>
         )}
         <button
           className="sidebar__toggle"
