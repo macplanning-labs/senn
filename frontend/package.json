@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api": "orval --config ./orval.config.ts"
+    "generate:api": "orval --config ./orval.config.ts",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -50,6 +51,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
