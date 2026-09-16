@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-First public OSS extract of Senn. A SemVer tag (for example `v0.1.0`) will be cut from this section when the maintainer approves release.
+## [0.1.0] - 2026-09-16
+
+First public OSS release of Senn.
 
 ### Added
 
@@ -19,7 +21,7 @@ First public OSS extract of Senn. A SemVer tag (for example `v0.1.0`) will be cu
 
 - Frontend dependency updates clearing npm audit High/Critical/Moderate findings
 - OSS branding and sanitization (demo ticket keys; no `drive-core` in the public workspace)
-- Local setup examples use database name `senn` (not legacy `wip`)
+- Local setup examples use database name `senn`
 - CONTRIBUTING local CI aligned with `OSSP/scripts/run_local_ci.sh` (`SQLX_OFFLINE=true`, `cargo check|test --workspace`, `npm ci|build|test`)
 
 ### Fixed
