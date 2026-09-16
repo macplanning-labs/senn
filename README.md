@@ -92,9 +92,18 @@ npm run dev
 
 ## Tests
 
+Local CI equivalent (same as [CONTRIBUTING.md](./CONTRIBUTING.md) / maintainer `run_local_ci.sh`):
+
 ```bash
 cd rust
+export SQLX_OFFLINE=true
+cargo check --workspace
 cargo test --workspace
+
+cd ../frontend
+npm ci
+npm run build
+npm test
 ```
 
 ## License

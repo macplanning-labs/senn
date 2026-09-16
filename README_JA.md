@@ -92,9 +92,18 @@ cargo run
 
 ## テスト
 
+ローカル CI 相当（[CONTRIBUTING.md](./CONTRIBUTING.md) / メンテナ用 `run_local_ci.sh` と同じ）:
+
 ```bash
 cd rust
+export SQLX_OFFLINE=true
+cargo check --workspace
 cargo test --workspace
+
+cd ../frontend
+npm ci
+npm run build
+npm test
 ```
 
 ## ライセンス

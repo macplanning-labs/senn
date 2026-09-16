@@ -7,23 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+First public OSS extract of Senn. A SemVer tag (for example `v0.1.0`) will be cut from this section when the maintainer approves release.
+
 ### Added
 
 - Community documents: `NOTICE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
-- Admin / settings / chat integration / notification preferences synced into the public tree
+- Admin / settings / chat integration / notification preferences in the public tree
 - `google-auth` crate (Google Workspace service-account JWT helper)
 
 ### Changed
 
-- Frontend dependency updates to clear npm audit High/Critical/Moderate findings
-- OSS branding and sanitization (demo ticket keys, no `drive-core` in public workspace)
+- Frontend dependency updates clearing npm audit High/Critical/Moderate findings
+- OSS branding and sanitization (demo ticket keys; no `drive-core` in the public workspace)
+- Local setup examples use database name `senn` (not legacy `wip`)
+- CONTRIBUTING local CI aligned with `OSSP/scripts/run_local_ci.sh` (`SQLX_OFFLINE=true`, `cargo check|test --workspace`, `npm ci|build|test`)
 
 ### Fixed
 
 - Internal-only references removed from the extract tree for public gates
-- Community docs use NOTICE copyright (MacPlanning Co., Ltd. 2024); LICENSE matched and concrete security reporting path
+- NOTICE copyright set to MacPlanning Co., Ltd. (2024); `LICENSE` matched
+- Security contact documented (`y.yoshikawa@macplanning.com`)
 
 ### Known limitations
 
-- Deployment / cloud integration docs are still minimal
-- First SemVer tag (`v0.1.0`) is not cut yet (pending maintainer release approval)
+- Deployment / cloud integration documentation is still minimal
+- Cycle 4+ (e.g. SES-related) work is out of scope for this extract

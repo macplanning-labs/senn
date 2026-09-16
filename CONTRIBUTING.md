@@ -23,13 +23,15 @@ Security contact: `y.yoshikawa@macplanning.com`
 ## Submitting Pull Requests
 
 1. Fork (or clone) and create a feature branch
-2. Make changes and run the local checks below
+2. Make changes and run **Local CI** below (must be green)
 3. Keep commits focused; write a clear commit message
 4. Open a PR with a short summary of intent and test evidence
 
-## Local Development
+## Local CI (required before PR)
 
-### Rust
+This matches the maintainer helper `OSSP/scripts/run_local_ci.sh` (GitHub Actions substitute).
+
+### Rust (`SQLX_OFFLINE=true`)
 
 ```bash
 cd rust
@@ -38,8 +40,6 @@ cargo check --workspace
 cargo test --workspace
 ```
 
-For a normal local run against PostgreSQL, set `DATABASE_URL` in `.env` (see `.env.example`) and use `cargo run` from `rust/`.
-
 ### Frontend
 
 ```bash
@@ -47,22 +47,41 @@ cd frontend
 npm ci
 npm run build
 npm test
-npm audit
 ```
 
-### Full local CI (recommended before PR)
-
-From a machine that has the OSSP helper scripts (maintainers), or equivalently:
+### One-shot (from repository root)
 
 ```bash
-# Rust
-cd rust && SQLX_OFFLINE=true cargo check --workspace && SQLX_OFFLINE=true cargo test --workspace
+# Rust — same as run_local_ci.sh --rust-only
+( cd rust && export SQLX_OFFLINE=true && cargo check --workspace && cargo test --workspace )
 
-# Frontend
-cd frontend && npm ci && npm run build && npm test && npm audit
+# Frontend — same as run_local_ci.sh --frontend-only
+( cd frontend && npm ci && npm run build && npm test )
 ```
 
-`npm audit` should report **0 high** and **0 critical**.
+Maintainers with the OSSP workspace can instead run:
+
+```bash
+export OSS_REPO="/path/to/senn-oss-extract"
+/bin/bash /path/to/OSSP/scripts/run_local_ci.sh
+```
+
+### Dependency audit (recommended)
+
+```bash
+cd frontend && npm audit
+```
+
+`npm audit` should report **0 high** and **0 critical** before release.
+
+## Local app run (optional)
+
+For a normal run against PostgreSQL, copy `.env.example` → `.env`, create DB `senn` (see README), set `DATABASE_URL`, then:
+
+```bash
+cd rust && cargo run
+cd frontend && npm run dev
+```
 
 ## Code Guidelines
 
