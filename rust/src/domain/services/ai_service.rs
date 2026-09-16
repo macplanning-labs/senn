@@ -430,7 +430,7 @@ You are the core project management AI of an agile development tool. Analyze the
 # Input Data (System Identifiers)
 The following data uses strict system identifiers (DB values). Never change these strings during your analysis.
 - Project Status: active (Possible values: active, completed, paused, canceled)
-- Task Status: in_progress (Possible values: backlog, todo, in_progress, done, canceled, resolved)
+- Task Status: in_progress (Possible values: backlog, open, in_progress, resolved, closed, canceled)
 
 [Project Details]
 - Prefix: {project_prefix}

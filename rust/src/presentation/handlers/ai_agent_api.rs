@@ -1,8 +1,8 @@
 /// presentation/handlers/ai_agent_api.rs — AI専用外部API(X-AI-Api-Keyヘッダー認証)
 ///
-/// external_api.rs(SENN_API_KEY)と同じ「共有キー→固定ユーザーとして操作」の形だが、
+/// external_api.rs(WIP_API_KEY)と同じ「共有キー→固定ユーザーとして操作」の形だが、
 /// 鍵とユーザーを完全に分離する: Claude等のAIエージェントが起こした操作を、
-/// 人間/他システムからのSENN_API_KEY操作と別アカウント・別鍵として区別できるようにする。
+/// 人間/他システムからのWIP_API_KEY操作と別アカウント・別鍵として区別できるようにする。
 /// 対象: プロジェクト作成、チケット作成(ラベル・担当者は名前/ユーザー名指定)。
 
 use axum::{
@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::presentation::handlers::system_admin_api;
 use crate::presentation::state::AppState;
 use crate::domain::models::resource_api::ProjectWriteIn;
 use crate::domain::models::ticket_api::{TicketWriteIn, TicketPatchIn};
@@ -35,7 +36,7 @@ async fn authenticate_ai(state: &AppState, headers: &HeaderMap) -> Result<i32, (
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let expected_key = match &state.config.wip_ai_api_key {
+    let expected_key = match system_admin_api::resolve_ai_agent_api_key(state).await {
         Some(k) => k,
         None => {
             return Err((StatusCode::UNAUTHORIZED, err("SENN_AI_API_KEY が設定されていません")));
@@ -62,7 +63,7 @@ async fn authenticate_ai(state: &AppState, headers: &HeaderMap) -> Result<i32, (
     let created = user_repo::create_user(
         &state.pool,
         username,
-        "ai-agent@example.com",
+        "ai-agent@localhost",
         "!",
         "AI",
         "Agent",
@@ -97,7 +98,8 @@ pub struct CreateAiProjectIn {
     pub prefix: Option<String>,
     #[serde(default)]
     pub description: String,
-    pub owner_team: Option<i32>,
+    #[serde(default, rename = "teamIds")]
+    pub team_ids: Vec<i32>,
 }
 
 /// POST /api/v1/ai-agent/projects/
@@ -119,11 +121,16 @@ pub async fn create_project(
         _ => return (StatusCode::BAD_REQUEST, Json(err("name と prefix は必須です"))).into_response(),
     };
 
+    // Validate team_ids is not empty
+    if body.team_ids.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(err("teamIds は1つ以上必須です"))).into_response();
+    }
+
     let input = ProjectWriteIn {
         name: name.clone(),
         prefix: prefix.clone(),
         description: body.description.clone(),
-        owner_team: body.owner_team,
+        team_ids: body.team_ids.clone(),
     };
 
     match resource_repo::create_project(&state.pool, &input, None).await {
@@ -182,7 +189,7 @@ pub async fn create_ticket(
         _ => return (StatusCode::BAD_REQUEST, Json(err("title は必須です"))).into_response(),
     };
 
-    // Resolve Team ID from team_id, team_slug, or project_prefix's owner_team
+    // Resolve Team ID from team_id, team_slug, or project_prefix's participating teams
     let team_id: i32 = if let Some(tid) = body.team_id {
         tid
     } else if let Some(slug) = &body.team_slug {
@@ -203,7 +210,7 @@ pub async fn create_ticket(
             }
         }
     } else if let Some(project_prefix) = &body.project_prefix {
-        // Resolve project by prefix and get its owner_team
+        // Resolve project by prefix and get its participating teams
         let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
             Ok(Some(id)) => id,
             Ok(None) => {
@@ -234,11 +241,16 @@ pub async fn create_ticket(
             }
         };
 
-        match project.owner_team {
-            Some(team) => team.id,
-            None => {
+        match project.teams.as_slice() {
+            [team] => team.id,
+            [] => {
                 return (StatusCode::BAD_REQUEST, Json(err(
-                    format!("プロジェクト '{}' に所属 Team がありません", project_prefix)
+                    format!("プロジェクト '{}' に参加チームがありません", project_prefix)
+                ))).into_response();
+            }
+            _ => {
+                return (StatusCode::BAD_REQUEST, Json(err(
+                    format!("プロジェクト '{}' は複数チームに参加しており、teamId/teamSlug が必須です", project_prefix)
                 ))).into_response();
             }
         }
@@ -336,6 +348,7 @@ pub async fn create_ticket(
         priority: body.priority.clone(),
         ticket_type: body.ticket_type.clone(),
         assignees: assignee_ids,
+        reviewers: Vec::new(),
         category: None,
         project: project_id,
         milestone: None,
@@ -834,23 +847,28 @@ pub async fn create_cycle(
         }
     };
 
-    // ownerTeam を取得して team_id を決定
-    let owner_team_id: Option<i32> = sqlx::query_scalar(
-        "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1::int4"
+    // project の参加チームから team_id を決定
+    let participating_teams: Vec<i32> = match sqlx::query_scalar(
+        "SELECT team_id FROM tickets_project_teams WHERE project_id = $1::int4 ORDER BY team_id"
     )
     .bind(project_id)
-    .fetch_optional(&state.pool)
+    .fetch_all(&state.pool)
     .await
-    .unwrap_or(None);
+    {
+        Ok(teams) => teams,
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        }
+    };
 
-    let team_id = match owner_team_id {
-        Some(id) => id,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(err("owner_team_id is required")),
-            )
-                .into_response();
+    let team_id = match participating_teams.as_slice() {
+        [single_team] => *single_team,
+        [] => {
+            return (StatusCode::BAD_REQUEST, Json(err("project has no participating teams"))).into_response();
+        }
+        _ => {
+            return (StatusCode::BAD_REQUEST, Json(err("project has multiple teams; specify team_id or team_slug"))).into_response();
         }
     };
 

@@ -1,5 +1,5 @@
 /**
- * i18n.ts — SENN 国際化設定
+ * i18n.ts — WIP 国際化設定
  *
  * i18next + react-i18next による日英バイリンガル対応。
  * 翻訳ファイルは public/locales/{lang}.json に配置。
@@ -34,6 +34,9 @@ const resources = {
         notifications: 'Notifications',
         reports: 'Reports',
         settings: 'Settings',
+        projectSettings: 'Project settings',
+        teamSettings: 'Team settings',
+        personalSettings: 'Personal settings',
       },
       myIssues: {
         assigned: 'Assigned',
@@ -42,7 +45,7 @@ const resources = {
       },
       teamProjects: {
         empty: 'No projects for this team yet',
-        emptyHint: 'Create a project and set this team as owner.',
+        emptyHint: 'Create a project and add this team as a participating team.',
       },
       sidebar: {
         selectProject: 'Select project',
@@ -55,6 +58,9 @@ const resources = {
         global: 'Global',
         more: 'More',
         yourTeams: 'Teams',
+        projects: 'Participating projects',
+        otherTeams: 'Other teams ({{count}})',
+        otherProjects: 'Other projects ({{count}})',
         lightMode: 'Light mode',
         darkMode: 'Dark mode',
         savedViews: 'Saved Views',
@@ -317,7 +323,7 @@ const resources = {
         webhookHint: 'Set the URL above in your GitHub repo Settings → Webhooks. Choose Content type: application/json, and events: push and pull_request.',
         deleteConfirm: 'Delete this integration?',
         autoStatusTransition: 'Auto-update status on commits/PRs',
-        autoStatusTransitionDesc: 'Automatically update ticket status when commits or PRs with SENN-123 format keys are pushed or merged.\nWhen a PR with a key is opened or marked ready for review, the ticket transitions to a review status (if your workflow includes a status like in_review).',
+        autoStatusTransitionDesc: 'Automatically update ticket status when commits or PRs with WIP-123 format keys are pushed or merged.\nWhen a PR with a key is opened or marked ready for review, the ticket transitions to a review status (if your workflow includes a status like in_review).',
       },
       team: {
         descriptionPlaceholder: 'Team description (optional)',
@@ -432,6 +438,9 @@ const resources = {
         notifications: '通知',
         reports: 'レポート',
         settings: '設定',
+        projectSettings: 'プロジェクト設定',
+        teamSettings: 'チーム設定',
+        personalSettings: '個人設定',
       },
       myIssues: {
         assigned: '担当',
@@ -440,7 +449,7 @@ const resources = {
       },
       teamProjects: {
         empty: 'このチームのプロジェクトはまだありません',
-        emptyHint: 'プロジェクトを作成し、このチームをオーナーに設定してください。',
+        emptyHint: 'プロジェクトを作成し、このチームを参加チームに追加してください。',
       },
       sidebar: {
         selectProject: 'プロジェクトを選択',
@@ -453,6 +462,9 @@ const resources = {
         global: 'グローバル',
         more: 'その他',
         yourTeams: '所属チーム',
+        projects: '参加プロジェクト',
+        otherTeams: 'その他のチーム ({{count}})',
+        otherProjects: 'その他のプロジェクト ({{count}})',
         lightMode: 'ライトモード',
         darkMode: 'ダークモード',
         savedViews: '保存ビュー',
@@ -715,7 +727,7 @@ const resources = {
         webhookHint: 'GitHubリポジトリの Settings → Webhooks に上記URLを設定してください。Content type は application/json、イベントは push と pull_request を選択してください。',
         deleteConfirm: 'この連携を削除しますか？',
         autoStatusTransition: 'PR/コミットでステータスを自動更新',
-        autoStatusTransitionDesc: 'ブランチ名またはコミット／PR タイトルに SENN-123 形式のキーが含まれる場合、ステータスを自動で進めます。\nキー付き PR をオープンするか、作成済み PR をレビュー対象にするとレビュー相当のステータスへ進みます（ワークフローに in_review 等がある場合）。',
+        autoStatusTransitionDesc: 'ブランチ名またはコミット／PR タイトルに WIP-123 形式のキーが含まれる場合、ステータスを自動で進めます。\nキー付き PR をオープンするか、作成済み PR をレビュー対象にするとレビュー相当のステータスへ進みます（ワークフローに in_review 等がある場合）。',
       },
       team: {
         descriptionPlaceholder: 'チームの説明（任意）',

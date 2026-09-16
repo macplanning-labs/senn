@@ -52,9 +52,10 @@ pub(crate) fn calculate_membership_status(
     end_date: Option<NaiveDate>,
     grace_period_days: i32,
 ) -> (bool, bool, Option<i64>) {
-    use chrono::Local;
+    use chrono::Utc;
 
-    let today = Local::now().naive_utc().date();
+    // チケットアクセス SQL の NOW()::date（DB=UTC 前提）と揃える（DEMO-000170）
+    let today = Utc::now().date_naive();
 
     match end_date {
         None => {
@@ -92,14 +93,15 @@ mod tests {
         .expect("team membership 作成失敗");
     }
 
-    async fn owner_team_id(pool: &sqlx::PgPool, project_id: i32) -> i32 {
+    async fn get_project_team(pool: &sqlx::PgPool, project_id: i32) -> i32 {
+        // Get the first participating team
         sqlx::query_scalar::<_, i32>(
-            "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+            "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id LIMIT 1"
         )
         .bind(project_id)
         .fetch_one(pool)
         .await
-        .expect("owner_team_id 取得失敗")
+        .expect("team 取得失敗")
     }
 
     async fn set_ticket_team(pool: &sqlx::PgPool, ticket_id: i32, team_id: i32) {
@@ -118,7 +120,7 @@ mod tests {
         let team_user = test_support::create_test_user(&pool, "acc_tm").await;
         let outsider = test_support::create_test_user(&pool, "acc_out").await;
         let project_id = test_support::create_test_project(&pool, "ACCT", author).await;
-        let team_id = owner_team_id(&pool, project_id).await;
+        let team_id = get_project_team(&pool, project_id).await;
         let ticket_id = test_support::create_test_ticket(&pool, project_id, "ACCT", author).await;
         set_ticket_team(&pool, ticket_id, team_id).await;
         add_team_membership(&pool, team_id, team_user, "member").await;
@@ -176,17 +178,28 @@ mod tests {
     async fn create_project_under_team(pool: &sqlx::PgPool, team_id: i32, prefix_base: &str) -> i32 {
         let prefix = format!("{prefix_base}{}", test_support::unique_suffix());
         let prefix = prefix[..prefix.len().min(20)].to_string();
-        sqlx::query_scalar::<_, i32>(
-            "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days, owner_team_id)
-             VALUES ($1, $2, '', 'active', NOW(), 3, $3)
+        let project_id = sqlx::query_scalar::<_, i32>(
+            "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
+             VALUES ($1, $2, '', 'active', NOW(), 3)
              RETURNING id::int4"
         )
         .bind(format!("テストプロジェクト-{prefix}"))
         .bind(&prefix)
-        .bind(team_id)
         .fetch_one(pool)
         .await
-        .expect("テストプロジェクト作成に失敗")
+        .expect("テストプロジェクト作成に失敗");
+
+        // Add team to project
+        sqlx::query(
+            "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1, $2, NOW())"
+        )
+        .bind(project_id)
+        .bind(team_id)
+        .execute(pool)
+        .await
+        .expect("テストプロジェクトへのチーム追加に失敗");
+
+        project_id
     }
 
     #[tokio::test]
@@ -196,11 +209,11 @@ mod tests {
         let author = test_support::create_test_user(&pool, "acc_author_l2a").await;
         let guest = test_support::create_test_user(&pool, "acc_guest_l2a").await;
         let project_id = test_support::create_test_project(&pool, "ACCL2A", author).await;
-        let team_id = owner_team_id(&pool, project_id).await;
+        let team_id = get_project_team(&pool, project_id).await;
         let ticket_id = test_support::create_test_ticket(&pool, project_id, "ACCL2A", author).await;
         set_ticket_team(&pool, ticket_id, team_id).await;
 
-        let tomorrow = chrono::Local::now().naive_utc().date() + chrono::Duration::days(1);
+        let tomorrow = chrono::Utc::now().date_naive() + chrono::Duration::days(1);
         add_scoped_team_membership(&pool, team_id, guest, project_id, Some(tomorrow)).await;
 
         let ok = check_ticket_access(&pool, ticket_id, guest)
@@ -216,12 +229,12 @@ mod tests {
         let author = test_support::create_test_user(&pool, "acc_author_l2b").await;
         let guest = test_support::create_test_user(&pool, "acc_guest_l2b").await;
         let project_id = test_support::create_test_project(&pool, "ACCL2B", author).await;
-        let team_id = owner_team_id(&pool, project_id).await;
+        let team_id = get_project_team(&pool, project_id).await;
         let ticket_id = test_support::create_test_ticket(&pool, project_id, "ACCL2B", author).await;
         set_ticket_team(&pool, ticket_id, team_id).await;
 
         // create_test_projectのgrace_period_daysは0なので、昨日の日付は確実に期限切れ
-        let yesterday = chrono::Local::now().naive_utc().date() - chrono::Duration::days(1);
+        let yesterday = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
         add_scoped_team_membership(&pool, team_id, guest, project_id, Some(yesterday)).await;
 
         let ok = check_ticket_access(&pool, ticket_id, guest)
@@ -237,7 +250,7 @@ mod tests {
         let author = test_support::create_test_user(&pool, "acc_author_l2c").await;
         let guest = test_support::create_test_user(&pool, "acc_guest_l2c").await;
         let project_a = test_support::create_test_project(&pool, "ACCL2C", author).await;
-        let team_id = owner_team_id(&pool, project_a).await;
+        let team_id = get_project_team(&pool, project_a).await;
         let project_b = create_project_under_team(&pool, team_id, "ACCL2D").await;
         let ticket_in_b = test_support::create_test_ticket(&pool, project_b, "ACCL2D", author).await;
         set_ticket_team(&pool, ticket_in_b, team_id).await;

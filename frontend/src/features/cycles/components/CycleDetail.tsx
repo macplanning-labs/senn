@@ -69,11 +69,11 @@ export function CycleDetail() {
     cycleId: string;
     ticketId?: string;
   }>();
-  // Projectスコープ(/p/:projectKey/cycles/:cycleId)とTeamスコープ(/t/:teamSlug/cycles/:cycleId)の
+  // Projectスコープ(/project/:projectKey/cycles/:cycleId)とTeamスコープ(/team/:teamSlug/cycles/:cycleId)の
   // どちらでマウントされたかでURLの組み立て先を切り替える(WIPAPPDEV-000045)
-  const cyclesListPath = projectKey ? `/p/${projectKey}/cycles` : `/t/${teamSlug}/cycles`;
+  const cyclesListPath = projectKey ? `/project/${projectKey}/cycles` : `/team/${teamSlug}/cycles`;
   const cycleDetailPath = (id: string) =>
-    projectKey ? `/p/${projectKey}/cycles/${id}` : `/t/${teamSlug}/cycles/${id}`;
+    projectKey ? `/project/${projectKey}/cycles/${id}` : `/team/${teamSlug}/cycles/${id}`;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentProject } = useProject();

@@ -25,8 +25,7 @@ pub struct ProjectOut {
     pub ticket_count: i64,
     #[serde(rename = "memberCount")]
     pub member_count: i64,
-    #[serde(rename = "ownerTeam")]
-    pub owner_team: Option<TeamSummaryOut>,
+    pub teams: Vec<TeamSummaryOut>,
     #[serde(rename = "ownerId")]
     pub owner_id: Option<i32>,
     #[serde(rename = "createdAt")]
@@ -43,7 +42,8 @@ pub struct ProjectWriteIn {
     pub prefix: String,
     #[serde(default)]
     pub description: String,
-    pub owner_team: Option<i32>,
+    #[serde(rename = "teamIds")]
+    pub team_ids: Vec<i32>,
 }
 
 /// JSONキー有無と null クリアを区別する（ticket_api::TicketPatchIn と同型）。
@@ -57,9 +57,6 @@ where
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProjectPatchIn {
-    /// 外側: キー有無 / 内側: DB 値（null 可）。FE の「— None」は null クリア。
-    #[serde(default, deserialize_with = "deserialize_present")]
-    pub owner_team: Option<Option<i32>>,
     #[serde(default, rename = "cycleAutoComplete")]
     pub cycle_auto_complete: Option<bool>,
     #[serde(default, rename = "cycleAutoCreateNext")]

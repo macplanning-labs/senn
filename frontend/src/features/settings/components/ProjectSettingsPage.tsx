@@ -1,7 +1,7 @@
 /**
  * ProjectSettingsPage.tsx — 統合設定画面
  *
- * URL: /p/:projectKey/settings
+ * URL: /project/:projectKey/settings
  * タブ構成: General | Labels | Categories | Milestones | Members (Phase 2)
  *
  * Linear方式: フッターの Settings からアクセス。
@@ -16,13 +16,13 @@ import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
-import { useTeams } from '@/features/teams/hooks/useTeams';
 import { useToastStore } from '@/shared/stores/toastStore';
 import { LabelSettings } from './LabelSettings';
 import { CategorySettings } from './CategorySettings';
 import { MilestoneSettings } from './MilestoneSettings';
 import { WorkflowSettings } from './WorkflowSettings';
 import { IntegrationSettings } from './IntegrationSettings';
+import { ChatIntegrationSettings } from './ChatIntegrationSettings';
 import { SecuritySettings } from './SecuritySettings';
 import { HolidaySettings } from './HolidaySettings';
 import './ProjectSettings.css';
@@ -62,7 +62,6 @@ function GeneralSettings() {
   const { theme, toggleTheme } = useUIStore();
   const { user } = useAuthStore();
   const { currentProject } = useProject();
-  const { data: teams } = useTeams();
   const { addToast } = useToastStore();
   const queryClient = useQueryClient();
   const [descriptionEdit, setDescriptionEdit] = useState(false);
@@ -75,20 +74,6 @@ function GeneralSettings() {
     !!user &&
     (user.isStaff || currentProject?.ownerId === user.id);
 
-  const updateOwnerTeam = useMutation({
-    mutationFn: async (ownerTeamId: number | null) => {
-      await apiClient.patch(`/projects/${currentProject?.id}/`, {
-        owner_team: ownerTeamId,
-      });
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast({ message: 'オーナーチームを更新しました', type: 'success' });
-    },
-    onError: () => {
-      addToast({ message: 'オーナーチームの更新に失敗しました', type: 'error' });
-    },
-  });
 
   const updateDescription = useMutation({
     mutationFn: async (description: string) => {
@@ -151,35 +136,54 @@ function GeneralSettings() {
       {currentProject && (
         <>
           <div className="settings-section__header">
-            <h2 className="settings-section__title">Owner Team</h2>
+            <h2 className="settings-section__title">Participating Teams</h2>
           </div>
           <div style={{ marginBottom: 'var(--space-6)' }}>
-            <select
-              className="settings-form__select"
-              value={(currentProject as any).ownerTeam?.id ?? ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                updateOwnerTeam.mutate(val ? Number(val) : null);
-              }}
-              data-testid="owner-team-select"
-              style={{
-                width: '100%',
-                maxWidth: 320,
-                padding: 'var(--space-2) var(--space-3)',
-                background: 'var(--color-bg-elevated)',
-                border: '1px solid var(--color-border-default)',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--color-text-primary)',
-                fontSize: 'var(--font-size-sm)',
-              }}
-            >
-              <option value="">— None</option>
-              {(teams ?? []).map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.icon} {team.name}
-                </option>
-              ))}
-            </select>
+            <div style={{
+              display: 'grid',
+              gap: 'var(--space-2)',
+            }}>
+              {(currentProject?.teams ?? []).length > 0 ? (
+                (currentProject.teams ?? []).map((team) => (
+                  <div
+                    key={team.id}
+                    style={{
+                      padding: 'var(--space-3)',
+                      background: 'var(--color-bg-elevated)',
+                      border: '1px solid var(--color-border-default)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 'var(--space-3)',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <span style={{ fontSize: '1.2em' }}>{team.icon}</span>
+                      <div>
+                        <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
+                          {team.name}
+                        </div>
+                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
+                          {team.slug}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-sm)' }}>
+                  参加チームがありません
+                </div>
+              )}
+            </div>
+            <p style={{
+              fontSize: 'var(--font-size-sm)',
+              color: 'var(--color-text-secondary)',
+              marginTop: 'var(--space-3)',
+            }}>
+              参加チームの追加・削除は別途管理します
+            </p>
           </div>
         </>
       )}
@@ -589,13 +593,15 @@ export function ProjectSettingsPage() {
             <div className="settings-empty__text">
               メンバー管理は Team 設定に統合されました。所属 Team のメンバー・
               Project 限定ゲストは<Link to="/teams">チーム設定</Link>
-              {currentProject.ownerTeam ? `(${currentProject.ownerTeam.name})` : ''}
               から管理してください。
             </div>
           </div>
         )}
         {activeTab === 'integrations' && (
-          <IntegrationSettings projectId={currentProject.id} />
+          <div>
+            <IntegrationSettings projectId={currentProject.id} />
+            <ChatIntegrationSettings projectId={currentProject.id} />
+          </div>
         )}
         {activeTab === 'security' && <SecuritySettings />}
       </div>

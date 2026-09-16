@@ -37,6 +37,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   due_soon: '⏰',
   overdue: '🔥',
   mentioned: '📢',
+  review_requested: '👁️',
   wiki_updated: '📄',
   cycle_auto_completed: '📅',
   updated: '📝',
@@ -53,6 +54,7 @@ function categoryLabel(category: string, t: (key: string, options?: { defaultVal
     due_soon: 'Due Soon',
     overdue: 'Overdue',
     mentioned: 'Mention',
+    review_requested: 'Review Requested',
     wiki_updated: 'Wiki',
     updated: 'Updated',
   };
@@ -208,7 +210,7 @@ export function NotificationsPage() {
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {
-        navigate(`/p/${projectKey}/cycles`);
+        navigate(`/project/${projectKey}/cycles`);
       }
     }
   }
@@ -259,10 +261,12 @@ export function NotificationsPage() {
             <p>{filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}</p>
           </div>
         ) : (
-          filtered.map((n, index) => (
+          filtered.map((n, index) => {
+            const isHighPriority = n.category === 'review_requested' || n.category === 'mentioned';
+            return (
             <div
               key={n.id}
-              className={`notifications-page__item ${!n.isRead ? 'notifications-page__item--unread' : ''} ${index === selectedIndex ? 'notifications-page__item--selected' : ''}`}
+              className={`notifications-page__item ${!n.isRead ? 'notifications-page__item--unread' : ''} ${index === selectedIndex ? 'notifications-page__item--selected' : ''} ${isHighPriority ? 'notifications-page__item--high-priority' : ''}`}
               onClick={() => handleNotificationClick(n)}
               data-testid={`notif-${n.id}`}
             >
@@ -290,7 +294,8 @@ export function NotificationsPage() {
               </div>
               {!n.isRead && <span className="notifications-page__unread-dot" />}
             </div>
-          ))
+          );
+          })
         )}
       </div>
     </div>

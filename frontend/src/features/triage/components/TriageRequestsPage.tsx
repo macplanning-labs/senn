@@ -294,7 +294,7 @@ export function TriageRequestsPage() {
                         fontSize: 'var(--font-size-sm)',
                       }}>
                         🎫 <a
-                          href={`/p/${req.ticketKey.split('-')[0]}/tickets/${req.ticketKey}`}
+                          href={`/project/${req.ticketKey.split('-')[0]}/tickets/${req.ticketKey}`}
                           style={{ color: 'var(--color-accent-primary)', fontWeight: 600 }}
                         >
                           {req.ticketKey}

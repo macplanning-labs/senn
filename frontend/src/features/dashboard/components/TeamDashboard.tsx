@@ -78,21 +78,21 @@ export function TeamDashboard() {
         <div className="dashboard__go-to">
           <button
             className="dashboard__go-to-link"
-            onClick={() => navigate(`/t/${teamSlug}/tickets`)}
+            onClick={() => navigate(`/team/${teamSlug}/tickets`)}
             title={t('shortcuts.goToTickets')}
           >
             {t('teamHome.goToTickets')}
           </button>
           <button
             className="dashboard__go-to-link"
-            onClick={() => navigate(`/t/${teamSlug}/projects`)}
+            onClick={() => navigate(`/team/${teamSlug}/projects`)}
             title={t('shortcuts.goToProjects')}
           >
             {t('teamHome.goToProjects')}
           </button>
           <button
             className="dashboard__go-to-link"
-            onClick={() => navigate(`/t/${teamSlug}/settings`)}
+            onClick={() => navigate(`/team/${teamSlug}/settings`)}
             title={t('shortcuts.goToSettings')}
           >
             {t('teamHome.goToSettings')}

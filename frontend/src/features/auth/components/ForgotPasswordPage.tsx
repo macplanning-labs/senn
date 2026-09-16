@@ -5,6 +5,7 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
+import type { AxiosError } from 'axios';
 import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
 
@@ -41,8 +42,26 @@ export function ForgotPasswordPage() {
       if (res.data.reset_url) {
         setResetUrl(res.data.reset_url);
       }
-    } catch {
-      setError(t('auth.resetRequestFailed', 'リクエストに失敗しました。しばらくしてから再度お試しください。'));
+    } catch (err) {
+      const axiosErr = err as AxiosError<{ detail?: string; message?: string }>;
+      const status = axiosErr.response?.status;
+      const detail =
+        axiosErr.response?.data?.detail
+        || axiosErr.response?.data?.message
+        || (typeof axiosErr.response?.data === 'string' ? axiosErr.response.data : undefined);
+      const fallback = t(
+        'auth.resetRequestFailed',
+        'リクエストに失敗しました。しばらくしてから再度お試しください。',
+      );
+      if (detail) {
+        setError(status ? `${detail} (HTTP ${status})` : detail);
+      } else if (status) {
+        setError(`${fallback} (HTTP ${status})`);
+      } else if (axiosErr.message) {
+        setError(`${fallback} (${axiosErr.message})`);
+      } else {
+        setError(fallback);
+      }
     } finally {
       setIsLoading(false);
     }

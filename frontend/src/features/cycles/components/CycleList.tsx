@@ -51,7 +51,9 @@ export function CycleList() {
   const [formDescription, setFormDescription] = useState('');
   const [formStart, setFormStart] = useState('');
   const [formEnd, setFormEnd] = useState('');
-  const [formTeamId, setFormTeamId] = useState<number | null>(project?.ownerTeam?.id ?? team?.id ?? null);
+  const [formTeamId, setFormTeamId] = useState<number | null>(
+    project?.teams?.[0]?.id ?? team?.id ?? null
+  );
   const [filterTeamId, setFilterTeamId] = useState<number | null>(null);
   const [error, setError] = useState('');
 
@@ -66,9 +68,9 @@ export function CycleList() {
       teamSet.set(c.team.id, c.team);
     }
   });
-  if (project?.ownerTeam?.id) {
-    teamSet.set(project.ownerTeam.id, project.ownerTeam);
-  }
+  (project?.teams ?? []).forEach(t => {
+    teamSet.set(t.id, t);
+  });
 
   // フィルタを適用
   const filteredPlanned = filterTeamId
@@ -105,7 +107,7 @@ export function CycleList() {
         setFormDescription('');
         setFormStart('');
         setFormEnd('');
-        setFormTeamId(project?.ownerTeam?.id ?? team?.id ?? null);
+        setFormTeamId(project?.teams?.[0]?.id ?? team?.id ?? null);
         setError('');
       },
       onError: (err: unknown) => {
@@ -201,9 +203,9 @@ export function CycleList() {
               onChange={e => setFormTeamId(e.target.value ? parseInt(e.target.value) : null)}
             >
               <option value="">— 未選択 —</option>
-              {project?.ownerTeam && (
-                <option value={project.ownerTeam.id}>{project.ownerTeam.name} (PJ Owner)</option>
-              )}
+              {(project?.teams ?? []).map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
             </select>
           </div>
           {error && <div className="cycle-form__error">{error}</div>}
@@ -243,9 +245,9 @@ export function CycleList() {
       {activeCycle && (
         <div className="cycle-active" data-testid="cycle-active-card" onClick={() => {
           if (project) {
-            navigate(`/p/${project.prefix}/cycles/${activeCycle.id}`);
+            navigate(`/project/${project.prefix}/cycles/${activeCycle.id}`);
           } else if (team) {
-            navigate(`/t/${team.slug}/cycles/${activeCycle.id}`);
+            navigate(`/team/${team.slug}/cycles/${activeCycle.id}`);
           }
         }}>
           <div className="cycle-active__header">
@@ -328,9 +330,9 @@ export function CycleList() {
               cycle={cycle}
               onNavigate={() => {
                 if (project) {
-                  navigate(`/p/${project.prefix}/cycles/${cycle.id}`);
+                  navigate(`/project/${project.prefix}/cycles/${cycle.id}`);
                 } else if (team) {
-                  navigate(`/t/${team.slug}/cycles/${cycle.id}`);
+                  navigate(`/team/${team.slug}/cycles/${cycle.id}`);
                 }
               }}
               onDelete={() => deleteMutation.mutate({ id: cycle.id, projectId: project?.id, teamId: team?.id })}
@@ -352,9 +354,9 @@ export function CycleList() {
               cycle={cycle}
               onNavigate={() => {
                 if (project) {
-                  navigate(`/p/${project.prefix}/cycles/${cycle.id}`);
+                  navigate(`/project/${project.prefix}/cycles/${cycle.id}`);
                 } else if (team) {
-                  navigate(`/t/${team.slug}/cycles/${cycle.id}`);
+                  navigate(`/team/${team.slug}/cycles/${cycle.id}`);
                 }
               }}
             />

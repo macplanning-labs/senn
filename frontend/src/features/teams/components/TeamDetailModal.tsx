@@ -159,7 +159,7 @@ export function TeamDetailModal({ team, onClose }: Props) {
               className="teams-modal__input"
               value={prefix}
               onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-              placeholder="例: DEMO"
+              placeholder="例: PRS"
               data-testid="team-prefix-input"
             />
             <div className="teams-modal__helper-text">

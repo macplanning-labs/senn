@@ -604,3 +604,31 @@
   margin-top: var(--space-4);
 }
 
+/* ─── 設定タブ ─────────────────────── */
+.settings__tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border-default);
+  margin-bottom: var(--space-5);
+}
+
+.settings__tab {
+  padding: var(--space-2) var(--space-4);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.settings__tab:hover {
+  color: var(--color-text-secondary);
+}
+
+.settings__tab--active {
+  color: var(--color-accent-primary);
+  border-bottom-color: var(--color-accent-primary);
+}
+

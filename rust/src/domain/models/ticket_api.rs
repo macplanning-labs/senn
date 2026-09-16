@@ -7,7 +7,7 @@
 /// (ticket_repo.rsに`api_`プレフィックスで追加)を新設して対応する。
 
 use chrono::{DateTime, NaiveDate, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // FK参照サマリ(一覧・詳細で共通)
@@ -65,7 +65,7 @@ pub struct LabelOut {
     pub is_ai_enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamSummaryOut {
     pub id: i32,
     pub name: String,
@@ -109,6 +109,7 @@ pub struct TicketListOut {
     #[serde(rename = "ticketType")]
     pub ticket_type: String,
     pub assignees: Vec<UserSummaryOut>,
+    pub reviewers: Vec<UserSummaryOut>,
     pub author: UserSummaryOut,
     pub category: Option<CategoryOut>,
     pub milestone: Option<MilestoneOut>,
@@ -258,6 +259,8 @@ pub struct TicketWriteIn {
     pub ticket_type: String,
     #[serde(default)]
     pub assignees: Vec<i32>,
+    #[serde(default)]
+    pub reviewers: Vec<i32>,
     pub category: Option<i32>,
     pub project: Option<i32>,
     pub milestone: Option<i32>,
@@ -335,6 +338,8 @@ pub struct TicketPatchIn {
     /// 空配列を送ると全解除、キー自体が無ければ触らない
     #[serde(default)]
     pub assignees: Option<Vec<i32>>,
+    #[serde(default)]
+    pub reviewers: Option<Vec<i32>>,
     #[serde(default)]
     pub labels: Option<Vec<i32>>,
     #[serde(default)]

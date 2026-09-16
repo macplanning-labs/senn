@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY auth-core ./auth-core
+COPY google-auth ./google-auth
 COPY migrations ./migrations
 COPY templates ./templates
 COPY static ./static
@@ -46,7 +47,7 @@ FROM debian:trixie-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 && \
+    ca-certificates libssl3 postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/senn /app/senn

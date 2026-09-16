@@ -620,6 +620,37 @@ pub async fn api_find_all(
             std::collections::HashMap::new()
         };
 
+    // reviewers をまとめて取得
+    let reviewers_map: std::collections::HashMap<i32, Vec<UserSummaryOut>> =
+        if !ticket_ids.is_empty() {
+            let reviewers_rows = sqlx::query(
+                "SELECT tr.ticketmodel_id::int4, u.id::int4, u.username, u.email, u.display_name
+                 FROM tickets_ticket_reviewers tr
+                 JOIN accounts_user u ON tr.user_id = u.id
+                 WHERE tr.ticketmodel_id = ANY($1)
+                 ORDER BY u.id"
+            )
+            .bind(&ticket_ids)
+            .fetch_all(pool)
+            .await?;
+
+            let mut map: std::collections::HashMap<i32, Vec<UserSummaryOut>> =
+                std::collections::HashMap::new();
+            for row in reviewers_rows {
+                let ticket_id: i32 = row.get(0);
+                let user = UserSummaryOut {
+                    id: row.get(1),
+                    username: row.get(2),
+                    email: row.get(3),
+                    display_name: row.get(4),
+                };
+                map.entry(ticket_id).or_insert_with(Vec::new).push(user);
+            }
+            map
+        } else {
+            std::collections::HashMap::new()
+        };
+
     // labels をまとめて取得
     let labels_map: std::collections::HashMap<i32, Vec<LabelOut>> =
         if !ticket_ids.is_empty() {
@@ -804,6 +835,12 @@ pub async fn api_find_all(
             // Labels
             let labels = labels_map.get(&ticket_id).cloned().unwrap_or_default();
 
+            // Reviewers
+            let reviewers = reviewers_map
+                .get(&ticket_id)
+                .cloned()
+                .unwrap_or_default();
+
             TicketListOut {
                 id: ticket_id,
                 ticket_key,
@@ -812,6 +849,7 @@ pub async fn api_find_all(
                 priority,
                 ticket_type,
                 assignees,
+                reviewers,
                 author,
                 category,
                 milestone,
@@ -1069,6 +1107,28 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
         })
         .collect();
 
+    // Reviewers
+    let reviewers_rows = sqlx::query(
+        "SELECT tr.user_id::int4, u.id::int4, u.username, u.email, u.display_name
+         FROM tickets_ticket_reviewers tr
+         JOIN accounts_user u ON tr.user_id = u.id
+         WHERE tr.ticketmodel_id = $1
+         ORDER BY u.id"
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
+
+    let reviewers: Vec<UserSummaryOut> = reviewers_rows
+        .into_iter()
+        .map(|r| UserSummaryOut {
+            id: r.get(1),
+            username: r.get(2),
+            email: r.get(3),
+            display_name: r.get(4),
+        })
+        .collect();
+
     // Labels
     let labels_rows = sqlx::query(
         "SELECT tl.labelmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at, l.description, l.category, l.is_ai_enabled
@@ -1303,6 +1363,7 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
         priority: row.get(5),
         ticket_type: row.get(6),
         assignees,
+        reviewers,
         author: UserSummaryOut {
             id: author_id,
             username: author_username,
@@ -1416,26 +1477,28 @@ pub async fn api_generate_ticket_key(
         .execute(conn.as_mut())
         .await?;
 
-    // 既存の最大キーを取得
+    // 既存の最大採番を取得。
+    // 過去は「ORDER BY id DESC LIMIT 1」で"最後に挿入された行"を最大とみなしていたが、
+    // idの挿入順と番号の大小は必ずしも一致しない（例: 別経路でのproject_idなしチケット作成、
+    // 過去のキー付け替え等）ため、重複キーによるINSERT失敗(unique constraint violation)が
+    // 発生していた(2026-09-12)。prefixで閉じた世界の中で実際に使われている番号のうち
+    // 数値として最大のものを常に正として採番する。
     let pattern = format!("{}-%", prefix);
-    let max_key: Option<String> = sqlx::query_scalar(
-        "SELECT ticket_key FROM tickets_ticket WHERE ticket_key LIKE $1 ORDER BY id DESC LIMIT 1"
+    let existing_keys: Vec<String> = sqlx::query_scalar(
+        "SELECT ticket_key FROM tickets_ticket WHERE ticket_key LIKE $1"
     )
     .bind(&pattern)
-    .fetch_optional(conn.as_mut())
+    .fetch_all(conn.as_mut())
     .await?;
 
-    let num = if let Some(key) = max_key {
-        // ticket_key の最後の `-` 以降をパース
-        if let Some(last_dash_idx) = key.rfind('-') {
-            let num_part = &key[last_dash_idx + 1..];
-            num_part.parse::<i32>().unwrap_or(0) + 1
-        } else {
-            1
-        }
-    } else {
-        1
-    };
+    let suffix_prefix = format!("{}-", prefix);
+    let max_num = existing_keys
+        .iter()
+        .filter_map(|key| key.strip_prefix(suffix_prefix.as_str()))
+        .filter_map(|num_part| num_part.parse::<i32>().ok())
+        .max()
+        .unwrap_or(0);
+    let num = max_num + 1;
 
     Ok(format!("{}-{:06}", prefix, num))
 }
@@ -1762,21 +1825,47 @@ pub async fn api_create(
     input: &TicketWriteIn,
     author_id: i32,
 ) -> anyhow::Result<i32> {
-    // G6-1: team_id 必須。project 付きの既存クライアントは owner_team で補完
+    // team_id を決定。project_id のみの場合は参加チームから補完または400
     let team_id = if let Some(team) = input.team_id {
         team
     } else if let Some(project_id) = input.project {
-        sqlx::query_scalar::<_, Option<i32>>(
-            "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+        // project に参加チームが1つだけなら補完。2つ以上なら要求
+        let participating_teams: Vec<i32> = sqlx::query_scalar(
+            "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
         )
         .bind(project_id)
-        .fetch_optional(conn.as_mut())
-        .await?
-        .flatten()
-        .ok_or_else(|| anyhow::anyhow!("teamId or project is required"))?
+        .fetch_all(conn.as_mut())
+        .await?;
+
+        match participating_teams.as_slice() {
+            [single_team] => *single_team,
+            [] => return Err(anyhow::anyhow!("project has no participating teams")),
+            _ => return Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+        }
     } else {
-        return Err(anyhow::anyhow!("teamId or project is required"));
+        return Err(anyhow::anyhow!("teamId is required"));
     };
+
+    // project 付きなら、解決後の team_id が参加チームであることをアプリ層でも保証（トリガの前段で 400 相当）
+    if let Some(project_id) = input.project {
+        let ok: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM tickets_project_teams
+                WHERE project_id = $1 AND team_id = $2
+            )"
+        )
+        .bind(project_id)
+        .bind(team_id)
+        .fetch_one(conn.as_mut())
+        .await?;
+        if !ok {
+            return Err(anyhow::anyhow!(
+                "team_id {} is not a participant of project_id {}",
+                team_id,
+                project_id
+            ));
+        }
+    }
 
     // ticket_key を生成（Team prefix のみ。呼び出し元は team_id を渡すこと）
     let ticket_key = api_generate_ticket_key(conn, team_id).await?;
@@ -1844,6 +1933,18 @@ pub async fn api_create(
         .await?;
     }
 
+    // Reviewers を追加
+    for &reviewer_id in &input.reviewers {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING"
+        )
+        .bind(ticket_id)
+        .bind(reviewer_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
     // Labels を追加
     for &label_id in &input.labels {
         sqlx::query(
@@ -1878,6 +1979,8 @@ pub struct TicketChangeEvents {
     pub status_change: Option<(String, String)>,
     /// 今回新たに担当者に追加されたユーザーID(通知・ウォッチャー登録対象)
     pub newly_assigned: Vec<i32>,
+    /// 今回新たにレビュアーに追加されたユーザーID(通知・ウォッチャー登録対象)
+    pub newly_reviewers: Vec<i32>,
     /// ステータス・担当者以外で変更されたフィールドの表示名(タイトルケース)一覧
     pub other_changed_fields: Vec<String>,
 }
@@ -1934,6 +2037,45 @@ pub async fn api_update(
     .fetch_all(conn.as_mut())
     .await?;
 
+    // 更新前の reviewers
+    let old_reviewers: Vec<i32> = sqlx::query_scalar(
+        "SELECT user_id::int4 FROM tickets_ticket_reviewers WHERE ticketmodel_id = $1 ORDER BY user_id"
+    )
+    .bind(ticket_id)
+    .fetch_all(conn.as_mut())
+    .await?;
+
+    // 参加チーム制約: project 付きチケットの team_id は参加一覧に含まれること
+    let project_id: Option<i32> = sqlx::query_scalar(
+        "SELECT project_id::int4 FROM tickets_ticket WHERE id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_one(conn.as_mut())
+    .await?;
+    let effective_project = input.project.or(project_id);
+    let effective_team = input.team_id;
+    if let (Some(pid), Some(tid)) = (effective_project, effective_team) {
+        let ok: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM tickets_project_teams
+                WHERE project_id = $1 AND team_id = $2
+            )"
+        )
+        .bind(pid)
+        .bind(tid)
+        .fetch_one(conn.as_mut())
+        .await?;
+        if !ok {
+            return Err(anyhow::anyhow!(
+                "team_id {} is not a participant of project_id {}",
+                tid,
+                pid
+            ));
+        }
+    } else if effective_project.is_some() && effective_team.is_none() {
+        return Err(anyhow::anyhow!("teamId is required for project-attached tickets"));
+    }
+
     // UPDATE チケット本体
     sqlx::query(
         "UPDATE tickets_ticket SET
@@ -1960,7 +2102,7 @@ pub async fn api_update(
     .execute(conn.as_mut())
     .await?;
 
-    // 中間テーブル全削除→再INSERT
+    // 中間テーブル全削除→再INSERT (assignees)
     sqlx::query("DELETE FROM tickets_ticket_assignees WHERE ticketmodel_id = $1")
         .bind(ticket_id)
         .execute(conn.as_mut())
@@ -1971,6 +2113,21 @@ pub async fn api_update(
         )
         .bind(ticket_id)
         .bind(assignee_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
+    // 中間テーブル全削除→再INSERT (reviewers)
+    sqlx::query("DELETE FROM tickets_ticket_reviewers WHERE ticketmodel_id = $1")
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    for &reviewer_id in &input.reviewers {
+        sqlx::query(
+            "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)"
+        )
+        .bind(ticket_id)
+        .bind(reviewer_id)
         .execute(conn.as_mut())
         .await?;
     }
@@ -2142,6 +2299,63 @@ pub async fn api_update(
         .await?;
     }
 
+    // Reviewers変更ログ
+    // Django側は集合(set)として比較しているため、順序の違いだけでは変更とみなさない。
+    // old_reviewersはORDER BY user_idで取得済みなのでinput側もソートして比較する。
+    let mut sorted_new_reviewers = input.reviewers.clone();
+    sorted_new_reviewers.sort_unstable();
+    sorted_new_reviewers.dedup();
+    let newly_reviewers: Vec<i32> = sorted_new_reviewers
+        .iter()
+        .copied()
+        .filter(|id| !old_reviewers.contains(id))
+        .collect();
+    if old_reviewers != sorted_new_reviewers {
+        let old_usernames = if !old_reviewers.is_empty() {
+            let usernames: Vec<String> = sqlx::query_scalar(
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+            )
+            .bind(&old_reviewers)
+            .fetch_all(conn.as_mut())
+            .await?;
+            if usernames.is_empty() {
+                "(なし)".to_string()
+            } else {
+                usernames.join(", ")
+            }
+        } else {
+            "(なし)".to_string()
+        };
+
+        let new_usernames = if !input.reviewers.is_empty() {
+            let usernames: Vec<String> = sqlx::query_scalar(
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+            )
+            .bind(&input.reviewers)
+            .fetch_all(conn.as_mut())
+            .await?;
+            if usernames.is_empty() {
+                "(なし)".to_string()
+            } else {
+                usernames.join(", ")
+            }
+        } else {
+            "(なし)".to_string()
+        };
+
+        sqlx::query(
+            "INSERT INTO tickets_change_log (field_name, old_value, new_value, changed_by_id, changed_at, ticket_id)
+             VALUES ($1, $2, $3, $4, NOW(), $5)"
+        )
+        .bind("Reviewers")
+        .bind(&old_usernames)
+        .bind(&new_usernames)
+        .bind(user_id)
+        .bind(ticket_id)
+        .execute(conn.as_mut())
+        .await?;
+    }
+
     // story_points変更ログ
     if old_story_points != input.story_points {
         let old_points_str = old_story_points.map_or(String::new(), |p| p.to_string());
@@ -2160,7 +2374,7 @@ pub async fn api_update(
         .await?;
     }
 
-    Ok(Some(TicketChangeEvents { ticket_id, status_change, newly_assigned, other_changed_fields }))
+    Ok(Some(TicketChangeEvents { ticket_id, status_change, newly_assigned, newly_reviewers, other_changed_fields }))
 }
 
 /// チケット部分更新(詳細パネルからのインライン編集用)。
@@ -2214,6 +2428,13 @@ pub async fn api_patch(
     .fetch_all(conn.as_mut())
     .await?;
 
+    let old_reviewers: Vec<i32> = sqlx::query_scalar(
+        "SELECT user_id::int4 FROM tickets_ticket_reviewers WHERE ticketmodel_id = $1 ORDER BY user_id"
+    )
+    .bind(ticket_id)
+    .fetch_all(conn.as_mut())
+    .await?;
+
     // 動的UPDATE(指定されたフィールドのみSETに含める)
     let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE tickets_ticket SET updated_at = NOW()");
     let mut has_column_update = false;
@@ -2255,6 +2476,41 @@ pub async fn api_patch(
         has_column_update = true;
     }
     if let Some(team_id) = input.team_id {
+        // 参加チーム制約（project 付きのとき）
+        let project_id: Option<i32> = sqlx::query_scalar(
+            "SELECT project_id::int4 FROM tickets_ticket WHERE id = $1"
+        )
+        .bind(ticket_id)
+        .fetch_one(conn.as_mut())
+        .await?;
+        if let Some(pid) = project_id {
+            match team_id {
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "teamId is required for project-attached tickets"
+                    ));
+                }
+                Some(tid) => {
+                    let ok: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM tickets_project_teams
+                            WHERE project_id = $1 AND team_id = $2
+                        )"
+                    )
+                    .bind(pid)
+                    .bind(tid)
+                    .fetch_one(conn.as_mut())
+                    .await?;
+                    if !ok {
+                        return Err(anyhow::anyhow!(
+                            "team_id {} is not a participant of project_id {}",
+                            tid,
+                            pid
+                        ));
+                    }
+                }
+            }
+        }
         builder.push(", team_id = ").push_bind(team_id);
         has_column_update = true;
     }
@@ -2288,6 +2544,22 @@ pub async fn api_patch(
             )
             .bind(ticket_id)
             .bind(assignee_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
+    if let Some(reviewers) = &input.reviewers {
+        sqlx::query("DELETE FROM tickets_ticket_reviewers WHERE ticketmodel_id = $1")
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        for &reviewer_id in reviewers {
+            sqlx::query(
+                "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)"
+            )
+            .bind(ticket_id)
+            .bind(reviewer_id)
             .execute(conn.as_mut())
             .await?;
         }
@@ -2497,6 +2769,56 @@ pub async fn api_patch(
         }
     }
 
+    // Reviewers変更ログ(集合として比較、順序違いは無視)
+    let mut newly_reviewers: Vec<i32> = Vec::new();
+    if let Some(reviewers) = &input.reviewers {
+        let mut sorted_new_reviewers = reviewers.clone();
+        sorted_new_reviewers.sort_unstable();
+        sorted_new_reviewers.dedup();
+        newly_reviewers = sorted_new_reviewers
+            .iter()
+            .copied()
+            .filter(|id| !old_reviewers.contains(id))
+            .collect();
+        if old_reviewers != sorted_new_reviewers {
+            let old_usernames = if !old_reviewers.is_empty() {
+                let usernames: Vec<String> = sqlx::query_scalar(
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                )
+                .bind(&old_reviewers)
+                .fetch_all(conn.as_mut())
+                .await?;
+                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+            } else {
+                "(なし)".to_string()
+            };
+
+            let new_usernames = if !reviewers.is_empty() {
+                let usernames: Vec<String> = sqlx::query_scalar(
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                )
+                .bind(reviewers)
+                .fetch_all(conn.as_mut())
+                .await?;
+                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+            } else {
+                "(なし)".to_string()
+            };
+
+            sqlx::query(
+                "INSERT INTO tickets_change_log (field_name, old_value, new_value, changed_by_id, changed_at, ticket_id)
+                 VALUES ($1, $2, $3, $4, NOW(), $5)"
+            )
+            .bind("Reviewers")
+            .bind(&old_usernames)
+            .bind(&new_usernames)
+            .bind(user_id)
+            .bind(ticket_id)
+            .execute(conn.as_mut())
+            .await?;
+        }
+    }
+
     // story_points変更ログ(サイクルのvelocity/burndown集計が参照する)
     if let Some(story_points) = input.story_points {
         if old_story_points != story_points {
@@ -2514,7 +2836,7 @@ pub async fn api_patch(
         }
     }
 
-    Ok(Some(TicketChangeEvents { ticket_id, status_change, newly_assigned, other_changed_fields }))
+    Ok(Some(TicketChangeEvents { ticket_id, status_change, newly_assigned, newly_reviewers, other_changed_fields }))
 }
 
 /// field_name をタイトルケースに変換(Pythonの.title()相当)
@@ -2583,15 +2905,21 @@ pub async fn api_create_external(
 
     let mut tx = pool.begin().await?;
 
-    let owner_team_id: i32 = sqlx::query_scalar::<_, Option<i32>>(
-        "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+    // project に参加チームが1つだけなら補完。2つ以上ならエラー
+    let participating_teams: Vec<i32> = sqlx::query_scalar(
+        "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
     )
     .bind(project_id)
-    .fetch_one(&mut *tx)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("teamId or project is required"))?;
+    .fetch_all(&mut *tx)
+    .await?;
 
-    let ticket_key = api_generate_ticket_key(&mut tx, owner_team_id).await?;
+    let team_id = match participating_teams.as_slice() {
+        [single_team] => *single_team,
+        [] => return Err(anyhow::anyhow!("project has no participating teams")),
+        _ => return Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+    };
+
+    let ticket_key = api_generate_ticket_key(&mut tx, team_id).await?;
 
     let gantt_order: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1"
@@ -2616,7 +2944,7 @@ pub async fn api_create_external(
     .bind(project_id)
     .bind(due_date)
     .bind(gantt_order)
-    .bind(owner_team_id)
+    .bind(team_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -2914,13 +3242,14 @@ pub async fn validate_assignees_are_members(
         return Ok(Vec::new());
     }
 
-    // プロジェクトにアクセスできる(所属チーム全体メンバー、またはこのProjectに限定された
+    // プロジェクトにアクセスできる(参加チーム全体メンバー、またはこのProjectに限定された
     // 有効期限内のゲスト)かつis_activeなuser_idを取得
     let member_ids: Vec<i32> = sqlx::query_scalar(
         "SELECT DISTINCT u.id::int4
          FROM accounts_user u
          INNER JOIN t_team_membership tm ON u.id = tm.user_id
-         INNER JOIN tickets_project p ON p.owner_team_id = tm.team_id
+         INNER JOIN tickets_project_teams pt ON tm.team_id = pt.team_id
+         INNER JOIN tickets_project p ON pt.project_id = p.id
          WHERE u.is_active = true
            AND p.id = $1
            AND (
@@ -2935,6 +3264,45 @@ pub async fn validate_assignees_are_members(
 
     // assignee_idsのうち、member_idsに含まれないものを見つける
     let non_members: Vec<i32> = assignee_ids
+        .iter()
+        .copied()
+        .filter(|id| !member_ids.contains(id))
+        .collect();
+
+    Ok(non_members)
+}
+
+pub async fn validate_reviewers_are_members(
+    pool: &PgPool,
+    project_id: i32,
+    reviewer_ids: &[i32],
+) -> anyhow::Result<Vec<i32>> {
+    if reviewer_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // プロジェクトにアクセスできる(参加チーム全体メンバー、またはこのProjectに限定された
+    // 有効期限内のゲスト)かつis_activeなuser_idを取得
+    let member_ids: Vec<i32> = sqlx::query_scalar(
+        "SELECT DISTINCT u.id::int4
+         FROM accounts_user u
+         INNER JOIN t_team_membership tm ON u.id = tm.user_id
+         INNER JOIN tickets_project_teams pt ON tm.team_id = pt.team_id
+         INNER JOIN tickets_project p ON pt.project_id = p.id
+         WHERE u.is_active = true
+           AND p.id = $1
+           AND (
+             tm.scoped_project_id IS NULL OR
+             (tm.scoped_project_id = $1 AND
+                 (tm.end_date IS NULL OR (tm.end_date + (p.grace_period_days || ' days')::interval) >= CURRENT_DATE))
+           )"
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+
+    // reviewer_idsのうち、member_idsに含まれないものを見つける
+    let non_members: Vec<i32> = reviewer_ids
         .iter()
         .copied()
         .filter(|id| !member_ids.contains(id))
@@ -3130,6 +3498,32 @@ pub async fn find_dependency_graph_for_team(
     Ok(DependencyGraphOut { nodes, edges, cycles })
 }
 
+pub async fn assert_team_participates_in_project(
+    pool: &PgPool,
+    project_id: i32,
+    team_id: i32,
+) -> anyhow::Result<()> {
+    let ok: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM tickets_project_teams
+            WHERE project_id = $1 AND team_id = $2
+        )"
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .fetch_one(pool)
+    .await?;
+
+    if !ok {
+        anyhow::bail!(
+            "team_id {} is not a participant of project_id {}",
+            team_id,
+            project_id
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3228,7 +3622,7 @@ mod tests {
     }
 
     /// find_all がステータス・プロジェクトIDフィルタで正しく絞り込めることを確認する
-    /// (find_all/find_by_id/find_by_keyはWIP-000032のテスト作成中に、
+    /// (find_all/find_by_id/find_by_keyはDEMO-000032のテスト作成中に、
     /// 実在しないテーブル/カラム名を参照しておりnotify_ticket_event等の
     /// 実行経路が本番でエラーになっていたことが判明したため修正した。
     /// 動的フィルタもformat!()による文字列結合からQueryBuilderのbindに

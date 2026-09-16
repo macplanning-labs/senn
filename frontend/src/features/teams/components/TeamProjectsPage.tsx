@@ -17,7 +17,7 @@ export function TeamProjectsPage() {
   const teamId = currentTeam?.id;
   const projects = projectList.filter((p) => {
     if (!teamId) return false;
-    return p.ownerTeam?.id === teamId;
+    return (p.teams ?? []).some((t) => t.id === teamId);
   });
 
   return (
@@ -44,7 +44,7 @@ export function TeamProjectsPage() {
           {projects.map((p) => (
             <li key={p.id}>
               <Link
-                to={`/p/${p.prefix}/tickets`}
+                to={`/project/${p.prefix}/tickets`}
                 className="team-projects__row"
                 data-testid={`team-project-${p.prefix}`}
               >

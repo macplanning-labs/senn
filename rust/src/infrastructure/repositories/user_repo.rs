@@ -35,7 +35,8 @@ pub async fn find_project_members(pool: &PgPool, project_id: i32) -> anyhow::Res
            AND id IN (
              SELECT tm.user_id
              FROM t_team_membership tm
-             INNER JOIN tickets_project p ON p.owner_team_id = tm.team_id
+             INNER JOIN tickets_project_teams pt ON tm.team_id = pt.team_id
+             INNER JOIN tickets_project p ON pt.project_id = p.id
              WHERE p.id = $1 AND (
                tm.scoped_project_id IS NULL OR
                (tm.scoped_project_id = $1 AND
@@ -166,6 +167,20 @@ pub async fn update_username(pool: &PgPool, id: i32, username: &str) -> anyhow::
     let row = sqlx::query_as::<_, User>(&sql)
         .bind(id)
         .bind(username)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
+/// メール通知マスターON/OFFを更新する。
+pub async fn update_email_notifications_enabled(pool: &PgPool, id: i32, enabled: bool) -> anyhow::Result<User> {
+    let sql = format!(
+        "UPDATE accounts_user SET email_notifications_enabled=$2 WHERE id=$1
+         RETURNING {USER_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, User>(&sql)
+        .bind(id)
+        .bind(enabled)
         .fetch_one(pool)
         .await?;
     Ok(row)

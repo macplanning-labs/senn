@@ -487,7 +487,7 @@ export function WikiList() {
                     {selectedPage.linkedTickets.map((t: { id: number; ticketKey: string; title: string; status: string }) => (
                       <a
                         key={t.id}
-                        href={`/p/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.ticketKey}`}
+                        href={`/project/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.ticketKey}`}
                         style={{
                           padding: '0.5rem 0.625rem', borderRadius: '6px',
                           background: 'var(--color-bg-tertiary)',

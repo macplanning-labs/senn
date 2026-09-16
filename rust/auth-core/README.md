@@ -1,13 +1,13 @@
 # auth-core
 
-SENN（`amagi019/QA_Tool`）・Sophia、および将来の他Rustサービス共通の認証ライブラリ。
+WIP（`amagi019/QA_Tool`）・Sophia、および将来の他Rustサービス共通の認証ライブラリ。
 
 詳細な方針・設計背景は Claude Project「認証・共通基盤統合」内のドキュメント
-「認証ロジックのライブラリ化（クレート化）およびSENN仕様への一元統一」を参照。
+「認証ロジックのライブラリ化（クレート化）およびWIP仕様への一元統一」を参照。
 
 ## Step 1（このクレートの新設）で行ったこと
 
-- SENNの既存実装（`jwt_service.rs` / `totp_service.rs` / `webauthn_service.rs` /
+- WIPの既存実装（`jwt_service.rs` / `totp_service.rs` / `webauthn_service.rs` /
   `middleware/rate_limiter.rs`、`auth_service.rs`のパスワード/TOTP部分）を
   `domain::jwt` / `domain::totp` / `domain::webauthn` / `domain::password` /
   `infrastructure::rate_limit` に移植（既存の単体テストも合わせて移植）。
@@ -27,21 +27,21 @@ SENN（`amagi019/QA_Tool`）・Sophia、および将来の他Rustサービス共
 Step1で実コードを確認した結果判明した相違点を踏まえ、2026-08-14に以下を決定した
 （詳細は方針ドキュメント1.3〜1.5節、プロジェクト内「Step1実装ログ」を参照）。
 
-1. **SENNは現在デュアル認証構成 → Web UI側もJWTへ統一する（決定）**: 方針ドキュメント
-   1章の比較表はSENN=「JWT（アクセス30分/リフレッシュ7日）+ ブラックリスト」のみと
-   していたが、実際のSENNはWeb UI向けにセッションCookie認証（`tower-sessions`、
+1. **WIPは現在デュアル認証構成 → Web UI側もJWTへ統一する（決定）**: 方針ドキュメント
+   1章の比較表はWIP=「JWT（アクセス30分/リフレッシュ7日）+ ブラックリスト」のみと
+   していたが、実際のWIPはWeb UI向けにセッションCookie認証（`tower-sessions`、
    `middleware/auth.rs`の`require_auth`）も別途持っており、JWT Bearer認証
    （`middleware/jwt_auth.rs`）はAPIルート専用だった。Web UI側もhttpOnly Secure
    クッキー配布のJWTへ統一する方針が決定した（方針1.3節）。`must_change_password`/
    `mfa_pending`のセッション依存状態の置き換え方はStep2で詳細設計する。
-2. **JWTクレーム形状がDjango依存 → Djangoは段階的に廃止する（決定）**: SENNのJWTは
+2. **JWTクレーム形状がDjango依存 → Djangoは段階的に廃止する（決定）**: WIPのJWTは
    Django（`rest_framework_simplejwt`）と同一の`SECRET_KEY`で相互検証できるよう、
    クレーム形状（`token_type`/`jti`/`user_id`を文字列化 等）をDjango仕様に固定
    している。方針ドキュメント7章の汎用`Claims{sub,roles,exp,iss,extra}`とは非互換
    のため、`domain::jwt`では両方を実装し、Django互換層を`django_compat`モジュール
    として分離した。Djangoを段階的に廃止する方針が決定したため、`django_compat`は
    移行期間限定のブリッジと正式に位置付けている（方針1.4節）。
-3. **Passkeyログイン検証は実装済みだった**: ロードマップは「SENNの未実装である
+3. **Passkeyログイン検証は実装済みだった**: ロードマップは「WIPの未実装である
    Passkeyログイン検証を追加実装する」としていたが、実際には
    `webauthn_service.rs`に discoverable credential 方式のログイン検証
    （`start_authentication`/`identify_authentication`/`finish_authentication`）が
@@ -67,7 +67,7 @@ Step1で実コードを確認した結果判明した相違点を踏まえ、202
 
 ## 未着手（Step 2以降）
 
-- SENNの21ファイル（`presentation/handlers/*_api.rs`等）が参照している
+- WIPの21ファイル（`presentation/handlers/*_api.rs`等）が参照している
   `jwt_service` / `totp_service` / `webauthn_service` / `middleware::jwt_auth` /
   `middleware::rate_limiter`の呼び出し箇所を`auth-core`経由に差し替える作業
   （ロードマップ上も明示的にStep 2の範囲）。

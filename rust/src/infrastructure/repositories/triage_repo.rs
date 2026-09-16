@@ -268,15 +268,21 @@ pub async fn approve(
             .fetch_one(&mut *tx)
             .await?;
 
-            let owner_team_id: i32 = sqlx::query_scalar::<_, Option<i32>>(
-                "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+            // project に参加チームが1つだけなら補完。2つ以上ならエラー
+            let participating_teams: Vec<i32> = sqlx::query_scalar(
+                "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
             )
             .bind(project_id)
-            .fetch_one(&mut *tx)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("teamId or project is required"))?;
+            .fetch_all(&mut *tx)
+            .await?;
 
-            let ticket_key = crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(&mut tx, owner_team_id).await?;
+            let team_id = match participating_teams.as_slice() {
+                [single_team] => *single_team,
+                [] => return Err(anyhow::anyhow!("project has no participating teams")),
+                _ => return Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+            };
+
+            let ticket_key = crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(&mut tx, team_id).await?;
 
             let new_ticket_id: i32 = sqlx::query_scalar(
                 "INSERT INTO tickets_ticket
@@ -291,7 +297,7 @@ pub async fn approve(
             .bind(reviewed_by)
             .bind(project_id)
             .bind(gantt_order)
-            .bind(owner_team_id)
+            .bind(team_id)
             .fetch_one(&mut *tx)
             .await?;
 

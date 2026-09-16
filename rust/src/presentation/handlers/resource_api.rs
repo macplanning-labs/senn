@@ -287,6 +287,139 @@ pub async fn team_dependency_graph(
     }
 }
 
+#[derive(Deserialize)]
+pub struct ProjectTeamAddIn {
+    #[serde(rename = "teamId")]
+    pub team_id: i32,
+}
+
+/// 参加チーム追加 POST /api/v1/projects/{id}/teams/
+pub async fn project_team_add(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+    Json(body): Json<ProjectTeamAddIn>,
+) -> impl IntoResponse {
+    match resource_repo::find_project_by_id(&state.pool, id).await {
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match resource_repo::add_project_team(&state.pool, id, body.team_id).await {
+        Ok(true) => match resource_repo::find_project_by_id(&state.pool, id).await {
+            Ok(Some(project)) => (StatusCode::OK, Json(project)).into_response(),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response(),
+        },
+        Ok(false) => match resource_repo::find_project_by_id(&state.pool, id).await {
+            // 既に参加済み → 冪等に 200
+            Ok(Some(project)) => (StatusCode::OK, Json(project)).into_response(),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response(),
+        },
+        Err(e) => {
+            tracing::error!("add_project_team failed: {:?}", e);
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: e.to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// 参加チーム削除 DELETE /api/v1/projects/{id}/teams/{team_id}/
+pub async fn project_team_remove(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthUser>,
+    Path((id, team_id)): Path<(i32, i32)>,
+) -> impl IntoResponse {
+    match resource_repo::find_project_by_id(&state.pool, id).await {
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match resource_repo::remove_project_team(&state.pool, id, team_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "参加チームが見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("cannot remove the last team") {
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ErrorResponse {
+                        detail: "最後の参加チームは削除できません".to_string(),
+                    }),
+                )
+                    .into_response()
+            } else {
+                tracing::error!("remove_project_team failed: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
 /// プロジェクト作成 POST /api/v1/projects/
 pub async fn project_create(
     State(state): State<AppState>,
@@ -309,6 +442,14 @@ pub async fn project_create(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
+            let detail = e.to_string();
+            if detail.contains("team_ids") || detail.contains("at least one") {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse { detail }),
+                )
+                    .into_response();
+            }
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {

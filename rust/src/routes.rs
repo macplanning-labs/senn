@@ -7,9 +7,11 @@ use axum::{
     routing::{get, post},
     middleware as axum_middleware,
     Router,
+    http::{HeaderValue, Method, header},
 };
 use std::sync::Arc;
 use tower_http::services::ServeDir;
+use tower_http::cors::{CorsLayer, AllowOrigin};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 // Step 2: レート制限(IPトークンバケット)は auth-core::infrastructure::rate_limit へ移行済み。
@@ -23,14 +25,20 @@ use crate::presentation::{
         notification_api2,
         health, resource_api, cycle_api,
         team_api, team_rule_api, workflow_status_api, time_entry_api,
-        triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api,
-        external_api, ai_api, ai_agent_api, attachment_api, ticket_link_api, security_api, settings_api, api_doc,
+        triage_api, wiki_api, search_api, reports_api, dashboard_api, integration_api, chat_integration_api,
+        external_api, ai_api, ai_agent_api, attachment_api, ticket_link_api, security_api, settings_api, system_admin_api, api_doc,
         saved_view_api,
     },
 };
 
 pub fn create_router(state: AppState) -> Router {
-    let allowed_origins = Arc::new(vec![state.config.base_url.clone()]);
+    // ドメイン移行中は新旧ホストを併記（Sophia の sophia → sophia-app と同じ考え方）。
+    // 移行完了後、BASE_URL 切替と旧ドメイン退役が済んだら整理する。
+    let allowed_origins = Arc::new(vec![
+        state.config.base_url.clone(),
+        "https://senn-app.macplanning.com".to_string(),
+        "https://wip.macplanning.com".to_string(),
+    ]);
 
     // Origin/Referer検証対象：Cookie session方式のログインルート（/auth/login, /auth/totp）
     let login_cookie_routes = Router::new()
@@ -115,6 +123,7 @@ pub fn create_router(state: AppState) -> Router {
     // JWT保護ルート
     let jwt_protected_routes = Router::new()
         .route("/api/v1/auth/me/", get(auth_api::me).patch(auth_api::update_my_profile))
+        .route("/api/v1/auth/me/notification-preferences/", get(auth_api::list_notification_preferences).patch(auth_api::update_notification_preference))
         .route("/api/v1/auth/me/deactivate/", post(auth_api::deactivate_my_account))
         .route("/api/v1/auth/logout/", post(auth_api::logout))
         .route("/api/v1/users/", get(auth_api::list_users))
@@ -154,6 +163,8 @@ pub fn create_router(state: AppState) -> Router {
         // JSON リソース API (Phase 3)
         .route("/api/v1/projects/", get(resource_api::project_list).post(resource_api::project_create))
         .route("/api/v1/projects/{id}/", get(resource_api::project_detail).put(resource_api::project_update).patch(resource_api::project_patch).delete(resource_api::project_delete))
+        .route("/api/v1/projects/{id}/teams/", post(resource_api::project_team_add))
+        .route("/api/v1/projects/{id}/teams/{team_id}/", axum::routing::delete(resource_api::project_team_remove))
         .route("/api/v1/projects/{id}/dependencies/", get(resource_api::project_dependency_graph))
         .route("/api/v1/teams/{id}/dependencies/", get(resource_api::team_dependency_graph))
         .route("/api/v1/projects/{project_id}/saved-views/", get(saved_view_api::list).post(saved_view_api::create))
@@ -218,6 +229,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/integrations/", get(integration_api::list).post(integration_api::create))
         .route("/api/v1/integrations/{id}/", axum::routing::patch(integration_api::update).delete(integration_api::delete))
 
+        .route("/api/v1/chat-integrations/", get(chat_integration_api::list).post(chat_integration_api::create))
+        .route("/api/v1/chat-integrations/{id}/", axum::routing::patch(chat_integration_api::update).delete(chat_integration_api::delete))
+
         // セキュリティ設定（TOTP）
         .route("/api/v1/settings/security/totp/begin/", post(security_api::totp_begin))
         .route("/api/v1/settings/security/totp/confirm/", post(security_api::totp_confirm))
@@ -230,6 +244,10 @@ pub fn create_router(state: AppState) -> Router {
 
         .route("/api/v1/settings/ai/", get(settings_api::get_ai_settings).patch(settings_api::update_ai_settings))
 
+        .route("/api/v1/system-admin/settings/", get(system_admin_api::get_settings).put(system_admin_api::update_settings))
+        .route("/api/v1/system-admin/ai-agent-key/", get(system_admin_api::get_ai_agent_key).put(system_admin_api::update_ai_agent_key))
+        .route("/api/v1/system-admin/backup/export/", post(system_admin_api::backup_export))
+
         .route("/api/v1/ai/suggest-points/", post(ai_api::suggest_points))
         .route("/api/v1/ai/sprint-health/", post(ai_api::sprint_health))
         .route("/api/v1/ai/context-analysis/", post(ai_api::context_analysis))
@@ -237,6 +255,16 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/ai/generate-prompt-text/", post(ai_api::generate_prompt_text))
         .route("/api/v1/ai/status/", get(ai_api::ai_status))
         .layer(axum_middleware::from_fn_with_state(state.clone(), jwt_auth::jwt_auth));
+
+    // Tauriデスクトップアプリ（macOS/Linux: tauri://localhost, Windows: http://tauri.localhost）から
+    // 本番APIを利用可能にするためのCORS許可
+    let desktop_cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::list([
+            HeaderValue::from_static("tauri://localhost"),
+            HeaderValue::from_static("http://tauri.localhost"),
+        ]))
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
     Router::new()
         .merge(public_routes)
@@ -246,6 +274,8 @@ pub fn create_router(state: AppState) -> Router {
         // 静的ファイル
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/media", ServeDir::new("media"))
+        // CORS許可レイヤー
+        .layer(desktop_cors)
         // 共有ステート
         .with_state(state)
 }

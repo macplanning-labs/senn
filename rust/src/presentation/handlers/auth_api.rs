@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 use chrono::DateTime;
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo};
+use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo, notification_preference_repo};
 use crate::domain::services::auth_service;
 use crate::domain::services::jwt_service;
 use crate::domain::models::user::User;
+use crate::domain::models::notification::NotificationCategory;
 
 // =============================================================================
 // リクエスト・レスポンス構造体
@@ -81,6 +82,8 @@ pub struct UserResponse {
     pub alias: Option<String>,
     #[serde(rename = "isStaff")]
     pub is_staff: bool,
+    #[serde(rename = "emailNotificationsEnabled")]
+    pub email_notifications_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -111,6 +114,7 @@ pub struct SelfProfileUpdateIn {
     pub email: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub email_notifications_enabled: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -132,6 +136,8 @@ pub struct MeResponse {
     pub alias: Option<String>,
     #[serde(rename = "isStaff")]
     pub is_staff: bool,
+    #[serde(rename = "emailNotificationsEnabled")]
+    pub email_notifications_enabled: bool,
 }
 
 // =============================================================================
@@ -418,6 +424,7 @@ pub async fn me(
             display_name: user.display_name,
             alias: user.alias,
             is_staff: user.is_staff,
+            email_notifications_enabled: user.email_notifications_enabled,
         }),
     ).into_response()
 }
@@ -543,6 +550,7 @@ pub async fn register(
                 display_name: user.display_name,
                 alias: user.alias,
                 is_staff: user.is_staff,
+                email_notifications_enabled: user.email_notifications_enabled,
             },
             tokens: LoginResponse {
                 access: token_pair.access,
@@ -762,6 +770,7 @@ pub async fn update_user_profile(
             display_name: updated.display_name,
             alias: updated.alias,
             is_staff: updated.is_staff,
+            email_notifications_enabled: updated.email_notifications_enabled,
         }),
     ).into_response()
 }
@@ -869,6 +878,17 @@ pub async fn update_my_profile(
         }
     }
 
+    // email_notifications_enabled が Some の場合、マスターON/OFFを更新
+    if let Some(enabled) = body.email_notifications_enabled {
+        updated = match user_repo::update_email_notifications_enabled(&state.pool, auth.user_id, enabled).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+            }
+        };
+    }
+
     (
         StatusCode::OK,
         Json(UserResponse {
@@ -880,8 +900,67 @@ pub async fn update_my_profile(
             display_name: updated.display_name,
             alias: updated.alias,
             is_staff: updated.is_staff,
+            email_notifications_enabled: updated.email_notifications_enabled,
         }),
     ).into_response()
+}
+
+#[derive(Serialize)]
+pub struct NotificationPreferenceOut {
+    pub category: String,
+    #[serde(rename = "emailEnabled")]
+    pub email_enabled: bool,
+}
+
+#[derive(Deserialize)]
+pub struct NotificationPreferenceUpdateIn {
+    pub category: String,
+    pub email_enabled: bool,
+}
+
+async fn build_preference_list_response(state: &AppState, user_id: i32) -> impl IntoResponse {
+    match notification_preference_repo::list_by_user(&state.pool, user_id).await {
+        Ok(rows) => {
+            let out: Vec<NotificationPreferenceOut> = rows
+                .into_iter()
+                .map(|r| NotificationPreferenceOut { category: r.category, email_enabled: r.email_enabled })
+                .collect();
+            (StatusCode::OK, Json(out)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response()
+        }
+    }
+}
+
+/// GET /api/v1/auth/me/notification-preferences/ — イベント別メール通知設定一覧
+pub async fn list_notification_preferences(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+) -> impl IntoResponse {
+    build_preference_list_response(&state, auth.user_id).await.into_response()
+}
+
+/// PATCH /api/v1/auth/me/notification-preferences/ — 1カテゴリ分のメール通知ON/OFFを更新
+pub async fn update_notification_preference(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<NotificationPreferenceUpdateIn>,
+) -> impl IntoResponse {
+    if !NotificationCategory::EMAIL_CAPABLE.iter().any(|c| c.as_db_str() == body.category) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"detail": "不正なカテゴリです"})),
+        ).into_response();
+    }
+
+    if let Err(e) = notification_preference_repo::upsert(&state.pool, auth.user_id, &body.category, body.email_enabled).await {
+        tracing::error!("DB operation failed: {:?}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response();
+    }
+
+    build_preference_list_response(&state, auth.user_id).await.into_response()
 }
 
 /// 本人がアカウントを無効化する（論理削除）

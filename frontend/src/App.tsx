@@ -1,12 +1,12 @@
 /**
- * App.tsx — SENN アプリケーションルート
+ * App.tsx — WIP アプリケーションルート
  *
  * React Router v7 によるルーティング。
- * プロジェクトスコープURL: /p/:projectKey/tickets 等
- * グローバルURL: /dashboard, /settings
+ * プロジェクトスコープURL: /project/:projectKey/tickets 等
+ * チームスコープURL: /team/:teamSlug/... / グローバル: /dashboard, /settings
  */
 
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query';
 import { MainLayout } from '@/shared/components/layout/MainLayout';
 import { LoginForm } from '@/features/auth/components/LoginForm';
@@ -28,6 +28,7 @@ import { SettingsPage } from '@/features/settings/components/SettingsPage';
 import { ProjectSettingsPage } from '@/features/settings/components/ProjectSettingsPage';
 import { TeamSettingsPage } from '@/features/settings/components/TeamSettingsPage';
 import { NotificationsPage } from '@/features/notifications/components/NotificationsPage';
+import { AdminPage } from '@/features/admin/components/AdminPage';
 import { TeamsPage } from '@/features/teams/components/TeamsPage';
 import { TeamProjectsPage } from '@/features/teams/components/TeamProjectsPage';
 import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsPage';
@@ -93,9 +94,18 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 /**
  * 旧URL → 新URL リダイレクト
- * /tickets → /p/:lastProjectKey/tickets
- * /wiki → /p/:lastProjectKey/wiki
+ * /tickets → /project/:lastProjectKey/tickets
+ * /wiki → /project/:lastProjectKey/wiki
  */
+
+/** 旧 /p/* → /project/* 、旧 /t/* → /team/* */
+function LegacyPrefixRedirect({ from, to }: { from: 'p' | 't'; to: 'project' | 'team' }) {
+  const location = useLocation();
+  const rest = location.pathname.slice(from.length + 1); // "/p".length==2 → drop prefix
+  const dest = `/${to}${rest}${location.search}${location.hash}`;
+  return <Navigate to={dest} replace />;
+}
+
 function RedirectToProject({ subpath }: { subpath: string }) {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuthStore();
@@ -104,7 +114,7 @@ function RedirectToProject({ subpath }: { subpath: string }) {
     if (!isAuthenticated) return;
     const lastKey = getLastProjectKey();
     if (lastKey) {
-      navigate(`/p/${lastKey}/${subpath}`, { replace: true });
+      navigate(`/project/${lastKey}/${subpath}`, { replace: true });
     } else {
       navigate('/my-issues', { replace: true });
     }
@@ -151,11 +161,12 @@ export default function App() {
             <Route path="/teams" element={<TeamsPage />} />
             <Route path="/triage" element={<TriageRequestsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/reports" element={<WorkloadReportPage />} />
 
             {/* プロジェクトスコープ */}
-            <Route path="/p/:projectKey">
+            <Route path="/project/:projectKey">
               <Route index element={<ProjectIndex />} />
               <Route path="tickets" element={<TicketListPage />} />
               <Route path="tickets/new" element={<TicketForm />} />
@@ -173,7 +184,7 @@ export default function App() {
             </Route>
 
             {/* Teamスコープ（Team-onlyチケット） */}
-            <Route path="/t/:teamSlug">
+            <Route path="/team/:teamSlug">
               <Route path="tickets" element={<TicketListPage />} />
               <Route path="tickets/new" element={<TicketForm />} />
               <Route path="tickets/:ticketId/edit" element={<TicketForm />} />
@@ -191,7 +202,9 @@ export default function App() {
               <Route path="settings" element={<TeamSettingsPage />} />
             </Route>
 
-            {/* 旧URL後方互換リダイレクト */}
+            {/* 旧URL後方互換リダイレクト（/p → /project, /t → /team） */}
+            <Route path="/p/*" element={<LegacyPrefixRedirect from="p" to="project" />} />
+            <Route path="/t/*" element={<LegacyPrefixRedirect from="t" to="team" />} />
             <Route path="/tickets" element={<RedirectToProject subpath="tickets" />} />
             <Route path="/tickets/*" element={<RedirectToProject subpath="tickets" />} />
             <Route path="/wiki" element={<RedirectToProject subpath="wiki" />} />

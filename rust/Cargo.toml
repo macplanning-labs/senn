@@ -2,14 +2,14 @@
 name = "senn"
 version = "0.1.0"
 edition = "2021"
-description = "SENN — project management (tickets, Gantt, Wiki)"
+description = "SENN — プロジェクト管理（チケット・ガントチャート・Wiki）"
 
 # ルートパッケージ(senn)を維持したまま、共通認証ライブラリauth-coreを
 # ワークスペースメンバーとして追加する(Step 1: auth-coreクレート雛形切り出し)。
 # 既存のディレクトリ構成・Dockerfile・CI(ci.yml)は変更不要
 # (cargo build/testはワークスペース全体を対象にするため自動的に対象に入る)。
 [workspace]
-members = ["auth-core"]
+members = ["auth-core", "google-auth"]
 
 [dependencies]
 # Web フレームワーク
@@ -70,8 +70,14 @@ url = "2"
 # TOTP秘密鍵の暗号化保存
 aes-gcm = "0.10"
 
-# メール
-lettre = { version = "0.11", features = ["tokio1-native-tls"] }
+# メール（Gmail API + OAuth 2.0 / SMTP）
+yup-oauth2 = "8"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
+base64 = { version = "0.22", features = ["std"] }
+
+# ストリーミングレスポンス（pg_dump エクスポート）
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
 
 # Markdown
 pulldown-cmark = "0.12"
@@ -81,7 +87,6 @@ rust_xlsxwriter = "0.80"
 
 # CSRF
 rand = "0.8"
-base64 = "0.22"
 
 # Django パスワード移行
 pbkdf2 = "0.12"

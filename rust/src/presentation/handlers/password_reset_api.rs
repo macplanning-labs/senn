@@ -97,17 +97,17 @@ pub async fn password_reset_request(
     );
 
     let display = user.display();
-    let subject = "SENN パスワードリセット";
+    let subject = "WIP パスワードリセット";
     let body_text = format!(
         "{display} 様\n\n\
-         SENN のパスワードリセットを受け付けました。\n\
+         WIP のパスワードリセットを受け付けました。\n\
          以下のリンクから24時間以内に新しいパスワードを設定してください。\n\n\
          {reset_url}\n\n\
          心当たりがない場合は、このメールを無視してください。\n"
     );
 
     if let Some(sender) = &state.mail_sender {
-        if sender.is_configured() {
+        if sender.is_configured().await {
             if let Err(e) = sender.send(&user.email, subject, &body_text).await {
                 tracing::error!(
                     "パスワードリセット要求: メール送信失敗 user_id={}: {:?}",

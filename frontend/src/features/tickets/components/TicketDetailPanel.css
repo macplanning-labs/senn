@@ -186,7 +186,8 @@
   color-scheme: light;
 }
 
-.detail-panel__assignee {
+.detail-panel__assignee,
+.detail-panel__reviewer {
   display: flex;
   align-items: center;
   gap: var(--space-2);

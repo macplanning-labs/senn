@@ -1,16 +1,17 @@
 /**
  * Sidebar.tsx — Linear 型 IA のサイドバー
  *
- * 自分のチケット / 通知 → 所属チーム（ダッシュボード / チケット / プロジェクト）→ その他
+ * 自分のチケット / 通知 → 所属チーム → 参加プロジェクト → その他（Global）
  * UX は Linear 寄り、表示用語は SENN（Issue / Inbox 等は使わない）。
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
-import { getLastProjectKey } from '@/shared/hooks/useProject';
+import { getLastProjectKey, useProject } from '@/shared/hooks/useProject';
 import { useTeam, getLastTeamSlug } from '@/shared/hooks/useTeam';
 import './Sidebar.css';
 
@@ -100,26 +101,6 @@ function IconCycle() {
   );
 }
 
-function IconTeam() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="5" r="2.5" />
-      <path d="M1.5 14c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" />
-      <circle cx="12" cy="5" r="1.5" />
-      <path d="M12 9c1.5 0 3 1 3 3" />
-    </svg>
-  );
-}
-
-function IconHome() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 7l6-5 6 5v6a1 1 0 01-1 1H3a1 1 0 01-1-1V7z" />
-      <path d="M6 14V9h4v5" />
-    </svg>
-  );
-}
-
 function IconFolder() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -191,18 +172,62 @@ function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
 }
 
+/** チーム／プロジェクト共通: 行クリックでネスト開閉＋チケットへ */
+function handleAxisNestToggle(args: {
+  key: string;
+  isExpanded: boolean;
+  axisPathPrefix: string;
+  ticketsPath: string;
+  storageKey: string;
+  pathname: string;
+  setFocused: (key: string) => void;
+  setExpanded: (key: string | null) => void;
+  navigate: (to: string) => void;
+}) {
+  try {
+    localStorage.setItem(args.storageKey, args.key);
+  } catch {
+    /* ignore */
+  }
+  args.setFocused(args.key);
+  if (args.isExpanded) {
+    // 別軸にいるときは閉じずにその対象のチケットへ戻る
+    if (!args.pathname.startsWith(args.axisPathPrefix)) {
+      args.navigate(args.ticketsPath);
+      return;
+    }
+    args.setExpanded(null);
+    return;
+  }
+  args.setExpanded(args.key);
+  args.navigate(args.ticketsPath);
+}
+
 export function Sidebar() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { sidebarOpen, toggleSidebar, theme, toggleTheme } = useUIStore();
   const { user, logout } = useAuthStore();
   const { teamList } = useTeam();
+  const { projectList } = useProject();
   const location = useLocation();
 
   const resolvedProjectKey = (() => {
-    const match = location.pathname.match(/^\/p\/([^/]+)/);
+    const match = location.pathname.match(/^\/project\/([^/]+)/);
     return match?.[1] ?? getLastProjectKey() ?? null;
   })();
+
+  // focused* = サイドバー枠に出す対象（折りたたみでは消さない）
+  // expanded* = ネスト展開中の slug/prefix（null = 閉じている）
+  const [focusedTeamSlug, setFocusedTeamSlug] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('wip-sidebar-team-expanded')
+        ?? getLastTeamSlug()
+        ?? null;
+    } catch {
+      return null;
+    }
+  });
 
   const [expandedTeam, setExpandedTeam] = useState<string | null>(() => {
     try {
@@ -214,13 +239,26 @@ export function Sidebar() {
     }
   });
 
-  const [moreOpen, setMoreOpen] = useState(() => {
+  const [focusedProjectPrefix, setFocusedProjectPrefix] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('wip-sidebar-more-open') === 'true';
+      return localStorage.getItem('wip-sidebar-project-expanded')
+        ?? resolvedProjectKey
+        ?? null;
     } catch {
-      return false;
+      return null;
     }
   });
+
+  const [expandedProject, setExpandedProject] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('wip-sidebar-project-expanded')
+        ?? resolvedProjectKey
+        ?? null;
+    } catch {
+      return null;
+    }
+  });
+
 
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
@@ -235,29 +273,74 @@ export function Sidebar() {
   });
 
   const [collapsedTeamsOpen, setCollapsedTeamsOpen] = useState(false);
+  const [collapsedProjectsOpen, setCollapsedProjectsOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userMenuPosition, setUserMenuPosition] = useState<{ left: number; bottom: number } | null>(null);
+  const userMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (expandedTeam) {
-      localStorage.setItem('wip-sidebar-team-expanded', expandedTeam);
+    if (focusedTeamSlug) {
+      localStorage.setItem('wip-sidebar-team-expanded', focusedTeamSlug);
     }
-  }, [expandedTeam]);
+  }, [focusedTeamSlug]);
 
   useEffect(() => {
-    localStorage.setItem('wip-sidebar-more-open', String(moreOpen));
-  }, [moreOpen]);
+    if (focusedProjectPrefix) {
+      localStorage.setItem('wip-sidebar-project-expanded', focusedProjectPrefix);
+    }
+  }, [focusedProjectPrefix]);
+
 
   useEffect(() => {
-    // URL でチーム画面に入ったときだけ展開を合わせる。
+    // URL でチーム画面に入ったとき、枠の対象と展開を合わせる。
     // expandedTeam を依存に入れると、折りたたみ直後に再展開されて矢印が効かなくなる。
-    const match = location.pathname.match(/^\/t\/([^/]+)/);
+    const match = location.pathname.match(/^\/team\/([^/]+)/);
     if (match?.[1]) {
+      setFocusedTeamSlug(match[1]);
       setExpandedTeam(match[1]);
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    // URL でプロジェクト画面に入ったとき、枠の対象と展開を合わせる。
+    const match = location.pathname.match(/^\/project\/([^/]+)/);
+    if (match?.[1]) {
+      setFocusedProjectPrefix(match[1]);
+      setExpandedProject(match[1]);
     }
   }, [location.pathname]);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
   }, [sidebarWidth]);
+
+  // メニューを開いた時、アバターボタン基準で位置を計算する(document.bodyへportalするため)
+  useEffect(() => {
+    if (!userMenuOpen || !userMenuTriggerRef.current) return;
+    const rect = userMenuTriggerRef.current.getBoundingClientRect();
+    setUserMenuPosition({
+      left: rect.left,
+      bottom: window.innerHeight - rect.top + 8,
+    });
+  }, [userMenuOpen]);
+
+  // 外側クリックで閉じる(portalでdocument.body直下にあるためuserMenuRefも確認)
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (
+        userMenuTriggerRef.current && !userMenuTriggerRef.current.contains(target) &&
+        (!userMenuRef.current || !userMenuRef.current.contains(target))
+      ) {
+        setUserMenuOpen(false);
+      }
+    }
+    if (userMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [userMenuOpen]);
 
   const handleResizeStart = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -284,21 +367,7 @@ export function Sidebar() {
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  const projectBase = resolvedProjectKey ? `/p/${resolvedProjectKey}` : '';
-
-  const moreProjectItems: NavItem[] = resolvedProjectKey
-    ? [
-        { path: `${projectBase}/board`, icon: IconBoard, label: t('nav.board'), testId: 'nav-board' },
-        { path: `${projectBase}/cycles`, icon: IconCycle, label: t('nav.cycles'), testId: 'nav-cycles' },
-        { path: `${projectBase}/wiki`, icon: IconWiki, label: t('nav.wiki'), testId: 'nav-wiki' },
-        { path: `${projectBase}/gantt`, icon: IconGantt, label: t('nav.gantt'), testId: 'nav-gantt' },
-        { path: `${projectBase}/dependencies`, icon: IconDependency, label: t('nav.dependencies'), testId: 'nav-dependencies' },
-      ]
-    : [];
-
   const moreGlobalItems: NavItem[] = [
-    { path: '/dashboard', icon: IconDashboard, label: t('nav.dashboard'), testId: 'nav-dashboard' },
-    { path: '/teams', icon: IconTeam, label: t('nav.teams'), testId: 'nav-teams' },
     { path: '/triage', icon: IconTicket, label: t('nav.triage'), testId: 'nav-triage' },
     { path: '/reports', icon: IconDashboard, label: t('nav.reports'), testId: 'nav-reports' },
   ];
@@ -357,23 +426,28 @@ export function Sidebar() {
             // 6件以下: 現行どおり全チーム表示
             return teamList.map((team) => {
               const isExpanded = expandedTeam?.toLowerCase() === team.slug.toLowerCase();
-              const teamTicketsPath = `/t/${team.slug}/tickets`;
+              const teamTicketsPath = `/team/${team.slug}/tickets`;
               return (
                 <div key={team.id} className="sidebar__team-block" data-testid={`team-nav-${team.slug}`}>
                   <div className="sidebar__team-row">
                     <button
                       type="button"
                       className={`sidebar__team-toggle ${
-                        location.pathname.startsWith(`/t/${team.slug}/`) ? 'sidebar__team-toggle--active' : ''
+                        location.pathname.startsWith(`/team/${team.slug}/`) ? 'sidebar__team-toggle--active' : ''
                       }`}
+                      aria-expanded={isExpanded}
                       onClick={() => {
-                        setExpandedTeam(team.slug);
-                        try {
-                          localStorage.setItem('wip-last-team-slug', team.slug);
-                        } catch {
-                          /* ignore */
-                        }
-                        navigate(teamTicketsPath);
+                        handleAxisNestToggle({
+                          key: team.slug,
+                          isExpanded,
+                          axisPathPrefix: `/team/${team.slug}/`,
+                          ticketsPath: teamTicketsPath,
+                          storageKey: 'wip-last-team-slug',
+                          pathname: location.pathname,
+                          setFocused: setFocusedTeamSlug,
+                          setExpanded: setExpandedTeam,
+                          navigate,
+                        });
                       }}
                       title={!sidebarOpen ? team.name : undefined}
                       data-testid={`team-select-${team.slug}`}
@@ -382,37 +456,19 @@ export function Sidebar() {
                         {team.name[0]?.toUpperCase() ?? 'T'}
                       </span>
                       {sidebarOpen && <span className="sidebar__label">{team.name}</span>}
-                    </button>
-                    {sidebarOpen && (
-                      <button
-                        type="button"
-                        className="sidebar__team-chevron-btn"
-                        aria-expanded={isExpanded}
-                        aria-label={isExpanded ? 'Collapse team' : 'Expand team'}
-                        data-testid={`team-chevron-${team.slug}`}
-                        onClick={() => {
-                          setExpandedTeam(isExpanded ? null : team.slug);
-                        }}
-                      >
+                      {sidebarOpen && (
                         <span
                           className="sidebar__team-chevron"
-                          style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                          style={{ marginLeft: 'auto', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                          data-testid={`team-chevron-${team.slug}`}
                         >
                           <IconChevronDown />
                         </span>
-                      </button>
-                    )}
+                      )}
+                    </button>
                   </div>
                   {isExpanded && (
-                    <div className="sidebar__nested">
-                      <NavItemLink
-                        path={`/t/${team.slug}/dashboard`}
-                        icon={IconHome}
-                        label={t('nav.home')}
-                        sidebarOpen={sidebarOpen}
-                        nested
-                        testId={`nav-home-${team.slug}`}
-                      />
+                                        <div className="sidebar__nested">
                       <NavItemLink
                         path={teamTicketsPath}
                         icon={IconTicket}
@@ -422,23 +478,7 @@ export function Sidebar() {
                         testId={`nav-issues-${team.slug}`}
                       />
                       <NavItemLink
-                        path={`/t/${team.slug}/projects`}
-                        icon={IconFolder}
-                        label={t('nav.projects')}
-                        sidebarOpen={sidebarOpen}
-                        nested
-                        testId={`nav-projects-${team.slug}`}
-                      />
-                      <NavItemLink
-                        path={`/t/${team.slug}/board`}
-                        icon={IconBoard}
-                        label={t('nav.board')}
-                        sidebarOpen={sidebarOpen}
-                        nested
-                        testId={`nav-board-${team.slug}`}
-                      />
-                      <NavItemLink
-                        path={`/t/${team.slug}/cycles`}
+                        path={`/team/${team.slug}/cycles`}
                         icon={IconCycle}
                         label={t('nav.cycles')}
                         sidebarOpen={sidebarOpen}
@@ -446,20 +486,36 @@ export function Sidebar() {
                         testId={`nav-cycles-${team.slug}`}
                       />
                       <NavItemLink
-                        path={`/t/${team.slug}/gantt`}
-                        icon={IconGantt}
-                        label={t('nav.gantt')}
+                        path={`/team/${team.slug}/board`}
+                        icon={IconBoard}
+                        label={t('nav.board')}
                         sidebarOpen={sidebarOpen}
                         nested
-                        testId={`nav-gantt-${team.slug}`}
+                        testId={`nav-board-${team.slug}`}
                       />
                       <NavItemLink
-                        path={`/t/${team.slug}/dependencies`}
-                        icon={IconDependency}
-                        label={t('nav.dependencies')}
+                        path={`/team/${team.slug}/projects`}
+                        icon={IconFolder}
+                        label={t('nav.projects')}
                         sidebarOpen={sidebarOpen}
                         nested
-                        testId={`nav-dependencies-${team.slug}`}
+                        testId={`nav-projects-${team.slug}`}
+                      />
+                      <NavItemLink
+                        path={`/team/${team.slug}/wiki`}
+                        icon={IconWiki}
+                        label={t('nav.wiki')}
+                        sidebarOpen={sidebarOpen}
+                        nested
+                        testId={`nav-wiki-${team.slug}`}
+                      />
+                      <NavItemLink
+                        path={`/team/${team.slug}/settings`}
+                        icon={IconSettings}
+                        label={t('nav.settings')}
+                        sidebarOpen={sidebarOpen}
+                        nested
+                        testId={`nav-team-settings-${team.slug}`}
                       />
                     </div>
                   )}
@@ -468,32 +524,40 @@ export function Sidebar() {
             });
           }
 
-          // 6件超: 展開中のチームと「他のチーム」に分ける
+          // 6件超: 「枠に出しているチーム」と「他のチーム」に分ける。
+          // 枠の対象は focusedTeamSlug（折りたたみでは消さない）。
+          const urlTeamSlug = location.pathname.match(/^\/team\/([^/]+)/)?.[1];
+          const slotTeamSlug = focusedTeamSlug ?? urlTeamSlug ?? getLastTeamSlug();
           const visibleTeam = teamList.find(
-            (t) => t.slug.toLowerCase() === expandedTeam?.toLowerCase()
+            (t) => t.slug.toLowerCase() === slotTeamSlug?.toLowerCase()
           ) ?? teamList[0];
           const hiddenTeams = teamList.filter((t) => t.id !== visibleTeam?.id);
 
           const renderTeamItem = (team: typeof visibleTeam) => {
             if (!team) return null;
             const isExpanded = expandedTeam?.toLowerCase() === team.slug.toLowerCase();
-            const teamTicketsPath = `/t/${team.slug}/tickets`;
+            const teamTicketsPath = `/team/${team.slug}/tickets`;
             return (
               <div key={team.id} className="sidebar__team-block" data-testid={`team-nav-${team.slug}`}>
                 <div className="sidebar__team-row">
                   <button
                     type="button"
                     className={`sidebar__team-toggle ${
-                      location.pathname.startsWith(`/t/${team.slug}/`) ? 'sidebar__team-toggle--active' : ''
+                      location.pathname.startsWith(`/team/${team.slug}/`) ? 'sidebar__team-toggle--active' : ''
                     }`}
+                    aria-expanded={isExpanded}
                     onClick={() => {
-                      setExpandedTeam(team.slug);
-                      try {
-                        localStorage.setItem('wip-last-team-slug', team.slug);
-                      } catch {
-                        /* ignore */
-                      }
-                      navigate(teamTicketsPath);
+                      handleAxisNestToggle({
+                        key: team.slug,
+                        isExpanded,
+                        axisPathPrefix: `/team/${team.slug}/`,
+                        ticketsPath: teamTicketsPath,
+                        storageKey: 'wip-last-team-slug',
+                        pathname: location.pathname,
+                        setFocused: setFocusedTeamSlug,
+                        setExpanded: setExpandedTeam,
+                        navigate,
+                      });
                     }}
                     title={!sidebarOpen ? team.name : undefined}
                     data-testid={`team-select-${team.slug}`}
@@ -502,37 +566,19 @@ export function Sidebar() {
                       {team.name[0]?.toUpperCase() ?? 'T'}
                     </span>
                     {sidebarOpen && <span className="sidebar__label">{team.name}</span>}
-                  </button>
-                  {sidebarOpen && (
-                    <button
-                      type="button"
-                      className="sidebar__team-chevron-btn"
-                      aria-expanded={isExpanded}
-                      aria-label={isExpanded ? 'Collapse team' : 'Expand team'}
-                      data-testid={`team-chevron-${team.slug}`}
-                      onClick={() => {
-                        setExpandedTeam(isExpanded ? null : team.slug);
-                      }}
-                    >
+                    {sidebarOpen && (
                       <span
                         className="sidebar__team-chevron"
-                        style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                        style={{ marginLeft: 'auto', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                        data-testid={`team-chevron-${team.slug}`}
                       >
                         <IconChevronDown />
                       </span>
-                    </button>
-                  )}
+                    )}
+                  </button>
                 </div>
                 {isExpanded && (
-                  <div className="sidebar__nested">
-                    <NavItemLink
-                      path={`/t/${team.slug}/dashboard`}
-                      icon={IconHome}
-                      label={t('nav.home')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-home-${team.slug}`}
-                    />
+                                    <div className="sidebar__nested">
                     <NavItemLink
                       path={teamTicketsPath}
                       icon={IconTicket}
@@ -542,23 +588,7 @@ export function Sidebar() {
                       testId={`nav-issues-${team.slug}`}
                     />
                     <NavItemLink
-                      path={`/t/${team.slug}/projects`}
-                      icon={IconFolder}
-                      label={t('nav.projects')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-projects-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/t/${team.slug}/board`}
-                      icon={IconBoard}
-                      label={t('nav.board')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-board-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/t/${team.slug}/cycles`}
+                      path={`/team/${team.slug}/cycles`}
                       icon={IconCycle}
                       label={t('nav.cycles')}
                       sidebarOpen={sidebarOpen}
@@ -566,20 +596,36 @@ export function Sidebar() {
                       testId={`nav-cycles-${team.slug}`}
                     />
                     <NavItemLink
-                      path={`/t/${team.slug}/gantt`}
-                      icon={IconGantt}
-                      label={t('nav.gantt')}
+                      path={`/team/${team.slug}/board`}
+                      icon={IconBoard}
+                      label={t('nav.board')}
                       sidebarOpen={sidebarOpen}
                       nested
-                      testId={`nav-gantt-${team.slug}`}
+                      testId={`nav-board-${team.slug}`}
                     />
                     <NavItemLink
-                      path={`/t/${team.slug}/dependencies`}
-                      icon={IconDependency}
-                      label={t('nav.dependencies')}
+                      path={`/team/${team.slug}/projects`}
+                      icon={IconFolder}
+                      label={t('nav.projects')}
                       sidebarOpen={sidebarOpen}
                       nested
-                      testId={`nav-dependencies-${team.slug}`}
+                      testId={`nav-projects-${team.slug}`}
+                    />
+                    <NavItemLink
+                      path={`/team/${team.slug}/wiki`}
+                      icon={IconWiki}
+                      label={t('nav.wiki')}
+                      sidebarOpen={sidebarOpen}
+                      nested
+                      testId={`nav-wiki-${team.slug}`}
+                    />
+                    <NavItemLink
+                      path={`/team/${team.slug}/settings`}
+                      icon={IconSettings}
+                      label={t('nav.settings')}
+                      sidebarOpen={sidebarOpen}
+                      nested
+                      testId={`nav-team-settings-${team.slug}`}
                     />
                   </div>
                 )}
@@ -600,33 +646,26 @@ export function Sidebar() {
                       <button
                         type="button"
                         className="sidebar__team-toggle sidebar__team-toggle--collapsed-group"
+                        aria-expanded={collapsedTeamsOpen}
                         onClick={() => setCollapsedTeamsOpen(!collapsedTeamsOpen)}
                         data-testid="team-collapsed-toggle"
                       >
                         <span className="sidebar__project-icon">···</span>
                         {sidebarOpen && (
                           <span className="sidebar__label">
-                            {`Other teams (${hiddenTeams.length})`}
+                            {t('sidebar.otherTeams', { count: hiddenTeams.length })}
                           </span>
                         )}
-                      </button>
-                      {sidebarOpen && (
-                        <button
-                          type="button"
-                          className="sidebar__team-chevron-btn"
-                          aria-expanded={collapsedTeamsOpen}
-                          aria-label={collapsedTeamsOpen ? 'Collapse teams' : 'Expand teams'}
-                          data-testid="team-collapsed-chevron"
-                          onClick={() => setCollapsedTeamsOpen(!collapsedTeamsOpen)}
-                        >
+                        {sidebarOpen && (
                           <span
                             className="sidebar__team-chevron"
-                            style={{ transform: collapsedTeamsOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                            style={{ marginLeft: 'auto', transform: collapsedTeamsOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                            data-testid="team-collapsed-chevron"
                           >
                             <IconChevronDown />
                           </span>
-                        </button>
-                      )}
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -634,15 +673,16 @@ export function Sidebar() {
                   {collapsedTeamsOpen && (
                     <div className="sidebar__collapsed-teams">
                       {hiddenTeams.map((team) => {
-                        const teamTicketsPath = `/t/${team.slug}/tickets`;
+                        const teamTicketsPath = `/team/${team.slug}/tickets`;
                         return (
                           <button
                             key={team.id}
                             type="button"
                             className={`sidebar__team-collapsed-item ${
-                              location.pathname.startsWith(`/t/${team.slug}/`) ? 'sidebar__team-collapsed-item--active' : ''
+                              location.pathname.startsWith(`/team/${team.slug}/`) ? 'sidebar__team-collapsed-item--active' : ''
                             }`}
                             onClick={() => {
+                              setFocusedTeamSlug(team.slug);
                               setExpandedTeam(team.slug);
                               setCollapsedTeamsOpen(false);
                               try {
@@ -670,39 +710,288 @@ export function Sidebar() {
           );
         })()}
 
+        {projectList.length > 0 && (
+          <>
+            <div className="sidebar__divider" />
+
+            {sidebarOpen && (
+              <div className="sidebar__nav-label">{t('sidebar.projects')}</div>
+            )}
+
+            {(() => {
+              const PROJECT_COLLAPSE_THRESHOLD = 6;
+              const shouldCollapse = projectList.length > PROJECT_COLLAPSE_THRESHOLD;
+
+              if (!shouldCollapse) {
+                // 6件以下: 全プロジェクト表示
+                return projectList.map((project) => {
+                  const isExpanded = expandedProject?.toLowerCase() === project.prefix.toLowerCase();
+                  return (
+                    <div key={project.id} className="sidebar__team-block" data-testid={`project-nav-${project.prefix}`}>
+                      <div className="sidebar__team-row">
+                        <button
+                          type="button"
+                          className={`sidebar__team-toggle ${
+                            location.pathname.startsWith(`/project/${project.prefix}/`) ? 'sidebar__team-toggle--active' : ''
+                          }`}
+                          aria-expanded={isExpanded}
+                          onClick={() => {
+                            const projectTicketsPath = `/project/${project.prefix}/tickets`;
+                            handleAxisNestToggle({
+                              key: project.prefix,
+                              isExpanded,
+                              axisPathPrefix: `/project/${project.prefix}/`,
+                              ticketsPath: projectTicketsPath,
+                              storageKey: 'wip-last-project-key',
+                              pathname: location.pathname,
+                              setFocused: setFocusedProjectPrefix,
+                              setExpanded: setExpandedProject,
+                              navigate,
+                            });
+                          }}
+                          title={!sidebarOpen ? project.name : undefined}
+                          data-testid={`project-select-${project.prefix}`}
+                        >
+                          <span className="sidebar__project-icon">
+                            {project.prefix[0]?.toUpperCase() ?? 'P'}
+                          </span>
+                          {sidebarOpen && <span className="sidebar__label">{project.name}</span>}
+                          {sidebarOpen && (
+                            <span
+                              className="sidebar__team-chevron"
+                              style={{ marginLeft: 'auto', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                              data-testid={`project-chevron-${project.prefix}`}
+                            >
+                              <IconChevronDown />
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                      {isExpanded && (
+                                                <div className="sidebar__nested">
+                          <NavItemLink
+                            path={`/project/${project.prefix}/tickets`}
+                            icon={IconTicket}
+                            label={t('nav.tickets')}
+                            sidebarOpen={sidebarOpen}
+                            nested
+                            testId={`nav-issues-${project.prefix}`}
+                          />
+                          <NavItemLink
+                            path={`/project/${project.prefix}/gantt`}
+                            icon={IconGantt}
+                            label={t('nav.gantt')}
+                            sidebarOpen={sidebarOpen}
+                            nested
+                            testId={`nav-gantt-${project.prefix}`}
+                          />
+                          <NavItemLink
+                            path={`/project/${project.prefix}/dependencies`}
+                            icon={IconDependency}
+                            label={t('nav.dependencies')}
+                            sidebarOpen={sidebarOpen}
+                            nested
+                            testId={`nav-dependencies-${project.prefix}`}
+                          />
+                          <NavItemLink
+                            path={`/project/${project.prefix}/wiki`}
+                            icon={IconWiki}
+                            label={t('nav.wiki')}
+                            sidebarOpen={sidebarOpen}
+                            nested
+                            testId={`nav-wiki-${project.prefix}`}
+                          />
+                          <NavItemLink
+                            path={`/project/${project.prefix}/settings`}
+                            icon={IconSettings}
+                            label={t('nav.settings')}
+                            sidebarOpen={sidebarOpen}
+                            nested
+                            testId={`nav-settings-${project.prefix}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              }
+
+              // 6件超: 「枠に出しているプロジェクト」と「他のプロジェクト」に分ける。
+              const urlProjectPrefix = location.pathname.match(/^\/project\/([^/]+)/)?.[1];
+              const slotProjectPrefix = focusedProjectPrefix ?? urlProjectPrefix ?? getLastProjectKey();
+              const visibleProject = projectList.find(
+                (p) => p.prefix.toLowerCase() === slotProjectPrefix?.toLowerCase()
+              ) ?? projectList[0];
+              const hiddenProjects = projectList.filter((p) => p.id !== visibleProject?.id);
+
+              const renderProjectItem = (project: typeof visibleProject) => {
+                if (!project) return null;
+                const isExpanded = expandedProject?.toLowerCase() === project.prefix.toLowerCase();
+                return (
+                  <div key={project.id} className="sidebar__team-block" data-testid={`project-nav-${project.prefix}`}>
+                    <div className="sidebar__team-row">
+                      <button
+                        type="button"
+                        className={`sidebar__team-toggle ${
+                          location.pathname.startsWith(`/project/${project.prefix}/`) ? 'sidebar__team-toggle--active' : ''
+                        }`}
+                        aria-expanded={isExpanded}
+                        onClick={() => {
+                          const projectTicketsPath = `/project/${project.prefix}/tickets`;
+                          handleAxisNestToggle({
+                            key: project.prefix,
+                            isExpanded,
+                            axisPathPrefix: `/project/${project.prefix}/`,
+                            ticketsPath: projectTicketsPath,
+                            storageKey: 'wip-last-project-key',
+                            pathname: location.pathname,
+                            setFocused: setFocusedProjectPrefix,
+                            setExpanded: setExpandedProject,
+                            navigate,
+                          });
+                        }}
+                        title={!sidebarOpen ? project.name : undefined}
+                        data-testid={`project-select-${project.prefix}`}
+                      >
+                        <span className="sidebar__project-icon">
+                          {project.prefix[0]?.toUpperCase() ?? 'P'}
+                        </span>
+                        {sidebarOpen && <span className="sidebar__label">{project.name}</span>}
+                        {sidebarOpen && (
+                          <span
+                            className="sidebar__team-chevron"
+                            style={{ marginLeft: 'auto', transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                            data-testid={`project-chevron-${project.prefix}`}
+                          >
+                            <IconChevronDown />
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                                            <div className="sidebar__nested">
+                        <NavItemLink
+                          path={`/project/${project.prefix}/tickets`}
+                          icon={IconTicket}
+                          label={t('nav.tickets')}
+                          sidebarOpen={sidebarOpen}
+                          nested
+                          testId={`nav-issues-${project.prefix}`}
+                        />
+                        <NavItemLink
+                          path={`/project/${project.prefix}/gantt`}
+                          icon={IconGantt}
+                          label={t('nav.gantt')}
+                          sidebarOpen={sidebarOpen}
+                          nested
+                          testId={`nav-gantt-${project.prefix}`}
+                        />
+                        <NavItemLink
+                          path={`/project/${project.prefix}/dependencies`}
+                          icon={IconDependency}
+                          label={t('nav.dependencies')}
+                          sidebarOpen={sidebarOpen}
+                          nested
+                          testId={`nav-dependencies-${project.prefix}`}
+                        />
+                        <NavItemLink
+                          path={`/project/${project.prefix}/wiki`}
+                          icon={IconWiki}
+                          label={t('nav.wiki')}
+                          sidebarOpen={sidebarOpen}
+                          nested
+                          testId={`nav-wiki-${project.prefix}`}
+                        />
+                        <NavItemLink
+                          path={`/project/${project.prefix}/settings`}
+                          icon={IconSettings}
+                          label={t('nav.settings')}
+                          sidebarOpen={sidebarOpen}
+                          nested
+                          testId={`nav-settings-${project.prefix}`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  {/* 表示中のプロジェクト */}
+                  {renderProjectItem(visibleProject)}
+
+                  {/* 「他のプロジェクト」折りたたみボタン */}
+                  {hiddenProjects.length > 0 && (
+                    <>
+                      <div className="sidebar__team-block">
+                        <div className="sidebar__team-row">
+                          <button
+                            type="button"
+                            className="sidebar__team-toggle sidebar__team-toggle--collapsed-group"
+                            aria-expanded={collapsedProjectsOpen}
+                            onClick={() => setCollapsedProjectsOpen(!collapsedProjectsOpen)}
+                            data-testid="project-collapsed-toggle"
+                          >
+                            <span className="sidebar__project-icon">···</span>
+                            {sidebarOpen && (
+                              <span className="sidebar__label">
+                                {t('sidebar.otherProjects', { count: hiddenProjects.length })}
+                              </span>
+                            )}
+                            {sidebarOpen && (
+                              <span
+                                className="sidebar__team-chevron"
+                                style={{ marginLeft: 'auto', transform: collapsedProjectsOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                                data-testid="project-collapsed-chevron"
+                              >
+                                <IconChevronDown />
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 隠れたプロジェクト一覧 */}
+                      {collapsedProjectsOpen && (
+                        <div className="sidebar__collapsed-teams">
+                          {hiddenProjects.map((project) => (
+                            <button
+                              key={project.id}
+                              type="button"
+                              className={`sidebar__team-collapsed-item ${
+                                location.pathname.startsWith(`/project/${project.prefix}/`) ? 'sidebar__team-collapsed-item--active' : ''
+                              }`}
+                              onClick={() => {
+                                setFocusedProjectPrefix(project.prefix);
+                                setExpandedProject(project.prefix);
+                                setCollapsedProjectsOpen(false);
+                                navigate(`/project/${project.prefix}/tickets`);
+                              }}
+                              title={!sidebarOpen ? project.name : undefined}
+                              data-testid={`project-collapsed-select-${project.prefix}`}
+                            >
+                              <span className="sidebar__project-icon">
+                                {project.prefix[0]?.toUpperCase() ?? 'P'}
+                              </span>
+                              {sidebarOpen && <span className="sidebar__label">{project.name}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        )}
+
         <div className="sidebar__divider" />
 
-        <button
-          type="button"
-          className="sidebar__more-toggle"
-          onClick={() => setMoreOpen(!moreOpen)}
-          data-testid="nav-more-toggle"
-          title={!sidebarOpen ? t('sidebar.more') : undefined}
-        >
-          <span className="sidebar__icon">···</span>
-          {sidebarOpen && (
-            <>
-              <span className="sidebar__label">{t('sidebar.more')}</span>
-              <span
-                className="sidebar__team-chevron"
-                style={{ transform: moreOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
-              >
-                <IconChevronDown />
-              </span>
-            </>
-          )}
-        </button>
-
-        {moreOpen && (
-          <div className="sidebar__nested">
-            {moreProjectItems.map((item) => (
-              <NavItemLink key={item.path} {...item} sidebarOpen={sidebarOpen} nested />
-            ))}
-            {moreGlobalItems.map((item) => (
-              <NavItemLink key={item.path} {...item} sidebarOpen={sidebarOpen} nested />
-            ))}
-          </div>
-        )}
+        {moreGlobalItems.map((item) => (
+          <NavItemLink key={item.path} {...item} sidebarOpen={sidebarOpen} nested={false} />
+        ))}
       </nav>
 
       <div className="sidebar__footer">
@@ -743,29 +1032,74 @@ export function Sidebar() {
           {sidebarOpen && <span className="sidebar__label">{t('nav.settings')}</span>}
         </NavLink>
 
+        {user?.isStaff && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
+            }
+            data-testid="nav-admin"
+            title={!sidebarOpen ? 'システム管理' : undefined}
+          >
+            <span className="sidebar__icon">🏢</span>
+            {sidebarOpen && <span className="sidebar__label">システム管理</span>}
+          </NavLink>
+        )}
+
         {user && (
           <div className="sidebar__user" data-testid="sidebar-user">
-            <NavLink
-              to="/settings"
-              className="sidebar__avatar"
-              data-testid="nav-my-settings"
+            <button
+              ref={userMenuTriggerRef}
+              type="button"
+              className="sidebar__avatar sidebar__avatar--button"
+              onClick={() => setUserMenuOpen((v) => !v)}
               title="個人設定"
+              aria-haspopup="menu"
+              aria-expanded={userMenuOpen}
+              data-testid="sidebar-user-menu-trigger"
             >
               {user.firstName?.[0] ?? user.username[0]?.toUpperCase() ?? '?'}
-            </NavLink>
+            </button>
             {sidebarOpen && (
               <div className="sidebar__user-info">
-                <NavLink to="/settings" className="sidebar__user-name" title="個人設定">
-                  {user.firstName || user.username}
-                </NavLink>
                 <button
-                  className="sidebar__logout"
-                  onClick={() => { void logout(); }}
-                  data-testid="logout-button"
+                  type="button"
+                  className="sidebar__user-name sidebar__user-name--button"
+                  onClick={() => setUserMenuOpen((v) => !v)}
                 >
-                  {t('auth.logout')}
+                  {user.firstName || user.username}
                 </button>
               </div>
+            )}
+
+            {userMenuOpen && userMenuPosition && createPortal(
+              <div
+                ref={userMenuRef}
+                className="sidebar__user-menu"
+                role="menu"
+                style={{ left: userMenuPosition.left, bottom: userMenuPosition.bottom }}
+                data-testid="sidebar-user-menu"
+              >
+                <NavLink
+                  to="/settings"
+                  role="menuitem"
+                  className="sidebar__user-menu-item"
+                  onClick={() => setUserMenuOpen(false)}
+                  data-testid="nav-my-settings"
+                >
+                  <IconSettings /> {t('nav.settings')}
+                </NavLink>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="sidebar__user-menu-item"
+                  onClick={() => { setUserMenuOpen(false); void logout(); }}
+                  data-testid="logout-button"
+                >
+                  🚪 {t('auth.logout')}
+                </button>
+              </div>,
+              document.body
             )}
           </div>
         )}

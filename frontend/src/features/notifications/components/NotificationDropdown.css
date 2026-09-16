@@ -42,7 +42,7 @@
 /* ── ドロップダウン ──
    document.body へportalし、position: fixedでベルボタン基準の座標(top/right)を
    インラインstyleで与える。ヘッダーのスタッキングコンテキストに閉じ込められて
-   Z-orderが壊れるのを防ぐ(WIP-000068のドリルダウンポップオーバーと同じ対策)。 */
+   Z-orderが壊れるのを防ぐ(DEMO-000068のドリルダウンポップオーバーと同じ対策)。 */
 .notif__dropdown {
   position: fixed;
   width: 360px;
@@ -111,6 +111,11 @@
 
 .notif__item--unread {
   background-color: color-mix(in srgb, var(--color-accent-primary) 5%, transparent);
+}
+
+.notif__item--high-priority {
+  border-left: 3px solid var(--color-warning);
+  padding-left: calc(var(--space-4) - 3px);
 }
 
 .notif__icon {

@@ -17,6 +17,7 @@ interface User {
   displayName: string;
   alias?: string | null;
   isStaff: boolean;
+  emailNotificationsEnabled: boolean;
 }
 
 /** login() の結果。MFA登録済みユーザーは即ログインせずmfaTokenを返す */
