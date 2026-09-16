@@ -18,6 +18,8 @@ Thank you for your interest in contributing. This document outlines how to repor
 
 Do **not** file public issues for vulnerabilities. Follow [SECURITY.md](SECURITY.md).
 
+Security contact: `y.yoshikawa@macplanning.com`
+
 ## Submitting Pull Requests
 
 1. Fork (or clone) and create a feature branch

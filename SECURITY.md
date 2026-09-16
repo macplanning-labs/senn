@@ -4,9 +4,11 @@
 
 If you discover a security vulnerability, **do not** create a public issue.
 
-1. Open a **private** security advisory on the project's GitHub repository  
-   (Repository → Security → Advisories → New draft security advisory), **or**
-2. If advisories are unavailable, contact the copyright holder listed in [LICENSE](./LICENSE) / [NOTICE](./NOTICE) through a private channel and wait for acknowledgment before any public disclosure.
+1. Email **`y.yoshikawa@macplanning.com`** with the details below (preferred), **or**
+2. Open a **private** security advisory on the project's GitHub repository  
+   (Repository → Security → Advisories → New draft security advisory), if available.
+
+Wait for acknowledgment before any public disclosure.
 
 Include:
 
