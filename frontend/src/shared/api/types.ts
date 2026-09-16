@@ -21,6 +21,7 @@ export interface Ticket {
   priority: Priority;
   ticketType: TicketType;
   assignees: UserSummary[];
+  reviewers: UserSummary[];
   reporter: UserSummary | null;
   project: number;
   parent: number | null;
@@ -53,6 +54,7 @@ export interface TicketListItem {
   priority: Priority;
   ticketType: TicketType;
   assignees: UserSummary[];
+  reviewers: UserSummary[];
   dueDate: string | null;
   storyPoints: number | null;
   labels: Label[];
@@ -102,7 +104,7 @@ export interface Project {
   targetEndDate: string | null;
   isActive: boolean;
   gracePeriodDays: number;
-  ownerTeam: TeamSummary | null;
+  teams: TeamSummary[];
   cycleAutoComplete: boolean;
   cycleAutoCreateNext: boolean;
   createdAt: string;
@@ -131,6 +133,7 @@ export type NotificationCategory =
   | 'due_soon'
   | 'overdue'
   | 'mentioned'
+  | 'review_requested'
   | 'wiki_updated';
 
 export interface Notification {
@@ -236,6 +239,7 @@ export interface DependencyGraphNode {
   status: string;
   ticketType: string;
   assignees: UserSummary[];
+  reviewers: UserSummary[];
   storyPoints: number | null;
   cycle: number | null;
   cycleName: string | null;
@@ -360,6 +364,26 @@ export interface GitIntegration {
   createdAt: string;
   eventCount: number;
   autoStatusTransition: boolean;
+}
+
+// ============================================================
+// チャット連携
+// ============================================================
+
+export type ChatProvider = 'slack' | 'google_chat' | 'teams' | 'chatwork';
+
+export interface ChatIntegration {
+  id: number;
+  project: number | null;
+  team: number | null;
+  provider: ChatProvider;
+  webhookUrl: string | null;
+  apiToken: string | null;
+  roomId: string | null;
+  enabledCategories: string[];
+  isActive: boolean;
+  createdBy: { id: number; username: string; email: string; displayName: string } | null;
+  createdAt: string;
 }
 
 export interface GitEvent {

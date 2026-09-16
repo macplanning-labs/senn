@@ -35,6 +35,7 @@ const categoryIcons: Record<string, string> = {
   due_soon: '⏰',
   overdue: '🔥',
   mentioned: '📢',
+  review_requested: '👁️',
   wiki_updated: '📄',
   cycle_auto_completed: '📅',
   updated: '📝',
@@ -156,7 +157,7 @@ export function NotificationDropdown() {
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {
-        navigate(`/p/${projectKey}/cycles`);
+        navigate(`/project/${projectKey}/cycles`);
       }
     }
   }
@@ -206,10 +207,12 @@ export function NotificationDropdown() {
             {!notifications.length ? (
               <div className="notif__empty">No notifications</div>
             ) : (
-              notifications.slice(0, 20).map((n) => (
+              notifications.slice(0, 20).map((n) => {
+                const isHighPriority = n.category === 'review_requested' || n.category === 'mentioned';
+                return (
                 <div
                   key={n.id}
-                  className={`notif__item ${!n.isRead ? 'notif__item--unread' : ''}`}
+                  className={`notif__item ${!n.isRead ? 'notif__item--unread' : ''} ${isHighPriority ? 'notif__item--high-priority' : ''}`}
                   onClick={() => handleNotificationClick(n)}
                   data-testid={`notif-item-${n.id}`}
                 >
@@ -225,7 +228,8 @@ export function NotificationDropdown() {
                   </div>
                   {!n.isRead && <span className="notif__unread-dot" />}
                 </div>
-              ))
+              );
+              })
             )}
           </div>
         </div>,

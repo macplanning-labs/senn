@@ -16,7 +16,7 @@ use serde::Deserialize;
 
 use crate::domain::services::auth_service;
 use crate::infrastructure::repositories::{jwt_blacklist_repo, user_repo};
-use crate::presentation::handlers::security_api::{PasskeyLoginCompleteRequest, SENN_RP_NAME};
+use crate::presentation::handlers::security_api::{PasskeyLoginCompleteRequest, WIP_RP_NAME};
 use crate::presentation::middleware::auth::{
     build_cookie, resolve_session_user, ResolveOutcome, SessionUser, ACCESS_COOKIE, MFA_COOKIE,
     PROJECT_COOKIE, REFRESH_COOKIE,
@@ -276,7 +276,7 @@ pub async fn webauthn_login_complete(
     headers: axum::http::HeaderMap,
     Json(body): Json<PasskeyLoginCompleteRequest>,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);

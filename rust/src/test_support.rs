@@ -64,6 +64,27 @@ pub async fn create_test_user(pool: &PgPool, username_prefix: &str) -> i32 {
     .expect("テストユーザー作成に失敗")
 }
 
+
+/// 使い捨てのテスト用チームを作成し、その `id` を返す。
+pub async fn create_test_team(pool: &PgPool, name_prefix: &str) -> i32 {
+    let suffix = unique_suffix();
+    let slug = format!("t{suffix}");
+    let prefix = format!("T{}", &suffix[..6.min(suffix.len())]).chars().take(20).collect::<String>();
+    sqlx::query_scalar::<_, i32>(
+        r#"
+        INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, prefix, created_at)
+        VALUES ($1, $2, '', '', '#6366f1', '', true, $3, NOW())
+        RETURNING id::int4
+        "#,
+    )
+    .bind(format!("{name_prefix}-{suffix}"))
+    .bind(&slug)
+    .bind(&prefix)
+    .fetch_one(pool)
+    .await
+    .expect("テストチーム作成に失敗")
+}
+
 /// 使い捨てのテスト用プロジェクトを作成し、その `id` を返す。
 /// (`tickets_project` に author_id は存在しない。呼び出し側の引数は
 /// 他のヘルパーとシグネチャを揃えるため受け取るが未使用)
@@ -85,38 +106,58 @@ pub async fn create_test_project(pool: &PgPool, prefix_base: &str, _author_id: i
     .await
     .expect("テストチーム作成に失敗");
 
-    sqlx::query_scalar::<_, i32>(
+    let project_id = sqlx::query_scalar::<_, i32>(
         r#"
-        INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days, owner_team_id)
-        VALUES ($1, $2, '', 'active', NOW(), 0, $3)
+        INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
+        VALUES ($1, $2, '', 'active', NOW(), 0)
         RETURNING id::int4
         "#,
     )
     .bind(format!("テストプロジェクト-{prefix}"))
     .bind(prefix)
-    .bind(team_id)
     .fetch_one(pool)
     .await
-    .expect("テストプロジェクト作成に失敗")
+    .expect("テストプロジェクト作成に失敗");
+
+    // Add team to project
+    sqlx::query(
+        "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1, $2, NOW())"
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .execute(pool)
+    .await
+    .expect("テストプロジェクトへのチーム追加に失敗");
+
+    project_id
 }
 
 /// 使い捨てのテスト用チケットを作成し、その `id` を返す。
 pub async fn create_test_ticket(pool: &PgPool, project_id: i32, key_prefix: &str, author_id: i32) -> i32 {
     let ticket_key = format!("{key_prefix}-{}", unique_suffix());
+    let team_id: i32 = sqlx::query_scalar(
+        "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id LIMIT 1"
+    )
+    .bind(project_id)
+    .fetch_one(pool)
+    .await
+    .expect("テストチケット用の参加チーム取得に失敗");
+
     sqlx::query_scalar::<_, i32>(
         r#"
         INSERT INTO tickets_ticket
             (ticket_key, title, description, status, priority, ticket_type,
-             project_id, author_id, created_at, updated_at, gantt_order)
+             project_id, author_id, team_id, created_at, updated_at, gantt_order)
         VALUES
             ($1, $1, '', 'open', 'medium', 'task',
-             $2, $3, NOW(), NOW(), 0)
+             $2, $3, $4, NOW(), NOW(), 0)
         RETURNING id::int4
         "#,
     )
     .bind(&ticket_key)
     .bind(project_id)
     .bind(author_id)
+    .bind(team_id)
     .fetch_one(pool)
     .await
     .expect("テストチケット作成に失敗")

@@ -158,9 +158,9 @@ export function KanbanBoard() {
   const handleClosePanel = () => {
     setSelectedTicketId(null);
     if (projectKey) {
-      navigate(`/p/${projectKey}/board`);
+      navigate(`/project/${projectKey}/board`);
     } else if (teamSlug) {
-      navigate(`/t/${teamSlug}/board`);
+      navigate(`/team/${teamSlug}/board`);
     }
   };
 
@@ -220,9 +220,9 @@ export function KanbanBoard() {
                     onClick={() => {
                       setSelectedTicketId(ticket.ticketKey);
                       if (projectKey) {
-                        navigate(`/p/${projectKey}/board/${ticket.ticketKey}`);
+                        navigate(`/project/${projectKey}/board/${ticket.ticketKey}`);
                       } else if (teamSlug) {
-                        navigate(`/t/${teamSlug}/board/${ticket.ticketKey}`);
+                        navigate(`/team/${teamSlug}/board/${ticket.ticketKey}`);
                       }
                     }}
                     data-testid={`kanban-card-${ticket.ticketKey}`}

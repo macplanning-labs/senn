@@ -3,7 +3,7 @@
  *
  * 統計カード/チケット概要の凡例クリックで開き、条件に合致するチケットを
  * プロジェクト別にグルーピングして一覧表示する。行クリックで対象チケットの
- * 詳細パネル(/p/:projectKey/tickets/:ticketId)へ遷移する。
+ * 詳細パネル(/project/:projectKey/tickets/:ticketId)へ遷移する。
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -149,7 +149,7 @@ export function TicketDrilldownPopover({ anchorEl, filter, label, onClose }: Tic
               {projectTickets.map((ticket) => (
                 <Link
                   key={ticket.id}
-                  to={project ? `/p/${project.prefix}/tickets/${ticket.ticketKey}` : '#'}
+                  to={project ? `/project/${project.prefix}/tickets/${ticket.ticketKey}` : '#'}
                   className="widget-list__item drilldown-popover__row"
                   onClick={onClose}
                 >

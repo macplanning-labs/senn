@@ -395,6 +395,35 @@ pub async fn create(
         }
     }
 
+    // reviewers のプロジェクトメンバーバリデーション（project がある場合のみ）
+    if !body.reviewers.is_empty() {
+        if let Some(project) = body.project {
+            match ticket_repo::validate_reviewers_are_members(&state.pool, project, &body.reviewers).await {
+                Ok(non_members) => {
+                    if !non_members.is_empty() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                detail: "指定されたユーザーはプロジェクトのメンバーではありません".to_string(),
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Reviewer validation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            detail: "サーバーエラーが発生しました".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
     // トランザクション開始
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
@@ -417,11 +446,16 @@ pub async fn create(
             tracing::error!("api_create failed: {:?}", e);
             if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
             let detail = e.to_string();
-            if detail.contains("teamId or project is required") {
+            if detail.contains("teamId or project is required")
+                || detail.contains("teamId is required")
+                || detail.contains("not a participant")
+                || detail.contains("no participating teams")
+                || detail.contains("multiple teams")
+            {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(ErrorResponse {
-                        detail: "チームまたはプロジェクトを指定してください".to_string(),
+                        detail,
                     }),
                 )
                     .into_response();
@@ -534,6 +568,33 @@ async fn notify_ticket_change(
             }
             Ok(_) => {}
             Err(e) => tracing::error!("assignee username lookup failed: {:?}", e),
+        }
+    }
+
+    if !events.newly_reviewers.is_empty() {
+        for &uid in &events.newly_reviewers {
+            if let Err(e) = ticket_repo::add_watcher(&state.pool, events.ticket_id, uid).await {
+                tracing::error!("add_watcher failed: {:?}", e);
+            }
+        }
+
+        let names: Result<Vec<String>, _> = sqlx::query_scalar(
+            "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+        )
+        .bind(&events.newly_reviewers)
+        .fetch_all(&state.pool)
+        .await;
+
+        match names {
+            Ok(names) if !names.is_empty() => {
+                if let Err(e) = notification_service::notify_review_requested(
+                    &state.pool, &state.mail_sender, events.ticket_id, actor_id, &names.join(", "),
+                ).await {
+                    tracing::error!("notify_review_requested failed: {:?}", e);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::error!("reviewer username lookup failed: {:?}", e),
         }
     }
 
@@ -671,6 +732,56 @@ pub async fn update(
                 }
                 Err(e) => {
                     tracing::error!("Assignee validation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            detail: "サーバーエラーが発生しました".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
+    // reviewers のプロジェクトメンバーバリデーション
+    if !body.reviewers.is_empty() {
+        // チケットのプロジェクトIDを取得
+        let project_id_opt: Option<i32> = match sqlx::query_scalar(
+            "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+        )
+        .bind(&ticket_key)
+        .fetch_optional(&state.pool)
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+
+        if let Some(project_id) = project_id_opt {
+            match ticket_repo::validate_reviewers_are_members(&state.pool, project_id, &body.reviewers).await {
+                Ok(non_members) => {
+                    if !non_members.is_empty() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                detail: "指定されたユーザーはプロジェクトのメンバーではありません".to_string(),
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Reviewer validation failed: {:?}", e);
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -894,6 +1005,58 @@ pub async fn patch(
         }
     }
 
+    // reviewers のプロジェクトメンバーバリデーション（Someの場合のみ）
+    if let Some(reviewers) = &body.reviewers {
+        if !reviewers.is_empty() {
+            // チケットのプロジェクトIDを取得
+            let project_id_opt: Option<i32> = match sqlx::query_scalar(
+                "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1"
+            )
+            .bind(&ticket_key)
+            .fetch_optional(&state.pool)
+            .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            detail: "サーバーエラーが発生しました".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+            };
+
+            if let Some(project_id) = project_id_opt {
+                match ticket_repo::validate_reviewers_are_members(&state.pool, project_id, reviewers).await {
+                    Ok(non_members) => {
+                        if !non_members.is_empty() {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(ErrorResponse {
+                                    detail: "指定されたユーザーはプロジェクトのメンバーではありません".to_string(),
+                                }),
+                            )
+                                .into_response();
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Reviewer validation failed: {:?}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                detail: "サーバーエラーが発生しました".to_string(),
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
+    }
+
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
         Err(e) => {
@@ -1050,10 +1213,10 @@ pub async fn delete(
 
 /// コメント本文中で `@` の直後に候補usernameが続く箇所を検出する。
 ///
-/// usernameは英数字のみとは限らず、このアプリでは`taro.yamada@example.com`のように
+/// usernameは英数字のみとは限らず、このアプリでは`n.hidaka@macplanning.com`のように
 /// メールアドレス形式（内部に`@`を含む）のことが多い。そのため`@([A-Za-z0-9_.-]+)`の
 /// ような文字クラスベースの正規表現では、username内部の`@`で途切れて誤検出する
-/// （WIP-000116運用時に発覚）。この関数は「実在する候補usernameの一覧」を先に受け取り、
+/// （DEMO-000116運用時に発覚）。この関数は「実在する候補usernameの一覧」を先に受け取り、
 /// 本文中の`@`直後にどの候補usernameが（最長一致で）続くかを走査する方式にすることで、
 /// username自体に`@`を含む場合でも正しく検出できるようにしている。
 /// TipTapのメンション拡張が`editor.getText()`で出力する`@[表示名:ユーザーID]`形式を検出する正規表現。
@@ -1134,8 +1297,8 @@ async fn process_mentions(
     };
 
     // メンション候補（プロジェクトメンバー + オーナー）のID/username・表示名・エイリアス
-    // 一覧を作る。username（`@taro.yamada@example.com`のようなメール形式）だけでなく
-    // 表示名（`@山田太郎`）やニックネーム（エイリアス）でもメンションできるよう、
+    // 一覧を作る。username（`@n.hidaka@macplanning.com`のようなメール形式）だけでなく
+    // 表示名（`@日高直樹`）やニックネーム（エイリアス）でもメンションできるよう、
     // すべて候補トークンとして登録する。最初からメンバー/オーナーだけを候補にすることで、
     // 非メンバーのusername/表示名/エイリアスの存在有無を本文から推測されることも防げる。
     let members = user_repo::find_project_members(pool, project_id).await?;
@@ -2072,6 +2235,7 @@ pub async fn bulk_import(
             priority: ticket_data.priority.clone(),
             ticket_type: "task".to_string(), // デフォルト値
             assignees: vec![],
+            reviewers: vec![],
             category: None,
             project: Some(ticket_data.project),
             milestone: None,

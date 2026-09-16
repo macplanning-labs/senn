@@ -141,11 +141,18 @@ pub async fn team_detail(
 /// チーム作成 POST /api/v1/teams/
 pub async fn team_create(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Json(body): Json<TeamWriteIn>,
 ) -> impl IntoResponse {
     match team_repo::create_team(&state.pool, &body).await {
         Ok(team_id) => {
+            // 作成者を管理者としてチームメンバーに追加する。これを怠ると、
+            // 作成者自身がそのチームのチケット一覧を一切閲覧できなくなる
+            // (push_ticket_access_sqlはis_staffかチームメンバーのみ許可するため)。
+            if let Err(e) = team_repo::add_team_member(&state.pool, team_id, auth.user_id, "admin").await {
+                tracing::error!("Failed to add team creator as member: {:?}", e);
+            }
+
             // 作成したチームを返す
             match team_repo::find_team_by_id(&state.pool, team_id).await {
                 Ok(Some(team)) => (StatusCode::CREATED, Json(team)).into_response(),
@@ -161,12 +168,21 @@ pub async fn team_create(
         Err(e) => {
             let error_msg = e.to_string();
             tracing::error!("Create team failed: {:?}", e);
-            if error_msg.contains("Prefix") || error_msg.contains("別のチームで使われています") {
+            if error_msg.contains("Prefix")
+                || error_msg.contains("別のチームで使われています")
+                || error_msg.contains("uq_m_team_prefix_upper")
+                || error_msg.contains("duplicate key")
+            {
+                let detail = if error_msg.contains("uq_m_team_prefix_upper")
+                    || error_msg.contains("duplicate key")
+                {
+                    "このPrefixは別のチームで使われています".to_string()
+                } else {
+                    error_msg
+                };
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        detail: error_msg,
-                    }),
+                    Json(ErrorResponse { detail }),
                 )
                     .into_response()
             } else {
@@ -213,12 +229,21 @@ pub async fn team_update(
         Err(e) => {
             let error_msg = e.to_string();
             tracing::error!("Update team failed: {:?}", e);
-            if error_msg.contains("Prefix") || error_msg.contains("別のチームで使われています") {
+            if error_msg.contains("Prefix")
+                || error_msg.contains("別のチームで使われています")
+                || error_msg.contains("uq_m_team_prefix_upper")
+                || error_msg.contains("duplicate key")
+            {
+                let detail = if error_msg.contains("uq_m_team_prefix_upper")
+                    || error_msg.contains("duplicate key")
+                {
+                    "このPrefixは別のチームで使われています".to_string()
+                } else {
+                    error_msg
+                };
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        detail: error_msg,
-                    }),
+                    Json(ErrorResponse { detail }),
                 )
                     .into_response()
             } else {
@@ -250,14 +275,25 @@ pub async fn team_delete(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    detail: "サーバーエラーが発生しました".to_string(),
-                }),
-            )
-                .into_response()
+            let msg = e.to_string();
+            if msg.contains("team has dependents") {
+                (
+                    StatusCode::CONFLICT,
+                    Json(ErrorResponse {
+                        detail: "サイクル・チケット・プロジェクトが残っているためチームを削除できません".to_string(),
+                    }),
+                )
+                    .into_response()
+            } else {
+                tracing::error!("DB operation failed: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
         }
     }
 }

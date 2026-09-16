@@ -22,6 +22,7 @@ export function TicketFormModal() {
     ticketFormModalTeamSlug,
     ticketFormModalInitialDescription,
     ticketFormModalInitialParent,
+    ticketFormModalInitialCycleId,
     closeTicketFormModal,
   } = useUIStore();
 
@@ -43,6 +44,7 @@ export function TicketFormModal() {
           teamSlugOverride={ticketFormModalTeamSlug ?? undefined}
           initialDescription={ticketFormModalInitialDescription ?? undefined}
           initialParent={ticketFormModalInitialParent ?? undefined}
+          initialCycleId={ticketFormModalInitialCycleId ?? undefined}
           onClose={closeTicketFormModal}
         />
       </div>

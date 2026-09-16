@@ -14,6 +14,7 @@ import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
 import { SecuritySettings } from './SecuritySettings';
 import { AiSettings } from './AiSettings';
+import { NotificationSettings } from './NotificationSettings';
 import './SettingsPage.css';
 
 const LANGUAGES = [
@@ -21,13 +22,22 @@ const LANGUAGES = [
   { code: 'en', label: 'English' },
 ] as const;
 
-function getNotificationCategories(t: (key: string) => string) {
+type TabKey = 'profile' | 'notifications' | 'security' | 'ai' | 'shortcuts';
+
+interface TabDef {
+  key: TabKey;
+  label: string;
+  icon: string;
+}
+
+function getTabs(t: ReturnType<typeof useTranslation>['t']): TabDef[] {
   return [
-    { key: 'assigned', label: t('settings.assignedToMe'), icon: '👤' },
-    { key: 'commented', label: t('settings.commentsOnTickets'), icon: '💬' },
-    { key: 'status_changed', label: t('settings.statusChanges'), icon: '🔄' },
-    { key: 'due_soon', label: t('settings.dueReminders'), icon: '⏰' },
-  ] as const;
+    { key: 'profile', label: t('settings.tabProfile', 'プロフィール'), icon: '👤' },
+    { key: 'notifications', label: t('settings.tabNotifications', '通知'), icon: '🔔' },
+    { key: 'security', label: t('settings.tabSecurity', 'セキュリティ'), icon: '🔒' },
+    { key: 'ai', label: t('settings.tabAi', 'AI'), icon: '🤖' },
+    { key: 'shortcuts', label: t('settings.tabShortcuts', 'ショートカット'), icon: '⌨️' },
+  ];
 }
 
 export function SettingsPage() {
@@ -37,7 +47,7 @@ export function SettingsPage() {
   const toast = useToast();
   const navigate = useNavigate();
 
-  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabKey>('profile');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [deactivatePassword, setDeactivatePassword] = useState('');
@@ -78,22 +88,6 @@ export function SettingsPage() {
     },
   });
 
-  const toggleEmailMutation = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      await apiClient.patch('/auth/me/', {
-        email_notifications_enabled: enabled,
-      });
-      return enabled;
-    },
-    onSuccess: (enabled) => {
-      setEmailEnabled(enabled);
-      toast.success(enabled ? t('settings.emailEnabled') : t('settings.emailDisabled'));
-    },
-    onError: () => {
-      toast.error(t('settings.updateFailed'));
-    },
-  });
-
   const deactivateAccountMutation = useMutation({
     mutationFn: async (password: string) => {
       const { data } = await apiClient.post('/auth/me/deactivate/', {
@@ -115,14 +109,34 @@ export function SettingsPage() {
     },
   });
 
-  const notificationCategories = getNotificationCategories(t);
+  const tabs = getTabs(t);
 
   return (
     <div className="settings" data-testid="settings-page">
       <h1 className="settings__title">{t('nav.settings', 'Settings')}</h1>
 
-      {/* プロフィール */}
-      <section className="settings__section">
+      <div className="settings__tabs" role="tablist">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            className={`settings__tab ${activeTab === tab.key ? 'settings__tab--active' : ''}`}
+            onClick={() => setActiveTab(tab.key)}
+            data-testid={`settings-tab-${tab.key}`}
+          >
+            <span style={{ marginRight: 6 }}>{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div role="tabpanel">
+        {activeTab === 'profile' && (
+          <>
+            {/* プロフィール */}
+            <section className="settings__section">
         <h2 className="settings__section-title">{t('common.profile')}</h2>
         <div className="settings__card">
           {isEditingProfile ? (
@@ -319,151 +333,115 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* 言語設定 */}
-      <section className="settings__section">
-        <h2 className="settings__section-title">{t('settings.language', 'Language')}</h2>
-        <div className="settings__card">
-          <div className="settings__option-group">
-            {LANGUAGES.map((lang) => (
-              <button
-                key={lang.code}
-                className={`settings__lang-btn ${
-                  i18n.language === lang.code ? 'settings__lang-btn--active' : ''
-                }`}
-                onClick={() => void i18n.changeLanguage(lang.code)}
-              >
-                <span className="settings__lang-flag">
-                  {lang.code === 'ja' ? '🇯🇵' : '🇺🇸'}
-                </span>
-                {lang.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* テーマ設定 */}
-      <section className="settings__section">
-        <h2 className="settings__section-title">{t('settings.theme', 'Theme')}</h2>
-        <div className="settings__card">
-          <div className="settings__option-group">
-            <button
-              className={`settings__theme-btn ${theme === 'dark' ? 'settings__theme-btn--active' : ''}`}
-              onClick={() => { if (theme !== 'dark') toggleTheme(); }}
-            >
-              🌙 {t('common.dark')}
-            </button>
-            <button
-              className={`settings__theme-btn ${theme === 'light' ? 'settings__theme-btn--active' : ''}`}
-              onClick={() => { if (theme !== 'light') toggleTheme(); }}
-            >
-              ☀️ {t('common.light')}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* メール通知設定 */}
-      <section className="settings__section">
-        <h2 className="settings__section-title">📧 {t('settings.emailNotifications')}</h2>
-        <div className="settings__card">
-          <div className="settings__notification-master">
-            <div className="settings__notification-row">
-              <div>
-                <div className="settings__notification-label">{t('settings.emailNotifications')}</div>
-                <div className="settings__notification-desc">
-                  {t('settings.emailNotificationsDesc')}
+            {/* 言語設定 */}
+            <section className="settings__section">
+              <h2 className="settings__section-title">{t('settings.language', 'Language')}</h2>
+              <div className="settings__card">
+                <div className="settings__option-group">
+                  {LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.code}
+                      className={`settings__lang-btn ${
+                        i18n.language === lang.code ? 'settings__lang-btn--active' : ''
+                      }`}
+                      onClick={() => void i18n.changeLanguage(lang.code)}
+                    >
+                      <span className="settings__lang-flag">
+                        {lang.code === 'ja' ? '🇯🇵' : '🇺🇸'}
+                      </span>
+                      {lang.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <label className="settings__toggle">
-                <input
-                  type="checkbox"
-                  checked={emailEnabled}
-                  onChange={(e) => toggleEmailMutation.mutate(e.target.checked)}
-                />
-                <span className="settings__toggle-slider" />
-              </label>
-            </div>
-          </div>
+            </section>
 
-          {emailEnabled && (
-            <div className="settings__notification-categories">
-              {notificationCategories.map((cat) => (
-                <div key={cat.key} className="settings__notification-row">
-                  <div>
-                    <div className="settings__notification-label">
-                      {cat.icon} {cat.label}
-                    </div>
-                  </div>
-                  <label className="settings__toggle">
-                    <input type="checkbox" defaultChecked />
-                    <span className="settings__toggle-slider" />
-                  </label>
+            {/* テーマ設定 */}
+            <section className="settings__section">
+              <h2 className="settings__section-title">{t('settings.theme', 'Theme')}</h2>
+              <div className="settings__card">
+                <div className="settings__option-group">
+                  <button
+                    className={`settings__theme-btn ${theme === 'dark' ? 'settings__theme-btn--active' : ''}`}
+                    onClick={() => { if (theme !== 'dark') toggleTheme(); }}
+                  >
+                    🌙 {t('common.dark')}
+                  </button>
+                  <button
+                    className={`settings__theme-btn ${theme === 'light' ? 'settings__theme-btn--active' : ''}`}
+                    onClick={() => { if (theme !== 'light') toggleTheme(); }}
+                  >
+                    ☀️ {t('common.light')}
+                  </button>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+              </div>
+            </section>
+          </>
+        )}
 
-      {/* AI / Ollama 設定 */}
-      <AiSettings />
+        {activeTab === 'notifications' && <NotificationSettings />}
 
-      {/* セキュリティ設定 */}
-      <SecuritySettings />
+        {activeTab === 'security' && <SecuritySettings />}
 
-      {/* キーボードショートカット */}
-      <section className="settings__section">
-        <h2 className="settings__section-title">{t('shortcuts.title')}</h2>
-        <div className="settings__card">
-          <div className="settings__shortcuts">
-            <div className="settings__shortcut">
-              <kbd>⌘K</kbd>
-              <span>{t('shortcuts.commandPalette')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>J</kbd> / <kbd>K</kbd>
-              <span>{t('shortcuts.navigateTickets')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>Enter</kbd>
-              <span>{t('shortcuts.openDetail')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>Esc</kbd>
-              <span>{t('shortcuts.closePanel')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>C</kbd>
-              <span>{t('shortcuts.createTicket')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>G</kbd> then <kbd>M</kbd>
-              <span>{t('shortcuts.goToMyTickets')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>G</kbd> then <kbd>I</kbd>
-              <span>{t('shortcuts.goToTickets')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>G</kbd> then <kbd>H</kbd>
-              <span>{t('shortcuts.goToDashboard')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>G</kbd> then <kbd>P</kbd>
-              <span>{t('shortcuts.goToProjects')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>G</kbd> then <kbd>N</kbd>
-              <span>{t('shortcuts.goToNotifications')}</span>
-            </div>
-            <div className="settings__shortcut">
-              <kbd>G</kbd> then <kbd>S</kbd>
-              <span>{t('shortcuts.goToSettings')}</span>
-            </div>
-          </div>
-        </div>
-      </section>
+        {activeTab === 'ai' && <AiSettings />}
+
+        {activeTab === 'shortcuts' && (
+          <>
+            {/* キーボードショートカット */}
+            <section className="settings__section">
+              <h2 className="settings__section-title">{t('shortcuts.title')}</h2>
+              <div className="settings__card">
+                <div className="settings__shortcuts">
+                  <div className="settings__shortcut">
+                    <kbd>⌘K</kbd>
+                    <span>{t('shortcuts.commandPalette')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>J</kbd> / <kbd>K</kbd>
+                    <span>{t('shortcuts.navigateTickets')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>Enter</kbd>
+                    <span>{t('shortcuts.openDetail')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>Esc</kbd>
+                    <span>{t('shortcuts.closePanel')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>C</kbd>
+                    <span>{t('shortcuts.createTicket')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>G</kbd> then <kbd>M</kbd>
+                    <span>{t('shortcuts.goToMyTickets')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>G</kbd> then <kbd>I</kbd>
+                    <span>{t('shortcuts.goToTickets')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>G</kbd> then <kbd>H</kbd>
+                    <span>{t('shortcuts.goToDashboard')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>G</kbd> then <kbd>P</kbd>
+                    <span>{t('shortcuts.goToProjects')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>G</kbd> then <kbd>N</kbd>
+                    <span>{t('shortcuts.goToNotifications')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>G</kbd> then <kbd>S</kbd>
+                    <span>{t('shortcuts.goToSettings')}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+      </div>
     </div>
   );
 }

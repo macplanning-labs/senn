@@ -59,7 +59,8 @@ pub async fn get_dashboard_stats(
     } else {
         sqlx::query_scalar(
             "SELECT COUNT(DISTINCT p.id) FROM tickets_project p
-             JOIN t_team_membership tm ON tm.team_id = p.owner_team_id
+             JOIN tickets_project_teams pt ON p.id = pt.project_id
+             JOIN t_team_membership tm ON tm.team_id = pt.team_id
              WHERE tm.user_id = $1 AND (
                  tm.scoped_project_id IS NULL OR
                  (tm.scoped_project_id = p.id AND
@@ -703,7 +704,6 @@ pub async fn get_team_summary(pool: &PgPool, user_id: i32, team_slug: &str) -> a
              AND EXISTS (
                SELECT 1 FROM t_team_membership tm
                WHERE tm.team_id = m.id AND tm.user_id = $2
-                 AND tm.start_date <= CURRENT_DATE
                  AND (tm.end_date IS NULL OR tm.end_date >= CURRENT_DATE)
              )"
         )

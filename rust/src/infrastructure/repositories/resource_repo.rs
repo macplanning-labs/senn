@@ -16,16 +16,55 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
 
-    let rows = sqlx::query(
+    #[derive(sqlx::FromRow)]
+    struct ProjectRow {
+        id: i32,
+        name: String,
+        prefix: String,
+        description: String,
+        created_at: chrono::DateTime<chrono::Utc>,
+        owner_id: Option<i32>,
+        ticket_count: i64,
+        member_count: i64,
+        teams: Option<serde_json::Value>,
+        cycle_auto_complete: bool,
+        cycle_auto_create_next: bool,
+    }
+
+    let rows = sqlx::query_as::<_, ProjectRow>(
         "SELECT
-            p.id::int4, p.name, p.prefix, p.description, p.created_at,
-            p.owner_id::int4, p.owner_team_id::int4,
+            p.id::int4,
+            p.name,
+            p.prefix,
+            p.description,
+            p.created_at,
+            p.owner_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
-            (SELECT COUNT(*)::int8 FROM t_team_membership tm WHERE tm.team_id = p.owner_team_id AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)) as member_count,
-            t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color,
-            p.cycle_auto_complete, p.cycle_auto_create_next
+            (
+              SELECT COUNT(DISTINCT tm.user_id)::int8
+              FROM tickets_project_teams pt
+              JOIN t_team_membership tm ON tm.team_id = pt.team_id
+              WHERE pt.project_id = p.id
+                AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)
+            ) as member_count,
+            COALESCE(
+              (
+                SELECT json_agg(json_build_object(
+                  'id', t.id,
+                  'name', t.name,
+                  'slug', t.slug,
+                  'icon', t.icon,
+                  'color', t.color
+                ) ORDER BY t.name)
+                FROM tickets_project_teams pt
+                JOIN m_team t ON t.id = pt.team_id
+                WHERE pt.project_id = p.id
+              ),
+              '[]'::json
+            ) as teams,
+            p.cycle_auto_complete,
+            p.cycle_auto_create_next
          FROM tickets_project p
-         LEFT JOIN m_team t ON p.owner_team_id = t.id
          ORDER BY p.name ASC
          LIMIT $1 OFFSET $2"
     )
@@ -37,29 +76,22 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
     let projects = rows
         .into_iter()
         .map(|row| {
-            let owner_team_id: Option<i32> = row.get(6);
-            let owner_team = owner_team_id.and_then(|_| {
-                Some(TeamSummaryOut {
-                    id: row.get(9),
-                    name: row.get(10),
-                    slug: row.get(11),
-                    icon: row.get(12),
-                    color: row.get(13),
-                })
-            });
+            let teams: Vec<TeamSummaryOut> = row.teams
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
 
             ProjectOut {
-                id: row.get(0),
-                name: row.get(1),
-                prefix: row.get(2),
-                description: row.get(3),
-                ticket_count: row.get(7),
-                member_count: row.get(8),
-                owner_team,
-                owner_id: row.get(5),
-                created_at: row.get(4),
-                cycle_auto_complete: row.get(14),
-                cycle_auto_create_next: row.get(15),
+                id: row.id,
+                name: row.name,
+                prefix: row.prefix,
+                description: row.description,
+                ticket_count: row.ticket_count,
+                member_count: row.member_count,
+                teams,
+                owner_id: row.owner_id,
+                created_at: row.created_at,
+                cycle_auto_complete: row.cycle_auto_complete,
+                cycle_auto_create_next: row.cycle_auto_create_next,
             }
         })
         .collect();
@@ -76,16 +108,55 @@ pub async fn count_projects(pool: &PgPool) -> anyhow::Result<i64> {
 }
 
 pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<ProjectOut>> {
-    let row_opt = sqlx::query(
+    #[derive(sqlx::FromRow)]
+    struct ProjectRow {
+        id: i32,
+        name: String,
+        prefix: String,
+        description: String,
+        created_at: chrono::DateTime<chrono::Utc>,
+        owner_id: Option<i32>,
+        ticket_count: i64,
+        member_count: i64,
+        teams: Option<serde_json::Value>,
+        cycle_auto_complete: bool,
+        cycle_auto_create_next: bool,
+    }
+
+    let row_opt = sqlx::query_as::<_, ProjectRow>(
         "SELECT
-            p.id::int4, p.name, p.prefix, p.description, p.created_at,
-            p.owner_id::int4, p.owner_team_id::int4,
+            p.id::int4,
+            p.name,
+            p.prefix,
+            p.description,
+            p.created_at,
+            p.owner_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
-            (SELECT COUNT(*)::int8 FROM t_team_membership tm WHERE tm.team_id = p.owner_team_id AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)) as member_count,
-            t.id::int4 as team_id, t.name as team_name, t.slug as team_slug, t.icon as team_icon, t.color as team_color,
-            p.cycle_auto_complete, p.cycle_auto_create_next
+            (
+              SELECT COUNT(DISTINCT tm.user_id)::int8
+              FROM tickets_project_teams pt
+              JOIN t_team_membership tm ON tm.team_id = pt.team_id
+              WHERE pt.project_id = p.id
+                AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)
+            ) as member_count,
+            COALESCE(
+              (
+                SELECT json_agg(json_build_object(
+                  'id', t.id,
+                  'name', t.name,
+                  'slug', t.slug,
+                  'icon', t.icon,
+                  'color', t.color
+                ) ORDER BY t.name)
+                FROM tickets_project_teams pt
+                JOIN m_team t ON t.id = pt.team_id
+                WHERE pt.project_id = p.id
+              ),
+              '[]'::json
+            ) as teams,
+            p.cycle_auto_complete,
+            p.cycle_auto_create_next
          FROM tickets_project p
-         LEFT JOIN m_team t ON p.owner_team_id = t.id
          WHERE p.id = $1"
     )
     .bind(id)
@@ -93,29 +164,22 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
     .await?;
 
     let project = row_opt.map(|row| {
-        let owner_team_id: Option<i32> = row.get(6);
-        let owner_team = owner_team_id.and_then(|_| {
-            Some(TeamSummaryOut {
-                id: row.get(9),
-                name: row.get(10),
-                slug: row.get(11),
-                icon: row.get(12),
-                color: row.get(13),
-            })
-        });
+        let teams: Vec<TeamSummaryOut> = row.teams
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
 
         ProjectOut {
-            id: row.get(0),
-            name: row.get(1),
-            prefix: row.get(2),
-            description: row.get(3),
-            ticket_count: row.get(7),
-            member_count: row.get(8),
-            owner_team,
-            owner_id: row.get(5),
-            created_at: row.get(4),
-            cycle_auto_complete: row.get(14),
-            cycle_auto_create_next: row.get(15),
+            id: row.id,
+            name: row.name,
+            prefix: row.prefix,
+            description: row.description,
+            ticket_count: row.ticket_count,
+            member_count: row.member_count,
+            teams,
+            owner_id: row.owner_id,
+            created_at: row.created_at,
+            cycle_auto_complete: row.cycle_auto_complete,
+            cycle_auto_create_next: row.cycle_auto_create_next,
         }
     });
 
@@ -127,6 +191,11 @@ pub async fn create_project(
     input: &ProjectWriteIn,
     owner_id: Option<i32>,
 ) -> anyhow::Result<i32> {
+    // Validate team_ids is not empty
+    if input.team_ids.is_empty() {
+        anyhow::bail!("project requires at least one team");
+    }
+
     // トランザクション開始
     let mut tx = pool.begin().await?;
 
@@ -134,24 +203,36 @@ pub async fn create_project(
     // grace_period_days はDjangoの ProjectCreateSerializer に含まれず、モデルのdefault=7が
     // 常に使われる(APIから変更不可)。Rust側も同じ既定値7を使う(0だと猶予なしになりDjangoと乖離する)。
     let project_id: i32 = sqlx::query_scalar(
-        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_team_id, owner_id)
-         VALUES ($1, $2, $3, NOW(), 7, 'active', $4, $5)
+        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_id)
+         VALUES ($1, $2, $3, NOW(), 7, 'active', $4)
          RETURNING id::int4"
     )
     .bind(&input.name)
     .bind(&input.prefix)
     .bind(&input.description)
-    .bind(input.owner_team)
     .bind(owner_id)
     .fetch_one(&mut *tx)
     .await?;
+
+    // Insert team participations
+    for team_id in &input.team_ids {
+        sqlx::query(
+            "INSERT INTO tickets_project_teams (project_id, team_id, joined_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (project_id, team_id) DO NOTHING"
+        )
+        .bind(project_id)
+        .bind(team_id)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // デフォルトワークフロー状態を作成
     let workflow_statuses = vec![
         ("backlog", "Backlog", "backlog", "#666666", 0, false),
         ("open", "Todo", "unstarted", "#a0a0a0", 1, true),
         ("in_progress", "In Progress", "started", "#f5a623", 2, false),
-        ("resolved", "Done", "completed", "#50e3c2", 3, false),
+        ("resolved", "Resolved", "completed", "#50e3c2", 3, false),
         ("closed", "Closed", "completed", "#5c6cff", 4, false),
         ("canceled", "Cancelled", "cancelled", "#ff4d4f", 5, false),
     ];
@@ -177,16 +258,54 @@ pub async fn create_project(
     Ok(project_id)
 }
 
+pub async fn add_project_team(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow::Result<bool> {
+    let rows_affected = sqlx::query(
+        "INSERT INTO tickets_project_teams (project_id, team_id, joined_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (project_id, team_id) DO NOTHING"
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .execute(pool)
+    .await?;
+
+    Ok(rows_affected.rows_affected() > 0)
+}
+
+pub async fn remove_project_team(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow::Result<bool> {
+    // Check if this is the last team (should fail if so)
+    let team_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets_project_teams WHERE project_id = $1"
+    )
+    .bind(project_id)
+    .fetch_one(pool)
+    .await?;
+
+    if team_count <= 1 {
+        anyhow::bail!("cannot remove the last team from a project");
+    }
+
+    let rows_affected = sqlx::query(
+        "DELETE FROM tickets_project_teams
+         WHERE project_id = $1 AND team_id = $2"
+    )
+    .bind(project_id)
+    .bind(team_id)
+    .execute(pool)
+    .await?;
+
+    Ok(rows_affected.rows_affected() > 0)
+}
+
 pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE tickets_project
-         SET name = $1, prefix = $2, description = $3, owner_team_id = $4
-         WHERE id = $5"
+         SET name = $1, prefix = $2, description = $3
+         WHERE id = $4"
     )
     .bind(&input.name)
     .bind(&input.prefix)
     .bind(&input.description)
-    .bind(input.owner_team)
     .bind(id)
     .execute(pool)
     .await?
@@ -195,20 +314,8 @@ pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> a
     Ok(rows_affected > 0)
 }
 
-pub async fn update_owner_team(pool: &PgPool, project_id: i32, owner_team: Option<i32>) -> anyhow::Result<()> {
-    sqlx::query(
-        "UPDATE tickets_project SET owner_team_id = $1 WHERE id = $2"
-    )
-    .bind(owner_team)
-    .bind(project_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &ProjectPatchIn) -> anyhow::Result<bool> {
-    if input.owner_team.is_none()
-        && input.cycle_auto_complete.is_none()
+    if input.cycle_auto_complete.is_none()
         && input.cycle_auto_create_next.is_none()
     {
         return Ok(false);
@@ -217,11 +324,6 @@ pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &Proj
     let mut builder = sqlx::QueryBuilder::new("UPDATE tickets_project SET ");
     let mut separated = builder.separated(", ");
 
-    if let Some(owner_team) = input.owner_team {
-        separated
-            .push("owner_team_id = ")
-            .push_bind_unseparated(owner_team);
-    }
     if let Some(cac) = input.cycle_auto_complete {
         separated
             .push("cycle_auto_complete = ")
@@ -838,12 +940,12 @@ mod tests {
     use super::*;
     use crate::test_support;
 
-    fn write_in(prefix: &str, owner_team: Option<i32>) -> ProjectWriteIn {
+    fn write_in(prefix: &str, team_ids: Vec<i32>) -> ProjectWriteIn {
         ProjectWriteIn {
             name: format!("テストプロジェクト-{prefix}"),
             prefix: prefix.to_string(),
             description: "テスト用".to_string(),
-            owner_team,
+            team_ids,
         }
     }
 
@@ -851,7 +953,8 @@ mod tests {
     async fn create_and_find_project_roundtrip() {
         let Some(pool) = test_support::test_pool().await else { return; };
         let prefix = format!("PRJ{}", &test_support::unique_suffix()[..6]);
-        let input = write_in(&prefix, None);
+        let team_id = test_support::create_test_team(&pool, "team_prj").await;
+        let input = write_in(&prefix, vec![team_id]);
 
         let id = create_project(&pool, &input, None).await.unwrap();
 
@@ -860,16 +963,18 @@ mod tests {
         let project = found.unwrap();
         assert_eq!(project.id, id);
         assert_eq!(project.prefix, prefix);
-        assert!(project.owner_team.is_none());
+        assert_eq!(project.teams.len(), 1);
+        assert_eq!(project.teams[0].id, team_id);
     }
 
     #[tokio::test]
     async fn update_project_changes_fields() {
         let Some(pool) = test_support::test_pool().await else { return; };
         let prefix = format!("UPD{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+        let team_id = test_support::create_test_team(&pool, "team_upd").await;
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
 
-        let mut updated = write_in(&prefix, None);
+        let mut updated = write_in(&prefix, vec![team_id]);
         updated.name = "更新後の名前".to_string();
         let ok = update_project(&pool, id, &updated).await.unwrap();
         assert!(ok);
@@ -878,38 +983,13 @@ mod tests {
         assert_eq!(found.name, "更新後の名前");
     }
 
-    /// WIP-000037対応: Owner Teamの部分更新(PATCH)が、他フィールドに
-    /// 影響を与えず owner_team_id のみを更新することを確認する。
-    #[tokio::test]
-    async fn update_owner_team_only_changes_owner_team() {
-        let Some(pool) = test_support::test_pool().await else { return; };
-        let prefix = format!("OWN{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
-
-        let team_id: i32 = sqlx::query_scalar(
-            "INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, created_at)
-             VALUES ($1, $2, '', '👥', '#6366f1', '', true, NOW())
-             RETURNING id::int4"
-        )
-        .bind(format!("テストチーム-{}", test_support::unique_suffix()))
-        .bind(format!("team-{}", test_support::unique_suffix()))
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        update_owner_team(&pool, id, Some(team_id)).await.unwrap();
-
-        let found = find_project_by_id(&pool, id).await.unwrap().unwrap();
-        assert_eq!(found.owner_team.map(|t| t.id), Some(team_id));
-        assert_eq!(found.prefix, prefix, "owner_team以外のフィールドは変化しないこと");
-    }
-
     #[tokio::test]
     async fn create_project_sets_owner_id() {
         let Some(pool) = test_support::test_pool().await else { return; };
         let owner = test_support::create_test_user(&pool, "project-owner").await;
+        let team_id = test_support::create_test_team(&pool, "team_own").await;
         let prefix = format!("OWN{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, None), Some(owner)).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), Some(owner)).await.unwrap();
 
         let owner_id = get_project_owner_id(&pool, id).await.unwrap();
         assert_eq!(owner_id, Some(owner));
@@ -919,8 +999,9 @@ mod tests {
     async fn delete_project_with_tickets_is_rejected() {
         let Some(pool) = test_support::test_pool().await else { return; };
         let author = test_support::create_test_user(&pool, "del-guard-author").await;
+        let team_id = test_support::create_test_team(&pool, "team_del").await;
         let prefix = format!("DEL{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
         test_support::create_test_ticket(&pool, id, "DELGUARD", author).await;
 
         let result = delete_project(&pool, id).await.unwrap();
@@ -935,7 +1016,8 @@ mod tests {
     async fn delete_project_without_tickets_succeeds() {
         let Some(pool) = test_support::test_pool().await else { return; };
         let prefix = format!("DOK{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, None), None).await.unwrap();
+        let team_id = test_support::create_test_team(&pool, "team_dok").await;
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
 
         let result = delete_project(&pool, id).await.unwrap();
         assert!(matches!(result, DeleteProjectResult::Deleted));

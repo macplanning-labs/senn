@@ -77,7 +77,7 @@ export function QuickCreateTicketButton({
         fontSize: '0.8125rem',
       }}>
         ✅ <a
-          href={`/p/${created.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${created.ticketKey}`}
+          href={`/project/${created.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${created.ticketKey}`}
           style={{ color: 'inherit', textDecoration: 'underline' }}
         >
           {created.ticketKey}

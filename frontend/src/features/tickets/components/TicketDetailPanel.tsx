@@ -46,6 +46,7 @@ interface TicketData {
   priority: string;
   ticketType: string;
   assignees: { id: number; username: string; displayName: string }[];
+  reviewers: { id: number; username: string; displayName: string }[];
   author: { id: number; username: string; displayName: string } | null;
   category: { id: number; name: string; color: string } | null;
   milestone: { id: number; name: string; dueDate: string | null } | null;
@@ -234,6 +235,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const [showCloseAnalysis, setShowCloseAnalysis] = useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
+  const [reviewerPickerOpen, setReviewerPickerOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [linkAdding, setLinkAdding] = useState(false);
@@ -269,6 +271,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   useEffect(() => {
     if (ticket) {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['my-issues'] });
     }
   }, [ticket?.id, ticket?.status, queryClient]);
 
@@ -547,6 +550,21 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     errorMessage: '担当者の変更に失敗しました。',
   });
 
+  // 楽観的レビュアー変更(全置換)
+  const reviewersMutation = useOptimisticMutation<void, UserOption[]>({
+    mutationFn: async (reviewers) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { reviewers: reviewers.map((r) => r.id) });
+    },
+    queryKey: ticketQueryKey,
+    updater: (currentData, reviewers) => {
+      const data = currentData as TicketData | undefined;
+      if (!data) return currentData;
+      return { ...data, reviewers };
+    },
+    invalidateKeys: [['tickets']],
+    errorMessage: 'レビュアーの変更に失敗しました。',
+  });
+
   const toggleLabel = (label: LabelOption) => {
     const current = ticket?.labels ?? [];
     const exists = current.some((l) => l.id === label.id);
@@ -559,6 +577,13 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     const exists = current.some((a) => a.id === user.id);
     const next = exists ? current.filter((a) => a.id !== user.id) : [...current, user];
     assigneesMutation.mutate(next);
+  };
+
+  const toggleReviewer = (user: UserOption) => {
+    const current = ticket?.reviewers ?? [];
+    const exists = current.some((r) => r.id === user.id);
+    const next = exists ? current.filter((r) => r.id !== user.id) : [...current, user];
+    reviewersMutation.mutate(next);
   };
 
   // 楽観的コメント追加 — 投稿ボタン押下で即スレッドに表示
@@ -818,7 +843,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   // コメント表示時のメンション処理（テキストノード内での処理用）
   //
-  // usernameは`taro.yamada@example.com`のようにメール形式（内部に@を含む）のことが
+  // usernameは`n.hidaka@macplanning.com`のようにメール形式（内部に@を含む）のことが
   // 多いため、文字クラスベースの正規表現（例: /@([A-Za-z0-9_.-]+)/）では内部の@で
   // 途切れて誤検出する。プロジェクトメンバーの実在するusername/表示名の一覧を先に
   // 用意し、本文中の@の直後にどのトークンが（最長一致で）続くかを走査する方式にする
@@ -1235,9 +1260,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               const prefix = ticket.projectPrefix ?? projectKey;
               const slug = ticket.team?.slug ?? teamSlug;
               if (prefix) {
-                navigate(`/p/${prefix}/tickets/${ticket.ticketKey}/edit`);
+                navigate(`/project/${prefix}/tickets/${ticket.ticketKey}/edit`);
               } else if (slug) {
-                navigate(`/t/${slug}/tickets/${ticket.ticketKey}/edit`);
+                navigate(`/team/${slug}/tickets/${ticket.ticketKey}/edit`);
               }
             }}
             aria-label="Edit ticket"
@@ -1356,6 +1381,74 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleAssignee(opt)}
+                          />
+                          <span>{opt.displayName || opt.username}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* レビュアー */}
+        <div className="detail-panel__field">
+          <span className="detail-panel__field-label">Reviewers</span>
+          <div style={{ position: 'relative' }}>
+            <div
+              className="detail-panel__field-value"
+              style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center', cursor: 'pointer', minHeight: '22px' }}
+              onClick={() => setReviewerPickerOpen((v) => !v)}
+              data-testid="reviewer-picker-toggle"
+            >
+              {ticket.reviewers?.length > 0 ? (
+                <span className="detail-panel__reviewer">
+                  {ticket.reviewers.map((r) => (
+                    <span key={r.id} className="detail-panel__avatar" title={r.displayName || r.username}>
+                      {(r.displayName || r.username)[0]?.toUpperCase()}
+                    </span>
+                  ))}
+                  <span>
+                    {ticket.reviewers.map((r) => r.displayName || r.username).join(', ')}
+                  </span>
+                </span>
+              ) : (
+                <span className="detail-panel__unassigned">No reviewers</span>
+              )}
+            </div>
+            {reviewerPickerOpen && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+                  onClick={() => setReviewerPickerOpen(false)}
+                />
+                <div
+                  style={{
+                    position: 'absolute', top: '100%', left: 0, marginTop: '4px', zIndex: 11,
+                    background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-sm)', padding: '6px', minWidth: '200px',
+                    maxHeight: '240px', overflowY: 'auto', boxShadow: 'var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.3))',
+                  }}
+                  data-testid="reviewer-picker-menu"
+                >
+                  {userOptions.length === 0 ? (
+                    <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.6, padding: '4px' }}>
+                      メンバーがいません
+                    </div>
+                  ) : (
+                    userOptions.map((opt) => {
+                      const checked = ticket.reviewers?.some((r) => r.id === opt.id) ?? false;
+                      return (
+                        <label
+                          key={opt.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 4px', cursor: 'pointer', fontSize: 'var(--font-size-sm)' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleReviewer(opt)}
                           />
                           <span>{opt.displayName || opt.username}</span>
                         </label>

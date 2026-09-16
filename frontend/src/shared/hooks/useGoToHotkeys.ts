@@ -3,9 +3,9 @@
  *
  * G キーに続いて別のキーを押すことで画面遷移:
  *   G then M → /my-issues
- *   G then I → /t/:slug/tickets（または /my-issues）
- *   G then H → /t/:slug/dashboard
- *   G then P → /t/:slug/projects
+ *   G then I → /team/:slug/tickets（または /my-issues）
+ *   G then H → /team/:slug/dashboard
+ *   G then P → /team/:slug/projects
  *   G then N → /notifications
  *   G then S → /settings
  *
@@ -37,7 +37,7 @@ export function useGoToHotkeys() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getTeamSlug = useCallback((): string | null => {
-    const match = location.pathname.match(/^\/t\/([^/]+)/);
+    const match = location.pathname.match(/^\/team\/([^/]+)/);
     return match?.[1] ?? getLastTeamSlug() ?? null;
   }, [location.pathname]);
 
@@ -75,19 +75,19 @@ export function useGoToHotkeys() {
           break;
         case 'i': {
           const teamSlug = getTeamSlug();
-          navigate(teamSlug ? `/t/${teamSlug}/tickets` : '/my-issues');
+          navigate(teamSlug ? `/team/${teamSlug}/tickets` : '/my-issues');
           resetSequence();
           break;
         }
         case 'h': {
           const teamSlug = getTeamSlug();
-          if (teamSlug) navigate(`/t/${teamSlug}/dashboard`);
+          if (teamSlug) navigate(`/team/${teamSlug}/dashboard`);
           resetSequence();
           break;
         }
         case 'p': {
           const teamSlug = getTeamSlug();
-          if (teamSlug) navigate(`/t/${teamSlug}/projects`);
+          if (teamSlug) navigate(`/team/${teamSlug}/projects`);
           resetSequence();
           break;
         }

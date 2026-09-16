@@ -75,8 +75,8 @@ docker compose up --build
 #### Steps
 
 ```bash
-createdb wip
-cp .env.example .env  # edit DATABASE_URL etc. to match your environment
+createdb senn
+cp .env.example .env  # edit DATABASE_URL (e.g. postgresql://USER@localhost/senn) etc.
 
 cd rust
 cargo run
@@ -92,9 +92,18 @@ npm run dev
 
 ## Tests
 
+Local CI equivalent (same as [CONTRIBUTING.md](./CONTRIBUTING.md) / maintainer `run_local_ci.sh`):
+
 ```bash
 cd rust
+export SQLX_OFFLINE=true
+cargo check --workspace
 cargo test --workspace
+
+cd ../frontend
+npm ci
+npm run build
+npm test
 ```
 
 ## License

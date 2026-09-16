@@ -116,8 +116,9 @@ pub async fn create(
             }
         }
         Err(e) => {
-            // バリデーションエラーの場合
-            if e.to_string().contains("開始日は終了日より前") {
+            let msg = e.to_string();
+            // バリデーションエラーの場合（repo 文言とハンドラ期待を揃える: DEMO-000169）
+            if msg.contains("開始日は終了日より前") {
                 (
                     StatusCode::BAD_REQUEST,
                     Json(ErrorResponse {
@@ -125,7 +126,10 @@ pub async fn create(
                     }),
                 )
                     .into_response()
-            } else if e.to_string().contains("teamId or project is required") {
+            } else if msg.contains("teamId is required")
+                || msg.contains("teamId or project is required")
+                || msg.contains("project has no participating teams")
+            {
                 (
                     StatusCode::BAD_REQUEST,
                     Json(ErrorResponse {
@@ -154,9 +158,51 @@ pub async fn update(
     Path(id): Path<i32>,
     Json(input): Json<CycleWriteIn>,
 ) -> impl IntoResponse {
-    match cycle_repo::update_cycle(&state.pool, id, &input).await {
+    // t_cycle.team_id は NOT NULL。PUT で teamId 省略時に NULL を bind しないよう、
+    // PATCH と同様に既存値で補完する（DEMO-000167）。
+    let existing = match cycle_repo::find_cycle_by_id(&state.pool, id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "サイクルが見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let team_id_val = input
+        .team_id
+        .or_else(|| existing.team.as_ref().map(|t| t.id));
+    let Some(team_id_val) = team_id_val else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                detail: "チームを指定してください".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let merged = CycleWriteIn {
+        team_id: Some(team_id_val),
+        ..input
+    };
+
+    match cycle_repo::update_cycle(&state.pool, id, &merged).await {
         Ok(true) => {
-            // 更新したサイクルを返す
             match cycle_repo::find_cycle_by_id(&state.pool, id).await {
                 Ok(Some(cycle)) => (StatusCode::OK, Json(cycle)).into_response(),
                 Ok(None) => (
@@ -186,7 +232,6 @@ pub async fn update(
         )
             .into_response(),
         Err(e) => {
-            // バリデーションエラーの場合
             if e.to_string().contains("開始日は終了日より前") {
                 (
                     StatusCode::BAD_REQUEST,
@@ -211,7 +256,7 @@ pub async fn update(
 
 /// PATCH /api/v1/cycles/{id}/ — サイクル部分更新
 ///
-/// WIP-000107: フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
+/// DEMO-000107: フロントの useUpdateCycle は部分更新(PATCH)前提だが、本ルートは
 /// 従来 PUT のみでCycleWriteIn(全フィールド必須)を要求していたため405になっていた。
 /// 既存値を取得し、指定フィールドのみ上書きしてCycleWriteInを組み立てた上で、
 /// ステータス遷移時のactivated_at/completed_at設定を含む既存のupdate_cycleに委譲する

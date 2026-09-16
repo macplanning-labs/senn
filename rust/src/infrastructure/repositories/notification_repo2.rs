@@ -6,7 +6,7 @@
 use sqlx::PgPool;
 use crate::domain::models::notification_api::NotificationOut;
 
-/// ユーザー宛の全通知を取得（ページネーション無し、ORDER BY created_at DESC）
+/// ユーザー宛の全通知を取得（ページネーション無し、ORDER BY priority, created_at DESC）
 pub async fn find_all_for_user(pool: &PgPool, user_id: i32) -> anyhow::Result<Vec<NotificationOut>> {
     let rows = sqlx::query_as::<_, NotificationOut>(
         "SELECT
@@ -28,7 +28,7 @@ pub async fn find_all_for_user(pool: &PgPool, user_id: i32) -> anyhow::Result<Ve
          LEFT JOIN m_team tm ON t.team_id = tm.id
          LEFT JOIN wiki_page wp ON n.wiki_page_id = wp.id
          WHERE n.user_id = $1::int4
-         ORDER BY n.created_at DESC"
+         ORDER BY (CASE WHEN n.category IN ('review_requested', 'mentioned') THEN 0 ELSE 1 END), n.created_at DESC"
     )
     .bind(user_id)
     .fetch_all(pool)

@@ -133,6 +133,11 @@
   border-left: 3px solid var(--color-accent-primary);
 }
 
+.notifications-page__item--high-priority {
+  border-left: 3px solid var(--color-warning);
+  padding-left: calc(var(--space-4) - 3px);
+}
+
 .notifications-page__item-icon {
   flex-shrink: 0;
   width: 32px;

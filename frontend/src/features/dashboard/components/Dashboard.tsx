@@ -273,7 +273,7 @@ function RecentActivityWidget({ data }: WidgetProps) {
           <span className="widget-list__text">
             <strong>{a.changed_by}</strong>{' '}
             {a.ticket_key && a.project_key ? (
-              <Link to={`/p/${a.project_key}/tickets/${a.ticket_key}`} className="widget-list__link">
+              <Link to={`/project/${a.project_key}/tickets/${a.ticket_key}`} className="widget-list__link">
                 {a.ticket_key}
               </Link>
             ) : (
@@ -322,7 +322,7 @@ function MyTicketsWidget({ data }: WidgetProps) {
   return (
     <div className="widget-list">
       {tickets.map((t) => (
-        <Link key={t.id} to={`/p/${t.project_key || '_'}/tickets/${t.ticket_key}`} className="widget-list__item">
+        <Link key={t.id} to={`/project/${t.project_key || '_'}/tickets/${t.ticket_key}`} className="widget-list__item">
           <span
             className="widget-priority"
             style={{ color: priorityColors[t.priority] }}
@@ -372,7 +372,7 @@ function RecentWikiWidget({ data }: WidgetProps) {
   return (
     <div className="widget-list">
       {pages.map((p) => (
-        <Link key={p.id} to={`/p/${p.projectKey || '_'}/wiki`} className="widget-list__item">
+        <Link key={p.id} to={`/project/${p.projectKey || '_'}/wiki`} className="widget-list__item">
           <span className="widget-list__icon">📄</span>
           <span className="widget-list__text">{p.title}</span>
           <span className="widget-list__meta">

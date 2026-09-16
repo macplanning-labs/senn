@@ -25,9 +25,9 @@ use auth_core::domain::webauthn as webauthn_service;
 use crate::domain::services::jwt_service;
 use webauthn_rs::prelude::*;
 
-/// WebAuthnのRP名 / TOTPのissuer名。移植元の旧実装が固定していた値
-/// （旧 webauthn_service.rs の rp_name、旧 totp_service.rs の issuer="SENN"）を踏襲する。
-pub(crate) const SENN_RP_NAME: &str = "SENN";
+/// WebAuthnのRP名 / TOTPのissuer名。製品表示名 SENN に合わせる。
+/// （検証は secret ベースのため、issuer 文字列変更でも既存 TOTP は継続利用可）
+pub(crate) const WIP_RP_NAME: &str = "SENN";
 const TOTP_ISSUER: &str = "SENN";
 
 // =============================================================================
@@ -307,7 +307,7 @@ pub async fn passkey_register_begin(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     // リクエストヘッダーから WebAuthn インスタンスを構築
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -319,7 +319,7 @@ pub async fn passkey_register_begin(
     };
 
     // 既存パスキーを取得（exclude list 構築用）
-    // NOTE: SENN の DB schema では credential_id と public_key をバイナリで保存するため、
+    // NOTE: WIP の DB schema では credential_id と public_key をバイナリで保存するため、
     // 完全な Passkey を復元することはできない。exclude list は省略（同じ端末から複数登録可能）。
     let existing_credentials = None;
 
@@ -376,7 +376,7 @@ pub async fn passkey_register_complete(
     Json(body): Json<PasskeyRegisterCompleteRequest>,
 ) -> impl IntoResponse {
     // リクエストヘッダーから WebAuthn インスタンスを構築
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -426,7 +426,7 @@ pub async fn passkey_register_complete(
         }
     };
 
-    // credential_id のバイナリ表現（SENN schema では public_key として保存、実際の public key は JSON に含まれる）
+    // credential_id のバイナリ表現（WIP schema では public_key として保存、実際の public key は JSON に含まれる）
     let public_key_bin = credential_id.clone();
 
     // DB に保存
@@ -545,7 +545,7 @@ pub struct PasskeyLoginBeginResponse {
 pub async fn passkey_login_begin(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);
@@ -583,7 +583,7 @@ pub async fn passkey_login_complete(
     headers: axum::http::HeaderMap,
     Json(body): Json<PasskeyLoginCompleteRequest>,
 ) -> impl IntoResponse {
-    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, SENN_RP_NAME) {
+    let webauthn = match webauthn_service::create_webauthn_from_headers(&headers, WIP_RP_NAME) {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("WebAuthn初期化エラー: {:?}", e);

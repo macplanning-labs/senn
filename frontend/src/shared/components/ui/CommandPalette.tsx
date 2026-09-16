@@ -36,22 +36,28 @@ function buildNavItems(teamSlug: string | null, projectKey: string | null) {
   ];
   if (teamSlug) {
     items.push(
-      { id: 'team-home', label: 'nav.home', path: `/t/${teamSlug}/dashboard`, icon: '🏠' },
-      { id: 'team-tickets', label: 'nav.tickets', path: `/t/${teamSlug}/tickets`, icon: '🎫' },
-      { id: 'team-projects', label: 'nav.projects', path: `/t/${teamSlug}/projects`, icon: '📁' },
+      { id: 'team-home', label: 'nav.home', path: `/team/${teamSlug}/dashboard`, icon: '🏠' },
+      { id: 'team-tickets', label: 'nav.tickets', path: `/team/${teamSlug}/tickets`, icon: '🎫' },
+      { id: 'team-projects', label: 'nav.projects', path: `/team/${teamSlug}/projects`, icon: '📁' },
+      { id: 'team-wiki', label: 'nav.wiki', path: `/team/${teamSlug}/wiki`, icon: '📝' },
+      { id: 'team-settings', label: 'nav.teamSettings', path: `/team/${teamSlug}/settings`, icon: '⚙️' },
     );
   }
   if (projectKey) {
     items.push(
-      { id: 'board', label: 'nav.board', path: `/p/${projectKey}/board`, icon: '🧱' },
-      { id: 'cycles', label: 'nav.cycles', path: `/p/${projectKey}/cycles`, icon: '🔄' },
-      { id: 'wiki', label: 'nav.wiki', path: `/p/${projectKey}/wiki`, icon: '📝' },
+      { id: 'project-tickets', label: 'nav.tickets', path: `/project/${projectKey}/tickets`, icon: '🎫' },
+      { id: 'board', label: 'nav.board', path: `/project/${projectKey}/board`, icon: '🧱' },
+      { id: 'cycles', label: 'nav.cycles', path: `/project/${projectKey}/cycles`, icon: '🔄' },
+      { id: 'wiki', label: 'nav.wiki', path: `/project/${projectKey}/wiki`, icon: '📝' },
+      { id: 'gantt', label: 'nav.gantt', path: `/project/${projectKey}/gantt`, icon: '📈' },
+      { id: 'dependencies', label: 'nav.dependencies', path: `/project/${projectKey}/dependencies`, icon: '🔗' },
+      { id: 'project-settings', label: 'nav.projectSettings', path: `/project/${projectKey}/settings`, icon: '⚙️' },
     );
   }
   items.push(
     { id: 'teams', label: 'nav.teams', path: '/teams', icon: '👥' },
     { id: 'dashboard', label: 'nav.dashboard', path: '/dashboard', icon: '📊' },
-    { id: 'settings', label: 'nav.settings', path: '/settings', icon: '⚙️' },
+    { id: 'settings', label: 'nav.personalSettings', path: '/settings', icon: '⚙️' },
   );
   return items;
 }
@@ -74,12 +80,12 @@ export function CommandPalette() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const teamSlug = useMemo(() => {
-    const match = location.pathname.match(/^\/t\/([^/]+)/);
+    const match = location.pathname.match(/^\/team\/([^/]+)/);
     return match?.[1] ?? getLastTeamSlug();
   }, [location.pathname]);
 
   const projectKey = useMemo(() => {
-    const match = location.pathname.match(/^\/p\/([^/]+)/);
+    const match = location.pathname.match(/^\/project\/([^/]+)/);
     return match?.[1] ?? getLastProjectKey();
   }, [location.pathname]);
 
@@ -140,7 +146,7 @@ export function CommandPalette() {
     if (item.action === 'theme') {
       toggleTheme();
     } else if (item.action === 'create-ticket') {
-      const teamMatch = window.location.pathname.match(/^\/t\/([^/]+)/);
+      const teamMatch = window.location.pathname.match(/^\/team\/([^/]+)/);
       if (teamMatch?.[1]) {
         openTicketFormModal(null, teamMatch[1]);
       } else {
@@ -246,7 +252,7 @@ export function CommandPalette() {
                     key={`team-${team.id}`}
                     value={`team ${team.name}`}
                     onSelect={() => {
-                      navigate(`/t/${team.slug}/tickets`);
+                      navigate(`/team/${team.slug}/tickets`);
                       setCommandPaletteOpen(false);
                     }}
                     className="command-palette__item"

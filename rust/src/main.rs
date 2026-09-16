@@ -48,8 +48,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("マイグレーションをスキップ(RUST_RUN_MIGRATIONS=trueで有効化)");
     }
 
-    // メール送信者
-    let mail_sender = MailSender::new(&config);
+    // メール送信者（送信時に system_settings を参照）
+    let mail_sender = MailSender::new(pool.clone(), config.clone());
 
     // 共有ステート構築
     let state = AppState::new(pool, config, Some(mail_sender)).await?;
@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     // サーバー起動
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("🚀 SENN server listening on {}", addr);
+    tracing::info!("🚀 WIP server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     // レート制限のSmartIpKeyExtractorがX-Forwarded-For等のヘッダーを

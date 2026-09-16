@@ -37,7 +37,7 @@ export function TeamGuestsSection({ team }: Props) {
     },
   });
 
-  // このチームが所有するProject一覧(限定先の選択肢)
+  // このチームが参加するProject一覧(限定先の選択肢)
   const { data: projectsData } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
@@ -45,7 +45,7 @@ export function TeamGuestsSection({ team }: Props) {
       return res.data;
     },
   });
-  const teamProjects = (projectsData?.results ?? []).filter((p) => p.ownerTeam?.id === team.id);
+  const teamProjects = (projectsData?.results ?? []).filter((p) => (p.teams ?? []).some((t) => t.id === team.id));
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');

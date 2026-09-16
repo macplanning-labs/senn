@@ -60,7 +60,7 @@ export function useTeamSwitch() {
   const navigate = useNavigate();
   const switchTeam = useCallback((slug: string) => {
     localStorage.setItem(LAST_TEAM_SLUG, slug);
-    navigate(`/t/${slug}/tickets`);
+    navigate(`/team/${slug}/tickets`);
   }, [navigate]);
   return { switchTeam };
 }

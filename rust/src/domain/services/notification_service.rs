@@ -6,8 +6,25 @@
 use sqlx::PgPool;
 
 use crate::domain::models::notification::NotificationCategory;
+use crate::domain::models::user::User;
 use crate::infrastructure::mail::MailSender;
-use crate::infrastructure::repositories::{notification_repo, ticket_repo, user_repo};
+use crate::infrastructure::repositories::{notification_preference_repo, notification_repo, ticket_repo, user_repo};
+use crate::infrastructure::chat_notifier;
+
+/// メール通知を送ってよいか判定する(マスタースイッチ + カテゴリ別設定の両方を見る)。
+/// カテゴリ別設定の取得に失敗した場合は、通知を握りつぶさないようフェイルオープン(true)にする。
+async fn should_send_email(pool: &PgPool, user: &User, category: &NotificationCategory) -> bool {
+    if !user.email_notifications_enabled || user.email.is_empty() {
+        return false;
+    }
+    match notification_preference_repo::is_email_enabled(pool, user.id, category).await {
+        Ok(enabled) => enabled,
+        Err(e) => {
+            tracing::warn!("通知設定取得失敗 (user={}): {:?}", user.id, e);
+            true
+        }
+    }
+}
 
 /// チケット操作に基づく通知生成
 pub async fn notify_ticket_event(
@@ -37,6 +54,26 @@ pub async fn notify_ticket_event(
         format!("{}: {}", ticket.title, extra_message)
     };
 
+    // チャット通知連携への送信(ウォッチャーの有無に関わらず、イベント単位で1回だけ送信する)
+    match crate::infrastructure::repositories::chat_integration_repo::find_active_for_ticket_category(
+        pool, ticket_id, category.as_db_str(),
+    ).await {
+        Ok(integrations) => {
+            for integration in integrations {
+                let text = format!("{}\n{}", title, message);
+                if let Err(e) = chat_notifier::send(&integration, &text).await {
+                    tracing::warn!(
+                        "チャット通知送信失敗 (integration_id={}, provider={}): {:?}",
+                        integration.id, integration.provider, e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("チャット連携取得失敗 (ticket_id={}): {:?}", ticket_id, e);
+        }
+    }
+
     // ウォッチャー全員に通知（自分自身は除外）
     let watchers = ticket_repo::find_watchers(pool, ticket_id).await?;
 
@@ -60,10 +97,10 @@ pub async fn notify_ticket_event(
             if !already_sent {
                 // ユーザーのメール通知設定確認
                 if let Some(user) = user_repo::find_by_id(pool, watcher_id).await? {
-                    if user.email_notifications_enabled && !user.email.is_empty() {
-                        let subject = format!("[SENN] {}", title);
+                    if should_send_email(pool, &user, &category).await {
+                        let subject = format!("[WIP] {}", title);
                         let body = format!(
-                            "{}\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
+                            "{}\n\nチケット: {}\n{}\n\n---\nこの通知は SENN から送信されました。",
                             message, ticket.ticket_key, ticket.title
                         );
 
@@ -233,6 +270,21 @@ pub async fn notify_assigned(
     ).await
 }
 
+/// レビュー依頼通知
+pub async fn notify_review_requested(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+    ticket_id: i32,
+    actor_id: i32,
+    reviewer_name: &str,
+) -> anyhow::Result<()> {
+    let msg = format!("レビュアー: {}", reviewer_name);
+    notify_ticket_event(
+        pool, mail_sender, ticket_id, actor_id,
+        NotificationCategory::ReviewRequested, &msg,
+    ).await
+}
+
 /// @ユーザー名メンション通知
 /// 特定のユーザー1人に対してのみ通知を送る（ウォッチャー全員ではない）
 pub async fn notify_mentioned(
@@ -271,10 +323,10 @@ pub async fn notify_mentioned(
         if !already_sent {
             // ユーザーのメール通知設定確認
             if let Some(user) = user_repo::find_by_id(pool, mentioned_user_id).await? {
-                if user.email_notifications_enabled && !user.email.is_empty() {
-                    let subject = format!("[SENN] {}", title);
+                if should_send_email(pool, &user, &NotificationCategory::Mentioned).await {
+                    let subject = format!("[WIP] {}", title);
                     let body = format!(
-                        "コメントでメンションされました\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
+                        "コメントでメンションされました\n\nチケット: {}\n{}\n\n---\nこの通知は SENN から送信されました。",
                         ticket.ticket_key, ticket.title
                     );
 
@@ -320,10 +372,10 @@ async fn notify_due_reminder(
 
     if let Some(sender) = mail_sender {
         if let Some(user) = user_repo::find_by_id(pool, user_id).await? {
-            if user.email_notifications_enabled && !user.email.is_empty() {
-                let subject = format!("[SENN] {}", title);
+            if should_send_email(pool, &user, &category).await {
+                let subject = format!("[WIP] {}", title);
                 let body = format!(
-                    "{}\n\nチケット: {}\n{}\n\n---\nこの通知はWIPプロジェクト管理ツールから送信されました。",
+                    "{}\n\nチケット: {}\n{}\n\n---\nこの通知は SENN から送信されました。",
                     message, ticket_key, ticket_title
                 );
 
@@ -371,7 +423,7 @@ mod tests {
     use super::*;
     use crate::test_support;
 
-    /// WIP-000053で報告された「コメント通知が本番で送信されない」の回帰テスト。
+    /// DEMO-000053で報告された「コメント通知が本番で送信されない」の回帰テスト。
     /// notify_ticket_event が参照するテーブル(tickets_ticket_watchers,
     /// notifications_notification 等)が実際のスキーマと一致しており、
     /// ウォッチャーへ通知が作成され、投稿者自身には作成されないことを確認する。

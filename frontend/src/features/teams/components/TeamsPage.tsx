@@ -9,9 +9,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTeams, useDeleteTeam } from '../hooks/useTeams';
 import { TeamDetailModal } from './TeamDetailModal';
-import { TeamMembersSection } from './TeamMembersSection';
-import { TeamGuestsSection } from './TeamGuestsSection';
-import { TeamRulesSection } from './TeamRulesSection';
 import type { Team } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
 import { useUIStore } from '@/shared/stores/uiStore';
@@ -140,7 +137,7 @@ export function TeamsPage() {
                     {team.projectCount} プロジェクト
                   </span>
                   <Link
-                    to={`/t/${team.slug}/tickets`}
+                    to={`/team/${team.slug}/tickets`}
                     className="teams-card__tickets-link"
                     onClick={(e) => e.stopPropagation()}
                     data-testid={`team-tickets-${team.id}`}
@@ -164,12 +161,19 @@ export function TeamsPage() {
           )}
         </div>
 
-        {/* メンバー管理パネル */}
+        {/* 詳細パネル */}
         {selectedTeam && (
           <div className="teams-page__detail">
             <div className="teams-page__detail-actions">
               <Link
-                to={`/t/${selectedTeam.slug}/tickets`}
+                to={`/team/${selectedTeam.slug}/settings`}
+                className="teams-page__tickets-btn"
+                data-testid="selected-team-settings"
+              >
+                ⚙️ 設定を開く
+              </Link>
+              <Link
+                to={`/team/${selectedTeam.slug}/tickets`}
                 className="teams-page__tickets-btn"
                 data-testid="selected-team-tickets"
               >
@@ -184,9 +188,6 @@ export function TeamsPage() {
                 + チケット作成
               </button>
             </div>
-            <TeamMembersSection team={selectedTeam} />
-            <TeamGuestsSection team={selectedTeam} />
-            <TeamRulesSection teamId={selectedTeam.id} />
           </div>
         )}
       </div>

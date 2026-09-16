@@ -364,21 +364,46 @@ pub async fn create_cycle(
         anyhow::bail!("開始日は終了日より前でなければなりません。");
     }
 
-    // G6-1: team_id 必須。Project 付きで省略時は owner_team を補完（422 にしない）
+    // team_id を決定。project_id のみの場合は参加チームから補完または400
     let team_id = if let Some(tid) = input.team_id {
         tid
     } else if let Some(project_id) = input.project {
-        sqlx::query_scalar::<_, Option<i32>>(
-            "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+        // project に参加チームが1つだけなら補完。2つ以上なら要求
+        let participating_teams: Vec<i32> = sqlx::query_scalar(
+            "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
         )
         .bind(project_id)
-        .fetch_optional(pool)
-        .await?
-        .flatten()
-        .ok_or_else(|| anyhow::anyhow!("teamId or project is required"))?
+        .fetch_all(pool)
+        .await?;
+
+        match participating_teams.as_slice() {
+            [single_team] => *single_team,
+            [] => anyhow::bail!("project has no participating teams"),
+            _ => anyhow::bail!("teamId is required when project has multiple teams"),
+        }
     } else {
-        anyhow::bail!("teamId or project is required");
+        anyhow::bail!("teamId is required");
     };
+
+    if let Some(project_id) = input.project {
+        let ok: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM tickets_project_teams
+                WHERE project_id = $1 AND team_id = $2
+            )"
+        )
+        .bind(project_id)
+        .bind(team_id)
+        .fetch_one(pool)
+        .await?;
+        if !ok {
+            anyhow::bail!(
+                "team_id {} is not a participant of project_id {}",
+                team_id,
+                project_id
+            );
+        }
+    }
 
     let number = if let Some(project_id) = input.project {
         get_next_cycle_number_by_project(pool, project_id).await?
@@ -1814,5 +1839,77 @@ mod tests {
             .await
             .expect("update_cycle_graph_position failed");
         assert!(!not_found);
+    }
+
+    #[tokio::test]
+    async fn test_update_cycle_keeps_team_id_when_explicit() {
+        // PUT ハンドラが teamId 省略時に既存 team_id を埋めたあとの update_cycle 経路
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "put_team").await;
+        let team_id = test_support::create_test_team(&pool, "PUTTEAM").await;
+        let today = chrono::Utc::now().date_naive();
+        let cycle_id = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: None,
+                name: "PUT team preserve".to_string(),
+                description: String::new(),
+                start_date: today,
+                end_date: today + Duration::days(7),
+                status: "planned".to_string(),
+                team_id: Some(team_id),
+            },
+            user_id,
+        )
+        .await
+        .expect("create_cycle");
+
+        let ok = update_cycle(
+            &pool,
+            cycle_id,
+            &CycleWriteIn {
+                project: None,
+                name: "PUT team preserve renamed".to_string(),
+                description: String::new(),
+                start_date: today,
+                end_date: today + Duration::days(7),
+                status: "planned".to_string(),
+                team_id: Some(team_id),
+            },
+        )
+        .await
+        .expect("update_cycle");
+        assert!(ok);
+
+        let cycle = find_cycle_by_id(&pool, cycle_id).await.expect("find").expect("exists");
+        assert_eq!(cycle.team.as_ref().map(|t| t.id), Some(team_id));
+        assert_eq!(cycle.name, "PUT team preserve renamed");
+    }
+
+    #[tokio::test]
+    async fn test_create_cycle_requires_team_or_project() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "cyc_req").await;
+        let today = chrono::Utc::now().date_naive();
+        let err = create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: None,
+                name: "missing team".to_string(),
+                description: String::new(),
+                start_date: today,
+                end_date: today + Duration::days(7),
+                status: "planned".to_string(),
+                team_id: None,
+            },
+            user_id,
+        )
+        .await
+        .expect_err("should require teamId");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("teamId is required"),
+            "unexpected error: {msg}"
+        );
     }
 }

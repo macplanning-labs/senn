@@ -5,10 +5,10 @@
  * 右: チケット詳細パネル（TicketDetailPanel）— URLに :ticketId があれば表示
  *
  * URLパターン:
- *   /p/:projectKey/tickets       → 一覧のみ
- *   /p/:projectKey/tickets/:id   → 一覧 + 右ペイン
- *   /t/:teamSlug/tickets         → Team一覧のみ
- *   /t/:teamSlug/tickets/:id     → Team一覧 + 右ペイン
+ *   /project/:projectKey/tickets       → 一覧のみ
+ *   /project/:projectKey/tickets/:id   → 一覧 + 右ペイン
+ *   /team/:teamSlug/tickets         → Team一覧のみ
+ *   /team/:teamSlug/tickets/:id     → Team一覧 + 右ペイン
  */
 
 import { useParams, useNavigate } from 'react-router-dom';
@@ -24,9 +24,9 @@ export function TicketListPage() {
 
   const handleClosePanel = () => {
     if (projectKey) {
-      navigate(`/p/${projectKey}/tickets`);
+      navigate(`/project/${projectKey}/tickets`);
     } else if (teamSlug) {
-      navigate(`/t/${teamSlug}/tickets`);
+      navigate(`/team/${teamSlug}/tickets`);
     }
   };
 

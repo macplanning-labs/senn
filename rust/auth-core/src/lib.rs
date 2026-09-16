@@ -1,4 +1,4 @@
-//! auth-core — SENN / Sophia 共通認証ライブラリ
+//! auth-core — WIP / Sophia 共通認証ライブラリ
 //!
 //! 認証・共通基盤統合方針（プロジェクトドキュメント「認証ロジックのライブラリ化
 //! （クレート化）およびWIP仕様への一元統一」）の Step 1 として、WIPリポジトリ
@@ -8,7 +8,7 @@
 //! ## 現状（Step 1 時点）
 //! - `domain::jwt` / `domain::totp` / `domain::webauthn` / `domain::password` は
 //!   WIPの既存ロジックをほぼそのまま移植し、テストも合わせて移植しています。
-//! - `infrastructure::rate_limit` は SENN の `tower_governor` ラッパーに加えて、
+//! - `infrastructure::rate_limit` は WIP の `tower_governor` ラッパーに加えて、
 //!   Sophiaの `login_guard.rs` 相当である `attempt_lock` ミドルウェアを新規実装しています
 //!   （方針ドキュメント 1.2 / 1.2.1 節）。
 //! - `domain::password_policy` / `domain::one_time_token` / `domain::mfa_policy` /

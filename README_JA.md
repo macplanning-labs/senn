@@ -84,17 +84,26 @@ npm run dev
 `rust/migrations/20260701000000_initial_schema.sql` が全テーブルを作成するベースラインマイグレーションです(本番スキーマから`pg_dump --schema-only`で抽出し、Django管理テーブル等を除去して統合したもの)。空のPostgreSQLを用意した状態で `cargo run`(`RUST_RUN_MIGRATIONS=true`)を実行すれば、このマイグレーションが自動適用され、テーブルが作成されます。
 
 ```bash
-createdb wip
-cp .env.example .env  # DATABASE_URL 等を環境に合わせて編集
+createdb senn
+cp .env.example .env  # DATABASE_URL（例: postgresql://USER@localhost/senn）等を環境に合わせて編集
 cd rust
 cargo run
 ```
 
 ## テスト
 
+ローカル CI 相当（[CONTRIBUTING.md](./CONTRIBUTING.md) / メンテナ用 `run_local_ci.sh` と同じ）:
+
 ```bash
 cd rust
+export SQLX_OFFLINE=true
+cargo check --workspace
 cargo test --workspace
+
+cd ../frontend
+npm ci
+npm run build
+npm test
 ```
 
 ## ライセンス

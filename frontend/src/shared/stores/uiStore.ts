@@ -30,6 +30,8 @@ interface UIState {
   ticketFormModalInitialDescription: string | null;
   /** モーダルでチケット作成時、parentの初期値（コメントからサブチケット作成する場合など） */
   ticketFormModalInitialParent: number | null;
+  /** モーダルでチケット作成時、cycle の初期値（Cycle 詳細からの起票など） */
+  ticketFormModalInitialCycleId: number | null;
 
   // アクション
   setTheme: (theme: Theme) => void;
@@ -40,7 +42,11 @@ interface UIState {
   openTicketFormModal: (
     projectKey?: string | null,
     teamSlug?: string | null,
-    options?: { initialDescription?: string; initialParent?: number | null },
+    options?: {
+      initialDescription?: string;
+      initialParent?: number | null;
+      initialCycleId?: number | null;
+    },
   ) => void;
   closeTicketFormModal: () => void;
 }
@@ -57,6 +63,7 @@ export const useUIStore = create<UIState>()(
       ticketFormModalTeamSlug: null,
       ticketFormModalInitialDescription: null,
       ticketFormModalInitialParent: null,
+      ticketFormModalInitialCycleId: null,
 
       setTheme: (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -78,6 +85,7 @@ export const useUIStore = create<UIState>()(
           ticketFormModalTeamSlug: teamSlug ?? null,
           ticketFormModalInitialDescription: options?.initialDescription ?? null,
           ticketFormModalInitialParent: options?.initialParent ?? null,
+          ticketFormModalInitialCycleId: options?.initialCycleId ?? null,
         }),
       closeTicketFormModal: () =>
         set({
@@ -86,6 +94,7 @@ export const useUIStore = create<UIState>()(
           ticketFormModalTeamSlug: null,
           ticketFormModalInitialDescription: null,
           ticketFormModalInitialParent: null,
+          ticketFormModalInitialCycleId: null,
         }),
     }),
     {

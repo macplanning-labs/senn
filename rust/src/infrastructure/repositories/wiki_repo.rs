@@ -1,6 +1,6 @@
 /// infrastructure/repositories/wiki_repo.rs — Wiki 永続化
 ///
-/// WIP-000032のテスト作成中に判明: 本ファイルは元々 t_wiki_pages / m_users /
+/// DEMO-000032のテスト作成中に判明: 本ファイルは元々 t_wiki_pages / m_users /
 /// m_projects / t_wiki_revisions という実在しないテーブル名を参照しており、
 /// 呼び出すと必ずエラーになっていた(実テーブルは wiki_page / accounts_user /
 /// tickets_project / wiki_revision。wiki_api_repo.rs で使われている正しい

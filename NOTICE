@@ -1,0 +1,20 @@
+# NOTICE
+
+## Copyright
+
+Senn and its components are provided under the terms of the MIT License.
+
+Copyright (c) 2024 MacPlanning Co., Ltd.
+
+## Third-Party Dependencies
+
+This software contains code and dependencies from third-party sources. The terms and conditions of third-party licenses can be found in the associated package repositories and documentation:
+
+- **Rust crates**: See `Cargo.toml` / `Cargo.lock` and each crate's upstream license
+- **JavaScript/TypeScript packages**: See `frontend/package.json` / `package-lock.json` (e.g. `npm licenses`)
+
+For detailed copyright and license information of individual dependencies, refer to their respective repositories and documentation.
+
+## License
+
+The source code of Senn is licensed under the MIT License. See the [LICENSE](./LICENSE) file in the repository root for full details.

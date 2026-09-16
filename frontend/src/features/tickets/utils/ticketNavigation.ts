@@ -7,14 +7,14 @@ export function buildTicketDetailPath(
 ): string {
   // Team-onlyチケット（project_id なし、team_id あり）の場合
   if (!projectKey && teamSlug) {
-    return `/t/${teamSlug}/tickets/${ticketKey}`;
+    return `/team/${teamSlug}/tickets/${ticketKey}`;
   }
   // Project付きチケット（従来）
   if (cycleId != null && projectKey) {
-    return `/p/${projectKey}/cycles/${cycleId}/${ticketKey}`;
+    return `/project/${projectKey}/cycles/${cycleId}/${ticketKey}`;
   }
   if (projectKey) {
-    return `/p/${projectKey}/tickets/${ticketKey}`;
+    return `/project/${projectKey}/tickets/${ticketKey}`;
   }
   // フォールバック（通常は到達しない）
   return `/tickets/${ticketKey}`;
@@ -28,14 +28,14 @@ export function buildTicketListPath(
 ): string {
   // Team-onlyの場合
   if (!projectKey && teamSlug) {
-    return `/t/${teamSlug}/tickets`;
+    return `/team/${teamSlug}/tickets`;
   }
   // Project付きの場合（従来）
   if (cycleId != null && projectKey) {
-    return `/p/${projectKey}/cycles/${cycleId}`;
+    return `/project/${projectKey}/cycles/${cycleId}`;
   }
   if (projectKey) {
-    return `/p/${projectKey}/tickets`;
+    return `/project/${projectKey}/tickets`;
   }
   // フォールバック
   return `/tickets`;

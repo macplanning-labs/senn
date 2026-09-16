@@ -15,6 +15,7 @@ import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInva
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useTeams } from '@/features/teams/hooks/useTeams';
+import { useCycle } from '@/features/cycles/hooks/useCycles';
 import './TicketForm.css';
 
 // Zodバリデーションスキーマ
@@ -91,6 +92,8 @@ interface TicketFormProps {
   initialDescription?: string;
   /** 新規作成時、parentの初期値（コメントからサブチケット作成する場合など） */
   initialParent?: number | null;
+  /** 新規作成時、cycle の初期値（Cycle 詳細からの起票） */
+  initialCycleId?: number | null;
 }
 
 export function TicketForm({
@@ -99,6 +102,7 @@ export function TicketForm({
   onClose,
   initialDescription,
   initialParent,
+  initialCycleId,
 }: TicketFormProps = {}) {
   const { t } = useTranslation();
   const { ticketId } = useParams<{ ticketId: string }>();
@@ -111,6 +115,9 @@ export function TicketForm({
     ? projectList.find((p) => p.prefix.toLowerCase() === projectKeyOverride.toLowerCase()) ?? null
     : urlCurrentProject;
   const isEditing = !!ticketId && ticketId !== 'new';
+  const { data: initialCycle } = useCycle(
+    !isEditing && initialCycleId ? initialCycleId : undefined,
+  );
 
   // 編集時は既存データを取得
   // 詳細パネル(TicketDetailPanel)と同じキー['ticket', ticketId]を使う。
@@ -147,16 +154,19 @@ export function TicketForm({
     },
   });
 
-  // サイクル一覧取得
+  // サイクル一覧取得（Project / Team / Cycle起票の所属チーム）
+  const cycleTeamId = currentTeam?.id
+    ?? (initialCycle?.team ? initialCycle.team.id : undefined);
   const { data: cycles } = useQuery<{ id: number; name: string; number: number; status: string }[]>({
-    queryKey: ['cycles', currentProject?.id],
+    queryKey: ['cycles', currentProject?.id, cycleTeamId],
     queryFn: async () => {
-      const res = await apiClient.get('/cycles/', {
-        params: { project: currentProject?.id },
-      });
+      const params: Record<string, number> = {};
+      if (currentProject?.id) params.project = currentProject.id;
+      if (cycleTeamId) params.team = cycleTeamId;
+      const res = await apiClient.get('/cycles/', { params });
       return (res.data.results ?? res.data) as { id: number; name: string; number: number; status: string }[];
     },
-    enabled: !!currentProject?.id,
+    enabled: !!currentProject?.id || !!cycleTeamId,
   });
 
   // ラベル一覧取得
@@ -201,7 +211,9 @@ export function TicketForm({
   const [linkCopied, setLinkCopied] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [milestoneId, setMilestoneId] = useState<string>('');
-  const [cycleId, setCycleId] = useState<string>('');
+  const [cycleId, setCycleId] = useState<string>(() =>
+    initialCycleId != null ? String(initialCycleId) : '',
+  );
   const [selectedLabels, setSelectedLabels] = useState<number[]>([]);
   const [parentId, setParentId] = useState<string>(
     () => (initialParent != null ? String(initialParent) : ''),
@@ -212,19 +224,27 @@ export function TicketForm({
   const [isInitialized, setIsInitialized] = useState(false);
   const [pendingImages, setPendingImages] = useState<{ file: File; previewUrl: string }[]>([]);
 
-  // 新規作成時、初期 Team = 渡された / URL の team slug を先に使う。
-  // /teams ではサイドバーが Project のままなので、ownerTeam を先にすると選んだ Team にならない。
+  // 新規作成時の所属チーム初期値。
+  // 優先: 明示 slug → Cycle の所属チーム → URL の team → 参加チーム（Cycle/現在チーム優先）。
   useEffect(() => {
     if (isInitialized || isEditing) return;
 
-    const slug = teamSlugOverride ?? urlTeamSlug;
+    const resolveBySlug = (slug: string | null | undefined) => {
+      if (!slug) return null;
+      if (currentTeam?.slug.toLowerCase() === slug.toLowerCase()) return currentTeam;
+      return teamList.find((t) => t.slug.toLowerCase() === slug.toLowerCase()) ?? null;
+    };
+
+    const slug = teamSlugOverride ?? initialCycle?.team?.slug ?? urlTeamSlug;
     if (slug) {
-      const match =
-        currentTeam?.slug.toLowerCase() === slug.toLowerCase()
-          ? currentTeam
-          : teamList.find((t) => t.slug.toLowerCase() === slug.toLowerCase());
+      const match = resolveBySlug(slug);
       if (match) {
         setTeamId(String(match.id));
+        setIsInitialized(true);
+        return;
+      }
+      if (initialCycle?.team?.id) {
+        setTeamId(String(initialCycle.team.id));
         setIsInitialized(true);
         return;
       }
@@ -235,16 +255,31 @@ export function TicketForm({
       return;
     }
 
-    if (currentProject?.ownerTeam?.id) {
-      setTeamId(String(currentProject.ownerTeam.id));
+    if (initialCycleId && !initialCycle) {
+      return;
+    }
+
+    const projectTeams = currentProject?.teams ?? [];
+    if (projectTeams.length > 0) {
+      const selectedTeam =
+        (initialCycle?.team
+          ? projectTeams.find((t) => t.id === initialCycle.team!.id)
+          : undefined)
+        ?? projectTeams.find((t) => t.id === currentTeam?.id)
+        ?? projectTeams[0];
+      if (selectedTeam) {
+        setTeamId(String(selectedTeam.id));
+      }
       setIsInitialized(true);
       return;
     }
 
     setIsInitialized(true);
   }, [
-    currentProject?.ownerTeam?.id,
+    currentProject?.teams,
     currentTeam,
+    initialCycle,
+    initialCycleId,
     isEditing,
     isInitialized,
     teamList,
@@ -331,9 +366,9 @@ export function TicketForm({
         return;
       }
       if (teamSlugOverride) {
-        navigate(`/t/${teamSlugOverride}/tickets`);
+        navigate(`/team/${teamSlugOverride}/tickets`);
       } else if (projectKey) {
-        navigate(`/p/${projectKey}/tickets`);
+        navigate(`/project/${projectKey}/tickets`);
       } else {
         navigate(-1);
       }
@@ -711,7 +746,13 @@ export function TicketForm({
         </div>
 
         {/* 所属チーム (F3-1: team_id) — 必須 */}
-        <TeamSelect teamId={teamId} onTeamChange={setTeamId} label="Team *" required />
+        <TeamSelect
+          teamId={teamId}
+          onTeamChange={setTeamId}
+          label="Team *"
+          required
+          projectTeams={currentProject?.teams?.length ? currentProject.teams : null}
+        />
         {errors.teamId ? <span className="ticket-form__error">{errors.teamId}</span> : null}
 
         {/* ラベル */}
@@ -788,13 +829,17 @@ function TeamSelect({
   onTeamChange,
   label = 'Team',
   required = false,
+  /** プロジェクト付き起票時は参加チームのみ。未指定なら所属チーム一覧 */
+  projectTeams = null,
 }: {
   teamId: string;
   onTeamChange: (v: string) => void;
   label?: string;
   required?: boolean;
+  projectTeams?: { id: number; name: string; icon?: string | null }[] | null;
 }) {
-  const { data: teams } = useTeams();
+  const { data: allTeams } = useTeams();
+  const teams = projectTeams ?? allTeams ?? [];
   return (
     <div className="ticket-form__field">
       <label htmlFor="team" className="ticket-form__label">
@@ -809,7 +854,7 @@ function TeamSelect({
         required={required}
       >
         <option value="">— None</option>
-        {(teams ?? []).map((team) => (
+        {teams.map((team) => (
           <option key={team.id} value={team.id}>
             {team.icon} {team.name}
           </option>

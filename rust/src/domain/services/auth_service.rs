@@ -113,7 +113,7 @@ pub fn verify_totp(secret: &str, code: &str) -> anyhow::Result<bool> {
         1,
         30,
         secret_bytes,
-        Some("SENN".to_string()),
+        Some("WIP".to_string()),
         String::new(),
     ).map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
 
@@ -138,7 +138,7 @@ pub fn generate_totp_setup(username: &str) -> anyhow::Result<(String, String)> {
         1,
         30,
         secret_bytes,
-        Some("SENN".to_string()),
+        Some("WIP".to_string()),
         username.to_string(),
     ).map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
 

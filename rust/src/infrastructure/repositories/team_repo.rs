@@ -20,7 +20,7 @@ pub async fn find_all_teams(pool: &PgPool, page: i64) -> anyhow::Result<Vec<Team
         "SELECT
             t.id::int4, t.name, t.slug, t.description, t.icon, t.color, t.slack_webhook_url, t.is_active, t.created_at,
             (SELECT COUNT(*)::int8 FROM t_team_membership WHERE team_id = t.id AND scoped_project_id IS NULL) as member_count,
-            (SELECT COUNT(*)::int8 FROM tickets_project WHERE owner_team_id = t.id) as project_count,
+            (SELECT COUNT(*)::int8 FROM tickets_project_teams WHERE team_id = t.id) as project_count,
             t.prefix
          FROM m_team t
          ORDER BY t.name ASC
@@ -65,7 +65,7 @@ pub async fn find_team_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Te
         "SELECT
             t.id::int4, t.name, t.slug, t.description, t.icon, t.color, t.slack_webhook_url, t.is_active, t.created_at,
             (SELECT COUNT(*)::int8 FROM t_team_membership WHERE team_id = t.id AND scoped_project_id IS NULL) as member_count,
-            (SELECT COUNT(*)::int8 FROM tickets_project WHERE owner_team_id = t.id) as project_count,
+            (SELECT COUNT(*)::int8 FROM tickets_project_teams WHERE team_id = t.id) as project_count,
             t.prefix
          FROM m_team t
          WHERE t.id = $1"
@@ -212,6 +212,8 @@ pub async fn create_team(pool: &PgPool, input: &TeamWriteIn) -> anyhow::Result<i
         }
     });
 
+    let mut tx = pool.begin().await?;
+
     let team_id: i32 = sqlx::query_scalar(
         "INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, prefix, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
@@ -225,8 +227,40 @@ pub async fn create_team(pool: &PgPool, input: &TeamWriteIn) -> anyhow::Result<i
     .bind(input.slack_webhook_url.as_deref().unwrap_or(""))
     .bind(input.is_active)
     .bind(final_prefix.as_deref())
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    // デフォルトワークフローステータスを投入する。
+    // project_id を指定せずチームレベルでチケットを作成した場合に参照するステータスが
+    // 一件も無いと t_workflow_status のルックアップが必ず失敗するため(project 作成時の
+    // resource_repo::create_project と同じ既定セット、team_id 版)。
+    let workflow_statuses = [
+        ("backlog", "Backlog", "backlog", "#666666", 0, false),
+        ("open", "Todo", "unstarted", "#a0a0a0", 1, true),
+        ("in_progress", "In Progress", "started", "#f5a623", 2, false),
+        ("resolved", "Resolved", "completed", "#50e3c2", 3, false),
+        ("closed", "Closed", "completed", "#5c6cff", 4, false),
+        ("canceled", "Cancelled", "cancelled", "#ff4d4f", 5, false),
+    ];
+
+    for (status_slug, status_name, category, color, position, is_default) in workflow_statuses {
+        sqlx::query(
+            "INSERT INTO t_workflow_status (slug, name, category, color, position, is_default, team_id, project_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+             ON CONFLICT (team_id, slug) WHERE team_id IS NOT NULL AND project_id IS NULL DO NOTHING"
+        )
+        .bind(status_slug)
+        .bind(status_name)
+        .bind(category)
+        .bind(color)
+        .bind(position as i32)
+        .bind(is_default)
+        .bind(team_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
 
     Ok(team_id)
 }
@@ -255,16 +289,40 @@ pub async fn update_team(pool: &PgPool, id: i32, input: &TeamWriteIn) -> anyhow:
         }
     }
 
+    // description 維持（空なら既存値を保つ）
+    let description = if input.description.is_empty() {
+        // 既存の description を使用するため、NULL を使う（SQL側で COALESCE）
+        None
+    } else {
+        Some(input.description.as_str())
+    };
+
+    // icon 維持（空なら既存値を保つ）
+    let icon = if input.icon.is_empty() {
+        // 既存の icon を使用するため、NULL を使う（SQL側で COALESCE）
+        None
+    } else {
+        Some(input.icon.as_str())
+    };
+
+    // color 維持（空なら既存値を保つ）
+    let color = if input.color.is_empty() {
+        // 既存の color を使用するため、NULL を使う（SQL側で COALESCE）
+        None
+    } else {
+        Some(input.color.as_str())
+    };
+
     let rows_affected = sqlx::query(
         "UPDATE m_team
-         SET name = $1, slug = COALESCE($2::text, slug), description = $3, icon = $4, color = $5, slack_webhook_url = $6, is_active = $7, prefix = COALESCE($8, prefix)
+         SET name = $1, slug = COALESCE($2::text, slug), description = COALESCE($3::text, description), icon = COALESCE($4::text, icon), color = COALESCE($5::text, color), slack_webhook_url = $6, is_active = $7, prefix = COALESCE($8, prefix)
          WHERE id = $9"
     )
     .bind(&input.name)
     .bind(slug)
-    .bind(&input.description)
-    .bind(&input.icon)
-    .bind(&input.color)
+    .bind(description)
+    .bind(icon)
+    .bind(color)
     .bind(input.slack_webhook_url.as_deref().unwrap_or(""))
     .bind(input.is_active)
     .bind(prefix.as_deref())
@@ -279,6 +337,35 @@ pub async fn update_team(pool: &PgPool, id: i32, input: &TeamWriteIn) -> anyhow:
 pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
+    // 依存があるチームは削除しない（CASCADE で Cycle/Ticket を消さない: DEMO-000166）
+    let cycle_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM t_cycle WHERE team_id = $1"
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let ticket_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets_ticket WHERE team_id = $1"
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let owner_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets_project WHERE owner_team_id = $1"
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let participate_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tickets_project_teams WHERE team_id = $1"
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if cycle_count > 0 || ticket_count > 0 || owner_count > 0 || participate_count > 0 {
+        anyhow::bail!("team has dependents (cycles/tickets/projects); cannot delete");
+    }
+
     // m_team_rule は on_delete=CASCADE、そのチームルールを参照するチケットの
     // linked_rules(M2M)も先に削除する必要がある
     sqlx::query(
@@ -290,10 +377,6 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     // t_team_membership は on_delete=CASCADE
     sqlx::query("DELETE FROM t_team_membership WHERE team_id = $1")
-        .bind(id).execute(&mut *tx).await?;
-
-    // tickets_project.owner_team は on_delete=SET_NULL
-    sqlx::query("UPDATE tickets_project SET owner_team_id = NULL WHERE owner_team_id = $1")
         .bind(id).execute(&mut *tx).await?;
 
     let rows_affected = sqlx::query("DELETE FROM m_team WHERE id = $1")
@@ -421,21 +504,28 @@ pub async fn check_team_scoped_access(
 }
 
 /// L2②: Project単体からのアクセス可否判定(旧 membership_repo::check_membership_exists の後継)。
-/// Projectのowner_team_idを解決してからcheck_team_scoped_accessに委譲する。
-/// owner_team_idが無いProject(データ不整合)はアクセス不可として扱う。
+/// ユーザーが project の参加チームのいずれかのメンバーか、
+/// または project-scoped ゲストであるかをチェック。
 pub async fn check_project_access(pool: &PgPool, project_id: i32, user_id: i32) -> anyhow::Result<bool> {
-    let owner_team_id: Option<i32> = sqlx::query_scalar(
-        "SELECT owner_team_id::int4 FROM tickets_project WHERE id = $1"
+    let has_access: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM tickets_project_teams pt
+            JOIN t_team_membership tm ON tm.team_id = pt.team_id
+            WHERE pt.project_id = $1
+              AND tm.user_id = $2
+              AND (
+                tm.scoped_project_id IS NULL
+                OR tm.scoped_project_id = $1
+              )
+        )"
     )
     .bind(project_id)
-    .fetch_optional(pool)
-    .await?
-    .flatten();
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
 
-    match owner_team_id {
-        Some(team_id) => check_team_scoped_access(pool, team_id, Some(project_id), user_id).await,
-        None => Ok(false),
-    }
+    Ok(has_access)
 }
 
 pub async fn add_team_member(
@@ -561,10 +651,10 @@ pub async fn find_team_guests(pool: &PgPool, team_id: i32) -> anyhow::Result<Vec
     Ok(guests)
 }
 
-/// 指定Projectがそのチームの所有Projectであることを確認する(他チームのProjectを誤って指定できないようにする)
+/// 指定Projectがそのチームの参加Projectであることを確認する
 pub async fn project_belongs_to_team(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow::Result<bool> {
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM tickets_project WHERE id = $1 AND owner_team_id = $2)"
+        "SELECT EXISTS(SELECT 1 FROM tickets_project_teams WHERE project_id = $1 AND team_id = $2)"
     )
     .bind(project_id)
     .bind(team_id)
@@ -626,4 +716,94 @@ pub async fn remove_team_guest(pool: &PgPool, team_id: i32, membership_id: i32) 
     .rows_affected();
 
     Ok(rows_affected > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support;
+
+    fn write_in(name: &str) -> TeamWriteIn {
+        TeamWriteIn {
+            name: name.to_string(),
+            slug: String::new(),
+            description: String::new(),
+            icon: String::new(),
+            color: String::new(),
+            slack_webhook_url: None,
+            is_active: true,
+            prefix: None,
+        }
+    }
+
+    /// create_team が project_id 無し(team_id スコープ)のデフォルトワークフローステータスを
+    /// 6件投入することを検証する。project_id を指定せずチーム画面から直接チケットを作成した際
+    /// に「このチームに存在しないステータスです」で必ず失敗していた不具合の再発防止。
+    #[tokio::test]
+    async fn create_team_seeds_default_workflow_statuses() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let name = format!("テストチーム-{}", test_support::unique_suffix());
+        let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
+
+        let rows = sqlx::query(
+            "SELECT slug, is_default FROM t_workflow_status
+             WHERE team_id = $1 AND project_id IS NULL
+             ORDER BY position"
+        )
+        .bind(team_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(rows.len(), 6, "デフォルトの6ステータスが投入されていること");
+
+        let slugs: Vec<String> = rows.iter().map(|r| r.get::<String, _>(0)).collect();
+        assert_eq!(
+            slugs,
+            vec!["backlog", "open", "in_progress", "resolved", "closed", "canceled"]
+        );
+
+        let default_count = rows.iter().filter(|r| r.get::<bool, _>(1)).count();
+        assert_eq!(default_count, 1, "is_default な行は1件(open)のみであること");
+    }
+
+    #[tokio::test]
+    async fn delete_team_succeeds_without_dependents() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let name = format!("削除可-{}", test_support::unique_suffix());
+        let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
+        let ok = delete_team(&pool, team_id).await.unwrap();
+        assert!(ok);
+        assert!(find_team_by_id(&pool, team_id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_team_rejects_when_cycle_exists() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "tdel").await;
+        let name = format!("削除不可-{}", test_support::unique_suffix());
+        let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
+        let today = chrono::Utc::now().date_naive();
+        use crate::domain::models::cycle_api::CycleWriteIn;
+        use crate::infrastructure::repositories::cycle_repo::create_cycle;
+        create_cycle(
+            &pool,
+            &CycleWriteIn {
+                project: None,
+                name: "blocking cycle".to_string(),
+                description: String::new(),
+                start_date: today,
+                end_date: today + chrono::Duration::days(7),
+                status: "planned".to_string(),
+                team_id: Some(team_id),
+            },
+            user_id,
+        )
+        .await
+        .expect("create cycle");
+
+        let err = delete_team(&pool, team_id).await.expect_err("should block");
+        assert!(err.to_string().contains("team has dependents"));
+        assert!(find_team_by_id(&pool, team_id).await.unwrap().is_some());
+    }
 }

@@ -19,10 +19,11 @@ export interface Project {
   prefix: string;
   description: string;
   ticketCount?: number;
+  memberCount?: number;
   ownerId?: number | null;
   cycleAutoComplete?: boolean;
   cycleAutoCreateNext?: boolean;
-  ownerTeam?: { id: number; name: string; slug: string; icon: string; color: string } | null;
+  teams?: { id: number; name: string; slug: string; icon: string; color: string }[];
 }
 
 /** URLの :projectKey からプロジェクト情報を取得 */
@@ -77,7 +78,7 @@ export function useProjectSwitch() {
   const switchProject = useCallback(
     (prefix: string) => {
       localStorage.setItem(LAST_PROJECT_KEY, prefix);
-      navigate(`/p/${prefix}/tickets`);
+      navigate(`/project/${prefix}/tickets`);
     },
     [navigate],
   );

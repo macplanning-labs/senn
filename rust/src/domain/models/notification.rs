@@ -20,6 +20,7 @@ pub enum NotificationCategory {
     Replied,
     CycleAutoCompleted,
     Updated,
+    ReviewRequested,
 }
 
 impl NotificationCategory {
@@ -34,6 +35,7 @@ impl NotificationCategory {
             Self::Replied => "返信",
             Self::CycleAutoCompleted => "Cycle自動完了",
             Self::Updated => "更新",
+            Self::ReviewRequested => "レビュー依頼",
         }
     }
 
@@ -48,6 +50,7 @@ impl NotificationCategory {
             "replied" => Self::Replied,
             "cycle_auto_completed" => Self::CycleAutoCompleted,
             "updated" => Self::Updated,
+            "review_requested" => Self::ReviewRequested,
             _ => Self::Commented,
         }
     }
@@ -63,6 +66,7 @@ impl NotificationCategory {
             Self::Replied => "replied",
             Self::CycleAutoCompleted => "cycle_auto_completed",
             Self::Updated => "updated",
+            Self::ReviewRequested => "review_requested",
         }
     }
 
@@ -77,7 +81,25 @@ impl NotificationCategory {
             Self::Replied => "↩️",
             Self::CycleAutoCompleted => "📅",
             Self::Updated => "📝",
+            Self::ReviewRequested => "👁️",
         }
+    }
+
+    /// メール通知の対象になりうるカテゴリ一覧(設定UI・設定テーブルのキー集合)。
+    /// CycleAutoCompletedはメール送信ロジックが無く、Replayedは未使用のため対象外。
+    pub const EMAIL_CAPABLE: [NotificationCategory; 8] = [
+        NotificationCategory::Assigned,
+        NotificationCategory::Commented,
+        NotificationCategory::StatusChanged,
+        NotificationCategory::Updated,
+        NotificationCategory::Mentioned,
+        NotificationCategory::DueSoon,
+        NotificationCategory::Overdue,
+        NotificationCategory::ReviewRequested,
+    ];
+
+    pub fn is_high_priority(&self) -> bool {
+        matches!(self, Self::ReviewRequested | Self::Mentioned)
     }
 }
 
