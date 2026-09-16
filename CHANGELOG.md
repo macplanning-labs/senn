@@ -8,28 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial OSS extraction of Senn project
-- Community documents: CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md
-- Admin and settings cycle sync to OSS-extract repository
+
+- Community documents: `NOTICE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
+- Admin / settings / chat integration / notification preferences synced into the public tree
+- `google-auth` crate (Google Workspace service-account JWT helper)
 
 ### Changed
-- README and README_JA updated for OSS context
-- Dependency audit and vulnerability fixes for frontend
+
+- Frontend dependency updates to clear npm audit High/Critical/Moderate findings
+- OSS branding and sanitization (demo ticket keys, no `drive-core` in public workspace)
 
 ### Fixed
-- npm audit High/Critical vulnerabilities resolved
-- Internal references and sensitive data sanitized from public tree
 
-## [0.1.0] - Initial OSS Release (Forthcoming)
+- Internal-only references removed from the extract tree for public gates
+- Community docs aligned with `LICENSE` copyright and concrete security reporting path
 
-This is the initial release of Senn as an open-source project, derived from the MacPlanning internal codebase.
+### Known limitations
 
-### Features
-- Rust backend with async/await and modern web patterns
-- React-based frontend SPA with TypeScript
-- Admin and settings interfaces
-- Authentication and role-based access control
-
-### Known Limitations
-- Deployment and cloud integration documentation is minimal
-- Cycle 4+ features (e.g., SES services) may require additional setup
+- Deployment / cloud integration docs are still minimal
+- First SemVer tag (`v0.1.0`) is not cut yet (pending maintainer release approval)

@@ -2,28 +2,36 @@
 
 ## Reporting Vulnerabilities
 
-If you discover a security vulnerability, please **do not** create a public GitHub issue. Instead:
+If you discover a security vulnerability, **do not** create a public issue.
 
-1. Email security details to the maintainers (refer to [CONTRIBUTING.md](CONTRIBUTING.md) for contact information)
-2. Include steps to reproduce and impact assessment
-3. Allow time for a response and patch before public disclosure
+1. Open a **private** security advisory on the project's GitHub repository  
+   (Repository → Security → Advisories → New draft security advisory), **or**
+2. If advisories are unavailable, contact the copyright holder listed in [LICENSE](./LICENSE) / [NOTICE](./NOTICE) through a private channel and wait for acknowledgment before any public disclosure.
+
+Include:
+
+- Description and impact
+- Reproduction steps (PoC without exploiting third parties)
+- Affected versions / commit if known
+
+Please allow reasonable time for a fix before public disclosure.
 
 ## Supported Versions
 
-- **Main branch** (`main`): Receives bug fixes and security patches
-- **Latest release tag**: Generally supported for patch-level updates
-- Older versions: Community contributions are welcome but not actively maintained
+| Version | Supported |
+| --- | --- |
+| `main` (latest) | Yes — bug fixes and security patches |
+| Latest release tag | Yes — patch-level updates when feasible |
+| Older tags | Best-effort / community PRs welcome |
 
 ## Security Updates
 
-Security patches are released as needed. Please keep your installation up to date by:
-
-- Monitoring GitHub releases
-- Running `cargo update` (Rust) and `npm update` (frontend) regularly
-- Reviewing dependency audits
+- Prefer staying on `main` or the latest release tag
+- Run `cargo update` / `npm audit` regularly in your deployment pipeline
+- Local gate for contributors: `npm audit` with **0 high / 0 critical**, and Rust checks with `SQLX_OFFLINE=true`
 
 ## Development Practices
 
-- Mandatory code review before merge to main
-- Regular dependency audits via `cargo audit` and `npm audit`
-- Continuous integration checks on all pull requests
+- Review before merge to `main`
+- Dependency audits (`cargo audit` / `npm audit`) as part of release hygiene
+- Prefer local CI green (`cargo check|test --workspace`, `npm run build`, `npm test`) before release

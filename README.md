@@ -75,8 +75,8 @@ docker compose up --build
 #### Steps
 
 ```bash
-createdb wip
-cp .env.example .env  # edit DATABASE_URL etc. to match your environment
+createdb senn
+cp .env.example .env  # edit DATABASE_URL (e.g. postgresql://USER@localhost/senn) etc.
 
 cd rust
 cargo run

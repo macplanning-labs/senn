@@ -1,66 +1,73 @@
 # Contributing to Senn
 
-Thank you for your interest in contributing! This document outlines the process for reporting issues and submitting pull requests.
+Thank you for your interest in contributing. This document outlines how to report issues and submit changes.
 
 ## Before You Start
 
-- **Do not include secrets, API keys, tokens, or confidential information** in issues or pull requests
-- **Do not share internal ticket numbers or references** unrelated to the OSS project
-- Review the [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md)
+- **Do not include secrets**, API keys, tokens, connection strings, or confidential data in issues or pull requests
+- **Do not paste internal ticket numbers** or private infrastructure names unrelated to this OSS project
+- Review [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) and [SECURITY.md](SECURITY.md)
 
 ## Reporting Issues
 
-1. Check existing issues to avoid duplicates
-2. Provide a clear title and detailed description
-3. Include steps to reproduce and expected behavior
-4. Describe your environment (OS, Rust version, Node.js version, etc.)
+1. Search existing issues to avoid duplicates
+2. Use a clear title and describe expected vs actual behavior
+3. Include reproduction steps and environment (OS, Rust, Node.js)
+
+## Security Reports
+
+Do **not** file public issues for vulnerabilities. Follow [SECURITY.md](SECURITY.md).
 
 ## Submitting Pull Requests
 
-1. Fork the repository and create a feature branch
-2. Make your changes and test locally
-3. Ensure all tests pass and builds succeed
-4. Write a clear commit message
-5. Submit your PR with a description of what it addresses
+1. Fork (or clone) and create a feature branch
+2. Make changes and run the local checks below
+3. Keep commits focused; write a clear commit message
+4. Open a PR with a short summary of intent and test evidence
 
 ## Local Development
 
-### Rust Setup
+### Rust
 
 ```bash
 cd rust
-cargo test
-cargo build --release
+export SQLX_OFFLINE=true
+cargo check --workspace
+cargo test --workspace
 ```
 
-### Frontend Setup
+For a normal local run against PostgreSQL, set `DATABASE_URL` in `.env` (see `.env.example`) and use `cargo run` from `rust/`.
+
+### Frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run build
-npm run test
+npm test
+npm audit
 ```
 
-### Full CI Check
+### Full local CI (recommended before PR)
 
-From the project root, run:
+From a machine that has the OSSP helper scripts (maintainers), or equivalently:
 
 ```bash
-# Rust tests
-cd rust && cargo test --workspace
+# Rust
+cd rust && SQLX_OFFLINE=true cargo check --workspace && SQLX_OFFLINE=true cargo test --workspace
 
-# Frontend audits and tests
-cd frontend && npm audit && npm run build && npm run test
+# Frontend
+cd frontend && npm ci && npm run build && npm test && npm audit
 ```
+
+`npm audit` should report **0 high** and **0 critical**.
 
 ## Code Guidelines
 
-- Follow Rust conventions (see `rustfmt`, `clippy`)
-- Follow JavaScript/TypeScript conventions (see `.prettierrc`, `.eslintrc`)
-- Write meaningful commit messages
-- Keep commits logically organized
+- Rust: `rustfmt` / `clippy` conventions
+- Frontend: project ESLint / Prettier settings
+- Prefer small, reviewable commits
 
 ## Questions?
 
-Open an issue or check the README for more information.
+Open a normal (non-security) issue, or see [README.md](README.md) / [README_JA.md](README_JA.md).
