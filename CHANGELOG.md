@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Internal-only references removed from the extract tree for public gates
-- Community docs aligned with `LICENSE` copyright and concrete security reporting path
+- Community docs use NOTICE copyright (MacPlanning Co., Ltd. 2024); LICENSE matched and concrete security reporting path
 
 ### Known limitations
 
