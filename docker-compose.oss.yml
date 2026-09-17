@@ -1,0 +1,86 @@
+# ============================================================
+# SENN - OSS Self-host Docker Compose
+#
+# One-command deployment for users who want to self-host SENN
+# Usage:
+#   ./scripts/oss-up.sh
+#   # → http://localhost:8080
+#
+# To stop:
+#   ./scripts/oss-down.sh
+# ============================================================
+
+name: senn-oss
+
+services:
+
+  # --- PostgreSQL Database ---
+  db:
+    image: postgres:16-alpine
+    container_name: senn-oss-db
+    volumes:
+      - senn-oss-pgdata:/var/lib/postgresql/data
+    env_file:
+      - .env.oss
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-qa_tool}
+      - POSTGRES_USER=${POSTGRES_USER:-qa_admin}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qa_admin} -d ${POSTGRES_DB:-qa_tool}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - senn-oss-net
+    restart: unless-stopped
+
+  # --- Rust Backend API Server ---
+  rust:
+    build: ./rust
+    image: senn-rust:oss
+    container_name: senn-oss-rust
+    volumes:
+      - senn-oss-media:/app/media
+    env_file:
+      - .env.oss
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-qa_admin}:${DB_PASSWORD}@db:5432/${POSTGRES_DB:-qa_tool}
+      - PORT=8151
+      - SESSION_SECRET=${SESSION_SECRET}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - RUST_RUN_MIGRATIONS=true
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - senn-oss-net
+    restart: unless-stopped
+
+  # --- nginx Frontend + Proxy ---
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.oss-web
+    image: senn-web:oss
+    container_name: senn-oss-web
+    ports:
+      - "8080:80"
+    volumes:
+      - senn-oss-media:/app/media:ro
+    depends_on:
+      rust:
+        condition: service_started
+    networks:
+      - senn-oss-net
+    restart: unless-stopped
+
+volumes:
+  senn-oss-pgdata:
+    name: senn-oss-pgdata
+  senn-oss-media:
+    name: senn-oss-media
+
+networks:
+  senn-oss-net:
+    name: senn-oss-net
