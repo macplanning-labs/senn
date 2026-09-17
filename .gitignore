@@ -33,3 +33,4 @@ Thumbs.db
 
 # Local media / uploads
 media/
+.env.oss

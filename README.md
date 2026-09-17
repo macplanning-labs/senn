@@ -4,6 +4,33 @@ English | [日本語 (Japanese)](./README_JA.md)
 
 A lightweight, fast project management tool with ticketing, Gantt charts, a wiki, and notifications. The backend is built with Rust (Axum), and the frontend with React (TypeScript).
 
+## Getting Started (OSS / Self-host)
+
+Run SENN on your own machine or server. Your data stays in your Docker volumes.
+
+### Requirements
+- Docker / Docker Compose
+- Ports `8080` free (UI)
+
+### Start
+```bash
+git clone https://github.com/macplanning-labs/senn.git
+cd senn
+./scripts/oss-up.sh
+```
+Open **http://localhost:8080**
+
+### First use
+1. Sign up (username / email / password ≥ 8)
+2. Create a **Team** at `/teams` (required before tickets)
+3. Create a ticket from the team page
+
+Stop: `./scripts/oss-down.sh` (add `--volumes` to wipe data)
+
+Details: [`docs/利用ガイド_OSS自己構築.md`](./docs/利用ガイド_OSS自己構築.md)
+
+---
+
 ## Key Features
 
 - **Ticket management** — issues/tickets with status, priority, labels, assignees, threaded comments (with @mentions), and Linear-style keyboard navigation
