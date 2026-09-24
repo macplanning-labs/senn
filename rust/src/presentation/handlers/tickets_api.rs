@@ -1213,7 +1213,7 @@ pub async fn delete(
 
 /// コメント本文中で `@` の直後に候補usernameが続く箇所を検出する。
 ///
-/// usernameは英数字のみとは限らず、このアプリでは`n.hidaka@macplanning.com`のように
+/// usernameは英数字のみとは限らず、このアプリでは`taro.yamada@example.com`のように
 /// メールアドレス形式（内部に`@`を含む）のことが多い。そのため`@([A-Za-z0-9_.-]+)`の
 /// ような文字クラスベースの正規表現では、username内部の`@`で途切れて誤検出する
 /// （DEMO-000116運用時に発覚）。この関数は「実在する候補usernameの一覧」を先に受け取り、
@@ -1297,8 +1297,8 @@ async fn process_mentions(
     };
 
     // メンション候補（プロジェクトメンバー + オーナー）のID/username・表示名・エイリアス
-    // 一覧を作る。username（`@n.hidaka@macplanning.com`のようなメール形式）だけでなく
-    // 表示名（`@日高直樹`）やニックネーム（エイリアス）でもメンションできるよう、
+    // 一覧を作る。username（`@taro.yamada@example.com`のようなメール形式）だけでなく
+    // 表示名（`@山田太郎`）やニックネーム（エイリアス）でもメンションできるよう、
     // すべて候補トークンとして登録する。最初からメンバー/オーナーだけを候補にすることで、
     // 非メンバーのusername/表示名/エイリアスの存在有無を本文から推測されることも防げる。
     let members = user_repo::find_project_members(pool, project_id).await?;

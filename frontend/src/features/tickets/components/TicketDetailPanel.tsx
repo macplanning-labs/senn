@@ -843,7 +843,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   // コメント表示時のメンション処理（テキストノード内での処理用）
   //
-  // usernameは`n.hidaka@macplanning.com`のようにメール形式（内部に@を含む）のことが
+  // usernameは`taro.yamada@example.com`のようにメール形式（内部に@を含む）のことが
   // 多いため、文字クラスベースの正規表現（例: /@([A-Za-z0-9_.-]+)/）では内部の@で
   // 途切れて誤検出する。プロジェクトメンバーの実在するusername/表示名の一覧を先に
   // 用意し、本文中の@の直後にどのトークンが（最長一致で）続くかを走査する方式にする
