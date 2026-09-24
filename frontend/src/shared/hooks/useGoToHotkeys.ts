@@ -15,6 +15,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getLastTeamSlug } from './useTeam';
+import { hasCommandModifier } from './keyboardGuards';
 
 const SEQUENCE_TIMEOUT = 1000; // ms
 
@@ -51,7 +52,8 @@ export function useGoToHotkeys() {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (isInputFocused()) return;
+      // Cmd+G(検索の次へ)などを、Go to シーケンスと取り違えない
+      if (hasCommandModifier(e) || isInputFocused()) return;
 
       if (e.key === 'g' || e.key === 'G') {
         e.preventDefault();

@@ -1,0 +1,400 @@
+/* TeamGeneralSection.css */
+
+.team-general-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.team-general-section__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.team-general-section__form-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.team-general-section__heading {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+/* 危険な操作エリア */
+.team-general-section__danger-zone {
+  padding: 1.5rem;
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  background-color: color-mix(in srgb, var(--color-error) 8%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.team-general-section__danger-heading {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-error);
+  margin: 0;
+}
+
+.team-general-section__danger-description {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.team-general-section__danger-btn {
+  padding: 0.75rem 1.5rem;
+  background-color: var(--color-error);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  width: fit-content;
+}
+
+.team-general-section__danger-btn:hover {
+  background-color: color-mix(in srgb, var(--color-error) 85%, black);
+}
+
+.team-general-section__danger-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ダイアログ */
+.team-general-section__dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.team-general-section__dialog {
+  background-color: var(--color-bg-primary);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  max-width: 500px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.team-general-section__dialog-title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.team-general-section__dialog-message {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.team-general-section__dialog-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.team-general-section__dialog-btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.team-general-section__dialog-btn--cancel {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.team-general-section__dialog-btn--cancel:hover:not(:disabled) {
+  background-color: var(--color-bg-tertiary);
+}
+
+.team-general-section__dialog-btn--danger {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.team-general-section__dialog-btn--danger:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-error) 85%, black);
+}
+
+.team-general-section__dialog-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* アーカイブバナー */
+.team-general-section__archive-banner {
+  padding: 1rem;
+  background-color: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  margin-bottom: 1rem;
+}
+
+.team-general-section__archive-banner-text {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+/* フィールドセット */
+.team-general-section__fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.team-general-section__fieldset:disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.team-general-section__settings-locked {
+  padding: 1rem;
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-warning);
+}
+
+.team-general-section__settings-locked p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* アーカイブセクション */
+.team-general-section__archive-section {
+  padding: 1.5rem;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.team-general-section__archive-heading {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.team-general-section__archive-description {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.team-general-section__archive-btn,
+.team-general-section__restore-btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  width: fit-content;
+}
+
+.team-general-section__archive-btn {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+}
+
+.team-general-section__archive-btn:hover {
+  background-color: var(--color-bg-tertiary);
+}
+
+.team-general-section__restore-btn {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+}
+
+.team-general-section__restore-btn:hover {
+  background-color: var(--color-bg-secondary);
+}
+
+.team-general-section__archive-btn:disabled,
+.team-general-section__restore-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* インライン確認エリア */
+.team-general-section__inline-confirm {
+  padding: 1rem;
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-warning);
+}
+
+.team-general-section__confirm-message {
+  margin: 0 0 1rem 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.team-general-section__confirm-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.team-general-section__confirm-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.team-general-section__confirm-btn--cancel {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.team-general-section__confirm-btn--cancel:hover:not(:disabled) {
+  background-color: var(--color-bg-tertiary);
+}
+
+.team-general-section__confirm-btn--danger {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.team-general-section__confirm-btn--danger:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-error) 85%, black);
+}
+
+.team-general-section__confirm-btn--primary {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+}
+
+.team-general-section__confirm-btn--primary:hover:not(:disabled) {
+  background-color: var(--color-bg-secondary);
+}
+
+.team-general-section__confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* アーカイブできない理由パネル */
+.team-general-section__blocked {
+  padding: 1rem;
+  background-color: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.team-general-section__blocked-title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.team-general-section__blocked-reason {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.team-general-section__blocked-list {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.team-general-section__blocked-more {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.team-general-section__blocked-remedy {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.team-general-section__blocked-note {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.team-general-section__blocked-close {
+  padding: 0.5rem 1rem;
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  width: fit-content;
+  margin-top: 0.5rem;
+}
+
+.team-general-section__blocked-close:hover {
+  background-color: var(--color-bg-tertiary);
+}
+
+.team-general-section__blocked-close:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

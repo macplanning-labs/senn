@@ -1,0 +1,441 @@
+/**
+ * ProjectSubProjects.css — Projects タブのスタイル
+ *
+ * 階層・子・関連・ロードマップの各セクション
+ */
+
+.project-sub-projects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.project-sub-projects__state {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.project-sub-projects__state--error {
+  color: var(--color-error);
+}
+
+.project-sub-projects__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.project-sub-projects__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+/* ============================================================
+   階層セクション
+   ============================================================ */
+
+.project-sub-projects__breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.project-sub-projects__breadcrumb-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__breadcrumb-link {
+  color: var(--color-text-link);
+  text-decoration: none;
+}
+
+.project-sub-projects__breadcrumb-link:hover {
+  text-decoration: underline;
+}
+
+.project-sub-projects__breadcrumb-current {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.project-sub-projects__parent-control {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__parent-select,
+.project-sub-projects__select {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__parent-select:hover,
+.project-sub-projects__select:hover {
+  border-color: var(--color-border-hover);
+}
+
+.project-sub-projects__parent-select:focus,
+.project-sub-projects__select:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}
+
+.project-sub-projects__parent-button,
+.project-sub-projects__select-button {
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.project-sub-projects__parent-button:hover,
+.project-sub-projects__select-button:hover {
+  background-color: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+
+/* ============================================================
+   子プロジェクトセクション
+   ============================================================ */
+
+.project-sub-projects__rollup {
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.project-sub-projects__rollup-stat {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.project-sub-projects__rollup-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.project-sub-projects__progress-bar {
+  flex: 1;
+  height: 8px;
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.project-sub-projects__progress-fill {
+  height: 100%;
+  background-color: var(--color-accent-primary);
+  transition: width var(--transition-normal);
+}
+
+.project-sub-projects__progress-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.project-sub-projects__empty {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__table thead {
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.project-sub-projects__table th {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.project-sub-projects__table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border-default);
+  vertical-align: middle;
+}
+
+.project-sub-projects__table tbody tr:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.project-sub-projects__name-cell {
+  font-weight: var(--font-weight-medium);
+}
+
+.project-sub-projects__name-cell a {
+  color: var(--color-text-link);
+  text-decoration: none;
+}
+
+.project-sub-projects__name-cell a:hover {
+  text-decoration: underline;
+}
+
+.project-sub-projects__status-cell {
+  text-align: left;
+}
+
+.project-sub-projects__status {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.project-sub-projects__status--planned {
+  background-color: var(--color-status-backlog);
+  color: var(--color-text-inverse);
+}
+
+.project-sub-projects__status--in_progress {
+  background-color: var(--color-status-in-progress);
+  color: var(--color-text-inverse);
+}
+
+.project-sub-projects__status--paused {
+  background-color: var(--color-status-resolved);
+  color: var(--color-text-inverse);
+}
+
+.project-sub-projects__status--completed {
+  background-color: var(--color-status-closed);
+  color: var(--color-text-inverse);
+}
+
+.project-sub-projects__progress-cell {
+  min-width: 120px;
+}
+
+/* td 自体を flex にすると表のレイアウトが崩れるため、セルの中身を包んで並べる */
+.project-sub-projects__cell-flex {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__progress-bar-small {
+  flex: 1;
+  height: 6px;
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.project-sub-projects__progress-pct {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  min-width: 35px;
+  text-align: right;
+}
+
+
+.project-sub-projects__team-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* ============================================================
+   関連・ロードマップセクション
+   ============================================================ */
+
+.project-sub-projects__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.project-sub-projects__list-item a {
+  color: var(--color-text-link);
+  text-decoration: none;
+}
+
+.project-sub-projects__list-item a:hover {
+  text-decoration: underline;
+}
+
+.project-sub-projects__remove-btn {
+  padding: var(--space-1) var(--space-2);
+  background-color: transparent;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.project-sub-projects__remove-btn:hover {
+  background-color: var(--color-error);
+  border-color: var(--color-error);
+  color: white;
+}
+
+.project-sub-projects__add-control {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__roadmap-control {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.project-sub-projects__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent-primary);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__badge-remove {
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  transition: color var(--transition-normal);
+}
+
+.project-sub-projects__badge-remove:hover {
+  color: var(--color-error);
+}
+
+.project-sub-projects__create-inline {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.project-sub-projects__input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__input:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}
+
+.project-sub-projects__create-btn,
+.project-sub-projects__cancel-btn {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.project-sub-projects__create-btn:hover {
+  background-color: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  color: white;
+}
+
+.project-sub-projects__cancel-btn:hover {
+  background-color: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+
+
+.project-sub-projects__parent-label {
+  align-self: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__roadmap-link {
+  color: var(--color-text-link);
+  text-decoration: none;
+}
+
+.project-sub-projects__roadmap-link:hover {
+  text-decoration: underline;
+}
+
+.project-sub-projects__roadmaps-all {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.project-sub-projects__roadmaps-all a {
+  color: var(--color-text-link);
+  text-decoration: none;
+}

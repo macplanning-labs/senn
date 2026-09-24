@@ -1,0 +1,333 @@
+import {
+  useState,
+  useRef,
+  useEffect,
+  useImperativeHandle,
+  forwardRef,
+} from 'react';
+import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '../../../shared/api/client';
+import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
+import type { TicketAttachment, TicketDetailView } from '../types/ticketDetailView';
+import { ReactionBar } from './ReactionBar';
+import './TicketTitleDescriptionEditor.css';
+
+export interface TicketTitleDescriptionEditorHandle {
+  startTitleEdit: () => void;
+  startDescriptionEdit: () => void;
+}
+
+interface TicketTitleDescriptionEditorProps {
+  ticket: TicketDetailView;
+  ticketId: string;
+}
+
+export const TicketTitleDescriptionEditor = forwardRef<
+  TicketTitleDescriptionEditorHandle,
+  TicketTitleDescriptionEditorProps
+>(function TicketTitleDescriptionEditor({ ticket, ticketId }, ref) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [titleValue, setTitleValue] = useState(ticket.title);
+  const [descriptionValue, setDescriptionValue] = useState(ticket.description);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const titleEditRef = useRef<HTMLInputElement>(null);
+  const descriptionEditRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setTitleValue(ticket.title);
+    setDescriptionValue(ticket.description);
+  }, [ticket.title, ticket.description]);
+
+  useImperativeHandle(ref, () => ({
+    startTitleEdit: () => setEditingTitle(true),
+    startDescriptionEdit: () => setEditingDescription(true),
+  }));
+
+  const titleMutation = useOptimisticMutation<void, { title: string }>({
+    mutationFn: async ({ title }) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { title });
+    },
+    queryKey: ['ticket', ticketId],
+    updater: (currentData, { title }) => {
+      const data = currentData as TicketDetailView | undefined;
+      if (!data) return currentData;
+      return { ...data, title };
+    },
+    onSuccessCallback: () => setEditingTitle(false),
+    errorMessage: t('ticketDetail.errors.titleUpdateFailed'),
+  });
+
+  const descriptionMutation = useOptimisticMutation<void, { description: string }>({
+    mutationFn: async ({ description }) => {
+      await apiClient.patch(`/tickets/${ticketId}/`, { description });
+    },
+    queryKey: ['ticket', ticketId],
+    updater: (currentData, { description }) => {
+      const data = currentData as TicketDetailView | undefined;
+      if (!data) return currentData;
+      return { ...data, description };
+    },
+    onSuccessCallback: () => setEditingDescription(false),
+    errorMessage: t('ticketDetail.errors.descriptionUpdateFailed'),
+  });
+
+  useEffect(() => {
+    if (editingTitle && titleEditRef.current) {
+      titleEditRef.current.focus();
+      titleEditRef.current.select();
+    }
+  }, [editingTitle]);
+
+  useEffect(() => {
+    if (editingDescription && descriptionEditRef.current) {
+      descriptionEditRef.current.focus();
+    }
+  }, [editingDescription]);
+
+  const handleTitleSave = () => {
+    if (titleValue.trim() !== ticket.title.trim()) {
+      titleMutation.mutate({ title: titleValue });
+    } else {
+      setEditingTitle(false);
+    }
+  };
+
+  const handleDescriptionSave = () => {
+    if (descriptionValue !== ticket.description) {
+      descriptionMutation.mutate({ description: descriptionValue });
+    } else {
+      setEditingDescription(false);
+    }
+  };
+
+  const uploadAttachmentFile = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setAttachmentUploading(true);
+    try {
+      const res = await apiClient.post<TicketAttachment>(
+        `/tickets/${ticketId}/attachments/`,
+        formData,
+      );
+      queryClient.setQueryData<TicketDetailView | undefined>(['ticket', ticketId], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          attachments: [...(old.attachments ?? []), res.data],
+        };
+      });
+    } catch (error) {
+      console.error('Attachment upload failed:', error);
+      alert(t('ticketDetail.errors.attachFailed', { defaultValue: 'Failed to upload attachment.' }));
+    } finally {
+      setAttachmentUploading(false);
+    }
+  };
+
+  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      await uploadAttachmentFile(file);
+    }
+    e.currentTarget.value = '';
+  };
+
+  const handleDeleteAttachment = async (attachmentId: number) => {
+    if (
+      !window.confirm(
+        t('ticketDetail.confirmDeleteAttachment', { defaultValue: 'Delete this attachment?' }),
+      )
+    )
+      return;
+
+    try {
+      await apiClient.delete(`/tickets/${ticketId}/attachments/${attachmentId}/`);
+      queryClient.setQueryData<TicketDetailView | undefined>(['ticket', ticketId], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          attachments: (old.attachments ?? []).filter((a) => a.id !== attachmentId),
+        };
+      });
+    } catch (error) {
+      console.error('Attachment delete failed:', error);
+      alert(
+        t('ticketDetail.errors.attachDeleteFailed', {
+          defaultValue: 'Failed to delete attachment.',
+        }),
+      );
+    }
+  };
+
+  const attachments = ticket.attachments ?? [];
+
+  return (
+    <div className="ticket-title-description-editor">
+      <div className="ticket-title-section">
+        {editingTitle ? (
+          <input
+            ref={titleEditRef}
+            type="text"
+            className="ticket-title-editor__input"
+            value={titleValue}
+            onChange={(e) => setTitleValue(e.target.value)}
+            onBlur={handleTitleSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleTitleSave();
+              if (e.key === 'Escape') {
+                setTitleValue(ticket.title);
+                setEditingTitle(false);
+              }
+            }}
+            placeholder={t('ticketDetail.titlePlaceholder')}
+            data-testid="ticket-title-editor"
+          />
+        ) : (
+          <h2
+            className="ticket-title-editor__display"
+            tabIndex={0}
+            onClick={() => setEditingTitle(true)}
+            data-testid="ticket-title-display"
+          >
+            {titleValue}
+          </h2>
+        )}
+      </div>
+
+      <div className="ticket-description-section">
+        {editingDescription ? (
+          <textarea
+            ref={descriptionEditRef}
+            className="ticket-description-editor__input"
+            value={descriptionValue}
+            onChange={(e) => setDescriptionValue(e.target.value)}
+            onBlur={handleDescriptionSave}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={async (e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const files = Array.from(e.dataTransfer.files);
+              for (const file of files) {
+                await uploadAttachmentFile(file);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setDescriptionValue(ticket.description);
+                setEditingDescription(false);
+              }
+            }}
+            placeholder={t('ticketDetail.descriptionPlaceholder')}
+            rows={8}
+            data-testid="ticket-description-editor"
+          />
+        ) : (
+          <div
+            className={`ticket-description-editor__display${isDragOver ? ' ticket-description-editor__display--drag-over' : ''}`}
+            tabIndex={0}
+            onClick={() => setEditingDescription(true)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={async (e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const files = Array.from(e.dataTransfer.files);
+              for (const file of files) {
+                await uploadAttachmentFile(file);
+              }
+            }}
+            data-testid="ticket-description-display"
+          >
+            {descriptionValue ? (
+              <p className="ticket-description-editor__text">{descriptionValue}</p>
+            ) : (
+              <p className="ticket-description-editor__empty">
+                {t('ticketDetail.descriptionEmpty')}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="ticket-description-editor__toolbar">
+          <ReactionBar
+            className="ticket-description-editor__reactions"
+            ticketKey={ticket.ticketKey}
+            ticketId={ticket.id}
+            projectPrefix={ticket.projectPrefix}
+            projectId={ticket.project}
+            addButtonContent="😊"
+          />
+          <button
+            type="button"
+            className="ticket-description-editor__tool ticket-description-editor__tool--active"
+            title={t('ticketDetail.attach')}
+            aria-label={t('ticketDetail.attach')}
+            disabled={attachmentUploading}
+            onClick={() => attachmentInputRef.current?.click()}
+            data-testid="ticket-description-attach"
+          >
+            📎
+          </button>
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            multiple
+            onChange={handleAttachmentUpload}
+            disabled={attachmentUploading}
+            className="ticket-description-editor__file-input"
+            data-testid="ticket-description-attachment-input"
+          />
+        </div>
+        {attachments.length > 0 && (
+          <ul className="ticket-description-editor__attachments">
+            {attachments.map((att) => (
+              <li key={att.id} className="ticket-description-editor__attachment">
+                <span className="ticket-description-editor__attachment-icon">
+                  {att.isImage ? '🖼️' : '📄'}
+                </span>
+                <a
+                  href={att.fileUrl}
+                  download={att.filename}
+                  className="ticket-description-editor__attachment-link"
+                  title={att.filename}
+                >
+                  {att.filename}
+                </a>
+                <span className="ticket-description-editor__attachment-size">
+                  ({att.sizeDisplay})
+                </span>
+                <button
+                  type="button"
+                  className="ticket-description-editor__attachment-delete"
+                  onClick={() => handleDeleteAttachment(att.id)}
+                  title={t('ticketDetail.deleteAttachment', { defaultValue: 'Delete attachment' })}
+                  aria-label={t('ticketDetail.deleteAttachment', {
+                    defaultValue: 'Delete attachment',
+                  })}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+});

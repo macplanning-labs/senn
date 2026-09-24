@@ -8,6 +8,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { Team, TeamMembership, TeamGuest } from '@/shared/api/types';
 
+// ─── Types ───────────────────────────────────────
+
+export interface BlockingProject {
+  id: number;
+  prefix: string;
+  name: string;
+  status: string;
+}
+
+export interface TeamArchiveCheck {
+  canArchive: boolean;
+  blockingProjects: BlockingProject[];
+}
+
 // ─── Query Keys ────────────────────────────────────
 
 const teamKeys = {
@@ -95,6 +109,8 @@ export function useCreateTeam() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: teamKeys.all });
+      // 新しく所属したチームは、プロジェクト設定の「追加できるチーム」の候補になる
+      void queryClient.invalidateQueries({ queryKey: ['project-teams'] });
     },
   });
 }
@@ -123,6 +139,38 @@ export function useDeleteTeam() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: teamKeys.all });
+    },
+  });
+}
+
+/** チームアーカイブ */
+export function useArchiveTeam() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiClient.post<Team>(`/teams/${id}/archive/`);
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: teamKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['project-teams'] });
+    },
+  });
+}
+
+/** チーム復元 */
+export function useUnarchiveTeam() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiClient.post<Team>(`/teams/${id}/unarchive/`);
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: teamKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['project-teams'] });
     },
   });
 }
@@ -215,6 +263,16 @@ export function useRemoveTeamGuest() {
     },
     onSuccess: (_, { teamId }) => {
       void queryClient.invalidateQueries({ queryKey: teamKeys.guests(teamId) });
+    },
+  });
+}
+
+/** チームアーカイブ事前チェック(アーカイブ可能か、ブロッキングプロジェクトは何か) */
+export function useCheckTeamArchive() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiClient.get<TeamArchiveCheck>(`/teams/${id}/archive-check/`);
+      return res.data;
     },
   });
 }

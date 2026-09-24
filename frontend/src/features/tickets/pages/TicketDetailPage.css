@@ -1,0 +1,290 @@
+.ticket-detail-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-primary, #0a0a0a);
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.ticket-detail-page--loading,
+.ticket-detail-page--error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+.ticket-detail-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-border, #333);
+  border-top-color: var(--color-accent, #6366f1);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Top Bar: パンくず・Watch・三点メニュー */
+.ticket-detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border, #333);
+  height: auto;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.ticket-detail-topbar__breadcrumb-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ticket-detail-topbar__breadcrumb {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.ticket-detail-topbar__breadcrumb-link {
+  color: inherit;
+  text-decoration: none;
+  font-size: inherit;
+}
+
+.ticket-detail-topbar__breadcrumb-link:hover {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+}
+
+.ticket-detail-topbar__breadcrumb-sep {
+  color: inherit;
+  font-size: inherit;
+}
+
+.ticket-detail-topbar__breadcrumb-current {
+  color: inherit;
+  font-size: inherit;
+}
+
+.ticket-detail-topbar__actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Sub Bar: URL/ID/branch/prompt */
+.ticket-detail-subbar {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border, #333);
+  width: 100%;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.ticket-detail-subbar__button {
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-detail-subbar__button:hover {
+  background: var(--color-bg-tertiary, #2a2a2a);
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+/* Main: 2列レイアウト */
+.ticket-detail-main {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  flex: 1;
+}
+
+.ticket-detail-content {
+  min-width: 0;
+}
+
+.ticket-detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Properties Sidebar */
+.ticket-properties-sidebar {
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.ticket-properties-sidebar__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--color-text-secondary, #a0a0a0);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ticket-properties-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ticket-property-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border, #333);
+  font-size: 0.875rem;
+}
+
+.ticket-property-item:last-child {
+  border-bottom: none;
+}
+
+.ticket-property-label {
+  color: var(--color-text-secondary, #a0a0a0);
+}
+
+.ticket-property-value {
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .ticket-detail-main {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-detail-sidebar {
+    order: -1;
+  }
+}
+
+.ticket-detail-topbar__watch,
+.ticket-detail-topbar__menu {
+  /* 🔔 と「…」アイコンを同じ大きさの箱にそろえる */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 0.875rem;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: pointer;
+}
+
+.ticket-detail-topbar__watch:hover,
+.ticket-detail-topbar__menu:hover {
+  background: var(--color-bg-tertiary, #2a2a2a);
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.ticket-detail-topbar__menu-wrap {
+  position: relative;
+}
+
+.ticket-detail-topbar__dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 180px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.ticket-detail-topbar__dropdown button {
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary, #e0e0e0);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+}
+
+.ticket-detail-topbar__dropdown button:hover {
+  background: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.ticket-detail-topbar__dropdown-danger {
+  color: #f87171 !important;
+}
+
+.ticket-detail-subbar__prompt-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ticket-detail-subbar__tool-select {
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #a0a0a0);
+}
+
+.ticket-property-item--button {
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border, #333);
+}
+
+.ticket-property-item--button:hover {
+  background: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.ticket-property-item--button:last-child {
+  border-bottom: none;
+}

@@ -47,6 +47,14 @@ pub async fn jwt_auth(
     // トークン部分を抽出
     let token = &auth_header[7..];
 
+    // デモトークンを拒否（API では使用不可）
+    if token.trim().eq_ignore_ascii_case("senn-demo-token") {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"detail": "Demo token is not accepted by API"})),
+        ));
+    }
+
     // トークンをデコード
     let claims = jwt_service::decode_token(token, &state.config.jwt_secret).map_err(|_| {
         (

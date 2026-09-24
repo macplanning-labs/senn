@@ -1,41 +1,35 @@
 /**
  * TeamsPage.css — チーム管理ページのスタイル
  *
- * ダーク/ライトテーマ対応。CSS変数ベース。
+ * 一覧はプロジェクト一覧に倣ったテーブル。モーダル用スタイルは下部に残す。
  */
 
-/* ─── ページレイアウト ─── */
-
 .teams-page {
-  padding: var(--space-6);
-  max-width: 1200px;
-  margin: 0 auto;
+  max-width: 860px;
+  padding: var(--space-4) var(--space-5);
 }
 
 .teams-page__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-4);
 }
 
 .teams-page__title {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-xl, 1.25rem);
+  font-weight: 650;
   color: var(--color-text-primary);
-  margin: 0 0 var(--space-1) 0;
-}
-
-.teams-page__subtitle {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-sm);
   margin: 0;
 }
 
-.teams-page__create-btn {
-  display: inline-flex;
+.teams-page__header-actions {
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+.teams-page__create-btn {
   padding: var(--space-2) var(--space-4);
   background: var(--color-accent-primary);
   color: #fff;
@@ -44,254 +38,48 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
 .teams-page__create-btn:hover {
   background: var(--color-accent-primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
-
-.teams-page__create-icon {
-  font-size: var(--font-size-lg);
-  line-height: 1;
-}
-
-.teams-page__content {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-6);
-}
-
-@media (max-width: 900px) {
-  .teams-page__content {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ─── チームカード ─── */
-
-.teams-page__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.teams-card {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.teams-card:hover {
-  border-color: var(--color-accent-primary);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
-}
-
-.teams-card--selected {
-  border-color: var(--color-accent-primary);
-  background: var(--color-primary-bg, rgba(99, 102, 241, 0.05));
-}
-
-.teams-card__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.teams-card__icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.teams-card__info {
-  flex: 1;
-  min-width: 0;
-}
-
-.teams-card__name {
-  display: block;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-}
-
-.teams-card__slug {
-  display: block;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.teams-card__actions {
-  display: flex;
-  gap: var(--space-1);
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.teams-card:hover .teams-card__actions {
-  opacity: 1;
-}
-
-.teams-card__action-btn {
-  padding: var(--space-1);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.1s;
-}
-
-.teams-card__action-btn:hover {
-  background: var(--color-bg-tertiary);
-}
-
-.teams-card__action-btn--danger:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.teams-card__desc {
-  margin: var(--space-2) 0 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  line-height: 1.4;
-}
-
-.teams-card__stats {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  margin-top: var(--space-3);
-}
-
-.teams-card__stat {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-}
-
-.teams-card__stat-icon {
-  font-size: 12px;
-}
-
-.teams-card__inactive-badge {
-  display: inline-block;
-  margin-top: var(--space-2);
-  padding: 2px var(--space-2);
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-}
-
-/* ─── 空状態 ─── */
 
 .teams-page__empty {
+  padding: var(--space-8) var(--space-4);
   text-align: center;
-  padding: var(--space-8);
   color: var(--color-text-tertiary);
-}
-
-.teams-page__empty-icon {
-  font-size: 48px;
-  display: block;
-  margin-bottom: var(--space-3);
-}
-
-/* ─── ローディング ─── */
-
-.teams-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 400px;
-}
-
-.teams-loading__spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-accent-primary);
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ─── メンバー管理パネル ─── */
-
-.teams-page__detail {
-  position: sticky;
-  top: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.teams-card__tickets-link,
-.teams-page__tickets-btn {
-  display: inline-flex;
-  align-items: center;
-  margin-left: auto;
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-accent-primary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  text-decoration: none;
-}
-
-.teams-page__tickets-btn {
-  margin-left: 0;
-  align-self: flex-start;
   font-size: var(--font-size-sm);
 }
 
-.teams-card__tickets-link:hover,
-.teams-page__tickets-btn:hover {
-  background: var(--color-bg-tertiary);
+.teams-page__empty p {
+  margin: 0 0 var(--space-4);
 }
 
-.teams-page__detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+.teams-page__archived-section {
+  margin-top: var(--space-6);
 }
 
-.teams-page__create-ticket-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-1) var(--space-3);
-  background: var(--color-accent-primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+.teams-page__archived-summary {
   cursor: pointer;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  list-style: none;
+  user-select: none;
 }
 
-.teams-page__create-ticket-btn:hover {
-  background: var(--color-accent-primary-hover);
+.teams-page__archived-summary::-webkit-details-marker {
+  display: none;
+}
+
+.teams-page__archived-summary:hover {
+  color: var(--color-text-secondary);
+}
+
+.teams-page__archived-list {
+  margin-top: var(--space-3);
 }
 
 .team-members {
@@ -465,18 +253,15 @@
   color: var(--color-text-tertiary);
   font-size: var(--font-size-sm);
 }
-
-/* ─── モーダル ─── */
-
 .teams-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background-color: var(--color-bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  backdrop-filter: blur(4px);
+  z-index: var(--z-modal-overlay);
+  backdrop-filter: blur(2px);
   animation: fadeIn 0.15s ease;
 }
 
@@ -799,4 +584,14 @@
 
 .teams-dialog__btn--danger:hover {
   background: #dc2626;
+}
+
+.teams-card__badge {
+  display: inline-block;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm, 0.875rem);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm, 4px);
+  white-space: nowrap;
 }

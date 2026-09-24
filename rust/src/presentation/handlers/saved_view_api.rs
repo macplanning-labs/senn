@@ -3,7 +3,7 @@
 /// t_saved_view テーブル用。個人用チケット一覧フィルタ。
 
 use axum::{
-    extract::{State, Path},
+    extract::{State, Path, Query},
     response::IntoResponse,
     http::StatusCode,
     Json,
@@ -21,6 +21,16 @@ use crate::domain::models::saved_view_api::{
 #[derive(Serialize)]
 pub struct ErrorResponse {
     pub detail: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct SavedViewListQuery {
+    #[serde(default = "default_list_view_type")]
+    pub view_type: String,
+}
+
+fn default_list_view_type() -> String {
+    "tickets".to_string()
 }
 
 /// プロジェクトメンバーまたはプロジェクトオーナーならアクセス可。
@@ -159,6 +169,7 @@ pub async fn create(
         owner_id,
         name,
         &input.filters,
+        &input.view_type,
         input.is_shared,
     )
     .await
@@ -238,6 +249,7 @@ pub async fn create_for_team(
         owner_id,
         name,
         &input.filters,
+        &input.view_type,
         input.is_shared,
     )
     .await
@@ -351,6 +363,76 @@ pub async fn delete(
                 }),
             )
                 .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/saved-views/ — グローバル(project/teamスコープ無し)Saved View一覧
+pub async fn list_global(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Query(params): Query<SavedViewListQuery>,
+) -> impl IntoResponse {
+    let owner_id: i64 = auth.user_id.into();
+
+    match saved_view_repo::list_global_and_owner(&state.pool, owner_id, &params.view_type).await {
+        Ok(views) => (StatusCode::OK, Json(views)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /api/v1/saved-views/ — グローバル Saved View 作成
+pub async fn create_global(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(input): Json<SavedViewCreateIn>,
+) -> impl IntoResponse {
+    let owner_id: i64 = auth.user_id.into();
+    let name = input.name.trim();
+
+    if let Err(resp) = validate_view_name(name) {
+        return resp.into_response();
+    }
+
+    match saved_view_repo::create_global(
+        &state.pool,
+        owner_id,
+        name,
+        &input.filters,
+        &input.view_type,
+        input.is_shared,
+    )
+    .await
+    {
+        Ok(view) => (StatusCode::CREATED, Json(view)).into_response(),
+        Err(e) => {
+            if e.to_string().contains("duplicate") || e.to_string().contains("UNIQUE") {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: "同じ名前のビューが既にあります".to_string(),
+                    }),
+                )
+                    .into_response()
+            } else {
+                tracing::error!("DB operation failed: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response()
+            }
         }
     }
 }

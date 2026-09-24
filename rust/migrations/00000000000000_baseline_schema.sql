@@ -5,7 +5,7 @@
 -- 背景: rust/migrations/にはこれまで4件の差分マイグレーションしか存在せず、
 -- Django時代から引き継いだテーブル(tickets_ticket, wiki_page, milestones_milestone等)や
 -- Rust移行後に手動SQLで追加された機能テーブル(m_team, t_cycle等)がsqlxマイグレーションの
--- 管理下になかった。本ファイルは本番(wiprs-db)のスキーマを
+-- 管理下になかった。本ファイルは本番環境のスキーマを
 -- `pg_dump --schema-only --no-owner --no-privileges` で取得し、
 -- 既存オブジェクトに対しては no-op になるよう IF NOT EXISTS / DOブロックで冪等化したもの。
 --
@@ -13,7 +13,7 @@
 -- ローカルの新規DBではこのファイルが最初に適用され、以降の差分マイグレーションの土台になる。
 --
 -- 生成日: 2026-08-25
--- 取得元: ssh minisforum "docker exec wiprs-db pg_dump -U qa_admin -d qa_tool --schema-only --no-owner --no-privileges"
+-- 取得元: 本番DBのスキーマダンプ。
 -- _sqlx_migrations テーブル自体の定義は除外済み(sqlxが別途管理するため)。
 
 --

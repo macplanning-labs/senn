@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
@@ -19,6 +20,8 @@ import type { Label } from '@/shared/components/ui/LabelBadge';
 import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
 import { TicketDetailPanel } from '@/features/tickets/components/TicketDetailPanel';
 import './KanbanBoard.css';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconBoard } from '@/shared/components/layout/Sidebar';
 
 interface KanbanTicket {
   id: number;
@@ -55,6 +58,7 @@ const priorityColors: Record<string, string> = {
 };
 
 export function KanbanBoard() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { projectKey, currentProject } = useProject();
   const { teamSlug, currentTeam } = useTeam();
@@ -167,20 +171,23 @@ export function KanbanBoard() {
   return (
     <div className="kanban" data-testid="kanban-board">
       {/* Header */}
-      <div className="kanban__header">
-        <h1 className="kanban__title">Board</h1>
-        <div className="kanban__stats">
-          {columns.map((col) => (
-            <span key={col.status} className="kanban__stat">
-              <span
-                className="kanban__stat-dot"
-                style={{ backgroundColor: col.color }}
-              />
-              {ticketsByStatus[col.status]?.length ?? 0}
-            </span>
-          ))}
-        </div>
-      </div>
+      <TeamTabPageHeader
+        icon={IconBoard}
+        title={t('nav.board')}
+        actions={
+          <div className="kanban__stats">
+            {columns.map((col) => (
+              <span key={col.status} className="kanban__stat">
+                <span
+                  className="kanban__stat-dot"
+                  style={{ backgroundColor: col.color }}
+                />
+                {ticketsByStatus[col.status]?.length ?? 0}
+              </span>
+            ))}
+          </div>
+        }
+      />
 
       {/* Board */}
       <div className="kanban__board">

@@ -3,6 +3,7 @@
  *
  * Jira/Linear 風の変更履歴表示。
  * フィールド名ごとにアイコンを変え、変更前後をインラインで表示する。
+ * 作成イベントは API ログが空でも createdAt / createdByName があれば先頭に出す。
  */
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../shared/api/client';
@@ -24,9 +25,12 @@ interface ChangeLog {
 
 interface ChangeLogTimelineProps {
   ticketId: string;
+  createdAt?: string;
+  createdByName?: string | null;
 }
 
 const FIELD_ICONS: Record<string, string> = {
+  Created: '🎉',
   Status: '🔄',
   Priority: '🔺',
   Title: '✏️',
@@ -39,28 +43,29 @@ const FIELD_ICONS: Record<string, string> = {
   'Due Date': '⏰',
 };
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, locale: string): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
   const diffHour = Math.floor(diffMs / 3600000);
   const diffDay = Math.floor(diffMs / 86400000);
+  const isJa = locale.startsWith('ja');
 
-  if (diffMin < 1) return 'たった今';
-  if (diffMin < 60) return `${diffMin}分前`;
-  if (diffHour < 24) return `${diffHour}時間前`;
-  if (diffDay < 7) return `${diffDay}日前`;
-  return date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
+  if (diffMin < 1) return isJa ? 'たった今' : 'just now';
+  if (diffMin < 60) return isJa ? `${diffMin}分前` : `${diffMin}m ago`;
+  if (diffHour < 24) return isJa ? `${diffHour}時間前` : `${diffHour}h ago`;
+  if (diffDay < 7) return isJa ? `${diffDay}日前` : `${diffDay}d ago`;
+  return date.toLocaleDateString(isJa ? 'ja-JP' : undefined, { month: 'short', day: 'numeric' });
 }
 
-function truncateValue(value: string, maxLen = 40): string {
-  if (!value || value === '') return '(なし)';
+function truncateValue(value: string, maxLen = 40, emptyLabel = '—'): string {
+  if (!value || value === '') return emptyLabel;
   return value.length > maxLen ? value.slice(0, maxLen) + '…' : value;
 }
 
-export default function ChangeLogTimeline({ ticketId }: ChangeLogTimelineProps) {
-  const { t } = useTranslation();
+export default function ChangeLogTimeline({ ticketId, createdAt, createdByName }: ChangeLogTimelineProps) {
+  const { t, i18n } = useTranslation();
   const { data: logs, isLoading } = useQuery<ChangeLog[]>({
     queryKey: ['tickets', ticketId, 'change-logs'],
     queryFn: async () => {
@@ -79,7 +84,10 @@ export default function ChangeLogTimeline({ ticketId }: ChangeLogTimelineProps) 
     );
   }
 
-  if (!logs || logs.length === 0) {
+  const hasCreate = !!(createdAt && createdByName);
+  const hasLogs = !!(logs && logs.length > 0);
+
+  if (!hasCreate && !hasLogs) {
     return (
       <div className="changelog-timeline changelog-timeline--empty">
         <span className="changelog-timeline__empty-icon">📋</span>
@@ -90,9 +98,28 @@ export default function ChangeLogTimeline({ ticketId }: ChangeLogTimelineProps) 
 
   return (
     <div className="changelog-timeline">
-      <h4 className="changelog-timeline__title">変更履歴</h4>
+      <h4 className="changelog-timeline__title">{t('changelog.title')}</h4>
       <div className="changelog-timeline__list">
-        {logs.map((log) => (
+        {hasCreate && (
+          <div className="changelog-timeline__item" data-testid="changelog-created-event">
+            <div className="changelog-timeline__icon">
+              {FIELD_ICONS['Created'] || '🎉'}
+            </div>
+            <div className="changelog-timeline__content">
+              <div className="changelog-timeline__header">
+                <span className="changelog-timeline__user">{createdByName}</span>
+                <span className="changelog-timeline__field">
+                  {' '}
+                  {t('changelog.createdIssue')}
+                </span>
+                <span className="changelog-timeline__time">
+                  {formatRelativeTime(createdAt!, i18n.language)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        {(logs ?? []).map((log) => (
           <div key={log.id} className="changelog-timeline__item">
             <div className="changelog-timeline__icon">
               {FIELD_ICONS[log.fieldName] || '📋'}
@@ -103,10 +130,11 @@ export default function ChangeLogTimeline({ ticketId }: ChangeLogTimelineProps) 
                   {log.changedBy?.displayName || log.changedBy?.username || 'System'}
                 </span>
                 <span className="changelog-timeline__field">
-                  が <strong>{log.fieldName}</strong> を変更
+                  {' '}
+                  {t('changelog.changedField', { field: log.fieldName })}
                 </span>
                 <span className="changelog-timeline__time">
-                  {formatRelativeTime(log.changedAt)}
+                  {formatRelativeTime(log.changedAt, i18n.language)}
                 </span>
               </div>
               <div className="changelog-timeline__diff">

@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, Link } from 'react-router-dom';
 import { useProject } from '@/shared/hooks/useProject';
+import { ProjectTeamsSection } from '@/features/projects/components/ProjectTeamsSection';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -132,61 +133,8 @@ function GeneralSettings() {
 
   return (
     <div>
-      {/* オーナーチーム */}
-      {currentProject && (
-        <>
-          <div className="settings-section__header">
-            <h2 className="settings-section__title">Participating Teams</h2>
-          </div>
-          <div style={{ marginBottom: 'var(--space-6)' }}>
-            <div style={{
-              display: 'grid',
-              gap: 'var(--space-2)',
-            }}>
-              {(currentProject?.teams ?? []).length > 0 ? (
-                (currentProject.teams ?? []).map((team) => (
-                  <div
-                    key={team.id}
-                    style={{
-                      padding: 'var(--space-3)',
-                      background: 'var(--color-bg-elevated)',
-                      border: '1px solid var(--color-border-default)',
-                      borderRadius: 'var(--radius-md)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--space-3)',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                      <span style={{ fontSize: '1.2em' }}>{team.icon}</span>
-                      <div>
-                        <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
-                          {team.name}
-                        </div>
-                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
-                          {team.slug}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-sm)' }}>
-                  参加チームがありません
-                </div>
-              )}
-            </div>
-            <p style={{
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--color-text-secondary)',
-              marginTop: 'var(--space-3)',
-            }}>
-              参加チームの追加・削除は別途管理します
-            </p>
-          </div>
-        </>
-      )}
+      {/* 参加チーム(追加・外す) */}
+      {currentProject && <ProjectTeamsSection projectId={currentProject.id} />}
 
       {/* サイクル設定 */}
       {currentProject && (

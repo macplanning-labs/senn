@@ -6,7 +6,6 @@
  */
 
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { WorkflowSettings } from './WorkflowSettings';
@@ -16,14 +15,17 @@ import { ChatIntegrationSettings } from './ChatIntegrationSettings';
 import { TeamMembersSection } from '@/features/teams/components/TeamMembersSection';
 import { TeamGuestsSection } from '@/features/teams/components/TeamGuestsSection';
 import { TeamRulesSection } from '@/features/teams/components/TeamRulesSection';
+import { TeamGeneralSection } from './TeamGeneralSection';
 import './ProjectSettings.css';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconSettings } from '@/shared/components/layout/Sidebar';
 
-type TabKey = 'members' | 'guests' | 'rules' | 'workflow' | 'labels' | 'integrations';
+type TabKey = 'general' | 'members' | 'guests' | 'rules' | 'workflow' | 'labels' | 'integrations';
 
 export function TeamSettingsPage() {
   const { t } = useTranslation();
   const { currentTeam, isLoading } = useTeam();
-  const [activeTab, setActiveTab] = useState<TabKey>('members');
+  const [activeTab, setActiveTab] = useState<TabKey>('general');
 
   if (isLoading) {
     return <p className="project-settings__empty">Loading...</p>;
@@ -34,29 +36,21 @@ export function TeamSettingsPage() {
 
   return (
     <div className="project-settings">
-      <header className="project-settings__header">
-        <div>
-          <h1 className="project-settings__title">{currentTeam.name}</h1>
-          <p className="project-settings__desc">チームのメンバー・ルール・ワークフロー・連携を一元管理します</p>
-        </div>
-        <Link
-          to="/teams"
-          className="project-settings__back-link"
-          style={{
-            display: 'inline-block',
-            padding: '0.5rem 1rem',
-            background: 'var(--color-bg-secondary)',
-            color: 'var(--color-text-secondary)',
-            borderRadius: 'var(--radius-md)',
-            textDecoration: 'none',
-            fontSize: 'var(--font-size-sm)',
-          }}
-        >
-          ← チーム一覧
-        </Link>
-      </header>
+      <TeamTabPageHeader
+        icon={IconSettings}
+        title={t('nav.settings')}
+        subtitle={<p className="project-settings__desc">{currentTeam.name}</p>}
+      />
 
       <div className="project-settings__tabs">
+        <button
+          type="button"
+          className={`project-settings__tab ${activeTab === 'general' ? 'project-settings__tab--active' : ''}`}
+          onClick={() => setActiveTab('general')}
+          data-testid="tab-general"
+        >
+          ⚙️ {t('settings.general')}
+        </button>
         <button
           type="button"
           className={`project-settings__tab ${activeTab === 'members' ? 'project-settings__tab--active' : ''}`}
@@ -105,6 +99,7 @@ export function TeamSettingsPage() {
       </div>
 
       <div className="project-settings__body">
+        {activeTab === 'general' && <TeamGeneralSection team={currentTeam} />}
         {activeTab === 'members' && <TeamMembersSection team={currentTeam} />}
         {activeTab === 'guests' && <TeamGuestsSection team={currentTeam} />}
         {activeTab === 'rules' && <TeamRulesSection teamId={currentTeam.id} />}

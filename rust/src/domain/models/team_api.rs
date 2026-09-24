@@ -24,6 +24,11 @@ pub struct TeamOut {
     pub is_active: bool,
     pub member_count: i64,
     pub project_count: i64,
+    /// アーカイブした日時(未アーカイブは null)。アーカイブ済みのチームは閲覧専用
+    pub archived_at: Option<DateTime<Utc>>,
+    /// 閲覧者が、このチームをアーカイブ・復元できるか(システム管理者 / そのチームの管理者)。
+    /// チーム一覧(GET /teams/)の応答でだけ、閲覧者に合わせて設定される。それ以外は false
+    pub viewer_can_manage: bool,
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,

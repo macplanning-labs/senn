@@ -14,6 +14,13 @@ dist-production
 dist-ssr
 *.local
 
+# Tauri build artifacts
+src-tauri/target/
+
+# Desktop environment (secrets, non-example)
+.env.desktop
+.env.desktop.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

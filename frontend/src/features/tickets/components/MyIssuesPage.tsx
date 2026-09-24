@@ -6,7 +6,7 @@
  * 画面上の呼称は「チケット」（Issue にしない）。
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -14,8 +14,10 @@ import { apiClient } from '@/shared/api/client';
 import { useKeyboardNav } from '@/shared/hooks/useKeyboardNav';
 import { usePanelResize } from '@/shared/hooks/usePanelResize';
 import { useUIStore } from '@/shared/stores/uiStore';
-import { getLastTeamSlug } from '@/shared/hooks/useTeam';
-import { getLastProjectKey } from '@/shared/hooks/useProject';
+import { getLastTeamSlug, useTeam } from '@/shared/hooks/useTeam';
+import { getLastProjectKey, useProject } from '@/shared/hooks/useProject';
+import { useTeams } from '@/features/teams/hooks/useTeams';
+import { GettingStartedChecklist } from '@/features/onboarding/components/GettingStartedChecklist';
 import { TicketDetailPanel } from './TicketDetailPanel';
 import './MyIssuesPage.css';
 
@@ -45,7 +47,12 @@ export function MyIssuesPage() {
   const { width: panelWidth, onResizeStart, isResizing } = usePanelResize('ticket-detail', 380);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: tickets = [], isLoading } = useQuery<MyTicket[]>({
+  const {
+    data: tickets = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<MyTicket[]>({
     queryKey: ['my-issues'],
     queryFn: async () => {
       const res = await apiClient.get<MyTicket[]>('/dashboard/my-tickets/', {
@@ -54,6 +61,15 @@ export function MyIssuesPage() {
       return res.data;
     },
   });
+
+  const { isLoading: teamsLoading } = useTeams();
+  const { teamList, isLoading: teamsHookLoading } = useTeam();
+  const { projectList, isLoading: projectsLoading } = useProject();
+
+  const hasTeam = teamList.length > 0;
+  const hasProject = projectList.length > 0;
+  // サンプル生成後はプロジェクトが1件になるが、完了メッセージを残すためチェックリストを表示し続ける
+  const [demoPrefix, setDemoPrefix] = useState<string | null>(null);
 
   const { selectedIndex } = useKeyboardNav({
     itemCount: tickets.length,
@@ -98,27 +114,40 @@ export function MyIssuesPage() {
           </div>
         </header>
 
-        {isLoading ? (
+        {isLoading || teamsLoading || teamsHookLoading || projectsLoading ? (
           <div className="my-issues__empty">{t('common.loading')}</div>
+        ) : isError ? (
+          <div className="my-issues__empty" data-testid="my-issues-error">
+            <p>{t('common.error')}</p>
+            <button type="button" className="my-issues__create-btn" onClick={() => refetch()}>
+              {t('common.retry')}
+            </button>
+          </div>
         ) : tickets.length === 0 ? (
           <div className="my-issues__empty" data-testid="my-issues-empty">
-            <p>{t('myIssues.empty')}</p>
-            <button
-              type="button"
-              className="my-issues__create-btn"
-              onClick={() => {
-                const teamSlug = getLastTeamSlug();
-                const projectKey = getLastProjectKey();
-                if (teamSlug) openTicketFormModal(null, teamSlug);
-                else if (projectKey) openTicketFormModal(projectKey);
-                else openTicketFormModal(null);
-              }}
-            >
-              {t('ticket.create')}
-            </button>
-            <p className="my-issues__hint">
-              <kbd>C</kbd> {t('myIssues.createHint')}
-            </p>
+            {!hasTeam || !hasProject || demoPrefix ? (
+              <GettingStartedChecklist createdPrefix={demoPrefix} onDemoCreated={setDemoPrefix} />
+            ) : (
+              <>
+                <p>{t('myIssues.empty')}</p>
+                <button
+                  type="button"
+                  className="my-issues__create-btn"
+                  onClick={() => {
+                    const teamSlug = getLastTeamSlug();
+                    const projectKey = getLastProjectKey();
+                    if (teamSlug) openTicketFormModal(null, teamSlug);
+                    else if (projectKey) openTicketFormModal(projectKey);
+                    else openTicketFormModal(null);
+                  }}
+                >
+                  {t('ticket.create')}
+                </button>
+                <p className="my-issues__hint">
+                  <kbd>C</kbd> {t('myIssues.createHint')}
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <ul className="my-issues__list">

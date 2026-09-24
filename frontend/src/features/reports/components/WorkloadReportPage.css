@@ -1,9 +1,7 @@
 /* WorkloadReportPage.css — 稼働レポートスタイル */
 
 .workload-report {
-  padding: var(--space-6);
-  max-width: 1100px;
-  margin: 0 auto;
+  max-width: none;
 }
 
 .workload-report__header {
@@ -18,6 +16,12 @@
   font-weight: var(--font-weight-bold);
   color: var(--color-text-primary);
   margin: 0;
+}
+
+.workload-report__scope {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
 .workload-report__period-tabs {

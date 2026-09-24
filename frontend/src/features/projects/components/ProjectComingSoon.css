@@ -1,0 +1,20 @@
+/* ─── ProjectComingSoon - 準備中プレースホルダー ─────────────────────── */
+
+.project-coming-soon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  padding: var(--space-6);
+}
+
+.project-coming-soon__content {
+  text-align: center;
+}
+
+.project-coming-soon__message {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}

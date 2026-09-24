@@ -11,11 +11,13 @@ interface TriageListResponse {
   count: number;
 }
 
-export function useTriageRequests(statusFilter?: TriageStatus) {
+export function useTriageRequests(teamId: number | undefined, statusFilter?: TriageStatus) {
   return useQuery<TriageRequest[]>({
-    queryKey: ['triage-requests', statusFilter],
+    queryKey: ['triage-requests', teamId, statusFilter],
+    enabled: !!teamId,
     queryFn: async () => {
       const params: Record<string, string> = {};
+      if (teamId) params.team = String(teamId);
       if (statusFilter) params.status = statusFilter;
       const res = await apiClient.get<TriageListResponse | TriageRequest[]>(
         '/triage-requests/',
@@ -36,6 +38,7 @@ export function useCreateTriageRequest() {
       change_type?: string;
       change_payload?: Record<string, unknown>;
       ticket?: number | null;
+      team: number;
     }) => {
       const res = await apiClient.post<TriageRequest>('/triage-requests/', data);
       return res.data;

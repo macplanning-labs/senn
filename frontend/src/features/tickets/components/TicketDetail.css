@@ -14,17 +14,6 @@
   margin-bottom: var(--space-6);
 }
 
-.ticket-detail__back {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-  text-decoration: none;
-  transition: color var(--transition-fast);
-}
-
-.ticket-detail__back:hover {
-  color: var(--color-text-link);
-}
-
 .ticket-detail__delete-btn {
   font-size: var(--font-size-sm);
   color: var(--color-text-tertiary);

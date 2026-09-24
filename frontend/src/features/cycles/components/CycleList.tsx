@@ -12,6 +12,8 @@ import { useCycles, useCreateCycle, useDeleteCycle, useCompleteCycle } from '../
 import { VelocityChart } from './VelocityChart';
 import type { Cycle } from '@/shared/api/types';
 import './CycleList.css';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconCycle } from '@/shared/components/layout/Sidebar';
 import { useTranslation } from 'react-i18next';
 
 const statusLabels: Record<string, string> = {
@@ -142,15 +144,18 @@ export function CycleList() {
 
   return (
     <div className="cycle-list">
-      <div className="cycle-list__header">
-        <h1 className="cycle-list__title">Cycles</h1>
-        <button
-          className="cycle-list__add-btn"
-          onClick={() => setShowForm(true)}
-        >
-          {t('cycle.newCycle')}
-        </button>
-      </div>
+      <TeamTabPageHeader
+        icon={IconCycle}
+        title={t('nav.cycles')}
+        actions={
+          <button
+            className="cycle-list__add-btn"
+            onClick={() => setShowForm(true)}
+          >
+            {t('cycle.newCycle')}
+          </button>
+        }
+      />
 
       {/* 作成フォーム */}
       {showForm && (

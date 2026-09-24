@@ -32,17 +32,15 @@ if [ ! -f "$ENV_OSS_FILE" ]; then
     
     # Generate random secrets (do NOT echo them)
     DB_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')
-    SESSION_SECRET=$(openssl rand -base64 32 | tr -d '\n')
-    DJANGO_SECRET_KEY=$(openssl rand -base64 32 | tr -d '\n')
+    JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')
     
     # Update the file with random secrets using temp file (safer than sed with special chars)
     {
         echo "DB_PASSWORD=$DB_PASSWORD"
-        echo "POSTGRES_DB=qa_tool"
-        echo "POSTGRES_USER=qa_admin"
+        echo "POSTGRES_DB=senn"
+        echo "POSTGRES_USER=senn"
         echo ""
-        echo "SESSION_SECRET=$SESSION_SECRET"
-        echo "DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY"
+        echo "JWT_SECRET_KEY=$JWT_SECRET_KEY"
     } > "$ENV_OSS_FILE"
     
     echo "✅ Generated random secrets in $ENV_OSS_FILE"
@@ -81,7 +79,7 @@ echo "⏳ Waiting for web interface..."
 max_attempts=40
 attempt=0
 while [ $attempt -lt $max_attempts ]; do
-    http_code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/ 2>/dev/null || echo "000")
+    http_code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8151/ 2>/dev/null || echo "000")
     if [ "$http_code" = "200" ]; then
         echo "✅ Web interface is responding (HTTP $http_code)"
         break
@@ -95,7 +93,7 @@ done
 
 # Verify API is accessible
 echo "⏳ Verifying API..."
-api_code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/auth/ 2>/dev/null || echo "000")
+api_code=$(curl -sS -o /dev/null -w '%{http_code}' http://localhost:8151/api/v1/auth/ 2>/dev/null || echo "000")
 if [ "$api_code" = "401" ] || [ "$api_code" = "200" ]; then
     echo "✅ API is accessible (HTTP $api_code)"
 else
@@ -107,7 +105,7 @@ echo "================================"
 echo "✅ SENN is ready!"
 echo ""
 echo "🌐 Access SENN at:"
-echo "   http://localhost:8080"
+echo "   http://localhost:8151"
 echo ""
 echo "📝 Next steps:"
 echo "   1. Register a new account"

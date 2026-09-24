@@ -19,6 +19,7 @@ pub struct TriageRequestOut {
     pub change_payload: JsonValue,
     pub status: String,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub ticket: Option<i32>,
     #[serde(rename = "ticketKey")]
     pub ticket_key: Option<String>,
@@ -46,6 +47,7 @@ pub struct TriageRequestWriteIn {
     #[serde(default = "default_change_payload")]
     pub change_payload: JsonValue,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub ticket: Option<i32>,
 }
 
@@ -56,6 +58,7 @@ pub struct TriageRequestUpdateIn {
     pub change_type: Option<String>,
     pub change_payload: Option<JsonValue>,
     pub project: Option<i32>,
+    pub team: Option<i32>,
     pub ticket: Option<i32>,
 }
 

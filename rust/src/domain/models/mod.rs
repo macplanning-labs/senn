@@ -24,3 +24,5 @@ pub mod chat_integration_api;
 pub mod dependency_api;
 pub mod wiki_api;
 pub mod saved_view_api;
+pub mod project_activity_api;
+pub mod reaction;

@@ -1,8 +1,7 @@
 /* CycleList.css — サイクル一覧スタイル */
 
 .cycle-list {
-  padding: var(--space-6);
-  max-width: 900px;
+  max-width: none;
 }
 
 .cycle-list__header {

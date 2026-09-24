@@ -32,20 +32,6 @@
   flex-shrink: 0;
 }
 
-.cycle-detail__back {
-  background: none;
-  border: none;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  transition: color 0.15s;
-}
-.cycle-detail__back:hover {
-  color: var(--color-text-primary);
-}
-
 .cycle-detail__title {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);

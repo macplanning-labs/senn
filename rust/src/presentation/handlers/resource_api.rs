@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::infrastructure::repositories::resource_repo;
+use crate::infrastructure::repositories::project_activity_repo;
+use crate::infrastructure::repositories::project_hierarchy_repo;
+use crate::infrastructure::repositories::project_team_repo;
+use serde_json::json;
 use crate::infrastructure::repositories::ticket_repo;
 use crate::infrastructure::repositories::holiday_repo;
 use crate::infrastructure::repositories::user_repo;
@@ -30,6 +34,12 @@ use crate::domain::models::holiday::Holiday;
 #[derive(Deserialize)]
 pub struct ProjectListQuery {
     pub page: Option<i64>,
+    #[serde(rename = "parentProjectId")]
+    pub parent_project_id: Option<String>,
+    #[serde(rename = "roadmapId")]
+    pub roadmap_id: Option<i32>,
+    #[serde(rename = "relatedTo")]
+    pub related_to: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -93,14 +103,44 @@ pub struct ErrorResponse {
 )]
 pub async fn project_list(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Query(params): Query<ProjectListQuery>,
 ) -> impl IntoResponse {
     let page = params.page.unwrap_or(1).max(1);
     const PAGE_SIZE: i64 = 50;
 
+    // パラメータをバリデーション
+    let parent_project_id = match &params.parent_project_id {
+        None => Ok(None),
+        Some(s) if s == "none" => Ok(Some(None)), // ルートのみ
+        Some(s) => {
+            s.parse::<i32>()
+                .map(|id| Some(Some(id)))
+                .map_err(|_| StatusCode::BAD_REQUEST)
+        }
+    };
+
+    let parent_project_id = match parent_project_id {
+        Ok(v) => v,
+        Err(status) => {
+            return (
+                status,
+                Json(ErrorResponse {
+                    detail: "Invalid parentProjectId parameter".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let filter = crate::domain::models::resource_api::ProjectListFilter {
+        parent_project_id: params.parent_project_id,
+        roadmap_id: params.roadmap_id,
+        related_to: params.related_to,
+    };
+
     // プロジェクト一覧取得
-    let projects = match resource_repo::find_all_projects(&state.pool, page).await {
+    let projects = match resource_repo::find_all_projects(&state.pool, page, Some(auth.user_id), &filter).await {
         Ok(p) => p,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -169,10 +209,10 @@ pub async fn project_list(
 )]
 pub async fn project_detail(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
-    match resource_repo::find_project_by_id(&state.pool, id).await {
+    match resource_repo::find_project_by_id(&state.pool, id, Some(auth.user_id)).await {
         Ok(Some(project)) => (StatusCode::OK, Json(project)).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
@@ -296,11 +336,11 @@ pub struct ProjectTeamAddIn {
 /// 参加チーム追加 POST /api/v1/projects/{id}/teams/
 pub async fn project_team_add(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(body): Json<ProjectTeamAddIn>,
 ) -> impl IntoResponse {
-    match resource_repo::find_project_by_id(&state.pool, id).await {
+    match resource_repo::find_project_by_id(&state.pool, id, None).await {
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -323,9 +363,25 @@ pub async fn project_team_add(
         Ok(Some(_)) => {}
     }
 
+    // 変更権限(管理者/オーナー/参加チームの管理者)と、自分が所属するチームのみ追加可
+    if let Err(resp) = super::project_team_api::authorize_add(&state, auth.user_id, id, body.team_id).await {
+        return resp;
+    }
+
     match resource_repo::add_project_team(&state.pool, id, body.team_id).await {
-        Ok(true) => match resource_repo::find_project_by_id(&state.pool, id).await {
-            Ok(Some(project)) => (StatusCode::OK, Json(project)).into_response(),
+        Ok(true) => match resource_repo::find_project_by_id(&state.pool, id, None).await {
+            Ok(Some(project)) => {
+                let team_name = project.teams.iter().find(|t| t.id == body.team_id).map(|t| t.name.clone());
+                project_activity_repo::record_best_effort(
+                    &state.pool,
+                    id,
+                    Some(auth.user_id),
+                    "team_added",
+                    json!({"team_id": body.team_id, "team_name": team_name}),
+                )
+                .await;
+                (StatusCode::OK, Json(project)).into_response()
+            }
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -334,7 +390,7 @@ pub async fn project_team_add(
             )
                 .into_response(),
         },
-        Ok(false) => match resource_repo::find_project_by_id(&state.pool, id).await {
+        Ok(false) => match resource_repo::find_project_by_id(&state.pool, id, None).await {
             // 既に参加済み → 冪等に 200
             Ok(Some(project)) => (StatusCode::OK, Json(project)).into_response(),
             _ => (
@@ -361,10 +417,10 @@ pub async fn project_team_add(
 /// 参加チーム削除 DELETE /api/v1/projects/{id}/teams/{team_id}/
 pub async fn project_team_remove(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path((id, team_id)): Path<(i32, i32)>,
 ) -> impl IntoResponse {
-    match resource_repo::find_project_by_id(&state.pool, id).await {
+    let project_before = match resource_repo::find_project_by_id(&state.pool, id, None).await {
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -384,11 +440,27 @@ pub async fn project_team_remove(
             )
                 .into_response();
         }
-        Ok(Some(_)) => {}
+        Ok(Some(p)) => p,
+    };
+
+    // 変更権限があり、そのチームのチケット・サイクルがこのプロジェクトに残っていないこと
+    if let Err(resp) = super::project_team_api::authorize_remove(&state, auth.user_id, id, team_id).await {
+        return resp;
     }
 
     match resource_repo::remove_project_team(&state.pool, id, team_id).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            let team_name = project_before.teams.iter().find(|t| t.id == team_id).map(|t| t.name.clone());
+            project_activity_repo::record_best_effort(
+                &state.pool,
+                id,
+                Some(auth.user_id),
+                "team_removed",
+                json!({"team_id": team_id, "team_name": team_name}),
+            )
+            .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -426,11 +498,31 @@ pub async fn project_create(
     Extension(auth): Extension<AuthUser>,
     Json(body): Json<ProjectWriteIn>,
 ) -> impl IntoResponse {
+    // アーカイブ済みのチームは、新しいプロジェクトの担当にできない
+    if let Ok(true) = crate::infrastructure::repositories::team_archive_repo::any_archived(&state.pool, &body.team_ids).await {
+        return (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                detail: "アーカイブ済みのチームは、プロジェクトの担当にできません(先に復元してください)".to_string(),
+            }),
+        )
+            .into_response();
+    }
     match resource_repo::create_project(&state.pool, &body, Some(auth.user_id)).await {
         Ok(project_id) => {
             // 作成したプロジェクトを返す
-            match resource_repo::find_project_by_id(&state.pool, project_id).await {
-                Ok(Some(project)) => (StatusCode::CREATED, Json(project)).into_response(),
+            match resource_repo::find_project_by_id(&state.pool, project_id, Some(auth.user_id)).await {
+                Ok(Some(project)) => {
+                    project_activity_repo::record_best_effort(
+                        &state.pool,
+                        project.id,
+                        Some(auth.user_id),
+                        "project_created",
+                        json!({"name": project.name, "prefix": project.prefix}),
+                    )
+                    .await;
+                    (StatusCode::CREATED, Json(project)).into_response()
+                }
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -464,15 +556,22 @@ pub async fn project_create(
 /// プロジェクト更新 PUT /api/v1/projects/{id}/
 pub async fn project_update(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(body): Json<ProjectWriteIn>,
 ) -> impl IntoResponse {
+    // Activity 用に変更前の状態を取っておく(取得できなくても更新自体は続ける)
+    let old = resource_repo::find_project_by_id(&state.pool, id, None).await.ok().flatten();
     match resource_repo::update_project(&state.pool, id, &body).await {
         Ok(true) => {
             // 更新後のプロジェクトを返す
-            match resource_repo::find_project_by_id(&state.pool, id).await {
-                Ok(Some(project)) => (StatusCode::OK, Json(project)).into_response(),
+            match resource_repo::find_project_by_id(&state.pool, id, None).await {
+                Ok(Some(project)) => {
+                    if let Some(old) = &old {
+                        project_activity_repo::record_project_changes(&state.pool, Some(auth.user_id), old, &project).await;
+                    }
+                    (StatusCode::OK, Json(project)).into_response()
+                }
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -505,12 +604,48 @@ pub async fn project_update(
 /// プロジェクト部分更新 PATCH /api/v1/projects/{id}/
 pub async fn project_patch(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(body): Json<ProjectPatchIn>,
 ) -> impl IntoResponse {
+    const ALLOWED_PROJECT_STATUSES: [&str; 4] = ["planned", "in_progress", "paused", "completed"];
+    if let Some(ref status) = body.status {
+        if !ALLOWED_PROJECT_STATUSES.contains(&status.as_str()) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    detail: format!("status must be one of: {}", ALLOWED_PROJECT_STATUSES.join(", ")),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    // 親の変更が指定されている場合、先に処理する(失敗したら他のフィールドは適用しない)
+    if let Some(new_parent) = body.parent_project_id {
+        if let Err(resp) = super::project_structure_api::change_parent(&state, &auth, id, new_parent).await {
+            return resp;
+        }
+        // 親だけの変更ならここで完了。ほかのフィールドが一緒にあれば、続けて適用する。
+        if body.cycle_auto_complete.is_none()
+            && body.cycle_auto_create_next.is_none()
+            && body.status.is_none()
+            && body.priority.is_none()
+        {
+            return StatusCode::NO_CONTENT.into_response();
+        }
+    }
+
+    let old = resource_repo::find_project_by_id(&state.pool, id, None).await.ok().flatten();
     match resource_repo::patch_project_settings(&state.pool, id, &body).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            if let Some(old) = &old {
+                if let Ok(Some(new)) = resource_repo::find_project_by_id(&state.pool, id, None).await {
+                    project_activity_repo::record_project_changes(&state.pool, Some(auth.user_id), old, &new).await;
+                }
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(e) => {
             tracing::error!("プロジェクト設定更新失敗: {:?}", e);
             (
@@ -597,6 +732,13 @@ pub async fn project_delete(
             StatusCode::CONFLICT,
             Json(ErrorResponse {
                 detail: "チケットが存在するプロジェクトは削除できません".to_string(),
+            }),
+        )
+            .into_response(),
+        Ok(DeleteProjectResult::HasChildren(child_names)) => (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                detail: format!("子プロジェクトが残っているため削除できません: {}", child_names.join(", ")),
             }),
         )
             .into_response(),
@@ -864,14 +1006,30 @@ pub async fn milestone_detail(
 /// マイルストーン作成 POST /api/v1/milestones/
 pub async fn milestone_create(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Json(body): Json<MilestoneWriteIn>,
 ) -> impl IntoResponse {
     match resource_repo::create_milestone(&state.pool, &body).await {
         Ok(milestone_id) => {
             // 作成したマイルストーンを返す
             match resource_repo::find_milestone_by_id(&state.pool, milestone_id).await {
-                Ok(Some(milestone)) => (StatusCode::CREATED, Json(milestone)).into_response(),
+                Ok(Some(milestone)) => {
+                    if let Some(project_id) = milestone.project {
+                        project_activity_repo::record_best_effort(
+                            &state.pool,
+                            project_id,
+                            Some(auth.user_id),
+                            "milestone_created",
+                            json!({
+                                "milestone_id": milestone.id,
+                                "name": milestone.name,
+                                "due_date": milestone.due_date.map(|d| d.to_string()),
+                            }),
+                        )
+                        .await;
+                    }
+                    (StatusCode::CREATED, Json(milestone)).into_response()
+                }
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -897,15 +1055,41 @@ pub async fn milestone_create(
 /// マイルストーン更新 PUT /api/v1/milestones/{id}/
 pub async fn milestone_update(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path(id): Path<i32>,
     Json(body): Json<MilestoneWriteIn>,
 ) -> impl IntoResponse {
+    let old = resource_repo::find_milestone_by_id(&state.pool, id).await.ok().flatten();
     match resource_repo::update_milestone(&state.pool, id, &body).await {
         Ok(true) => {
             // 更新後のマイルストーンを返す
             match resource_repo::find_milestone_by_id(&state.pool, id).await {
-                Ok(Some(milestone)) => (StatusCode::OK, Json(milestone)).into_response(),
+                Ok(Some(milestone)) => {
+                    if let (Some(project_id), Some(old)) = (milestone.project, &old) {
+                        let mut changes = Vec::new();
+                        if old.name != milestone.name {
+                            changes.push(json!({"field": "name", "from": old.name, "to": milestone.name}));
+                        }
+                        if old.due_date != milestone.due_date {
+                            changes.push(json!({
+                                "field": "dueDate",
+                                "from": old.due_date.map(|d| d.to_string()),
+                                "to": milestone.due_date.map(|d| d.to_string()),
+                            }));
+                        }
+                        if !changes.is_empty() {
+                            project_activity_repo::record_best_effort(
+                                &state.pool,
+                                project_id,
+                                Some(auth.user_id),
+                                "milestone_updated",
+                                json!({"milestone_id": milestone.id, "name": milestone.name, "changes": changes}),
+                            )
+                            .await;
+                        }
+                    }
+                    (StatusCode::OK, Json(milestone)).into_response()
+                }
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -938,11 +1122,26 @@ pub async fn milestone_update(
 /// マイルストーン削除 DELETE /api/v1/milestones/{id}/
 pub async fn milestone_delete(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    let old = resource_repo::find_milestone_by_id(&state.pool, id).await.ok().flatten();
     match resource_repo::delete_milestone(&state.pool, id).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            if let Some(old) = &old {
+                if let Some(project_id) = old.project {
+                    project_activity_repo::record_best_effort(
+                        &state.pool,
+                        project_id,
+                        Some(auth.user_id),
+                        "milestone_deleted",
+                        json!({"milestone_id": old.id, "name": old.name}),
+                    )
+                    .await;
+                }
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {

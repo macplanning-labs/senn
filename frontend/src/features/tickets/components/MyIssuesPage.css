@@ -148,6 +148,17 @@
   text-align: center;
 }
 
+.my-issues__empty-hint {
+  margin-top: var(--space-2);
+  font-size: 0.95em;
+  color: var(--color-text-secondary);
+}
+
+.my-issues__empty-link {
+  color: var(--color-accent-primary);
+  text-decoration: underline;
+}
+
 .my-issues__create-btn {
   padding: var(--space-2) var(--space-4);
   border: none;

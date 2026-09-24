@@ -1,0 +1,153 @@
+/* ─── ProjectOverview - プロジェクト概要ページ ────────────────────────── */
+
+.project-overview {
+  padding: var(--space-6);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ─── セクション ─────────────────────────────────────────────────────── */
+
+.project-overview__section {
+  margin-bottom: var(--space-8);
+}
+
+.project-overview__section-title {
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+/* ─── 説明 ───────────────────────────────────────────────────────────── */
+
+.project-overview__description {
+  padding: var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── 詳細属性 ───────────────────────────────────────────────────────── */
+
+.project-overview__attributes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-5);
+}
+
+.project-overview__attribute {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+}
+
+.project-overview__attribute-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.project-overview__attribute-value {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
+/* ─── チームバッジ ───────────────────────────────────────────────────── */
+
+.project-overview__teams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.project-overview__team-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.project-overview__team-archived {
+  font-size: var(--font-size-xs);
+  opacity: 0.8;
+  margin-left: var(--space-1);
+}
+
+/* ─── マイルストーン ─────────────────────────────────────────────────── */
+
+.project-overview__milestones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--space-4);
+}
+
+.project-overview__milestone {
+  padding: var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-accent-primary);
+}
+
+.project-overview__milestone-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.project-overview__milestone-date {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* ─── 空状態・読み込み ───────────────────────────────────────────────── */
+
+.project-overview__empty {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+.project-overview__loading {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.project-overview__error {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-error);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ─── レスポンシブ ───────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .project-overview {
+    padding: var(--space-4);
+  }
+
+  .project-overview__attributes {
+    grid-template-columns: 1fr;
+  }
+
+  .project-overview__milestones {
+    grid-template-columns: 1fr;
+  }
+}

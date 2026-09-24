@@ -13,8 +13,11 @@ use axum::{
     extract::{Request, State},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
+    http::StatusCode,
+    Json,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use serde_json::json;
 use crate::domain::services::jwt_service;
 use crate::infrastructure::repositories::{jwt_blacklist_repo, project_repo, user_repo};
 use crate::presentation::state::AppState;
@@ -66,6 +69,10 @@ pub enum ResolveOutcome {
 }
 
 pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveOutcome {
+    // 0. デモトークンを早期に拒否
+    // Authorization ヘッダーが request context から得られないため、ここではスキップ。
+    // 別途 require_auth_with_bearer ミドルウェア内で検查する。
+    
     // 1. access token を試す
     if let Some(access_cookie) = jar.get(ACCESS_COOKIE) {
         if let Ok(claims) = jwt_service::decode_token(access_cookie.value(), &state.config.jwt_secret) {
@@ -159,6 +166,24 @@ async fn build_session_user(state: &AppState, user_id: i32, jar: &CookieJar) -> 
     })
 }
 
+/// Authorization ヘッダーから Bearer トークンを抽出し、
+/// デモトークン（senn-demo-token）を検査する。
+/// デモトークンが含まれていれば true を返す（拒否対象）。
+fn has_demo_token(req: &Request) -> bool {
+    if let Some(auth_header) = req.headers().get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            let trimmed = auth_str.trim();
+            if trimmed.to_lowercase().starts_with("bearer ") {
+                let token = trimmed[7..].trim();
+                if token.to_lowercase() == "senn-demo-token" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// 認証チェックミドルウェア
 ///
 /// 旧`require_auth`は`mfa_pending`のチェックを持っていたが、新設計ではこの
@@ -166,12 +191,26 @@ async fn build_session_user(state: &AppState, user_id: i32, jar: &CookieJar) -> 
 /// （必要な場合）は既にログイン時に完了しているため。MFA未完了のユーザーは
 /// `wip_access_token`をそもそも持たず、`resolve_session_user`が
 /// `Unauthenticated`を返して`/auth/login`へリダイレクトされる。
+///
+/// デモトークン（senn-demo-token）による直接 API アクセスは 403 で拒否。
 pub async fn require_auth(
     State(state): State<AppState>,
     jar: CookieJar,
-    mut req: Request,
+    req: Request,
     next: Next,
 ) -> Response {
+    // デモトークンの早期拒否
+    if has_demo_token(&req) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "detail": "Demo token is not accepted by API"
+            })),
+        )
+            .into_response();
+    }
+
+    let mut req = req;
     match resolve_session_user(&state, &jar).await {
         ResolveOutcome::Unauthenticated => Redirect::to("/auth/login").into_response(),
         ResolveOutcome::Authenticated {

@@ -14,6 +14,8 @@ import { FilterBar } from '@/shared/components/ui/FilterBar';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import './WikiList.css';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconWiki } from '@/shared/components/layout/Sidebar';
 import { QuickCreateTicketButton } from '@/features/tickets/components/QuickCreateTicketButton';
 import type { LinkedTicketSummary } from '@/shared/api/types';
 interface WikiPage {
@@ -307,16 +309,19 @@ export function WikiList() {
           )}
         </div>
       )}
-      <div className="wiki__header">
-        <h1 className="wiki__title">{t('nav.wiki')}</h1>
-        <button
-          className="wiki__create-btn"
-          onClick={startCreate}
-          data-testid="create-wiki-btn"
-        >
-          + {t('wiki.create')}
-        </button>
-      </div>
+      <TeamTabPageHeader
+        icon={IconWiki}
+        title={t('nav.wiki')}
+        actions={
+          <button
+            className="wiki__create-btn"
+            onClick={startCreate}
+            data-testid="create-wiki-btn"
+          >
+            + {t('wiki.create')}
+          </button>
+        }
+      />
 
       <div className="wiki__layout">
         {/* 左: ページ一覧 */}

@@ -9,6 +9,7 @@ import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useTranslation } from 'react-i18next';
+import { IconPlus } from '@/shared/components/ui/icons';
 
 // ─── 型定義 ─────────────────────────────────────
 interface Category {
@@ -188,8 +189,9 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                       className="settings-table__action-btn"
                       onClick={(e) => { e.stopPropagation(); openCreateModal(2, parent.id); }}
                       title="子カテゴリー追加"
+                      aria-label="子カテゴリー追加"
                     >
-                      +
+                      <IconPlus size={12} />
                     </button>
                     <button
                       className="settings-table__action-btn settings-table__action-btn--danger"

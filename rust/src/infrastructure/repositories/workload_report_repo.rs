@@ -22,6 +22,7 @@ pub async fn get_workload_report(
     start_date: NaiveDate,
     end_date: NaiveDate,
     project_id: Option<i32>,
+    team_id: Option<i32>,
 ) -> anyhow::Result<WorkloadReport> {
     // 日別集計
     let daily_rows = sqlx::query(
@@ -33,11 +34,13 @@ pub async fn get_workload_report(
          JOIN tickets_ticket t ON te.ticket_id = t.id
          WHERE DATE(te.created_at) >= $1
            AND ($2::int4 IS NULL OR t.project_id = $2)
+           AND ($3::int4 IS NULL OR t.team_id = $3)
          GROUP BY DATE(te.created_at)
          ORDER BY d"
     )
     .bind(start_date)
     .bind(project_id)
+    .bind(team_id)
     .fetch_all(pool)
     .await?;
 
@@ -70,11 +73,13 @@ pub async fn get_workload_report(
          JOIN accounts_user u ON te.user_id = u.id
          WHERE DATE(te.created_at) >= $1
            AND ($2::int4 IS NULL OR t.project_id = $2)
+           AND ($3::int4 IS NULL OR t.team_id = $3)
          GROUP BY u.id, u.username, u.first_name
          ORDER BY total_minutes DESC"
     )
     .bind(start_date)
     .bind(project_id)
+    .bind(team_id)
     .fetch_all(pool)
     .await?;
 
@@ -102,11 +107,13 @@ pub async fn get_workload_report(
          JOIN tickets_project p ON t.project_id = p.id
          WHERE DATE(te.created_at) >= $1
            AND ($2::int4 IS NULL OR t.project_id = $2)
+           AND ($3::int4 IS NULL OR t.team_id = $3)
          GROUP BY p.id, p.name, p.prefix
          ORDER BY total_minutes DESC"
     )
     .bind(start_date)
     .bind(project_id)
+    .bind(team_id)
     .fetch_all(pool)
     .await?;
 

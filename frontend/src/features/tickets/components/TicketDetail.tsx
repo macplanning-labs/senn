@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { BackLink } from '@/shared/components/ui/BackLink';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import { apiClient } from '@/shared/api/client';
@@ -183,9 +184,7 @@ export function TicketDetail() {
     <div className="ticket-detail" data-testid="ticket-detail-page">
       {/* ── ヘッダー ── */}
       <div className="ticket-detail__header">
-        <Link to="/tickets" className="ticket-detail__back" data-testid="back-to-list">
-          ← {t('nav.tickets')}
-        </Link>
+        <BackLink to="/tickets" label={t('nav.backTo.tickets')} testId="back-to-list" inline />
         <div className="ticket-detail__header-right">
           <button
             className="ticket-detail__delete-btn"
@@ -286,7 +285,11 @@ export function TicketDetail() {
           </div>
 
           {/* 変更履歴タイムライン */}
-          <ChangeLogTimeline ticketId={ticket.ticketKey} />
+          <ChangeLogTimeline
+            ticketId={ticket.ticketKey}
+            createdAt={ticket.createdAt}
+            createdByName={ticket.author?.displayName || ticket.author?.username}
+          />
         </div>
 
         {/* ── 右カラム: メタ情報パネル ── */}

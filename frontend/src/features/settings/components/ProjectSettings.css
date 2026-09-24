@@ -12,6 +12,13 @@
   padding: var(--space-6) var(--space-4);
 }
 
+/* TeamLayout 配下では共通の左右余白のみ使う（中央寄せ・追加 padding なし） */
+.team-layout .project-settings {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
 .project-settings__header {
   display: flex;
   align-items: center;
@@ -181,6 +188,9 @@
 }
 
 .settings-table__action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: var(--space-1) var(--space-2);
   background: none;
   border: 1px solid var(--color-border-default);

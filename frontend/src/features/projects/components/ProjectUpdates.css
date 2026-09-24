@@ -1,0 +1,233 @@
+/* ─── 進捗報告(Project Updates) ─────────────────────────────────────── */
+
+.project-updates {
+  margin-bottom: var(--space-8);
+}
+
+.project-updates__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.project-updates__title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.project-updates__post-btn {
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-accent-primary);
+  color: var(--color-text-inverse);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.project-updates__empty {
+  padding: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.project-updates__hint {
+  margin-bottom: var(--space-3);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.project-updates__error {
+  padding: var(--space-4);
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+}
+
+.project-updates__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.project-updates__item {
+  padding: var(--space-4);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+.project-updates__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.project-updates__badge {
+  padding: 2px var(--space-3);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  border: 1px solid currentColor;
+}
+
+.project-updates__badge--on_track { color: var(--color-success); }
+.project-updates__badge--at_risk { color: var(--color-warning); }
+.project-updates__badge--off_track { color: var(--color-error); }
+
+.project-updates__meta {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.project-updates__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.project-updates__actions button {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.project-updates__actions button:hover {
+  color: var(--color-text-primary);
+}
+
+.project-updates__actions .project-updates__danger {
+  color: var(--color-error);
+}
+
+.project-updates__confirm {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.project-updates__body {
+  margin-top: var(--space-3);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ─── 投稿・編集フォーム ─────────────────────────────────────────────── */
+
+.project-update-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+.project-update-form__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.project-update-form__health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.project-update-form__health legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+
+.project-update-form__health-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.project-update-form__health-option--selected.project-update-form__health-option--on_track {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.project-update-form__health-option--selected.project-update-form__health-option--at_risk {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+.project-update-form__health-option--selected.project-update-form__health-option--off_track {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.project-update-form__body {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.project-update-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.project-update-form__cancel,
+.project-update-form__submit {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.project-update-form__cancel {
+  background: none;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-default);
+}
+
+.project-update-form__submit {
+  background-color: var(--color-accent-primary);
+  color: var(--color-text-inverse);
+  border: none;
+}
+
+.project-update-form__submit:disabled,
+.project-update-form__cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
