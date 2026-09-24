@@ -1,76 +1,40 @@
 # auth-core
 
-WIP（`amagi019/QA_Tool`）・Sophia、および将来の他Rustサービス共通の認証ライブラリ。
+Authentication library for SENN.
 
-詳細な方針・設計背景は Claude Project「認証・共通基盤統合」内のドキュメント
-「認証ロジックのライブラリ化（クレート化）およびWIP仕様への一元統一」を参照。
+`auth-core` bundles the authentication primitives used by the SENN backend into a standalone crate: JWT issuing and verification, TOTP, WebAuthn (passkeys), password hashing and policy, IP rate limiting, and account-level attempt locking.
 
-## Step 1（このクレートの新設）で行ったこと
+## Modules
 
-- WIPの既存実装（`jwt_service.rs` / `totp_service.rs` / `webauthn_service.rs` /
-  `middleware/rate_limiter.rs`、`auth_service.rs`のパスワード/TOTP部分）を
-  `domain::jwt` / `domain::totp` / `domain::webauthn` / `domain::password` /
-  `infrastructure::rate_limit` に移植（既存の単体テストも合わせて移植）。
-- 方針ドキュメント1.2/1.2.1節の設計に基づき、アカウント単位の試行回数ロック
-  ミドルウェア（`infrastructure::rate_limit::attempt_lock_middleware`）を新規実装。
-- 方針ドキュメント5〜7章の設計に基づき、`domain::password_policy` /
-  `domain::one_time_token` / `domain::mfa_policy` / `domain::audit` /
-  `presentation::extractors` / `presentation::middleware` をスケルトンとして新規追加。
-- `rust/Cargo.toml` を「ルートパッケージ（`wip`）を維持したままのワークスペース」
-  に変更し、このクレートを `[workspace] members = ["auth-core"]` として追加。
-  既存の `wip` パッケージのディレクトリ構成・Dockerfile・CI（`ci.yml`）は
-  変更していない（`cargo build` / `cargo test` はワークスペース全体を対象にする
-  ため、`ci.yml` の既存ジョブがそのままこのクレートも検証する）。
+| Module | Purpose |
+| --- | --- |
+| `domain::jwt` | Access / refresh token issuing and verification, with a pluggable blacklist and per-audience token policies |
+| `domain::totp` | Time-based one-time passwords, including encrypted secret storage helpers |
+| `domain::webauthn` | WebAuthn registration and authentication (passkeys) |
+| `domain::password` | Argon2 hashing, plus a trait for verifying legacy hashes |
+| `domain::password_policy` | Configurable password strength rules |
+| `domain::one_time_token` | Single-use tokens (mail links, QR codes) |
+| `domain::mfa_policy` | When MFA is required |
+| `domain::attempt_lock` | Account-level attempt counting and locking |
+| `domain::audit` | Authentication audit event definitions |
+| `infrastructure::rate_limit` | IP rate limiting built on `tower_governor`, and the attempt-lock middleware |
+| `presentation` | Axum extractors and middleware |
 
-## Step 1時点で見つかった、方針ドキュメントとの相違点と決定事項
+## Design
 
-Step1で実コードを確認した結果判明した相違点を踏まえ、2026-08-14に以下を決定した
-（詳細は方針ドキュメント1.3〜1.5節、プロジェクト内「Step1実装ログ」を参照）。
+`auth-core` does not know how users are persisted, and has no domain model of its own for them. Anything that needs storage is delegated to the application through traits — `jwt::TokenBlacklist`, `one_time_token::OneTimeTokenStore`, `attempt_lock::AttemptStore`, `presentation::extractors::AuthUserRepository` and so on. The crate does not depend on a specific database crate such as `sqlx`.
 
-1. **WIPは現在デュアル認証構成 → Web UI側もJWTへ統一する（決定）**: 方針ドキュメント
-   1章の比較表はWIP=「JWT（アクセス30分/リフレッシュ7日）+ ブラックリスト」のみと
-   していたが、実際のWIPはWeb UI向けにセッションCookie認証（`tower-sessions`、
-   `middleware/auth.rs`の`require_auth`）も別途持っており、JWT Bearer認証
-   （`middleware/jwt_auth.rs`）はAPIルート専用だった。Web UI側もhttpOnly Secure
-   クッキー配布のJWTへ統一する方針が決定した（方針1.3節）。`must_change_password`/
-   `mfa_pending`のセッション依存状態の置き換え方はStep2で詳細設計する。
-2. **JWTクレーム形状がDjango依存 → Djangoは段階的に廃止する（決定）**: WIPのJWTは
-   Django（`rest_framework_simplejwt`）と同一の`SECRET_KEY`で相互検証できるよう、
-   クレーム形状（`token_type`/`jti`/`user_id`を文字列化 等）をDjango仕様に固定
-   している。方針ドキュメント7章の汎用`Claims{sub,roles,exp,iss,extra}`とは非互換
-   のため、`domain::jwt`では両方を実装し、Django互換層を`django_compat`モジュール
-   として分離した。Djangoを段階的に廃止する方針が決定したため、`django_compat`は
-   移行期間限定のブリッジと正式に位置付けている（方針1.4節）。
-3. **Passkeyログイン検証は実装済みだった**: ロードマップは「WIPの未実装である
-   Passkeyログイン検証を追加実装する」としていたが、実際には
-   `webauthn_service.rs`に discoverable credential 方式のログイン検証
-   （`start_authentication`/`identify_authentication`/`finish_authentication`）が
-   既に実装済みだった。そのまま`domain::webauthn`に移植したので、Step 1時点で
-   追加実装は不要だった。ロードマップ側の記述は方針ドキュメント4章で修正済み。
-4. **`security-gate.yml`は既に全体を対象に組み込み済み**: リポジトリの
-   `.github/workflows/security.yml`は`amagi019/mac-planning-standards`の
-   再利用ワークフローを`working_directory: "."`（リポジトリ全体）で呼んでおり、
-   `auth-core`もそのまま対象になる。同様に`ci.yml`のRustジョブも
-   `cargo build --verbose` / `cargo test --verbose`をワークスペース全体に対して
-   実行するため、`auth-core`が追加された時点で自動的にCI対象へ入る。
-   新規ワークフローファイルの追加は不要だった。
-5. **TOTPの秘密鍵保存方式が2系統ある → AES-GCM暗号化保存に統一する（決定）**:
-   `totp_service.rs`のAES-GCM暗号化保存（新規Rust実装向け）と、`auth_service.rs`
-   のBase32平文検証（DjangoのTotpDeviceテーブルと共有、pyotp互換）が並存していた。
-   AES-GCM暗号化保存を正式な標準とし、Base32平文検証（`verify_code_base32`）は
-   Django稼働中の後方互換のためだけに残す方針が決定した（方針1.5節）。既存の
-   平文シークレットの移行バッチはStep2で実装する。
-6. **`domain::one_time_token`はSophia実コード未参照のスケルトン**: この
-   セッションではSophiaリポジトリ（`amagi019/Sophia`。場所はStep1で判明）の
-   パートナー認証トークン実装を直接参照できなかったため、方針ドキュメント5章の
-   記述からトレイト設計のみ起こしてある。Step 3で実装を突き合わせること。
+Policy values (token lifetimes, password rules, lock thresholds) are injected by the application rather than hard-coded, so different deployments can keep different policies.
 
-## 未着手（Step 2以降）
+## Usage
 
-- WIPの21ファイル（`presentation/handlers/*_api.rs`等）が参照している
-  `jwt_service` / `totp_service` / `webauthn_service` / `middleware::jwt_auth` /
-  `middleware::rate_limiter`の呼び出し箇所を`auth-core`経由に差し替える作業
-  （ロードマップ上も明示的にStep 2の範囲）。
-- `jwt_blacklist_repo.rs`（sqlx実装）に`domain::jwt::TokenBlacklist`トレイトを
-  実装させる配線。
-- Sophia用の`LegacyHashVerifier`（bcrypt）実装。
+This crate is part of the SENN workspace and is not published to crates.io. Within the workspace:
+
+```toml
+[dependencies]
+auth-core = { path = "../auth-core" }
+```
+
+## License
+
+MIT. See [LICENSE](../../LICENSE) in the repository root.
