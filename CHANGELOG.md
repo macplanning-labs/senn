@@ -20,7 +20,7 @@ First public OSS release of Senn.
 ### Changed
 
 - Frontend dependency updates clearing npm audit High/Critical/Moderate findings
-- OSS branding and sanitization (demo ticket keys; no `drive-core` in the public workspace)
+- OSS branding and sanitization (demo ticket keys; internal-only crates excluded)
 - Local setup examples use database name `senn`
 - CONTRIBUTING local CI aligned with `OSSP/scripts/run_local_ci.sh` (`SQLX_OFFLINE=true`, `cargo check|test --workspace`, `npm ci|build|test`)
 
