@@ -49,14 +49,14 @@ pub struct ErrorResponse {
 /// チーム一覧 GET /api/v1/teams/
 pub async fn team_list(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Query(params): Query<TeamListQuery>,
 ) -> impl IntoResponse {
     let page = params.page.unwrap_or(1).max(1);
     const PAGE_SIZE: i64 = 50;
 
     // チーム一覧取得
-    let teams = match team_repo::find_all_teams(&state.pool, page).await {
+    let mut teams = match team_repo::find_all_teams(&state.pool, page).await {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -69,6 +69,22 @@ pub async fn team_list(
                 .into_response();
         }
     };
+
+    // 閲覧者が管理できる(アーカイブ・復元できる)チームに印を付ける。
+    // 画面が、押しても拒否されるボタンを出さないための情報(最終判定は各APIが行う)。
+    // 取得に失敗しても一覧は返す(全て false = ボタンを出さない側に倒す)。
+    let is_staff = matches!(
+        crate::infrastructure::repositories::user_repo::find_by_id(&state.pool, auth.user_id).await,
+        Ok(Some(u)) if u.is_staff
+    );
+    match crate::infrastructure::repositories::team_archive_repo::manageable_team_ids(&state.pool, auth.user_id, is_staff).await {
+        Ok(ids) => {
+            for t in teams.iter_mut() {
+                t.viewer_can_manage = ids.contains(&t.id);
+            }
+        }
+        Err(e) => tracing::error!("manageable_team_ids failed: {:?}", e),
+    }
 
     // 件数取得
     let count = match team_repo::count_teams(&state.pool).await {
@@ -205,6 +221,16 @@ pub async fn team_update(
     Path(id): Path<i32>,
     Json(body): Json<TeamWriteIn>,
 ) -> impl IntoResponse {
+    // アーカイブ済みのチームは閲覧専用(設定も固定)。変更するには、先に復元する
+    if let Ok(true) = crate::infrastructure::repositories::team_archive_repo::is_archived(&state.pool, id).await {
+        return (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                detail: "アーカイブ済みのチームは変更できません(先に復元してください)".to_string(),
+            }),
+        )
+            .into_response();
+    }
     match team_repo::update_team(&state.pool, id, &body).await {
         Ok(true) => {
             // 更新後のチームを返す
@@ -275,13 +301,11 @@ pub async fn team_delete(
         )
             .into_response(),
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("team has dependents") {
+            if let Some(dep) = e.downcast_ref::<team_repo::TeamHasDependents>() {
+                // 何が何件残っているかを伝える(例: 「プロジェクト2件が残っているため…」)
                 (
                     StatusCode::CONFLICT,
-                    Json(ErrorResponse {
-                        detail: "サイクル・チケット・プロジェクトが残っているためチームを削除できません".to_string(),
-                    }),
+                    Json(ErrorResponse { detail: dep.user_message() }),
                 )
                     .into_response()
             } else {

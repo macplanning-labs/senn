@@ -16,6 +16,7 @@ import { useProject } from '@/shared/hooks/useProject';
 import { useToastStore } from '@/shared/stores/toastStore';
 import './CycleDetail.css';
 import { useTranslation } from 'react-i18next';
+import { BackLink } from '@/shared/components/ui/BackLink';
 
 const statusLabels: Record<string, string> = {
   planned: '計画中',
@@ -182,13 +183,7 @@ export function CycleDetail() {
     <div className="cycle-detail" data-testid="cycle-detail-page">
       {/* ヘッダー */}
       <div className="cycle-detail__header">
-        <button
-          className="cycle-detail__back"
-          onClick={() => navigate(cyclesListPath)}
-          data-testid="cycle-detail-back"
-        >
-          ← 戻る
-        </button>
+        <BackLink to={cyclesListPath} label={t('nav.backTo.cycles')} testId="cycle-detail-back" inline />
         <input
           className="cycle-detail__title-input"
           value={nameDraft}

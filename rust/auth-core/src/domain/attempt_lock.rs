@@ -1,7 +1,7 @@
 //! domain/attempt_lock.rs — アカウント単位の試行回数ロック（方針ドキュメント1.2節）
 //!
-//! Sophiaの`login_guard.rs`（IP＋対象キー単位、15分5回失敗→15分ロック）を
-//! 一般化したもの。ミドルウェア本体（ボディバッファリング・429応答）は
+//! IP＋対象キー単位で試行回数を数え、既定では15分に5回失敗すると15分ロックする。
+//! ミドルウェア本体（ボディバッファリング・429応答）は
 //! `infrastructure::rate_limit::attempt_lock_middleware` にある。ここでは
 //! ロック判定に必要なキー抽出トレイトと設定・状態管理を定義する。
 
@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_matches_sophia_login_guard_baseline() {
+    fn default_config_matches_baseline() {
         let cfg = AttemptLockConfig::default();
         assert_eq!(cfg.max_attempts, 5);
         assert_eq!(cfg.window, Duration::from_secs(15 * 60));

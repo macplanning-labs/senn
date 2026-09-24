@@ -3,10 +3,12 @@
  *
  * JWT認証インターセプター付き。
  * アクセストークンの自動付与とリフレッシュ処理を一元管理。
+ * デモモード対応：デモ時は fixture を返す。
  */
 
-import axios from 'axios';
-import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import axios, { AxiosError } from 'axios';
+import type { InternalAxiosRequestConfig } from 'axios';
+import { DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
 
 // API ベースURL（開発時はViteプロキシ経由、本番時は環境変数）
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -47,6 +49,7 @@ function redirectToLoginIfNeeded(): void {
   const path = window.location.pathname;
   if (
     path === '/login' ||
+    path === '/demo' ||
     path === '/register' ||
     path === '/forgot-password' ||
     path === '/reset-password'
@@ -56,9 +59,9 @@ function redirectToLoginIfNeeded(): void {
   window.location.href = '/login';
 }
 
-// ─── リクエストインターセプター（トークン自動付与） ───
+// ─── リクエストインターセプター（トークン自動付与 + デモ対応） ───
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  async (config: InternalAxiosRequestConfig) => {
     const token = getAccessToken();
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -67,6 +70,56 @@ apiClient.interceptors.request.use(
     if (config.data instanceof FormData) {
       config.headers.delete('Content-Type');
     }
+
+    // デモモード時：本番 API へは一切出さない（アダプターのみ）
+    if (token === DEMO_ACCESS_TOKEN) {
+      const { handleDemoRequest } = await import('@/features/demo/demoApiAdapter');
+      const demoResponse = handleDemoRequest({
+        method: (config.method || 'get').toLowerCase() as
+          | 'get'
+          | 'post'
+          | 'patch'
+          | 'put'
+          | 'delete',
+        url: config.url || '',
+        data: config.data,
+      }) ?? { status: 200, data: { results: [] } };
+
+      const errorData =
+        demoResponse.data && typeof demoResponse.data === 'object'
+          ? (demoResponse.data as Record<string, unknown>)
+          : {};
+
+      return {
+        ...config,
+        adapter: async () => {
+          if (demoResponse.status >= 400) {
+            throw new AxiosError(
+              (typeof errorData.detail === 'string' && errorData.detail) || 'Demo mode error',
+              String(demoResponse.status),
+              config,
+              undefined,
+              {
+                status: demoResponse.status,
+                statusText: 'Error',
+                headers: {},
+                config,
+                data: demoResponse.data,
+              },
+            );
+          }
+          return {
+            data: demoResponse.data,
+            status: demoResponse.status,
+            statusText: 'OK',
+            headers: {},
+            config,
+            request: {},
+          };
+        },
+      } as InternalAxiosRequestConfig;
+    }
+
     return config;
   },
   (error: AxiosError) => Promise.reject(error),
@@ -94,6 +147,12 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config;
+    const token = getAccessToken();
+
+    // デモトークンの場合、リフレッシュロジックをスキップ
+    if (token === DEMO_ACCESS_TOKEN) {
+      return Promise.reject(error);
+    }
 
     // 401かつリフレッシュ未実行の場合
     if (

@@ -21,7 +21,8 @@ pub async fn find_all_teams(pool: &PgPool, page: i64) -> anyhow::Result<Vec<Team
             t.id::int4, t.name, t.slug, t.description, t.icon, t.color, t.slack_webhook_url, t.is_active, t.created_at,
             (SELECT COUNT(*)::int8 FROM t_team_membership WHERE team_id = t.id AND scoped_project_id IS NULL) as member_count,
             (SELECT COUNT(*)::int8 FROM tickets_project_teams WHERE team_id = t.id) as project_count,
-            t.prefix
+            t.prefix,
+            t.archived_at
          FROM m_team t
          ORDER BY t.name ASC
          LIMIT $1 OFFSET $2"
@@ -46,6 +47,8 @@ pub async fn find_all_teams(pool: &PgPool, page: i64) -> anyhow::Result<Vec<Team
             member_count: row.get(9),
             project_count: row.get(10),
             prefix: row.get(11),
+            archived_at: row.get(12),
+            viewer_can_manage: false,
         })
         .collect();
 
@@ -66,7 +69,8 @@ pub async fn find_team_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Te
             t.id::int4, t.name, t.slug, t.description, t.icon, t.color, t.slack_webhook_url, t.is_active, t.created_at,
             (SELECT COUNT(*)::int8 FROM t_team_membership WHERE team_id = t.id AND scoped_project_id IS NULL) as member_count,
             (SELECT COUNT(*)::int8 FROM tickets_project_teams WHERE team_id = t.id) as project_count,
-            t.prefix
+            t.prefix,
+            t.archived_at
          FROM m_team t
          WHERE t.id = $1"
     )
@@ -87,6 +91,8 @@ pub async fn find_team_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Te
         member_count: row.get(9),
         project_count: row.get(10),
         prefix: row.get(11),
+            archived_at: row.get(12),
+            viewer_can_manage: false,
     });
 
     Ok(team)
@@ -334,6 +340,48 @@ pub async fn update_team(pool: &PgPool, id: i32, input: &TeamWriteIn) -> anyhow:
     Ok(rows_affected > 0)
 }
 
+/// チームに依存(サイクル/チケット/プロジェクト参加)が残っているため削除できない。
+/// API では 409 とし、何が何件残っているかを利用者に伝える。
+#[derive(Debug)]
+pub struct TeamHasDependents {
+    pub cycles: i64,
+    pub tickets: i64,
+    pub projects: i64,
+}
+
+impl std::fmt::Display for TeamHasDependents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "team has dependents (cycles={}, tickets={}, projects={}); cannot delete",
+            self.cycles, self.tickets, self.projects
+        )
+    }
+}
+
+impl std::error::Error for TeamHasDependents {}
+
+impl TeamHasDependents {
+    /// 利用者向けの理由(残っているものだけを件数つきで並べる)。
+    pub fn user_message(&self) -> String {
+        let mut parts = Vec::new();
+        if self.projects > 0 {
+            parts.push(format!("プロジェクト{}件", self.projects));
+        }
+        if self.tickets > 0 {
+            parts.push(format!("チケット{}件", self.tickets));
+        }
+        if self.cycles > 0 {
+            parts.push(format!("サイクル{}件", self.cycles));
+        }
+        let mut msg = format!("{}が残っているためチームを削除できません", parts.join("・"));
+        if self.projects > 0 {
+            msg.push_str("(プロジェクトを削除するか、別のチームに付け替えてください)");
+        }
+        msg
+    }
+}
+
 pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
@@ -350,20 +398,21 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     .bind(id)
     .fetch_one(&mut *tx)
     .await?;
-    let owner_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets_project WHERE owner_team_id = $1"
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await?;
+    // プロジェクトとチームは N:M（tickets_project_teams）。owner_team_id 列は
+    // 20260914100001_project_team_nm で削除済みのため、参加関係のみを見る。
     let participate_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM tickets_project_teams WHERE team_id = $1"
     )
     .bind(id)
     .fetch_one(&mut *tx)
     .await?;
-    if cycle_count > 0 || ticket_count > 0 || owner_count > 0 || participate_count > 0 {
-        anyhow::bail!("team has dependents (cycles/tickets/projects); cannot delete");
+    if cycle_count > 0 || ticket_count > 0 || participate_count > 0 {
+        return Err(TeamHasDependents {
+            cycles: cycle_count,
+            tickets: ticket_count,
+            projects: participate_count,
+        }
+        .into());
     }
 
     // m_team_rule は on_delete=CASCADE、そのチームルールを参照するチケットの
@@ -373,6 +422,22 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
          (SELECT id FROM m_team_rule WHERE team_id = $1)"
     ).bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM m_team_rule WHERE team_id = $1")
+        .bind(id).execute(&mut *tx).await?;
+
+    // t_workflow_status / m_label の team_id FK は ON DELETE SET NULL のため、放置すると
+    // 「チーム専用」の行が「ワークスペース共通」の行に変わってしまう。その結果、
+    //  - 共通のワークフロー/ラベルとして残り続ける
+    //  - 2つ目のチームを削除する時、同じ slug/name が unique_wf_slug_workspace /
+    //    unique_label_name_workspace に衝突して 500 になる
+    // ため、チーム専用の行(project_id IS NULL)を先に削除する。
+    // (project_id を持つ行は、プロジェクト側の設定なので触らない)
+    sqlx::query("DELETE FROM t_workflow_status WHERE team_id = $1 AND project_id IS NULL")
+        .bind(id).execute(&mut *tx).await?;
+    sqlx::query(
+        "DELETE FROM tickets_ticket_labels WHERE labelmodel_id IN
+         (SELECT id FROM m_label WHERE team_id = $1 AND project_id IS NULL)"
+    ).bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM m_label WHERE team_id = $1 AND project_id IS NULL")
         .bind(id).execute(&mut *tx).await?;
 
     // t_team_membership は on_delete=CASCADE
@@ -805,5 +870,87 @@ mod tests {
         let err = delete_team(&pool, team_id).await.expect_err("should block");
         assert!(err.to_string().contains("team has dependents"));
         assert!(find_team_by_id(&pool, team_id).await.unwrap().is_some());
+    }
+
+    /// 回帰: 依存の無いチームでも、削除済みの owner_team_id 列を参照して常に失敗していた
+    /// (20260914100001_project_team_nm 以降)。プロジェクトに参加しているチームは
+    /// 「依存あり」として拒否(=API では 409)され、500 にならないこと。
+    #[tokio::test]
+    async fn delete_team_rejects_when_participating_in_project() {
+        use crate::domain::models::resource_api::ProjectWriteIn;
+        use crate::infrastructure::repositories::resource_repo::create_project;
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let name = format!("参加中-{}", test_support::unique_suffix());
+        let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
+        let prefix = format!("TD{}", &test_support::unique_suffix()[..6]).to_uppercase();
+        create_project(
+            &pool,
+            &ProjectWriteIn {
+                name: format!("proj-{prefix}"),
+                prefix,
+                description: String::new(),
+                priority: "medium".to_string(),
+                team_ids: vec![team_id],
+            },
+            None,
+        )
+        .await
+        .expect("create project");
+
+        let err = delete_team(&pool, team_id).await.expect_err("should block");
+        assert!(err.to_string().contains("team has dependents"));
+        let dep = err.downcast_ref::<TeamHasDependents>().expect("TeamHasDependents");
+        assert_eq!((dep.projects, dep.tickets, dep.cycles), (1, 0, 0));
+        assert!(find_team_by_id(&pool, team_id).await.unwrap().is_some());
+    }
+
+    #[test]
+    fn team_has_dependents_message_lists_only_remaining_items_with_counts() {
+        let only_projects = TeamHasDependents { cycles: 0, tickets: 0, projects: 2 };
+        let m = only_projects.user_message();
+        assert!(m.contains("プロジェクト2件"));
+        assert!(!m.contains("チケット") && !m.contains("サイクル"));
+        assert!(m.contains("付け替えてください"));
+
+        let mixed = TeamHasDependents { cycles: 1, tickets: 3, projects: 0 };
+        let m = mixed.user_message();
+        assert!(m.contains("チケット3件・サイクル1件"));
+        assert!(!m.contains("プロジェクト"));
+    }
+
+    /// 回帰: チームを削除すると、そのチームのワークフロー/ラベルが「ワークスペース共通」に
+    /// 変わって残り、2つ目のチームの削除が一意制約違反(500)で失敗していた。
+    /// 何度チームを削除しても成功し、共通行が増えないこと。
+    #[tokio::test]
+    async fn delete_team_twice_does_not_leave_workspace_level_rows() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let workspace_rows = |table: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(&format!(
+                    "SELECT COUNT(*) FROM {table} WHERE team_id IS NULL AND project_id IS NULL"
+                ))
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        let before_wf = workspace_rows("t_workflow_status").await;
+        let before_label = workspace_rows("m_label").await;
+
+        for i in 0..2 {
+            let name = format!("連続削除{i}-{}", test_support::unique_suffix());
+            let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
+            // 同じ名前のチームラベルを、どのチームにも持たせる(共通化されると衝突する)
+            sqlx::query("INSERT INTO m_label (name, color, team_id, project_id, created_at) VALUES ('共通名ラベル', '#000000', $1, NULL, NOW())")
+                .bind(team_id as i64)
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert!(delete_team(&pool, team_id).await.unwrap(), "{i}回目の削除に失敗");
+        }
+
+        assert_eq!(workspace_rows("t_workflow_status").await, before_wf);
+        assert_eq!(workspace_rows("m_label").await, before_label);
     }
 }

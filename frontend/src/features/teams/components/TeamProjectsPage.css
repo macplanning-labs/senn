@@ -3,8 +3,7 @@
  */
 
 .team-projects {
-  max-width: 720px;
-  padding: var(--space-4) var(--space-5);
+  max-width: none;
 }
 
 .team-projects__header {
@@ -71,6 +70,68 @@
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
+.team-projects__demo-banner {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.team-projects__demo-banner-text {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.team-projects__demo-banner-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.team-projects__demo-banner-link {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-accent, #6366f1);
+  color: white;
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  display: inline-block;
+}
+
+.team-projects__demo-banner-link:hover {
+  background-color: var(--color-accent-hover, #4f46e5);
+}
+
+.team-projects__demo-banner-delete {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.team-projects__demo-banner-delete:hover {
+  background-color: var(--color-bg-quaternary);
+  border-color: var(--color-border-interactive);
+}
+
+.team-projects__demo-ready {
+  margin-bottom: var(--space-4);
+}
+
 .team-projects__empty {
   padding: var(--space-8) var(--space-4);
   text-align: center;
@@ -81,6 +142,100 @@
   font-size: var(--font-size-sm);
 }
 
-.team-projects__link {
-  color: var(--color-accent-primary);
+.team-projects__empty-actions {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.team-projects__create-btn {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-accent, #6366f1);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.team-projects__create-btn:hover:not(:disabled) {
+  background-color: var(--color-accent-hover, #4f46e5);
+}
+
+.team-projects__create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 削除確認ダイアログ */
+.team-projects-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.team-projects-dialog {
+  background-color: var(--color-bg-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  max-width: 400px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.team-projects-dialog__title {
+  margin: 0 0 var(--space-3) 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.team-projects-dialog__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.team-projects-dialog__btn {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.team-projects-dialog__btn--cancel {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+}
+
+.team-projects-dialog__btn--cancel:hover {
+  background-color: var(--color-bg-quaternary);
+}
+
+.team-projects-dialog__btn--danger {
+  background-color: var(--color-danger, #ef4444);
+  color: white;
+}
+
+.team-projects-dialog__btn--danger:hover {
+  background-color: var(--color-danger-hover, #dc2626);
+}
+
+.team-projects-dialog__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

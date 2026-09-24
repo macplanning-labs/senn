@@ -88,7 +88,7 @@ pub async fn get_my_tickets(pool: &PgPool, user_id: i32, limit: i64) -> anyhow::
          FROM tickets_ticket t
          JOIN tickets_ticket_assignees ta ON ta.ticketmodel_id = t.id
          LEFT JOIN tickets_project p ON t.project_id = p.id
-         WHERE ta.user_id = $1 AND t.status IN ('open','in_progress')
+         WHERE ta.user_id = $1 AND t.status IN ('backlog','open','in_progress')
          ORDER BY t.updated_at DESC
          LIMIT $2"
     )

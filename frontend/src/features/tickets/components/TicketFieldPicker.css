@@ -1,0 +1,198 @@
+/**
+ * TicketFieldPicker.css — プロパティフィールド選択ピッカー
+ */
+
+.ticket-field-picker__overlay {
+  position: fixed;
+  inset: 0;
+  background-color: var(--color-bg-overlay, rgba(0, 0, 0, 0.5));
+  z-index: var(--z-command-palette, 800);
+  animation: ticket-field-picker-fade-in 100ms ease;
+}
+
+.ticket-field-picker {
+  position: fixed;
+  background-color: var(--color-bg-elevated, var(--color-bg-secondary, #1a1a1a));
+  border: 1px solid var(--color-border-default, var(--color-border, #333));
+  border-radius: var(--radius-xl, 8px);
+  box-shadow: var(--shadow-xl, 0 8px 24px rgba(0, 0, 0, 0.35));
+  z-index: calc(var(--z-command-palette, 800) + 1);
+  overflow: hidden;
+  animation: ticket-field-picker-slide-in 150ms ease-out;
+}
+
+.ticket-field-picker--center {
+  top: 20vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  max-width: calc(100vw - 32px);
+}
+
+.ticket-field-picker--anchor {
+  width: 320px;
+  max-width: calc(100vw - 16px);
+}
+
+.ticket-field-picker__header {
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  border-bottom: 1px solid var(--color-border-default, var(--color-border, #333));
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-secondary, #a0a0a0);
+}
+
+.ticket-field-picker__input {
+  width: 100%;
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border-default, var(--color-border, #333));
+  color: var(--color-text-primary, #e0e0e0);
+  font-size: var(--font-size-md, 0.9375rem);
+  outline: none;
+}
+
+.ticket-field-picker__input::placeholder {
+  color: var(--color-text-tertiary, #666);
+}
+
+.ticket-field-picker__list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: var(--space-2, 8px);
+}
+
+.ticket-field-picker__empty {
+  padding: var(--space-6, 24px);
+  text-align: center;
+  color: var(--color-text-tertiary, #666);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.ticket-field-picker__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: background-color var(--transition-fast, 0.15s);
+  color: var(--color-text-primary, #e0e0e0);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.ticket-field-picker__item[aria-selected='true'],
+.ticket-field-picker__item:hover {
+  background-color: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.ticket-field-picker__item--selected {
+  background-color: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.ticket-field-picker__item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-field-picker__item-hint {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary, #666);
+  font-size: var(--font-size-xs, 0.75rem);
+}
+
+.ticket-field-picker__check {
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--color-accent, #6366f1);
+  font-size: var(--font-size-xs, 0.75rem);
+}
+
+.ticket-field-picker__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2, 8px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border-top: 1px solid var(--color-border-default, var(--color-border, #333));
+}
+
+.ticket-field-picker__done {
+  padding: var(--space-2, 8px) var(--space-4, 16px);
+  background: var(--color-accent, #6366f1);
+  border: none;
+  border-radius: var(--radius-md, 6px);
+  color: #fff;
+  font-size: var(--font-size-sm, 0.875rem);
+  cursor: pointer;
+  transition: opacity var(--transition-fast, 0.15s);
+}
+
+.ticket-field-picker__done:hover {
+  opacity: 0.9;
+}
+
+.ticket-field-picker__loading {
+  padding: var(--space-6, 24px);
+  text-align: center;
+  color: var(--color-text-tertiary, #666);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+@keyframes ticket-field-picker-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ticket-field-picker-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ticket-field-picker--center.ticket-field-picker {
+  animation-name: ticket-field-picker-slide-in-center;
+}
+
+@keyframes ticket-field-picker-slide-in-center {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.ticket-field-picker__date {
+  padding: 8px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ticket-field-picker__date-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #333);
+  background: var(--color-bg-primary, #0a0a0a);
+  color: var(--color-text-primary, #e0e0e0);
+}
+.ticket-field-picker__done--ghost {
+  background: transparent;
+  border: 1px solid var(--color-border, #333);
+}

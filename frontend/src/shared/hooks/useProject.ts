@@ -18,12 +18,20 @@ export interface Project {
   name: string;
   prefix: string;
   description: string;
+  status?: string;
+  priority?: string;
+  targetEndDate?: string | null;
   ticketCount?: number;
   memberCount?: number;
+  isMember: boolean;
   ownerId?: number | null;
   cycleAutoComplete?: boolean;
   cycleAutoCreateNext?: boolean;
-  teams?: { id: number; name: string; slug: string; icon: string; color: string }[];
+  teams?: { id: number; name: string; slug: string; icon: string; color: string; archived?: boolean }[];
+  // 階層・ロードマップ関連（後方互換: 任意）
+  parentProjectId?: number | null;
+  childCount?: number;
+  roadmapIds?: number[];
 }
 
 /** URLの :projectKey からプロジェクト情報を取得 */

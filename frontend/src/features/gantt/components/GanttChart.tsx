@@ -13,6 +13,8 @@ import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import './GanttChart.css';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconGantt } from '@/shared/components/layout/Sidebar';
 
 interface GanttTicket {
   id: number;
@@ -110,8 +112,10 @@ export function GanttChart() {
 
   return (
     <div className="gantt" data-testid="gantt-page">
-      <div className="gantt__header">
-        <h1 className="gantt__title">{t('nav.gantt')}</h1>
+      <TeamTabPageHeader
+        icon={IconGantt}
+        title={t('nav.gantt')}
+        subtitle={
         <div className="gantt__legend">
           <span className="gantt__legend-item">
             <span className="gantt__legend-swatch" style={{ backgroundColor: 'var(--color-status-backlog, #6b7280)' }} /> Backlog
@@ -135,7 +139,8 @@ export function GanttChart() {
             <span className="gantt__legend-swatch gantt__legend-swatch--overdue" /> Overdue
           </span>
         </div>
-      </div>
+        }
+      />
 
       {isLoading ? (
         <div className="gantt__loading">

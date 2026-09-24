@@ -7,7 +7,7 @@
  *   - サイドバーのナビゲーション
  *   - コマンドパレット（⌘K）
  *
- * 前提: Django API (localhost:8000) が起動し、テストユーザーが存在すること
+ * 前提: API サーバー (localhost:8151) が起動し、テストユーザーが存在すること
  */
 import { test, expect, Page } from "@playwright/test";
 

@@ -13,6 +13,7 @@ import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { buildTicketDetailPath } from '@/features/tickets/utils/ticketNavigation';
+import { hasCommandModifier } from '@/shared/hooks/keyboardGuards';
 import './NotificationsPage.css';
 
 interface Notification {
@@ -123,7 +124,7 @@ export function NotificationsPage() {
   // キーボードナビゲーション
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (isInputFocused()) return;
+      if (hasCommandModifier(e) || isInputFocused()) return;
 
       switch (e.key) {
         case 'j':
@@ -206,7 +207,9 @@ export function NotificationsPage() {
     }
 
     if (notification.ticketKey) {
-      navigate(buildTicketDetailPath(notification.projectKey, notification.ticketKey, undefined, notification.teamSlug));
+      // teamSlugがある通知はチーム側の詳細に留める(プロジェクト側への意図しない遷移を防ぐ)
+      const projectKey = notification.teamSlug ? null : notification.projectKey;
+      navigate(buildTicketDetailPath(projectKey, notification.ticketKey, undefined, notification.teamSlug));
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {

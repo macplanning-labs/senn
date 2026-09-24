@@ -19,9 +19,10 @@ use crate::infrastructure::repositories::workload_report_repo;
 pub struct WorkloadQuery {
     pub period: Option<String>,
     pub project_id: Option<i32>,
+    pub team_id: Option<i32>,
 }
 
-/// GET /api/v1/reports/workload/?period=week|month|year&project_id=X
+/// GET /api/v1/reports/workload/?period=&project_id=&team_id=
 pub async fn workload(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthUser>,
@@ -37,7 +38,7 @@ pub async fn workload(
     let start_date = (now - Duration::days(days)).date_naive();
     let end_date = now.date_naive();
 
-    match workload_report_repo::get_workload_report(&state.pool, start_date, end_date, params.project_id).await {
+    match workload_report_repo::get_workload_report(&state.pool, start_date, end_date, params.project_id, params.team_id).await {
         Ok(r) => (
             StatusCode::OK,
             Json(json!({

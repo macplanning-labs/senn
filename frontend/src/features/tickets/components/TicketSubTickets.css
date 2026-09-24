@@ -1,0 +1,133 @@
+.ticket-sub-tickets {
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+}
+
+.ticket-sub-tickets__title {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #e0e0e0);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ticket-sub-tickets__count {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  background: var(--color-bg-tertiary, #2a2a2a);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.ticket-sub-tickets__empty,
+.ticket-sub-tickets__loading {
+  padding: 12px;
+  text-align: center;
+  color: var(--color-text-secondary, #a0a0a0);
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.ticket-sub-tickets__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ticket-sub-ticket-item {
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary, #2a2a2a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-sub-ticket-item:hover {
+  background: var(--color-bg-quaternary, #3a3a3a);
+  border-color: var(--color-accent, #6366f1);
+}
+
+.ticket-sub-ticket-item__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ticket-sub-ticket-item__key {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent, #6366f1);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ticket-sub-ticket-item__status {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: capitalize;
+}
+
+.ticket-sub-ticket-item__status--backlog {
+  background: rgba(107, 114, 128, 0.2);
+  color: #9ca3af;
+}
+
+.ticket-sub-ticket-item__status--open {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.ticket-sub-ticket-item__status--in_progress {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
+.ticket-sub-ticket-item__status--resolved {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.ticket-sub-ticket-item__status--closed {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.ticket-sub-ticket-item__status--canceled {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.ticket-sub-ticket-item__title {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-primary, #e0e0e0);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ticket-sub-ticket-item__meta {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ticket-sub-ticket-item__assignees {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

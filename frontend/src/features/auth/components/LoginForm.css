@@ -212,3 +212,41 @@
   color: var(--color-text-link);
   font-size: var(--font-size-sm);
 }
+
+/* ── デモボタン ── */
+.login__demo-btn {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.login__demo-btn:hover:not(:disabled) {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 2px 8px rgba(92, 108, 255, 0.1);
+}
+
+.login__demo-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.login__demo-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login__demo-note {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  line-height: 1.4;
+}
+

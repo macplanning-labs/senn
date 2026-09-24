@@ -4,11 +4,10 @@
 /// 鍵とユーザーを完全に分離する: Claude等のAIエージェントが起こした操作を、
 /// 人間/他システムからのWIP_API_KEY操作と別アカウント・別鍵として区別できるようにする。
 /// 対象: プロジェクト作成、チケット作成(ラベル・担当者は名前/ユーザー名指定)。
-
 use axum::{
-    extract::{State, Query, Path, Multipart},
+    extract::{Multipart, Path, Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
-    http::{StatusCode, HeaderMap, HeaderValue},
     Json,
 };
 use chrono::NaiveDate;
@@ -16,42 +15,108 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::domain::models::cycle_api::CycleWriteIn;
+use crate::domain::models::resource_api::ProjectWriteIn;
+use crate::domain::models::ticket_api::{TicketPatchIn, TicketWriteIn};
+use crate::infrastructure::repositories::{
+    ai_agent_key_repo, cycle_repo, resource_repo, team_repo, ticket_repo, user_repo,
+    wiki_attachment_repo, wiki_repo,
+};
 use crate::presentation::handlers::system_admin_api;
 use crate::presentation::state::AppState;
-use crate::domain::models::resource_api::ProjectWriteIn;
-use crate::domain::models::ticket_api::{TicketWriteIn, TicketPatchIn};
-use crate::domain::models::cycle_api::CycleWriteIn;
-use crate::infrastructure::repositories::{resource_repo, ticket_repo, user_repo, wiki_repo, cycle_repo, wiki_attachment_repo, team_repo};
 
 fn err(detail: impl Into<String>) -> serde_json::Value {
     json!({"error": detail.into()})
 }
 
-/// AI用APIキーを検証し、成功時は操作主体(AIエージェント用アカウント)のuser_idを返す。
+/// `authenticate_ai()` の戻り値。
+pub struct AiAuthResult {
+    /// 操作主体(常に共有 ai_agent アカウントの user_id、既存動作を維持)。
+    pub user_id: i32,
+    /// 人ごとキーで認証できた場合のみ Some。実際にキーを保有していた人間のアカウントID。
+    /// クライアント(AIエージェント)側からは指定不可で、キーのハッシュ照合結果からのみ導出される
+    /// (なりすまし防止。WIPAPPDEV-000100)。
+    pub acting_user_id: Option<i32>,
+}
+
+/// AI用APIキーを検証し、成功時は操作主体(AIエージェント用アカウント)のuser_idと、
+/// (人ごとキーで認証できた場合の)実行者のuser_idを返す。
 /// wip_api_key(人間/既存システム用)とは完全に別の鍵・別のユーザーを使う。
-/// アカウントが未作成なら、ここで一度だけ自動作成する(パスワードは使用不能ハッシュ '!' でログイン不可)。
-async fn authenticate_ai(state: &AppState, headers: &HeaderMap) -> Result<i32, (StatusCode, serde_json::Value)> {
+async fn authenticate_ai(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AiAuthResult, (StatusCode, serde_json::Value)> {
     let api_key = headers
         .get("X-AI-Api-Key")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
+    if api_key.is_empty() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            err("AI用APIキーが指定されていません"),
+        ));
+    }
+
+    // 1. まず人ごとキー(ai_agent_api_keys)をハッシュ照合する(UNIQUE制約によるO(1) lookup)。
+    //    失効済みキーがヒットした場合は共有キーへフォールバックせず、ここで確定的に401とする
+    //    (失効の意図を尊重するため)。
+    let key_hash = ai_agent_key_repo::hash_key(api_key);
+    match ai_agent_key_repo::find_active_by_hash(&state.pool, &key_hash).await {
+        Ok(Some(record)) => {
+            // last_used_at 更新は best-effort。失敗しても認証自体は継続する。
+            let _ = ai_agent_key_repo::touch_last_used(&state.pool, record.id).await;
+            let shared_user_id = resolve_shared_ai_user(state).await?;
+            return Ok(AiAuthResult {
+                user_id: shared_user_id,
+                acting_user_id: Some(record.user_id),
+            });
+        }
+        Ok(None) => {}
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("サーバーエラーが発生しました"),
+            ));
+        }
+    }
+
+    // 2. 人ごとキーで一致しなければ、従来の全社共有キーにフォールバックする(後方互換)。
     let expected_key = match system_admin_api::resolve_ai_agent_api_key(state).await {
         Some(k) => k,
         None => {
-            return Err((StatusCode::UNAUTHORIZED, err("SENN_AI_API_KEY が設定されていません")));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                err("SENN_AI_API_KEY が設定されていません"),
+            ));
         }
     };
 
-    if api_key.is_empty() || !constant_time_eq(api_key.as_bytes(), expected_key.as_bytes()) {
+    if !constant_time_eq(api_key.as_bytes(), expected_key.as_bytes()) {
         return Err((StatusCode::UNAUTHORIZED, err("AI用APIキーが無効です")));
     }
 
+    let shared_user_id = resolve_shared_ai_user(state).await?;
+    Ok(AiAuthResult {
+        user_id: shared_user_id,
+        acting_user_id: None,
+    })
+}
+
+/// 共有 ai_agent アカウントを解決する(存在しなければ自動作成する)。
+/// アカウントが未作成なら、ここで一度だけ自動作成する(パスワードは使用不能ハッシュ '!' でログイン不可)。
+async fn resolve_shared_ai_user(state: &AppState) -> Result<i32, (StatusCode, serde_json::Value)> {
     let username = &state.config.wip_ai_api_user;
-    let existing = user_repo::find_by_username(&state.pool, username).await.map_err(|e| {
-        tracing::error!("DB operation failed: {:?}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, err("サーバーエラーが発生しました"))
-    })?;
+    let existing = user_repo::find_by_username(&state.pool, username)
+        .await
+        .map_err(|e| {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("サーバーエラーが発生しました"),
+            )
+        })?;
 
     if let Some(u) = existing {
         return Ok(u.id);
@@ -71,7 +136,10 @@ async fn authenticate_ai(state: &AppState, headers: &HeaderMap) -> Result<i32, (
     .await
     .map_err(|e| {
         tracing::error!("AI agent account creation failed: {:?}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, err("サーバーエラーが発生しました"))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            err("サーバーエラーが発生しました"),
+        )
     })?;
 
     Ok(created.id)
@@ -98,7 +166,7 @@ pub struct CreateAiProjectIn {
     pub prefix: Option<String>,
     #[serde(default)]
     pub description: String,
-    #[serde(default, rename = "teamIds")]
+    #[serde(default, alias = "teamIds")]
     pub team_ids: Vec<i32>,
 }
 
@@ -114,30 +182,53 @@ pub async fn create_project(
 
     let name = match &body.name {
         Some(n) if !n.is_empty() => n,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("name と prefix は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("name と prefix は必須です")),
+            )
+                .into_response()
+        }
     };
     let prefix = match &body.prefix {
         Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("name と prefix は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("name と prefix は必須です")),
+            )
+                .into_response()
+        }
     };
 
     // Validate team_ids is not empty
     if body.team_ids.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(err("teamIds は1つ以上必須です"))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(err("teamIds は1つ以上必須です")),
+        )
+            .into_response();
     }
 
     let input = ProjectWriteIn {
         name: name.clone(),
         prefix: prefix.clone(),
         description: body.description.clone(),
+        priority: "medium".to_string(),
         team_ids: body.team_ids.clone(),
     };
 
     match resource_repo::create_project(&state.pool, &input, None).await {
-        Ok(project_id) => match resource_repo::find_project_by_id(&state.pool, project_id).await {
-            Ok(Some(project)) => (StatusCode::CREATED, Json(project)).into_response(),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
-        },
+        Ok(project_id) => {
+            match resource_repo::find_project_by_id(&state.pool, project_id, None).await {
+                Ok(Some(project)) => (StatusCode::CREATED, Json(project)).into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response(),
+            }
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             // prefixのUNIQUE制約違反である可能性が高い(既存プロジェクトと重複)
@@ -170,8 +261,12 @@ pub struct CreateAiTicketIn {
     #[serde(default)]
     pub assignee_usernames: Vec<String>,
 }
-fn default_priority() -> String { "medium".to_string() }
-fn default_ticket_type() -> String { "task".to_string() }
+fn default_priority() -> String {
+    "medium".to_string()
+}
+fn default_ticket_type() -> String {
+    "task".to_string()
+}
 
 /// POST /api/v1/ai-agent/tickets/
 pub async fn create_ticket(
@@ -180,7 +275,7 @@ pub async fn create_ticket(
     Json(body): Json<CreateAiTicketIn>,
 ) -> impl IntoResponse {
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
@@ -193,28 +288,41 @@ pub async fn create_ticket(
     let team_id: i32 = if let Some(tid) = body.team_id {
         tid
     } else if let Some(slug) = &body.team_slug {
-        match sqlx::query_scalar::<_, i32>(
-            "SELECT id::int4 FROM m_team WHERE slug = $1"
-        )
-        .bind(slug)
-        .fetch_optional(&state.pool)
-        .await
+        match sqlx::query_scalar::<_, i32>("SELECT id::int4 FROM m_team WHERE slug = $1")
+            .bind(slug)
+            .fetch_optional(&state.pool)
+            .await
         {
             Ok(Some(tid)) => tid,
             Ok(None) => {
-                return (StatusCode::BAD_REQUEST, Json(err(format!("チーム '{}' が見つかりません", slug)))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(err(format!("チーム '{}' が見つかりません", slug))),
+                )
+                    .into_response();
             }
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
         }
     } else if let Some(project_prefix) = &body.project_prefix {
         // Resolve project by prefix and get its participating teams
-        let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+        let project_id = match ticket_repo::resolve_project_id_by_prefix(
+            &state.pool,
+            project_prefix,
+        )
+        .await
+        {
             Ok(Some(id)) => id,
             Ok(None) => {
-                let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
+                let available = ticket_repo::list_project_prefixes(&state.pool)
+                    .await
+                    .unwrap_or_default();
                 return (
                     StatusCode::NOT_FOUND,
                     Json(json!({
@@ -226,47 +334,83 @@ pub async fn create_ticket(
             }
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
         };
 
-        let project = match resource_repo::find_project_by_id(&state.pool, project_id).await {
+        let project = match resource_repo::find_project_by_id(&state.pool, project_id, None).await {
             Ok(Some(p)) => p,
             Ok(None) => {
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
         };
 
         match project.teams.as_slice() {
             [team] => team.id,
             [] => {
-                return (StatusCode::BAD_REQUEST, Json(err(
-                    format!("プロジェクト '{}' に参加チームがありません", project_prefix)
-                ))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(err(format!(
+                        "プロジェクト '{}' に参加チームがありません",
+                        project_prefix
+                    ))),
+                )
+                    .into_response();
             }
             _ => {
-                return (StatusCode::BAD_REQUEST, Json(err(
-                    format!("プロジェクト '{}' は複数チームに参加しており、teamId/teamSlug が必須です", project_prefix)
-                ))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(err(format!(
+                        "プロジェクト '{}' は複数チームに参加しており、teamId/teamSlug が必須です",
+                        project_prefix
+                    ))),
+                )
+                    .into_response();
             }
         }
     } else {
-        return (StatusCode::BAD_REQUEST, Json(err("project_prefix, team_id, または team_slug のいずれかが必須です"))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(err(
+                "project_prefix, team_id, または team_slug のいずれかが必須です",
+            )),
+        )
+            .into_response();
     };
 
     // Verify team exists
     match team_repo::find_team_by_id(&state.pool, team_id).await {
-        Ok(Some(_)) => {},
+        Ok(Some(_)) => {}
         Ok(None) => {
-            return (StatusCode::BAD_REQUEST, Json(err(format!("チーム ID {} が見つかりません", team_id)))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err(format!("チーム ID {} が見つかりません", team_id))),
+            )
+                .into_response();
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     }
 
@@ -275,11 +419,22 @@ pub async fn create_ticket(
         match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
             Ok(Some(id)) => Some(id),
             Ok(None) => {
-                return (StatusCode::NOT_FOUND, Json(err(format!("プロジェクト '{}' が見つかりません", project_prefix)))).into_response();
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(err(format!(
+                        "プロジェクト '{}' が見つかりません",
+                        project_prefix
+                    ))),
+                )
+                    .into_response();
             }
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
         }
     } else {
@@ -301,7 +456,11 @@ pub async fn create_ticket(
                 Ok(id) => label_ids.push(id),
                 Err(e) => {
                     tracing::error!("DB operation failed: {:?}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err("サーバーエラーが発生しました")),
+                    )
+                        .into_response();
                 }
             }
         }
@@ -313,11 +472,19 @@ pub async fn create_ticket(
         let user = match user_repo::find_by_username(&state.pool, username).await {
             Ok(Some(u)) => u,
             Ok(None) => {
-                return (StatusCode::BAD_REQUEST, Json(err(format!("ユーザー '{}' が見つかりません", username)))).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(err(format!("ユーザー '{}' が見つかりません", username))),
+                )
+                    .into_response();
             }
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
         };
 
@@ -327,13 +494,23 @@ pub async fn create_ticket(
                 Ok(b) => b,
                 Err(e) => {
                     tracing::error!("DB operation failed: {:?}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err("サーバーエラーが発生しました")),
+                    )
+                        .into_response();
                 }
             };
             if !is_member {
-                if let Err(e) = team_repo::add_team_guest(&state.pool, team_id, user.id, pid, None).await {
+                if let Err(e) =
+                    team_repo::add_team_guest(&state.pool, team_id, user.id, pid, None).await
+                {
                     tracing::error!("DB operation failed: {:?}", e);
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err("サーバーエラーが発生しました")),
+                    )
+                        .into_response();
                 }
             }
         }
@@ -366,7 +543,11 @@ pub async fn create_ticket(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -374,21 +555,32 @@ pub async fn create_ticket(
         Ok(id) => id,
         Err(e) => {
             tracing::error!("api_create failed: {:?}", e);
-            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            if let Err(e) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", e);
+            }
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
     if let Err(e) = tx.commit().await {
         tracing::error!("transaction commit failed: {:?}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(err("サーバーエラーが発生しました")),
+        )
+            .into_response();
     }
 
-    let ticket_key: Option<String> = sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
-        .bind(ticket_id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
+    let ticket_key: Option<String> =
+        sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
 
     (
         StatusCode::CREATED,
@@ -407,20 +599,22 @@ pub async fn create_ticket(
 // ---------------------------------------------------------------------------
 
 /// GET /api/v1/ai-agent/projects/
-pub async fn list_projects(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn list_projects(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err((status, payload)) = authenticate_ai(&state, &headers).await {
         return (status, Json(payload)).into_response();
     }
 
     const PAGE: i64 = 1;
-    match resource_repo::find_all_projects(&state.pool, PAGE).await {
+    let filter = crate::domain::models::resource_api::ProjectListFilter::default();
+    match resource_repo::find_all_projects(&state.pool, PAGE, None, &filter).await {
         Ok(projects) => (StatusCode::OK, Json(projects)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -446,13 +640,23 @@ pub async fn list_wiki_pages(
 
     let project_prefix = match &params.project_prefix {
         Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix は必須です")),
+            )
+                .into_response()
+        }
     };
 
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix)
+        .await
+    {
         Ok(Some(id)) => id,
         Ok(None) => {
-            let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
+            let available = ticket_repo::list_project_prefixes(&state.pool)
+                .await
+                .unwrap_or_default();
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({
@@ -464,7 +668,11 @@ pub async fn list_wiki_pages(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -472,7 +680,11 @@ pub async fn list_wiki_pages(
         Ok(pages) => (StatusCode::OK, Json(pages)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -499,13 +711,23 @@ pub async fn list_tickets(
 
     let project_prefix = match &params.project_prefix {
         Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix は必須です")),
+            )
+                .into_response()
+        }
     };
 
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix)
+        .await
+    {
         Ok(Some(id)) => id,
         Ok(None) => {
-            let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
+            let available = ticket_repo::list_project_prefixes(&state.pool)
+                .await
+                .unwrap_or_default();
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({
@@ -517,7 +739,11 @@ pub async fn list_tickets(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -526,11 +752,17 @@ pub async fn list_tickets(
 
     let page = params.page.unwrap_or(1).max(1);
 
-    let tickets = match ticket_repo::api_find_all(&state.pool, &filter, "-updated_at", None, page).await {
+    let tickets = match ticket_repo::api_find_all(&state.pool, &filter, "-updated_at", None, page)
+        .await
+    {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("[AIエージェントAPI/チケット一覧] 処理=チケット取得 結果=失敗 影響=一覧を返せない | {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -566,12 +798,20 @@ pub async fn get_ticket(
         return (status, Json(payload)).into_response();
     }
 
-    match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await {
+    match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None, &state.config.wip_ai_api_user).await {
         Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -589,7 +829,7 @@ pub async fn patch_ticket(
     Json(body): Json<TicketPatchIn>,
 ) -> impl IntoResponse {
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
@@ -604,7 +844,11 @@ pub async fn patch_ticket(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -612,14 +856,20 @@ pub async fn patch_ticket(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
     match ticket_repo::api_patch(&mut tx, &ticket_key, &body, ai_user_id).await {
         Err(e) => {
             tracing::error!("api_patch failed: {:?}", e);
-            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
+            if let Err(e) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", e);
+            }
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(err("サーバーエラーが発生しました")),
@@ -636,7 +886,7 @@ pub async fn patch_ticket(
                     .into_response();
             }
 
-            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await {
+            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None, &state.config.wip_ai_api_user).await {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -646,12 +896,10 @@ pub async fn patch_ticket(
             }
         }
         Ok(None) => {
-            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
-            (
-                StatusCode::NOT_FOUND,
-                Json(err("見つかりません")),
-            )
-                .into_response()
+            if let Err(e) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", e);
+            }
+            (StatusCode::NOT_FOUND, Json(err("見つかりません"))).into_response()
         }
     }
 }
@@ -673,30 +921,61 @@ pub async fn delete_ticket(
     Path(ticket_key): Path<String>,
     Query(params): Query<DeleteTicketQuery>,
 ) -> impl IntoResponse {
-    let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+    let ai_auth = match authenticate_ai(&state, &headers).await {
+        Ok(a) => a,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
+    let ai_user_id = ai_auth.user_id;
 
     let reason = match &params.reason {
         Some(r) if !r.trim().is_empty() => r.clone(),
-        _ => return (StatusCode::BAD_REQUEST, Json(err("reason(削除理由)は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("reason(削除理由)は必須です")),
+            )
+                .into_response()
+        }
     };
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
     // 監査コメントを先に投稿(ステータス変更が失敗しても、少なくとも削除が試みられた記録は残る)
     let comment_body = format!("[AI Agent] このチケットはAIエージェント経由で削除(ステータス変更: canceled)されました。理由: {}", reason);
-    if let Err(e) = ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &comment_body, None, None).await {
+    if let Err(e) = ticket_repo::api_add_comment(
+        &state.pool,
+        ticket_id,
+        ai_user_id,
+        &comment_body,
+        None,
+        None,
+        ai_auth.acting_user_id,
+    )
+    .await
+    {
         tracing::error!("Failed to post audit comment: {:?}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("監査コメントの投稿に失敗しました"))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(err("監査コメントの投稿に失敗しました")),
+        )
+            .into_response();
     }
 
     let patch_in = crate::domain::models::ticket_api::TicketPatchIn {
@@ -708,7 +987,11 @@ pub async fn delete_ticket(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -716,21 +999,37 @@ pub async fn delete_ticket(
         Ok(Some(_)) => {
             if let Err(e) = tx.commit().await {
                 tracing::error!("transaction commit failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
-            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None).await {
+            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, None, &state.config.wip_ai_api_user).await {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response(),
             }
         }
         Ok(None) => {
-            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
+            if let Err(e) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", e);
+            }
             (StatusCode::NOT_FOUND, Json(err("見つかりません"))).into_response()
         }
         Err(e) => {
             tracing::error!("api_patch failed: {:?}", e);
-            if let Err(e) = tx.rollback().await { tracing::error!("transaction rollback failed: {:?}", e); }
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            if let Err(e) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", e);
+            }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -752,8 +1051,8 @@ pub async fn add_comment(
     Path(ticket_key): Path<String>,
     Json(body): Json<AddAiCommentIn>,
 ) -> impl IntoResponse {
-    let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+    let ai_auth = match authenticate_ai(&state, &headers).await {
+        Ok(a) => a,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
@@ -768,11 +1067,25 @@ pub async fn add_comment(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    match ticket_repo::api_add_comment(&state.pool, ticket_id, ai_user_id, &body.body, None, None).await {
+    match ticket_repo::api_add_comment(
+        &state.pool,
+        ticket_id,
+        ai_auth.user_id,
+        &body.body,
+        None,
+        None,
+        ai_auth.acting_user_id,
+    )
+    .await
+    {
         Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -800,7 +1113,9 @@ pub struct CreateAiCycleIn {
     #[serde(default = "default_cycle_status")]
     pub status: String,
 }
-fn default_cycle_status() -> String { "planned".to_string() }
+fn default_cycle_status() -> String {
+    "planned".to_string()
+}
 
 /// POST /api/v1/ai-agent/cycles/
 pub async fn create_cycle(
@@ -809,30 +1124,56 @@ pub async fn create_cycle(
     Json(body): Json<CreateAiCycleIn>,
 ) -> impl IntoResponse {
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
     let project_prefix = match &body.project_prefix {
         Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix, name, start_date, end_date は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix, name, start_date, end_date は必須です")),
+            )
+                .into_response()
+        }
     };
     let name = match &body.name {
         Some(n) if !n.is_empty() => n,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix, name, start_date, end_date は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix, name, start_date, end_date は必須です")),
+            )
+                .into_response()
+        }
     };
     let (start_date, end_date) = match (body.start_date, body.end_date) {
         (Some(s), Some(e)) => (s, e),
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix, name, start_date, end_date は必須です"))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix, name, start_date, end_date は必須です")),
+            )
+                .into_response()
+        }
     };
     if start_date >= end_date {
-        return (StatusCode::BAD_REQUEST, Json(err("start_date は end_date より前である必要があります"))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(err("start_date は end_date より前である必要があります")),
+        )
+            .into_response();
     }
 
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix)
+        .await
+    {
         Ok(Some(id)) => id,
         Ok(None) => {
-            let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
+            let available = ticket_repo::list_project_prefixes(&state.pool)
+                .await
+                .unwrap_or_default();
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({
@@ -843,13 +1184,17 @@ pub async fn create_cycle(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
     // project の参加チームから team_id を決定
     let participating_teams: Vec<i32> = match sqlx::query_scalar(
-        "SELECT team_id FROM tickets_project_teams WHERE project_id = $1::int4 ORDER BY team_id"
+        "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1::int4 ORDER BY team_id"
     )
     .bind(project_id)
     .fetch_all(&state.pool)
@@ -865,10 +1210,20 @@ pub async fn create_cycle(
     let team_id = match participating_teams.as_slice() {
         [single_team] => *single_team,
         [] => {
-            return (StatusCode::BAD_REQUEST, Json(err("project has no participating teams"))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project has no participating teams")),
+            )
+                .into_response();
         }
         _ => {
-            return (StatusCode::BAD_REQUEST, Json(err("project has multiple teams; specify team_id or team_slug"))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err(
+                    "project has multiple teams; specify team_id or team_slug",
+                )),
+            )
+                .into_response();
         }
     };
 
@@ -885,11 +1240,19 @@ pub async fn create_cycle(
     match cycle_repo::create_cycle(&state.pool, &cycle_in, ai_user_id).await {
         Ok(cycle_id) => match cycle_repo::find_cycle_by_id(&state.pool, cycle_id).await {
             Ok(Some(cycle)) => (StatusCode::CREATED, Json(cycle)).into_response(),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response(),
         },
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -905,18 +1268,26 @@ pub async fn list_ticket_dependencies(
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
     let _ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response();
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response();
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -924,7 +1295,11 @@ pub async fn list_ticket_dependencies(
         Ok(deps) => (StatusCode::OK, Json(deps)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -936,14 +1311,18 @@ pub async fn get_project_dependency_graph(
     Path(project_prefix): Path<String>,
 ) -> impl IntoResponse {
     let _ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, &project_prefix).await {
+    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, &project_prefix)
+        .await
+    {
         Ok(Some(id)) => id,
         Ok(None) => {
-            let available = ticket_repo::list_project_prefixes(&state.pool).await.unwrap_or_default();
+            let available = ticket_repo::list_project_prefixes(&state.pool)
+                .await
+                .unwrap_or_default();
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({
@@ -954,7 +1333,11 @@ pub async fn get_project_dependency_graph(
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -962,7 +1345,11 @@ pub async fn get_project_dependency_graph(
         Ok(graph) => (StatusCode::OK, Json(graph)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -980,30 +1367,60 @@ pub async fn upload_wiki_attachment(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
     let project_prefix = match &params.project_prefix {
         Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix は必須です"))).into_response(),
-    };
-
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("プロジェクト '{}' が見つかりません", project_prefix)))).into_response(),
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix は必須です")),
+            )
+                .into_response()
         }
     };
 
+    let project_id =
+        match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(err(format!(
+                        "プロジェクト '{}' が見つかりません",
+                        project_prefix
+                    ))),
+                )
+                    .into_response()
+            }
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
+            }
+        };
+
     let wiki_page = match wiki_repo::find_by_slug(&state.pool, Some(project_id), &slug).await {
         Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("Wikiページ '{}' が見つかりません", slug)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("Wikiページ '{}' が見つかりません", slug))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -1015,10 +1432,17 @@ pub async fn upload_wiki_attachment(
         if field.name() == Some("file") {
             original_filename = field.file_name().unwrap_or("unnamed").to_string();
             match field.bytes().await {
-                Ok(bytes) => { file_bytes = bytes.to_vec(); has_file = true; }
+                Ok(bytes) => {
+                    file_bytes = bytes.to_vec();
+                    has_file = true;
+                }
                 Err(e) => {
                     tracing::error!("Failed to read file bytes: {}", e);
-                    return (StatusCode::BAD_REQUEST, Json(err("ファイルの読み込みに失敗しました"))).into_response();
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(err("ファイルの読み込みに失敗しました")),
+                    )
+                        .into_response();
                 }
             }
             break;
@@ -1026,16 +1450,26 @@ pub async fn upload_wiki_attachment(
     }
 
     if !has_file || file_bytes.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(err("file フィールドが必要です"))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(err("file フィールドが必要です")),
+        )
+            .into_response();
     }
 
     let file_size = file_bytes.len() as i32;
     let media_dir = std::path::PathBuf::from(&state.config.media_dir);
-    let attachments_dir = media_dir.join("wiki_attachments").join(wiki_page.id.to_string());
+    let attachments_dir = media_dir
+        .join("wiki_attachments")
+        .join(wiki_page.id.to_string());
 
     if let Err(e) = tokio::fs::create_dir_all(&attachments_dir).await {
         tracing::error!("Failed to create wiki attachment directory: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(err("サーバーエラーが発生しました")),
+        )
+            .into_response();
     }
 
     let uuid = Uuid::new_v4().to_string();
@@ -1044,24 +1478,43 @@ pub async fn upload_wiki_attachment(
 
     if let Err(e) = tokio::fs::write(&file_path, &file_bytes).await {
         tracing::error!("Failed to write file: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(err("サーバーエラーが発生しました")),
+        )
+            .into_response();
     }
 
     let relative_path = format!("wiki_attachments/{}/{}", wiki_page.id, stored_filename);
 
     match wiki_attachment_repo::create(
-        &state.pool, wiki_page.id, ai_user_id, &original_filename, &relative_path, file_size,
-    ).await {
-        Ok(id) => (StatusCode::CREATED, Json(json!({
-            "id": id,
-            "filename": original_filename,
-            "fileSize": file_size,
-            "fileUrl": format!("/media/{}", relative_path),
-        }))).into_response(),
+        &state.pool,
+        wiki_page.id,
+        ai_user_id,
+        &original_filename,
+        &relative_path,
+        file_size,
+    )
+    .await
+    {
+        Ok(id) => (
+            StatusCode::CREATED,
+            Json(json!({
+                "id": id,
+                "filename": original_filename,
+                "fileSize": file_size,
+                "fileUrl": format!("/media/{}", relative_path),
+            })),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             let _ = tokio::fs::remove_file(&file_path).await;
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1074,30 +1527,60 @@ pub async fn list_wiki_attachments(
     Query(params): Query<WikiPagesQuery>,
 ) -> impl IntoResponse {
     let _ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
     let project_prefix = match &params.project_prefix {
         Some(p) if !p.is_empty() => p,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("project_prefix は必須です"))).into_response(),
-    };
-
-    let project_id = match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("プロジェクト '{}' が見つかりません", project_prefix)))).into_response(),
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err("project_prefix は必須です")),
+            )
+                .into_response()
         }
     };
 
+    let project_id =
+        match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(err(format!(
+                        "プロジェクト '{}' が見つかりません",
+                        project_prefix
+                    ))),
+                )
+                    .into_response()
+            }
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
+            }
+        };
+
     let wiki_page = match wiki_repo::find_by_slug(&state.pool, Some(project_id), &slug).await {
         Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("Wikiページ '{}' が見つかりません", slug)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("Wikiページ '{}' が見つかりません", slug))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -1105,7 +1588,11 @@ pub async fn list_wiki_attachments(
         Ok(list) => (StatusCode::OK, Json(list)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1131,22 +1618,39 @@ pub async fn list_cycles(
     }
 
     let project_id = match &params.project_prefix {
-        Some(p) if !p.is_empty() => match ticket_repo::resolve_project_id_by_prefix(&state.pool, p).await {
-            Ok(Some(id)) => Some(id),
-            Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("プロジェクト '{}' が見つかりません", p)))).into_response(),
-            Err(e) => {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        Some(p) if !p.is_empty() => {
+            match ticket_repo::resolve_project_id_by_prefix(&state.pool, p).await {
+                Ok(Some(id)) => Some(id),
+                Ok(None) => {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(err(format!("プロジェクト '{}' が見つかりません", p))),
+                    )
+                        .into_response()
+                }
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(err("サーバーエラーが発生しました")),
+                    )
+                        .into_response();
+                }
             }
-        },
+        }
         _ => None,
     };
 
-    match cycle_repo::find_all_cycles(&state.pool, project_id, None, params.status.as_deref()).await {
+    match cycle_repo::find_all_cycles(&state.pool, project_id, None, params.status.as_deref()).await
+    {
         Ok(cycles) => (StatusCode::OK, Json(cycles)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1166,7 +1670,11 @@ pub async fn get_cycle(
         Ok(None) => (StatusCode::NOT_FOUND, Json(err("サイクルが見つかりません"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1195,19 +1703,31 @@ pub async fn patch_cycle(
 
     let existing = match cycle_repo::find_cycle_by_id(&state.pool, id).await {
         Ok(Some(c)) => c,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err("サイクルが見つかりません"))).into_response(),
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(err("サイクルが見つかりません"))).into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    let team_id_val = body.team_id.flatten().or_else(|| existing.team.as_ref().map(|t| t.id));
+    let team_id_val = body
+        .team_id
+        .flatten()
+        .or_else(|| existing.team.as_ref().map(|t| t.id));
 
     let merged = CycleWriteIn {
         project: existing.project,
         name: body.name.clone().unwrap_or(existing.name.clone()),
-        description: body.description.clone().unwrap_or(existing.description.clone()),
+        description: body
+            .description
+            .clone()
+            .unwrap_or(existing.description.clone()),
         start_date: body.start_date.unwrap_or(existing.start_date),
         end_date: body.end_date.unwrap_or(existing.end_date),
         status: body.status.clone().unwrap_or(existing.status.clone()),
@@ -1215,18 +1735,30 @@ pub async fn patch_cycle(
     };
 
     if merged.start_date >= merged.end_date {
-        return (StatusCode::BAD_REQUEST, Json(err("start_date は end_date より前である必要があります"))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(err("start_date は end_date より前である必要があります")),
+        )
+            .into_response();
     }
 
     match cycle_repo::update_cycle(&state.pool, id, &merged).await {
         Ok(true) => match cycle_repo::find_cycle_by_id(&state.pool, id).await {
             Ok(Some(cycle)) => (StatusCode::OK, Json(cycle)).into_response(),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response(),
         },
         Ok(false) => (StatusCode::NOT_FOUND, Json(err("サイクルが見つかりません"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1246,7 +1778,11 @@ pub async fn delete_cycle(
         Ok(false) => (StatusCode::NOT_FOUND, Json(err("サイクルが見つかりません"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1261,7 +1797,9 @@ pub struct AddAiDependencyIn {
     #[serde(default = "default_dependency_type")]
     pub dependency_type: String,
 }
-fn default_dependency_type() -> String { "blocks".to_string() }
+fn default_dependency_type() -> String {
+    "blocks".to_string()
+}
 
 /// POST /api/v1/ai-agent/tickets/{ticket_key}/dependencies/
 pub async fn add_dependency(
@@ -1273,16 +1811,26 @@ pub async fn add_dependency(
     use ticket_repo::CreateDependencyResult;
 
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -1292,27 +1840,70 @@ pub async fn add_dependency(
     };
     let to_task = match ticket_repo::resolve_ticket_id(&state.pool, to_task_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::BAD_REQUEST, Json(err(format!("チケット '{}' が見つかりません", to_task_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(err(format!("チケット '{}' が見つかりません", to_task_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    let result = ticket_repo::create_dependency(&state.pool, ticket_id, to_task, &body.dependency_type, ai_user_id).await;
+    let result = ticket_repo::create_dependency(
+        &state.pool,
+        ticket_id,
+        to_task,
+        &body.dependency_type,
+        ai_user_id,
+    )
+    .await;
 
     match result {
-        Ok(CreateDependencyResult::Success(id)) => match ticket_repo::find_dependency_by_id(&state.pool, id).await {
-            Ok(Some(dep)) => (StatusCode::CREATED, Json(dep)).into_response(),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
-        },
-        Ok(CreateDependencyResult::SelfReference) => (StatusCode::BAD_REQUEST, Json(err("自分自身への依存関係は作成できません。"))).into_response(),
-        Ok(CreateDependencyResult::Duplicate) => (StatusCode::BAD_REQUEST, Json(err("この依存関係は既に存在します。"))).into_response(),
-        Ok(CreateDependencyResult::ToTaskNotFound) => (StatusCode::BAD_REQUEST, Json(err("指定されたチケットが見つかりません。"))).into_response(),
-        Ok(CreateDependencyResult::CircularDependency) => (StatusCode::BAD_REQUEST, Json(err("この依存関係を追加すると循環依存になります。"))).into_response(),
+        Ok(CreateDependencyResult::Success(id)) => {
+            match ticket_repo::find_dependency_by_id(&state.pool, id).await {
+                Ok(Some(dep)) => (StatusCode::CREATED, Json(dep)).into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(CreateDependencyResult::SelfReference) => (
+            StatusCode::BAD_REQUEST,
+            Json(err("自分自身への依存関係は作成できません。")),
+        )
+            .into_response(),
+        Ok(CreateDependencyResult::Duplicate) => (
+            StatusCode::BAD_REQUEST,
+            Json(err("この依存関係は既に存在します。")),
+        )
+            .into_response(),
+        Ok(CreateDependencyResult::ToTaskNotFound) => (
+            StatusCode::BAD_REQUEST,
+            Json(err("指定されたチケットが見つかりません。")),
+        )
+            .into_response(),
+        Ok(CreateDependencyResult::CircularDependency) => (
+            StatusCode::BAD_REQUEST,
+            Json(err("この依存関係を追加すると循環依存になります。")),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1331,21 +1922,37 @@ pub async fn delete_dependency(
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
     match ticket_repo::delete_dependency(&state.pool, dep_id, ticket_id).await {
         Ok(DeleteDependencyResult::Deleted) => StatusCode::NO_CONTENT.into_response(),
         Ok(DeleteDependencyResult::NotFound) | Ok(DeleteDependencyResult::NotRelated) => (
-            StatusCode::NOT_FOUND, Json(err("この依存関係は指定チケットに関連していません。"))
-        ).into_response(),
+            StatusCode::NOT_FOUND,
+            Json(err("この依存関係は指定チケットに関連していません。")),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1362,16 +1969,31 @@ pub async fn replace_wiki_attachment(
     mut multipart: axum::extract::Multipart,
 ) -> impl IntoResponse {
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
-    let existing = match crate::infrastructure::repositories::wiki_attachment_repo::find_by_id(&state.pool, attachment_id).await {
+    let existing = match crate::infrastructure::repositories::wiki_attachment_repo::find_by_id(
+        &state.pool,
+        attachment_id,
+    )
+    .await
+    {
         Ok(Some(a)) => a,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err("添付ファイルが見つかりません"))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err("添付ファイルが見つかりません")),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -1383,10 +2005,17 @@ pub async fn replace_wiki_attachment(
         if field.name() == Some("file") {
             original_filename = field.file_name().unwrap_or("unnamed").to_string();
             match field.bytes().await {
-                Ok(bytes) => { file_bytes = bytes.to_vec(); has_file = true; }
+                Ok(bytes) => {
+                    file_bytes = bytes.to_vec();
+                    has_file = true;
+                }
                 Err(e) => {
                     tracing::error!("Failed to read file bytes: {}", e);
-                    return (StatusCode::BAD_REQUEST, Json(err("ファイルの読み込みに失敗しました"))).into_response();
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(err("ファイルの読み込みに失敗しました")),
+                    )
+                        .into_response();
                 }
             }
             break;
@@ -1394,16 +2023,26 @@ pub async fn replace_wiki_attachment(
     }
 
     if !has_file || file_bytes.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(err("file フィールドが必要です"))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(err("file フィールドが必要です")),
+        )
+            .into_response();
     }
 
     let file_size = file_bytes.len() as i32;
     let media_dir = std::path::PathBuf::from(&state.config.media_dir);
-    let attachments_dir = media_dir.join("wiki_attachments").join(existing.wiki_page_id.to_string());
+    let attachments_dir = media_dir
+        .join("wiki_attachments")
+        .join(existing.wiki_page_id.to_string());
 
     if let Err(e) = tokio::fs::create_dir_all(&attachments_dir).await {
         tracing::error!("Failed to create wiki attachment directory: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(err("サーバーエラーが発生しました")),
+        )
+            .into_response();
     }
 
     let uuid = Uuid::new_v4().to_string();
@@ -1412,32 +2051,57 @@ pub async fn replace_wiki_attachment(
 
     if let Err(e) = tokio::fs::write(&new_file_path, &file_bytes).await {
         tracing::error!("Failed to write file: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(err("サーバーエラーが発生しました")),
+        )
+            .into_response();
     }
 
-    let relative_path = format!("wiki_attachments/{}/{}", existing.wiki_page_id, stored_filename);
+    let relative_path = format!(
+        "wiki_attachments/{}/{}",
+        existing.wiki_page_id, stored_filename
+    );
     let old_file_path = media_dir.join(&existing.file_path);
 
     match crate::infrastructure::repositories::wiki_attachment_repo::update(
-        &state.pool, attachment_id, &original_filename, &relative_path, file_size,
-    ).await {
+        &state.pool,
+        attachment_id,
+        &original_filename,
+        &relative_path,
+        file_size,
+    )
+    .await
+    {
         Ok(true) => {
             let _ = tokio::fs::remove_file(&old_file_path).await;
-            (StatusCode::OK, Json(json!({
-                "id": attachment_id,
-                "filename": original_filename,
-                "fileSize": file_size,
-                "fileUrl": format!("/media/{}", relative_path),
-            }))).into_response()
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "id": attachment_id,
+                    "filename": original_filename,
+                    "fileSize": file_size,
+                    "fileUrl": format!("/media/{}", relative_path),
+                })),
+            )
+                .into_response()
         }
         Ok(false) => {
             let _ = tokio::fs::remove_file(&new_file_path).await;
-            (StatusCode::NOT_FOUND, Json(err("添付ファイルが見つかりません"))).into_response()
+            (
+                StatusCode::NOT_FOUND,
+                Json(err("添付ファイルが見つかりません")),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             let _ = tokio::fs::remove_file(&new_file_path).await;
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1452,25 +2116,53 @@ pub async fn delete_wiki_attachment(
         return (status, Json(payload)).into_response();
     }
 
-    let existing = match crate::infrastructure::repositories::wiki_attachment_repo::find_by_id(&state.pool, attachment_id).await {
+    let existing = match crate::infrastructure::repositories::wiki_attachment_repo::find_by_id(
+        &state.pool,
+        attachment_id,
+    )
+    .await
+    {
         Ok(Some(a)) => a,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err("添付ファイルが見つかりません"))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err("添付ファイルが見つかりません")),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    match crate::infrastructure::repositories::wiki_attachment_repo::delete(&state.pool, attachment_id).await {
+    match crate::infrastructure::repositories::wiki_attachment_repo::delete(
+        &state.pool,
+        attachment_id,
+    )
+    .await
+    {
         Ok(true) => {
             let media_dir = std::path::PathBuf::from(&state.config.media_dir);
             let _ = tokio::fs::remove_file(media_dir.join(&existing.file_path)).await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(false) => (StatusCode::NOT_FOUND, Json(err("添付ファイルが見つかりません"))).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(err("添付ファイルが見つかりません")),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1498,27 +2190,51 @@ pub async fn list_ticket_links(
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    match crate::infrastructure::repositories::ticket_link_repo::find_by_ticket(&state.pool, ticket_id).await {
+    match crate::infrastructure::repositories::ticket_link_repo::find_by_ticket(
+        &state.pool,
+        ticket_id,
+    )
+    .await
+    {
         Ok(links) => {
-            let out: Vec<_> = links.into_iter().map(|l| json!({
-                "id": l.id,
-                "url": l.url,
-                "title": l.title,
-                "createdBy": l.created_by_name,
-                "createdAt": l.created_at,
-            })).collect();
+            let out: Vec<_> = links
+                .into_iter()
+                .map(|l| {
+                    json!({
+                        "id": l.id,
+                        "url": l.url,
+                        "title": l.title,
+                        "createdBy": l.created_by_name,
+                        "createdAt": l.created_at,
+                    })
+                })
+                .collect();
             (StatusCode::OK, Json(out)).into_response()
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1531,7 +2247,7 @@ pub async fn add_ticket_link(
     Json(body): Json<AddAiTicketLinkIn>,
 ) -> impl IntoResponse {
     let ai_user_id = match authenticate_ai(&state, &headers).await {
-        Ok(id) => id,
+        Ok(id) => id.user_id,
         Err((status, payload)) => return (status, Json(payload)).into_response(),
     };
 
@@ -1542,23 +2258,57 @@ pub async fn add_ticket_link(
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    match crate::infrastructure::repositories::ticket_link_repo::create(&state.pool, ticket_id, url, body.title.as_deref(), ai_user_id).await {
-        Ok(id) => match crate::infrastructure::repositories::ticket_link_repo::find_by_id(&state.pool, id).await {
-            Ok(Some(l)) => (StatusCode::CREATED, Json(json!({
-                "id": l.id, "url": l.url, "title": l.title, "createdAt": l.created_at,
-            }))).into_response(),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
-        },
+    match crate::infrastructure::repositories::ticket_link_repo::create(
+        &state.pool,
+        ticket_id,
+        url,
+        body.title.as_deref(),
+        ai_user_id,
+    )
+    .await
+    {
+        Ok(id) => {
+            match crate::infrastructure::repositories::ticket_link_repo::find_by_id(&state.pool, id)
+                .await
+            {
+                Ok(Some(l)) => (
+                    StatusCode::CREATED,
+                    Json(json!({
+                        "id": l.id, "url": l.url, "title": l.title, "createdAt": l.created_at,
+                    })),
+                )
+                    .into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response(),
+            }
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1575,19 +2325,39 @@ pub async fn delete_ticket_link(
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(err(format!("チケット '{}' が見つかりません", ticket_key)))).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    match crate::infrastructure::repositories::ticket_link_repo::delete(&state.pool, link_id, ticket_id).await {
+    match crate::infrastructure::repositories::ticket_link_repo::delete(
+        &state.pool,
+        link_id,
+        ticket_id,
+    )
+    .await
+    {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, Json(err("見つかりません"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1612,13 +2382,12 @@ pub struct CreateAiTeamIn {
     #[serde(default = "default_team_is_active")]
     pub is_active: bool,
 }
-fn default_team_is_active() -> bool { true }
+fn default_team_is_active() -> bool {
+    true
+}
 
 /// GET /api/v1/ai-agent/teams/
-pub async fn list_teams(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn list_teams(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err((status, payload)) = authenticate_ai(&state, &headers).await {
         return (status, Json(payload)).into_response();
     }
@@ -1627,7 +2396,11 @@ pub async fn list_teams(
         Ok(teams) => (StatusCode::OK, Json(teams)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
         }
     }
 }
@@ -1651,8 +2424,16 @@ pub async fn create_team(
         name,
         slug: body.slug,
         description: body.description,
-        icon: if body.icon.is_empty() { "👥".to_string() } else { body.icon },
-        color: if body.color.is_empty() { "#6366f1".to_string() } else { body.color },
+        icon: if body.icon.is_empty() {
+            "👥".to_string()
+        } else {
+            body.icon
+        },
+        color: if body.color.is_empty() {
+            "#6366f1".to_string()
+        } else {
+            body.color
+        },
         slack_webhook_url: body.slack_webhook_url,
         is_active: body.is_active,
         prefix: None,
@@ -1660,14 +2441,27 @@ pub async fn create_team(
 
     match crate::infrastructure::repositories::team_repo::create_team(&state.pool, &input).await {
         Ok(team_id) => {
-            match crate::infrastructure::repositories::team_repo::find_team_by_id(&state.pool, team_id).await {
+            match crate::infrastructure::repositories::team_repo::find_team_by_id(
+                &state.pool,
+                team_id,
+            )
+            .await
+            {
                 Ok(Some(team)) => (StatusCode::CREATED, Json(team)).into_response(),
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response(),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response(),
             }
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err("チームを作成できませんでした"))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("チームを作成できませんでした")),
+            )
+                .into_response()
         }
     }
 }

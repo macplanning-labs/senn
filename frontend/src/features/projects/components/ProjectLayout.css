@@ -1,0 +1,160 @@
+/* ─── ProjectLayout - プロジェクト詳細画面レイアウト ─────────────────────── */
+
+.project-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ─── ヘッダー ───────────────────────────────────────────────────────── */
+
+.project-layout__header {
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.project-layout__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.project-layout__status-badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+/* ─── タブバー ───────────────────────────────────────────────────────── */
+
+.project-layout__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border-default);
+  padding: 0 var(--space-6);
+  background-color: var(--color-bg-secondary);
+  overflow-x: auto;
+}
+
+.project-layout__tab {
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.project-layout__tab:hover {
+  color: var(--color-text-primary);
+}
+
+.project-layout__tab--active {
+  color: var(--color-accent-primary);
+  border-bottom-color: var(--color-accent-primary);
+}
+
+/* ─── 補助リンク（右端） ─────────────────────────────────────────────── */
+
+.project-layout__aux-links {
+  display: flex;
+  margin-left: auto;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+  /* 主タブとは別グループのリンクと分かるよう、区切り線を入れる */
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border-default);
+}
+
+.project-layout__aux-link {
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.project-layout__aux-link:hover {
+  color: var(--color-text-primary);
+}
+
+.project-layout__aux-link--active {
+  color: var(--color-accent-primary);
+  border-bottom-color: var(--color-accent-primary);
+}
+
+/* ─── ビュー切替（チケットタブ時のみ表示） ────────────────────────── */
+
+.project-layout__view-switch {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  background-color: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.project-layout__view-option {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  text-decoration: none;
+}
+
+.project-layout__view-option:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.project-layout__view-option--active {
+  background-color: var(--color-accent-primary);
+  color: var(--color-bg-primary);
+  border-color: var(--color-accent-primary);
+}
+
+/* ─── コンテンツ領域 ─────────────────────────────────────────────────── */
+
+.project-layout__content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.project-layout__loading,
+.project-layout__error {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.project-layout__error {
+  color: var(--color-error);
+}

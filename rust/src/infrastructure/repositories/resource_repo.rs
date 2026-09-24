@@ -11,7 +11,9 @@ use crate::domain::models::resource_api::*;
 // Projects
 // =============================================================================
 
-pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<ProjectOut>> {
+pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<i32>, filter: &crate::domain::models::resource_api::ProjectListFilter) -> anyhow::Result<Vec<ProjectOut>> {
+    use sqlx::QueryBuilder;
+
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
@@ -22,21 +24,31 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
         name: String,
         prefix: String,
         description: String,
+        status: String,
+        priority: String,
+        target_end_date: Option<chrono::NaiveDate>,
         created_at: chrono::DateTime<chrono::Utc>,
         owner_id: Option<i32>,
         ticket_count: i64,
         member_count: i64,
+        is_member: bool,
         teams: Option<serde_json::Value>,
         cycle_auto_complete: bool,
         cycle_auto_create_next: bool,
+        parent_project_id: Option<i32>,
+        child_count: i64,
+        roadmap_ids: Option<serde_json::Value>,
     }
 
-    let rows = sqlx::query_as::<_, ProjectRow>(
+    let mut qb = QueryBuilder::new(
         "SELECT
             p.id::int4,
             p.name,
             p.prefix,
             p.description,
+            p.status,
+            p.priority,
+            p.target_end_date,
             p.created_at,
             p.owner_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
@@ -47,6 +59,23 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
               WHERE pt.project_id = p.id
                 AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)
             ) as member_count,
+            EXISTS(
+              SELECT 1
+              FROM tickets_project_teams pt2
+              JOIN t_team_membership tm2 ON tm2.team_id = pt2.team_id
+              WHERE pt2.project_id = p.id
+                AND tm2.user_id = "
+    );
+    qb.push_bind(viewer_user_id);
+    qb.push(
+        "               AND (
+                  tm2.scoped_project_id IS NULL
+                  OR (
+                    tm2.scoped_project_id = p.id
+                    AND (tm2.end_date IS NULL OR tm2.end_date + p.grace_period_days >= NOW()::date)
+                  )
+                )
+            ) as is_member,
             COALESCE(
               (
                 SELECT json_agg(json_build_object(
@@ -54,7 +83,8 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
                   'name', t.name,
                   'slug', t.slug,
                   'icon', t.icon,
-                  'color', t.color
+                  'color', t.color,
+                  'archived', (t.archived_at IS NOT NULL)
                 ) ORDER BY t.name)
                 FROM tickets_project_teams pt
                 JOIN m_team t ON t.id = pt.team_id
@@ -63,20 +93,59 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
               '[]'::json
             ) as teams,
             p.cycle_auto_complete,
-            p.cycle_auto_create_next
+            p.cycle_auto_create_next,
+            p.parent_project_id::int4,
+            (SELECT COUNT(*)::int8 FROM tickets_project WHERE parent_project_id = p.id) as child_count,
+            COALESCE(
+              (
+                SELECT json_agg(rp.roadmap_id::int4 ORDER BY rp.roadmap_id)
+                FROM roadmap_projects rp
+                WHERE rp.project_id = p.id
+              ),
+              '[]'::json
+            ) as roadmap_ids
          FROM tickets_project p
-         ORDER BY p.name ASC
-         LIMIT $1 OFFSET $2"
-    )
-    .bind(PAGE_SIZE)
-    .bind(offset)
-    .fetch_all(pool)
-    .await?;
+         WHERE 1=1"
+    );
+
+    // Apply filters
+    if let Some(parent_id_str) = &filter.parent_project_id {
+        if parent_id_str == "none" {
+            qb.push(" AND p.parent_project_id IS NULL");
+        } else if let Ok(parent_id) = parent_id_str.parse::<i32>() {
+            qb.push(" AND p.parent_project_id = ");
+            qb.push_bind(parent_id);
+        }
+    }
+
+    if let Some(roadmap_id) = filter.roadmap_id {
+        qb.push(" AND EXISTS (SELECT 1 FROM roadmap_projects WHERE roadmap_id = ");
+        qb.push_bind(roadmap_id);
+        qb.push(" AND project_id = p.id)");
+    }
+
+    if let Some(related_to_id) = filter.related_to {
+        qb.push(" AND EXISTS (SELECT 1 FROM project_relations WHERE (project_id = ");
+        qb.push_bind(related_to_id);
+        qb.push(" AND related_project_id = p.id) OR (project_id = p.id AND related_project_id = ");
+        qb.push_bind(related_to_id);
+        qb.push("))");
+    }
+
+    qb.push(" ORDER BY p.name ASC LIMIT ");
+    qb.push_bind(PAGE_SIZE);
+    qb.push(" OFFSET ");
+    qb.push_bind(offset);
+
+    let rows = qb.build_query_as::<ProjectRow>().fetch_all(pool).await?;
 
     let projects = rows
         .into_iter()
         .map(|row| {
-            let teams: Vec<TeamSummaryOut> = row.teams
+            let teams: Vec<ProjectTeamOut> = row.teams
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let roadmap_ids: Vec<i32> = row.roadmap_ids
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
 
@@ -85,13 +154,20 @@ pub async fn find_all_projects(pool: &PgPool, page: i64) -> anyhow::Result<Vec<P
                 name: row.name,
                 prefix: row.prefix,
                 description: row.description,
+                status: row.status,
+                priority: row.priority,
+                target_end_date: row.target_end_date,
                 ticket_count: row.ticket_count,
                 member_count: row.member_count,
+                is_member: row.is_member,
                 teams,
                 owner_id: row.owner_id,
                 created_at: row.created_at,
                 cycle_auto_complete: row.cycle_auto_complete,
                 cycle_auto_create_next: row.cycle_auto_create_next,
+                parent_project_id: row.parent_project_id,
+                child_count: row.child_count,
+                roadmap_ids,
             }
         })
         .collect();
@@ -107,20 +183,27 @@ pub async fn count_projects(pool: &PgPool) -> anyhow::Result<i64> {
     Ok(count)
 }
 
-pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<ProjectOut>> {
+pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i32>) -> anyhow::Result<Option<ProjectOut>> {
     #[derive(sqlx::FromRow)]
     struct ProjectRow {
         id: i32,
         name: String,
         prefix: String,
         description: String,
+        status: String,
+        priority: String,
+        target_end_date: Option<chrono::NaiveDate>,
         created_at: chrono::DateTime<chrono::Utc>,
         owner_id: Option<i32>,
         ticket_count: i64,
         member_count: i64,
+        is_member: bool,
         teams: Option<serde_json::Value>,
         cycle_auto_complete: bool,
         cycle_auto_create_next: bool,
+        parent_project_id: Option<i32>,
+        child_count: i64,
+        roadmap_ids: Option<serde_json::Value>,
     }
 
     let row_opt = sqlx::query_as::<_, ProjectRow>(
@@ -129,6 +212,9 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
             p.name,
             p.prefix,
             p.description,
+            p.status,
+            p.priority,
+            p.target_end_date,
             p.created_at,
             p.owner_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE project_id = p.id) as ticket_count,
@@ -139,6 +225,20 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
               WHERE pt.project_id = p.id
                 AND (tm.scoped_project_id IS NULL OR tm.scoped_project_id = p.id)
             ) as member_count,
+            EXISTS(
+              SELECT 1
+              FROM tickets_project_teams pt2
+              JOIN t_team_membership tm2 ON tm2.team_id = pt2.team_id
+              WHERE pt2.project_id = p.id
+                AND tm2.user_id = $2
+                AND (
+                  tm2.scoped_project_id IS NULL
+                  OR (
+                    tm2.scoped_project_id = p.id
+                    AND (tm2.end_date IS NULL OR tm2.end_date + p.grace_period_days >= NOW()::date)
+                  )
+                )
+            ) as is_member,
             COALESCE(
               (
                 SELECT json_agg(json_build_object(
@@ -146,7 +246,8 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
                   'name', t.name,
                   'slug', t.slug,
                   'icon', t.icon,
-                  'color', t.color
+                  'color', t.color,
+                  'archived', (t.archived_at IS NOT NULL)
                 ) ORDER BY t.name)
                 FROM tickets_project_teams pt
                 JOIN m_team t ON t.id = pt.team_id
@@ -155,16 +256,30 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
               '[]'::json
             ) as teams,
             p.cycle_auto_complete,
-            p.cycle_auto_create_next
+            p.cycle_auto_create_next,
+            p.parent_project_id::int4,
+            (SELECT COUNT(*)::int8 FROM tickets_project WHERE parent_project_id = p.id) as child_count,
+            COALESCE(
+              (
+                SELECT json_agg(rp.roadmap_id::int4 ORDER BY rp.roadmap_id)
+                FROM roadmap_projects rp
+                WHERE rp.project_id = p.id
+              ),
+              '[]'::json
+            ) as roadmap_ids
          FROM tickets_project p
          WHERE p.id = $1"
     )
     .bind(id)
+    .bind(viewer_user_id)
     .fetch_optional(pool)
     .await?;
 
     let project = row_opt.map(|row| {
-        let teams: Vec<TeamSummaryOut> = row.teams
+        let teams: Vec<ProjectTeamOut> = row.teams
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+        let roadmap_ids: Vec<i32> = row.roadmap_ids
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
 
@@ -173,13 +288,20 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
             name: row.name,
             prefix: row.prefix,
             description: row.description,
+            status: row.status,
+            priority: row.priority,
+            target_end_date: row.target_end_date,
             ticket_count: row.ticket_count,
             member_count: row.member_count,
+            is_member: row.is_member,
             teams,
             owner_id: row.owner_id,
             created_at: row.created_at,
             cycle_auto_complete: row.cycle_auto_complete,
             cycle_auto_create_next: row.cycle_auto_create_next,
+            parent_project_id: row.parent_project_id,
+            child_count: row.child_count,
+            roadmap_ids,
         }
     });
 
@@ -203,14 +325,15 @@ pub async fn create_project(
     // grace_period_days はDjangoの ProjectCreateSerializer に含まれず、モデルのdefault=7が
     // 常に使われる(APIから変更不可)。Rust側も同じ既定値7を使う(0だと猶予なしになりDjangoと乖離する)。
     let project_id: i32 = sqlx::query_scalar(
-        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_id)
-         VALUES ($1, $2, $3, NOW(), 7, 'active', $4)
+        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_id, priority)
+         VALUES ($1, $2, $3, NOW(), 7, 'in_progress', $4, $5)
          RETURNING id::int4"
     )
     .bind(&input.name)
     .bind(&input.prefix)
     .bind(&input.description)
     .bind(owner_id)
+    .bind(&input.priority)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -238,10 +361,10 @@ pub async fn create_project(
     ];
 
     for (slug, name, category, color, position, is_default) in workflow_statuses {
-        let _ = sqlx::query(
+        sqlx::query(
             "INSERT INTO t_workflow_status (slug, name, category, color, position, is_default, project_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT (project_id, slug) DO NOTHING"
+             ON CONFLICT (project_id, slug) WHERE project_id IS NOT NULL DO NOTHING"
         )
         .bind(slug)
         .bind(name)
@@ -251,7 +374,7 @@ pub async fn create_project(
         .bind(is_default)
         .bind(project_id)
         .execute(&mut *tx)
-        .await;
+        .await?;
     }
 
     tx.commit().await?;
@@ -300,12 +423,13 @@ pub async fn remove_project_team(pool: &PgPool, project_id: i32, team_id: i32) -
 pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE tickets_project
-         SET name = $1, prefix = $2, description = $3
-         WHERE id = $4"
+         SET name = $1, prefix = $2, description = $3, priority = $4
+         WHERE id = $5"
     )
     .bind(&input.name)
     .bind(&input.prefix)
     .bind(&input.description)
+    .bind(&input.priority)
     .bind(id)
     .execute(pool)
     .await?
@@ -317,6 +441,8 @@ pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> a
 pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &ProjectPatchIn) -> anyhow::Result<bool> {
     if input.cycle_auto_complete.is_none()
         && input.cycle_auto_create_next.is_none()
+        && input.status.is_none()
+        && input.priority.is_none()
     {
         return Ok(false);
     }
@@ -333,6 +459,16 @@ pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &Proj
         separated
             .push("cycle_auto_create_next = ")
             .push_bind_unseparated(cacn);
+    }
+    if let Some(ref status) = input.status {
+        separated
+            .push("status = ")
+            .push_bind_unseparated(status);
+    }
+    if let Some(ref priority) = input.priority {
+        separated
+            .push("priority = ")
+            .push_bind_unseparated(priority);
     }
 
     separated.push_unseparated(" WHERE id = ");
@@ -362,6 +498,7 @@ pub enum DeleteProjectResult {
     Deleted,
     NotFound,
     HasTickets,
+    HasChildren(Vec<String>), // 子プロジェクトの名前のリスト
 }
 
 /// プロジェクト削除。
@@ -388,6 +525,15 @@ pub async fn delete_project(pool: &PgPool, id: i32) -> anyhow::Result<DeleteProj
         .await?;
     if ticket_count > 0 {
         return Ok(DeleteProjectResult::HasTickets);
+    }
+
+    // 子プロジェクトがいれば削除不可
+    let child_names: Vec<String> = sqlx::query_scalar("SELECT name FROM tickets_project WHERE parent_project_id = $1 ORDER BY name")
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await?;
+    if !child_names.is_empty() {
+        return Ok(DeleteProjectResult::HasChildren(child_names));
     }
 
     // wiki_page とその子孫(on_delete=CASCADE相当)
@@ -945,6 +1091,7 @@ mod tests {
             name: format!("テストプロジェクト-{prefix}"),
             prefix: prefix.to_string(),
             description: "テスト用".to_string(),
+            priority: "medium".to_string(),
             team_ids,
         }
     }
@@ -958,7 +1105,7 @@ mod tests {
 
         let id = create_project(&pool, &input, None).await.unwrap();
 
-        let found = find_project_by_id(&pool, id).await.unwrap();
+        let found = find_project_by_id(&pool, id, None).await.unwrap();
         assert!(found.is_some());
         let project = found.unwrap();
         assert_eq!(project.id, id);
@@ -979,7 +1126,7 @@ mod tests {
         let ok = update_project(&pool, id, &updated).await.unwrap();
         assert!(ok);
 
-        let found = find_project_by_id(&pool, id).await.unwrap().unwrap();
+        let found = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
         assert_eq!(found.name, "更新後の名前");
     }
 
@@ -1008,7 +1155,7 @@ mod tests {
         assert!(matches!(result, DeleteProjectResult::HasTickets));
 
         // 削除されていないことを確認
-        let still_there = find_project_by_id(&pool, id).await.unwrap();
+        let still_there = find_project_by_id(&pool, id, None).await.unwrap();
         assert!(still_there.is_some());
     }
 
@@ -1022,7 +1169,7 @@ mod tests {
         let result = delete_project(&pool, id).await.unwrap();
         assert!(matches!(result, DeleteProjectResult::Deleted));
 
-        let found = find_project_by_id(&pool, id).await.unwrap();
+        let found = find_project_by_id(&pool, id, None).await.unwrap();
         assert!(found.is_none());
     }
 
@@ -1032,4 +1179,159 @@ mod tests {
         let result = delete_project(&pool, 999_999_999).await.unwrap();
         assert!(matches!(result, DeleteProjectResult::NotFound));
     }
+
+    #[tokio::test]
+    async fn create_project_defaults_to_in_progress_status() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("STS{}", &test_support::unique_suffix()[..6]);
+        let team_id = test_support::create_test_team(&pool, "team_sts").await;
+        let input = write_in(&prefix, vec![team_id]);
+
+        let id = create_project(&pool, &input, None).await.unwrap();
+
+        let found = find_project_by_id(&pool, id, None).await.unwrap();
+        assert!(found.is_some());
+        let project = found.unwrap();
+        assert_eq!(project.status, "in_progress");
+    }
+
+    #[tokio::test]
+    async fn create_project_defaults_to_medium_priority() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("PRI{}", &test_support::unique_suffix()[..6]);
+        let team_id = test_support::create_test_team(&pool, "team_pri").await;
+        let input = write_in(&prefix, vec![team_id]);
+
+        let id = create_project(&pool, &input, None).await.unwrap();
+
+        let found = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
+        assert_eq!(found.priority, "medium");
+    }
+
+    #[tokio::test]
+    async fn patch_project_updates_status() {
+        use crate::domain::models::resource_api::ProjectPatchIn;
+
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("PST{}", &test_support::unique_suffix()[..6]);
+        let team_id = test_support::create_test_team(&pool, "team_pst").await;
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+
+        let patch_input = ProjectPatchIn {
+            status: Some("paused".to_string()),
+            ..Default::default()
+        };
+        let result = patch_project_settings(&pool, id, &patch_input).await.unwrap();
+        assert!(result);
+
+        let found = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
+        assert_eq!(found.status, "paused");
+    }
+
+    #[tokio::test]
+    async fn find_project_reports_is_member_for_participating_user() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("MEM{}", &test_support::unique_suffix()[..6]);
+        let team_id = test_support::create_test_team(&pool, "team_mem").await;
+        let member_user = test_support::create_test_user(&pool, "project-member").await;
+        let outsider_user = test_support::create_test_user(&pool, "project-outsider").await;
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())"
+        )
+        .bind(team_id)
+        .bind(member_user)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let as_member = find_project_by_id(&pool, id, Some(member_user)).await.unwrap().unwrap();
+        assert!(as_member.is_member);
+
+        let as_outsider = find_project_by_id(&pool, id, Some(outsider_user)).await.unwrap().unwrap();
+        assert!(!as_outsider.is_member);
+
+        let as_anonymous = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
+        assert!(!as_anonymous.is_member);
+    }
+
+    #[tokio::test]
+    async fn find_project_is_member_true_for_guest_within_grace_period() {
+        use chrono::Duration;
+
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("GST{}", &test_support::unique_suffix()[..6]);
+        let team_id = test_support::create_test_team(&pool, "team_gst").await;
+        let guest_user = test_support::create_test_user(&pool, "project-guest").await;
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+
+        // create_project の grace_period_days 既定値は 7。end_date を昨日にして、
+        // 期限自体は過ぎているがグレースピリオド内であることを確認する。
+        let yesterday = chrono::Utc::now().date_naive() - Duration::days(1);
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, end_date, joined_at)
+             VALUES ($1, $2, 'member', $3, $4, NOW())"
+        )
+        .bind(team_id)
+        .bind(guest_user)
+        .bind(id)
+        .bind(yesterday)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let found = find_project_by_id(&pool, id, Some(guest_user)).await.unwrap().unwrap();
+        assert!(found.is_member);
+    }
+
+    #[tokio::test]
+    async fn find_project_is_member_false_for_guest_past_grace_period() {
+        use chrono::Duration;
+
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let prefix = format!("EXP{}", &test_support::unique_suffix()[..6]);
+        let team_id = test_support::create_test_team(&pool, "team_exp").await;
+        let expired_guest = test_support::create_test_user(&pool, "project-expired-guest").await;
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+
+        let long_ago = chrono::Utc::now().date_naive() - Duration::days(30);
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, end_date, joined_at)
+             VALUES ($1, $2, 'member', $3, $4, NOW())"
+        )
+        .bind(team_id)
+        .bind(expired_guest)
+        .bind(id)
+        .bind(long_ago)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let found = find_project_by_id(&pool, id, Some(expired_guest)).await.unwrap().unwrap();
+        assert!(!found.is_member);
+    }
+
+    #[tokio::test]
+    async fn find_all_projects_returns_hierarchy_fields() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let suffix = test_support::unique_suffix();
+        let user = test_support::create_test_user(&pool, &format!("hier{}", suffix)).await;
+        let parent_id = test_support::create_test_project(&pool, &format!("PARENT{}", suffix), user).await;
+        let child_id = test_support::create_test_project(&pool, &format!("CHILD{}", suffix), user).await;
+
+        // 子を親に設定
+        use crate::infrastructure::repositories::project_hierarchy_repo;
+        project_hierarchy_repo::set_parent(&pool, child_id, Some(parent_id)).await.unwrap();
+
+        // 親のプロジェクトを直接取得して確認
+        let parent = find_project_by_id(&pool, parent_id, Some(user)).await.unwrap().unwrap();
+        assert_eq!(parent.parent_project_id, None);
+        assert_eq!(parent.child_count, 1);
+
+        let child = find_project_by_id(&pool, child_id, Some(user)).await.unwrap().unwrap();
+        assert_eq!(child.parent_project_id, Some(parent_id));
+        assert_eq!(child.child_count, 0);
+    }
+
 }

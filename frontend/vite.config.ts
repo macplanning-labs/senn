@@ -17,7 +17,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // Rust API へのプロキシ（開発時のCORS回避、Django撤去後はport 8151）
+    // Rust API へのプロキシ（開発時のCORS回避）
     proxy: {
       '/api': {
         target: 'http://localhost:8151',

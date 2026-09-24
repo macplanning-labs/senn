@@ -1,0 +1,254 @@
+/* GettingStartedChecklist.css */
+
+.getting-started-checklist {
+  padding: var(--space-4, 1rem) var(--space-3, 0.75rem);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md, 0.5rem);
+  background-color: var(--color-bg-secondary);
+}
+
+.getting-started-checklist__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-3, 0.75rem) 0;
+}
+
+.getting-started-checklist__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 0.75rem);
+}
+
+.getting-started-checklist__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+}
+
+.getting-started-checklist__step--disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.getting-started-checklist__step-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+}
+
+.getting-started-checklist__number {
+  min-width: 1.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.getting-started-checklist__checkmark {
+  min-width: 1.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-success, var(--color-accent, #22c55e));
+  font-size: 0.875rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.getting-started-checklist__step-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.getting-started-checklist__hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.getting-started-checklist__create-btn {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  background-color: var(--color-accent, #6366f1);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.getting-started-checklist__create-btn:hover {
+  background-color: var(--color-accent-hover, #4f46e5);
+}
+
+.getting-started-checklist__create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 2つの選択肢を並べるコンテナ */
+.getting-started-checklist__options {
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-3, 0.75rem);
+  flex-wrap: wrap;
+}
+
+/* 各選択肢のカード */
+.getting-started-checklist__option {
+  flex: 1 1 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+  padding: var(--space-3, 0.75rem);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md, 0.5rem);
+  background-color: var(--color-bg-secondary);
+}
+
+.getting-started-checklist__option--demo {
+  flex-basis: 100%;
+}
+
+.getting-started-checklist__option-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.getting-started-checklist__option-hint {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+  flex-grow: 1;
+}
+
+.getting-started-checklist__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+  align-items: flex-start;
+}
+
+/* DemoDataButton スタイル */
+.demo-data-button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+  align-items: flex-start;
+}
+
+.demo-data-button__btn {
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.demo-data-button__btn:hover {
+  background-color: var(--color-bg-quaternary);
+  border-color: var(--color-border-interactive);
+}
+
+.demo-data-button__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.demo-data-button__hint {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* DemoReadyMessage スタイル */
+.demo-ready-message {
+  padding: var(--space-3, 0.75rem);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md, 0.5rem);
+}
+
+.demo-ready-message__text {
+  margin: 0 0 var(--space-2, 0.5rem) 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.demo-ready-message__links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+  align-items: flex-start;
+}
+
+.demo-ready-message__link {
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  background-color: var(--color-accent, #6366f1);
+  color: white;
+  text-decoration: none;
+  border-radius: var(--radius-md, 0.5rem);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  display: inline-block;
+}
+
+.demo-ready-message__link:hover {
+  background-color: var(--color-accent-hover, #4f46e5);
+}
+
+.demo-ready-message__link--primary {
+  background-color: var(--color-success, #22c55e);
+}
+
+.demo-ready-message__link--primary:hover {
+  background-color: var(--color-success-hover, #16a34a);
+}
+
+@media (prefers-color-scheme: dark) {
+  .getting-started-checklist {
+    background-color: var(--color-bg-secondary);
+    border-color: var(--color-border-default);
+  }
+
+  .getting-started-checklist__create-btn:hover {
+    background-color: var(--color-accent-hover, #4f46e5);
+  }
+
+  .demo-data-button__btn:hover {
+    background-color: var(--color-bg-quaternary);
+    border-color: var(--color-border-interactive);
+  }
+}
+
+/* 完了バッジ（ステップ名の横） */
+.getting-started-checklist__done-badge {
+  margin-left: var(--space-2, 0.5rem);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}

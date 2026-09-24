@@ -1,0 +1,409 @@
+.ticket-comments {
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 8px;
+}
+
+.ticket-comments__title {
+  margin: 0 0 16px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #e0e0e0);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ticket-comments__count {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  background: var(--color-bg-tertiary, #2a2a2a);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.ticket-comments__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.ticket-comments__empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary, #a0a0a0);
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+/* Comment Item */
+.ticket-comment-item {
+  padding: 12px;
+  background: var(--color-bg-tertiary, #2a2a2a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+}
+
+.ticket-comment-item__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ticket-comment-item__author {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.ticket-comment-item__ai-badge {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: help;
+}
+
+.ticket-comment-item__time {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  margin-left: auto;
+}
+
+.ticket-comment-item__body {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-primary, #e0e0e0);
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.ticket-comment-item__deleted {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  font-style: italic;
+}
+
+/* Comment Form */
+.ticket-comments__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--color-border, #333);
+  padding-top: 16px;
+  transition: all 0.2s;
+}
+
+.ticket-comments__form--drag-over {
+  border-top-style: dashed;
+  border-top-color: var(--color-accent, #6366f1);
+  background: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.ticket-comments__input {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  color: var(--color-text-primary, #e0e0e0);
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: all 0.2s;
+}
+
+.ticket-comments__input .ProseMirror {
+  min-height: 100px;
+  outline: none;
+}
+
+.ticket-comments__input:focus-within {
+  border-color: var(--color-accent, #6366f1);
+  background: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.ticket-comments__input .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-text-secondary, #a0a0a0);
+}
+
+/* ── TipTap @メンション候補ポップアップ（document.bodyへappendされるため
+   このコンポーネントのCSSに含めて、常に読み込まれるようにする） ── */
+.mention-list {
+  background: var(--color-bg-primary, #141414);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  overflow-y: auto;
+  max-height: 240px;
+  padding: 4px;
+}
+
+.mention-list__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text-primary, #e0e0e0);
+}
+
+.mention-list__item--selected,
+.mention-list__item:hover {
+  background: var(--color-bg-tertiary, #2a2a2a);
+}
+
+.mention-list__alias {
+  color: #f97316;
+  font-size: 0.75rem;
+}
+
+.mention-list__username {
+  color: var(--color-text-secondary, #a0a0a0);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.ticket-comments__submit {
+  align-self: flex-end;
+  padding: 8px 16px;
+  background: var(--color-accent, #6366f1);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-comments__submit:hover:not(:disabled) {
+  background: var(--color-accent-bright, #818cf8);
+}
+
+.ticket-comments__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ticket-comments__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ticket-comments__attach {
+  background: transparent;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 6px 8px;
+  opacity: 1;
+  cursor: pointer;
+}
+.ticket-comments__attach:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ticket-comments__file-input {
+  display: none;
+}
+
+/* Comment Edit/Delete/Reply */
+.ticket-comment-item__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ticket-comment-item__action-btn {
+  background: transparent;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-comment-item__action-btn:hover:not(:disabled) {
+  background: var(--color-bg-tertiary, #2a2a2a);
+  color: var(--color-text-primary, #e0e0e0);
+  border-color: var(--color-accent, #6366f1);
+}
+
+.ticket-comment-item__action-btn--delete:hover:not(:disabled) {
+  color: var(--color-error, #ef4444);
+  border-color: var(--color-error, #ef4444);
+}
+
+.ticket-comment-item__action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ticket-comment-item__edit-form {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+}
+
+.ticket-comment-item__edit-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  background: var(--color-bg-tertiary, #2a2a2a);
+  color: var(--color-text-primary, #e0e0e0);
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.ticket-comment-item__edit-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent, #6366f1);
+}
+
+.ticket-comment-item__edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ticket-comment-item__edit-save,
+.ticket-comment-item__edit-cancel {
+  background: transparent;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-comment-item__edit-save:hover:not(:disabled) {
+  background: var(--color-accent, #6366f1);
+  color: white;
+  border-color: var(--color-accent, #6366f1);
+}
+
+.ticket-comment-item__edit-cancel:hover:not(:disabled) {
+  background: transparent;
+  color: var(--color-text-secondary, #a0a0a0);
+  border-color: var(--color-text-secondary, #a0a0a0);
+}
+
+.ticket-comment-item__edit-save:disabled,
+.ticket-comment-item__edit-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Reply styling */
+.ticket-comment-item--reply {
+  margin-left: 24px;
+  margin-top: 8px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+}
+
+.ticket-comment-item--reply-form {
+  margin-left: 24px;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--color-bg-secondary, #1a1a1a);
+  border: 1px solid var(--color-accent, #6366f1);
+  border-radius: 6px;
+}
+
+.ticket-comments__cancel {
+  background: transparent;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 8px 16px;
+  color: var(--color-text-secondary, #a0a0a0);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-comments__cancel:hover:not(:disabled) {
+  background: var(--color-bg-tertiary, #2a2a2a);
+  border-color: var(--color-border, #333);
+}
+
+.ticket-comments__cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+.ticket-comments__attachments {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ticket-comments__attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary, #2a2a2a);
+  border-radius: 4px;
+}
+.ticket-comments__attachment-link {
+  color: var(--color-accent, #6366f1);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ticket-comments__attachment-link:hover {
+  text-decoration: underline;
+}
+.ticket-comments__attachment-size {
+  color: var(--color-text-secondary, #a0a0a0);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.ticket-comments__attachment-delete {
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: pointer;
+  padding: 2px 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.ticket-comments__attachment-delete:hover {
+  color: var(--color-error, #ef4444);
+}

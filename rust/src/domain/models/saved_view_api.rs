@@ -22,12 +22,20 @@ pub struct SavedViewOut {
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
     pub updated_at: DateTime<Utc>,
+    #[serde(rename = "viewType")]
+    pub view_type: String,
+}
+
+fn default_view_type() -> String {
+    "tickets".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SavedViewCreateIn {
     pub name: String,
     pub filters: JsonValue,
+    #[serde(default = "default_view_type", rename = "viewType")]
+    pub view_type: String,
     #[serde(default, rename = "isShared", alias = "is_shared")]
     pub is_shared: bool,
 }

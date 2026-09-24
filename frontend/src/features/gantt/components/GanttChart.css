@@ -3,7 +3,7 @@
  */
 
 .gantt {
-  max-width: 1200px;
+  max-width: none;
 }
 
 .gantt__header {

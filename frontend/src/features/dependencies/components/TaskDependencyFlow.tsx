@@ -2,6 +2,7 @@
  * TaskDependencyFlow.tsx — タスク依存関係フロー可視化
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
   Background,
@@ -20,6 +21,8 @@ import { isAxiosError } from 'axios';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useToast } from '@/shared/stores/toastStore';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconDependency } from '@/shared/components/layout/Sidebar';
 import {
   useCreateDependency,
   useDeleteDependency,
@@ -200,6 +203,7 @@ function layoutWithDagre(
 }
 
 export function TaskDependencyFlow() {
+  const { t } = useTranslation();
   const { currentProject } = useProject();
   const { currentTeam } = useTeam();
   const projectId = currentProject?.id;
@@ -349,6 +353,10 @@ export function TaskDependencyFlow() {
 
   return (
     <div className="task-dependency-flow">
+      <TeamTabPageHeader
+        icon={IconDependency}
+        title={t('nav.dependencies')}
+      />
       <div className="task-dependency-flow__toolbar">
         <label className="task-dependency-flow__toolbar-item">
           <input

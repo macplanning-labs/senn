@@ -15,6 +15,7 @@ import { useAuthStore } from '@/shared/stores/authStore';
 import { SprintHealthWidget } from './SprintHealthWidget';
 import { TicketDrilldownPopover } from './TicketDrilldownPopover';
 import type { DrilldownFilter } from './TicketDrilldownPopover';
+import { IconPlus } from '@/shared/components/ui/icons';
 import './Dashboard.css';
 
 // ── 型定義 ──────────────────────────────────
@@ -735,8 +736,9 @@ export function Dashboard() {
               className="dashboard__tab dashboard__tab--add"
               onClick={() => setIsCreating(true)}
               title={t('dashboard.newDashboard')}
+              aria-label={t('dashboard.newDashboard')}
             >
-              +
+              <IconPlus size={16} />
             </button>
           )}
         </div>

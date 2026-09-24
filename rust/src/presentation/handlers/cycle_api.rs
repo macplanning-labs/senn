@@ -116,6 +116,9 @@ pub async fn create(
             }
         }
         Err(e) => {
+            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+                return resp;
+            }
             let msg = e.to_string();
             // バリデーションエラーの場合（repo 文言とハンドラ期待を揃える: DEMO-000169）
             if msg.contains("開始日は終了日より前") {
@@ -232,6 +235,9 @@ pub async fn update(
         )
             .into_response(),
         Err(e) => {
+            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+                return resp;
+            }
             if e.to_string().contains("開始日は終了日より前") {
                 (
                     StatusCode::BAD_REQUEST,
@@ -333,6 +339,9 @@ pub async fn patch(
         )
             .into_response(),
         Err(e) => {
+            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+                return resp;
+            }
             if e.to_string().contains("開始日は終了日より前") {
                 (
                     StatusCode::BAD_REQUEST,
@@ -400,6 +409,9 @@ pub async fn delete(
         )
             .into_response(),
         Err(e) => {
+            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+                return resp;
+            }
             tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -472,6 +484,9 @@ pub async fn complete(
         )
             .into_response(),
         Err(e) => {
+            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+                return resp;
+            }
             tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

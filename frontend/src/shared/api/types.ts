@@ -60,6 +60,7 @@ export interface TicketListItem {
   labels: Label[];
   commentCount: number;
   updatedAt: string;
+  createdAt: string;
   cycle: number | null;
   cycleName: string | null;
   totalTimeSpent: number;
@@ -438,6 +439,10 @@ export interface Team {
   projectCount: number;
   createdAt: string;
   prefix?: string | null;
+  /** アーカイブした日時(未アーカイブは null)。アーカイブ済みのチームは閲覧専用 */
+  archivedAt?: string | null;
+  /** 閲覧者が、このチームをアーカイブ・復元できるか(システム管理者 / そのチームの管理者)。チーム一覧の応答でだけ付く */
+  viewerCanManage?: boolean;
 }
 
 export type TeamRole = 'admin' | 'member';
@@ -488,6 +493,7 @@ export interface TriageRequest {
   changePayload: Record<string, unknown>;
   status: TriageStatus;
   project: number | null;
+  team: number | null;
   ticket: number | null;
   ticketKey: string | null;
   ticketId: number | null;
@@ -586,4 +592,81 @@ export interface SavedView {
   ownerId: number;
   createdAt: string;
   updatedAt: string;
+}
+
+// ============================================================
+// プロジェクト構造（親子・関連・ロードマップ）
+// ============================================================
+
+export interface ProjectSummary {
+  id: number;
+  prefix: string;
+  name: string;
+}
+
+export interface ProjectChild extends ProjectSummary {
+  status: string; // planned | in_progress | paused | completed
+  priority: Priority;
+  ownerId: number;
+  ticketCount: number;
+  completedCount: number;
+  progress: number | null;
+  childCount: number;
+  teams: TeamSummary[];
+}
+
+export interface ProjectAncestor extends ProjectSummary {
+  // Used for breadcrumb
+}
+
+export interface RollupStats {
+  projectCount: number;
+  ticketCount: number;
+  completedCount: number;
+  progress: number | null;
+}
+
+export interface Roadmap {
+  id: number;
+  name: string;
+  description?: string;
+  ownerId?: number;
+  projectCount?: number;
+  projects?: ProjectChild[];
+}
+
+export interface RoadmapDetail {
+  id: number;
+  name: string;
+  description: string;
+  ownerId: number;
+  canManage: boolean;
+  projects: Array<{
+    id: number;
+    prefix: string;
+    name: string;
+    status: string; // planned | in_progress | paused | completed
+    ticketCount: number;
+    completedCount: number;
+    progress: number | null;
+  }>;
+}
+
+export interface ProjectStructure {
+  canManage: boolean;
+  ancestors: ProjectAncestor[];
+  parent: ProjectSummary | null;
+  children: ProjectChild[];
+  rollup: RollupStats;
+  related: ProjectSummary[];
+  roadmaps: Array<{
+    id: number;
+    name: string;
+    canRemove: boolean;
+  }>;
+  candidates: {
+    parent: ProjectSummary[];
+    related: ProjectSummary[];
+    roadmaps: Roadmap[];
+  };
 }

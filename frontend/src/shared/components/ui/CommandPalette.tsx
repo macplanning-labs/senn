@@ -29,7 +29,7 @@ interface SearchResult {
   icon: string;
 }
 
-function buildNavItems(teamSlug: string | null, projectKey: string | null) {
+export function buildNavItems(teamSlug: string | null, projectKey: string | null) {
   const items: Array<{ id: string; label: string; path: string; icon: string }> = [
     { id: 'my-issues', label: 'nav.myIssues', path: '/my-issues', icon: '📋' },
     { id: 'inbox', label: 'nav.inbox', path: '/notifications', icon: '📥' },
@@ -38,7 +38,10 @@ function buildNavItems(teamSlug: string | null, projectKey: string | null) {
     items.push(
       { id: 'team-home', label: 'nav.home', path: `/team/${teamSlug}/dashboard`, icon: '🏠' },
       { id: 'team-tickets', label: 'nav.tickets', path: `/team/${teamSlug}/tickets`, icon: '🎫' },
+      { id: 'team-gantt', label: 'nav.gantt', path: `/team/${teamSlug}/gantt`, icon: '📈' },
+      { id: 'team-dependencies', label: 'nav.dependencies', path: `/team/${teamSlug}/dependencies`, icon: '🔗' },
       { id: 'team-projects', label: 'nav.projects', path: `/team/${teamSlug}/projects`, icon: '📁' },
+      { id: 'team-triage', label: 'nav.triage', path: `/team/${teamSlug}/triage`, icon: '📥' },
       { id: 'team-wiki', label: 'nav.wiki', path: `/team/${teamSlug}/wiki`, icon: '📝' },
       { id: 'team-settings', label: 'nav.teamSettings', path: `/team/${teamSlug}/settings`, icon: '⚙️' },
     );
@@ -56,6 +59,7 @@ function buildNavItems(teamSlug: string | null, projectKey: string | null) {
   }
   items.push(
     { id: 'teams', label: 'nav.teams', path: '/teams', icon: '👥' },
+    { id: 'workspace-wiki', label: 'nav.wiki', path: '/wiki', icon: '📝' },
     { id: 'dashboard', label: 'nav.dashboard', path: '/dashboard', icon: '📊' },
     { id: 'settings', label: 'nav.personalSettings', path: '/settings', icon: '⚙️' },
   );

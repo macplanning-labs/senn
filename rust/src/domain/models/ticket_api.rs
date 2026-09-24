@@ -5,7 +5,6 @@
 /// burndown_service.rs等、11ファイルが依存)が引き続き使用するため変更しない。
 /// JSON APIはDjangoの実スキーマ(tickets_ticket等)に対して別の型・別の関数
 /// (ticket_repo.rsに`api_`プレフィックスで追加)を新設して対応する。
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -116,6 +115,8 @@ pub struct TicketListOut {
     pub project: Option<i32>,
     #[serde(rename = "projectPrefix")]
     pub project_prefix: Option<String>,
+    #[serde(rename = "projectName")]
+    pub project_name: Option<String>,
     pub parent: Option<i32>,
     pub labels: Vec<LabelOut>,
     #[serde(rename = "startDate")]
@@ -147,6 +148,12 @@ pub struct CommentOut {
     pub id: i32,
     pub body: String,
     pub author: UserSummaryOut,
+    /// AIエージェント経由(人ごとキー認証成功時)の実際の実行者。
+    /// フロントはこれが Some の場合、投稿者表示を author ではなくこちらを主表示にする
+    /// (WIPAPPDEV-000100)。人間の通常投稿・共有キー経由の投稿では None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "actingUser")]
+    pub acting_user: Option<UserSummaryOut>,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
@@ -166,6 +173,10 @@ pub struct CommentOut {
     pub is_deleted: bool,
     #[serde(rename = "replyCount")]
     pub reply_count: i32,
+    #[serde(rename = "canEdit")]
+    pub can_edit: bool,
+    #[serde(rename = "canDelete")]
+    pub can_delete: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -23,7 +23,7 @@ cd senn
 
 起動中に自動的に `.env.oss` が生成されます（初回のみ）。
 
-ブラウザで **http://localhost:8080** にアクセスしてください。
+ブラウザで **http://localhost:8151** にアクセスしてください。
 
 ## 初回セットアップ
 
@@ -48,12 +48,12 @@ cd senn
 
 ## トラブルシューティング
 
-### ポート 8080 がすでに使用されている
+### ポート 8151 がすでに使用されている
 
 別のアプリケーションが使用中です。以下のコマンドで確認できます：
 
 ```bash
-lsof -i :8080
+lsof -i :8151
 ```
 
 もしくは、`docker-compose.oss.yml` を編集して別のポート（例: 8081）に変更してください：
@@ -62,7 +62,7 @@ lsof -i :8080
 services:
   web:
     ports:
-      - "8081:80"  # 8080 から 8081 に変更
+      - "8081:80"  # 8151 から 8081 に変更
 ```
 
 ### データベースの接続エラー
@@ -101,14 +101,27 @@ docker compose -f docker-compose.oss.yml --env-file .env.oss logs db
 ```bash
 # データベースのダンプ
 docker compose -f docker-compose.oss.yml --env-file .env.oss exec db \
-  pg_dump -U qa_admin qa_tool > backup.sql
+  pg_dump -U senn senn > backup.sql
 
 # メディアファイルのバックアップ
 docker run --rm -v senn-oss-media:/data -v $(pwd):/backup \
   alpine tar czf /backup/media-backup.tar.gz /data
 ```
 
-## 停止・削除
+## スクリプトの役割
+
+| スクリプト | 役割 |
+|:---|:---|
+| `scripts/oss-up.sh` | 自己ホスト起動（compose + 疎通確認） |
+| `scripts/oss-down.sh` | 停止（データ保持） |
+| `scripts/oss-down.sh --volumes` | **アンインストール**（コンテナ停止＋ボリューム削除） |
+
+本リポジトリ（OSS 自己ホスト利用者向け）には `scripts/oss-sync.sh` は用意していない。最新コードの取り込みは `git pull` のあと `oss-down.sh` → `oss-up.sh` で再起動する。
+
+社内メンテナ向けの OSS 展開・公開 mirror 同期は **OSSP** リポジトリ（`/Users/yutaka/workspace/OSSP`）で運用する。`scripts/oss-sync.sh` と公開用作業コピー `oss-checkout/` は OSSP 側にある（旧 `senn-oss-extract` パスは廃止）。本リポ（senn）へ `oss-sync.sh` をコピーしない。
+
+## 停止・削除（アンインストール）
+
 
 ### 停止（データ保持）
 
@@ -133,16 +146,15 @@ docker run --rm -v senn-oss-media:/data -v $(pwd):/backup \
 | 変数 | デフォルト | 説明 |
 |---|---|---|
 | `DB_PASSWORD` | ランダム生成 | PostgreSQL パスワード |
-| `SESSION_SECRET` | ランダム生成 | セッション暗号化キー |
-| `DJANGO_SECRET_KEY` | ランダム生成 | Django/Rust セキュリティキー |
-| `POSTGRES_DB` | `qa_tool` | データベース名 |
-| `POSTGRES_USER` | `qa_admin` | データベースユーザー |
+| `JWT_SECRET_KEY` | ランダム生成 | JWT署名鍵(必須。32文字以上。未設定・既定値のままでは起動しません) |
+| `POSTGRES_DB` | `senn` | データベース名 |
+| `POSTGRES_USER` | `senn` | データベースユーザー |
 
 編集後は `./scripts/oss-down.sh && ./scripts/oss-up.sh` で再起動してください。
 
 ## ネットワーク設定
 
-SENN は `http://localhost:8080` でのみリッスンします。
+SENN は `http://localhost:8151` でのみリッスンします。
 
 他のマシンからアクセスする場合は、`docker-compose.oss.yml` で以下を変更してください：
 
@@ -150,7 +162,7 @@ SENN は `http://localhost:8080` でのみリッスンします。
 services:
   web:
     ports:
-      - "0.0.0.0:8080:80"  # localhost のみから全インターフェースに変更
+      - "0.0.0.0:8151:80"  # localhost のみから全インターフェースに変更
 ```
 
 ## よくある質問
@@ -170,7 +182,7 @@ git pull
 
 ### Q: ファイアウォール越しに使用できる？
 
-はい。ルーターやファイアウォール設定で 8080 番ポートを許可し、自分の IP アドレスから接続してください。
+はい。ルーターやファイアウォール設定で 8151 番ポートを許可し、自分の IP アドレスから接続してください。
 
 ただし、本来オフライン・プライベートな用途を想定しているため、インターネット経由での使用はセキュリティに関する十分な理解が必要です。
 

@@ -9,7 +9,7 @@ use crate::domain::models::triage_api::*;
 const SELECT_BASE: &str = "
     SELECT
         tr.id::int4, tr.title, tr.description, tr.change_type, tr.change_payload,
-        tr.status, tr.project_id::int4, tr.ticket_id::int4,
+        tr.status, tr.project_id::int4, tr.team_id::int4, tr.ticket_id::int4,
         tr.review_comment, tr.reviewed_at, tr.created_at,
         rb.id::int4 as rb_id, rb.username as rb_username, rb.email as rb_email, rb.display_name as rb_display_name,
         vb.id::int4 as vb_id, vb.username as vb_username, vb.email as vb_email, vb.display_name as vb_display_name,
@@ -44,6 +44,7 @@ fn row_to_triage(row: &sqlx::postgres::PgRow) -> TriageRequestOut {
         change_payload: row.get("change_payload"),
         status: row.get("status"),
         project: row.get("project_id"),
+        team: row.get("team_id"),
         ticket: row.get("ticket_id"),
         ticket_key: row.get("ticket_key"),
         ticket_id: row.get("ticket_id"),
@@ -57,6 +58,7 @@ fn row_to_triage(row: &sqlx::postgres::PgRow) -> TriageRequestOut {
 
 pub async fn find_all(
     pool: &PgPool,
+    team_id: Option<i32>,
     status: Option<&str>,
     change_type: Option<&str>,
     page: i64,
@@ -67,13 +69,15 @@ pub async fn find_all(
 
     let query = format!(
         "{SELECT_BASE}
-         WHERE ($1::text IS NULL OR tr.status = $1)
-           AND ($2::text IS NULL OR tr.change_type = $2)
+         WHERE ($1::int4 IS NULL OR tr.team_id = $1)
+           AND ($2::text IS NULL OR tr.status = $2)
+           AND ($3::text IS NULL OR tr.change_type = $3)
          ORDER BY tr.created_at DESC
-         LIMIT $3 OFFSET $4"
+         LIMIT $4 OFFSET $5"
     );
 
     let rows = sqlx::query(&query)
+        .bind(team_id)
         .bind(status)
         .bind(change_type)
         .bind(PAGE_SIZE)
@@ -84,12 +88,19 @@ pub async fn find_all(
     Ok(rows.iter().map(row_to_triage).collect())
 }
 
-pub async fn count_all(pool: &PgPool, status: Option<&str>, change_type: Option<&str>) -> anyhow::Result<i64> {
+pub async fn count_all(
+    pool: &PgPool,
+    team_id: Option<i32>,
+    status: Option<&str>,
+    change_type: Option<&str>,
+) -> anyhow::Result<i64> {
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM t_triage_request
-         WHERE ($1::text IS NULL OR status = $1)
-           AND ($2::text IS NULL OR change_type = $2)"
+         WHERE ($1::int4 IS NULL OR team_id = $1)
+           AND ($2::text IS NULL OR status = $2)
+           AND ($3::text IS NULL OR change_type = $3)"
     )
+    .bind(team_id)
     .bind(status)
     .bind(change_type)
     .fetch_one(pool)
@@ -111,8 +122,8 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<TriageR
 pub async fn create(pool: &PgPool, input: &TriageRequestWriteIn, requested_by: i32) -> anyhow::Result<i32> {
     let id: i32 = sqlx::query_scalar(
         "INSERT INTO t_triage_request
-            (title, description, change_type, change_payload, status, project_id, ticket_id, requested_by_id, review_comment, created_at)
-         VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, '', NOW())
+            (title, description, change_type, change_payload, status, project_id, team_id, ticket_id, requested_by_id, review_comment, created_at)
+         VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, '', NOW())
          RETURNING id::int4"
     )
     .bind(&input.title)
@@ -120,6 +131,7 @@ pub async fn create(pool: &PgPool, input: &TriageRequestWriteIn, requested_by: i
     .bind(&input.change_type)
     .bind(&input.change_payload)
     .bind(input.project)
+    .bind(input.team)
     .bind(input.ticket)
     .bind(requested_by)
     .fetch_one(pool)
@@ -140,19 +152,21 @@ pub async fn update(pool: &PgPool, id: i32, input: &TriageRequestUpdateIn) -> an
     let change_type = input.change_type.as_ref().unwrap_or(&existing.change_type).clone();
     let change_payload = input.change_payload.as_ref().unwrap_or(&existing.change_payload).clone();
     let project = input.project.or(existing.project);
+    let team = input.team.or(existing.team);
     let ticket = input.ticket.or(existing.ticket);
 
     let rows_affected = sqlx::query(
         "UPDATE t_triage_request
          SET title = $1, description = $2, change_type = $3, change_payload = $4,
-             project_id = $5, ticket_id = $6
-         WHERE id = $7"
+             project_id = $5, team_id = $6, ticket_id = $7
+         WHERE id = $8"
     )
     .bind(&title)
     .bind(&description)
     .bind(&change_type)
     .bind(&change_payload)
     .bind(project)
+    .bind(team)
     .bind(ticket)
     .bind(id)
     .execute(pool)
@@ -198,6 +212,25 @@ pub async fn reject(pool: &PgPool, id: i32, reviewed_by: i32, comment: &str) -> 
     Ok(rows_affected > 0)
 }
 
+/// project に参加チームが1つだけなら補完。2つ以上ならエラー。
+async fn resolve_team_from_project(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    project_id: i32,
+) -> anyhow::Result<i32> {
+    let participating_teams: Vec<i32> = sqlx::query_scalar(
+        "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
+    )
+    .bind(project_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    match participating_teams.as_slice() {
+        [single_team] => Ok(*single_team),
+        [] => Err(anyhow::anyhow!("project has no participating teams")),
+        _ => Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+    }
+}
+
 /// 承認: レビュー情報を記録し、必要であればチケットを自動生成して紐付ける。
 /// ticket_id/project_idは既にセットされている場合(ticketが既存)は変更しない。
 pub struct ApproveResult {
@@ -214,7 +247,7 @@ pub async fn approve(
     let mut tx = pool.begin().await?;
 
     let row = sqlx::query(
-        "SELECT title, description, change_type, project_id::int4, ticket_id::int4
+        "SELECT title, description, change_type, project_id::int4, team_id::int4, ticket_id::int4
          FROM t_triage_request WHERE id = $1 FOR UPDATE"
     )
     .bind(id)
@@ -232,6 +265,7 @@ pub async fn approve(
     let existing_ticket_id: Option<i32> = row.get("ticket_id");
 
     let existing_project_id: Option<i32> = row.get("project_id");
+    let request_team_id: Option<i32> = row.get("team_id");
     let resolved_project_id = body_project_id.or(existing_project_id);
 
     let mut created_ticket_id: Option<i32> = None;
@@ -268,18 +302,24 @@ pub async fn approve(
             .fetch_one(&mut *tx)
             .await?;
 
-            // project に参加チームが1つだけなら補完。2つ以上ならエラー
-            let participating_teams: Vec<i32> = sqlx::query_scalar(
-                "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
-            )
-            .bind(project_id)
-            .fetch_all(&mut *tx)
-            .await?;
+            let team_id = if let Some(req_team) = request_team_id {
+                let is_linked: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM tickets_project_teams WHERE project_id = $1 AND team_id = $2
+                    )"
+                )
+                .bind(project_id)
+                .bind(req_team)
+                .fetch_one(&mut *tx)
+                .await?;
 
-            let team_id = match participating_teams.as_slice() {
-                [single_team] => *single_team,
-                [] => return Err(anyhow::anyhow!("project has no participating teams")),
-                _ => return Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+                if is_linked {
+                    req_team
+                } else {
+                    resolve_team_from_project(&mut tx, project_id).await?
+                }
+            } else {
+                resolve_team_from_project(&mut tx, project_id).await?
             };
 
             let ticket_key = crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(&mut tx, team_id).await?;

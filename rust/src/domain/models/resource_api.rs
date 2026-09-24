@@ -15,17 +15,35 @@ pub use crate::domain::models::ticket_api::{CategoryOut, LabelOut, MilestoneOut,
 // apps/api/serializers.py の ProjectSerializer と厳密に一致させること。
 // ---------------------------------------------------------------------------
 
+/// プロジェクトの担当チーム(アーカイブ済みかどうかを持つ)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTeamOut {
+    pub id: i32,
+    pub name: String,
+    pub slug: String,
+    pub icon: String,
+    pub color: String,
+    #[serde(default)]
+    pub archived: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProjectOut {
     pub id: i32,
     pub name: String,
     pub prefix: String,
     pub description: String,
+    pub status: String,
+    pub priority: String,
+    #[serde(rename = "targetEndDate")]
+    pub target_end_date: Option<chrono::NaiveDate>,
     #[serde(rename = "ticketCount")]
     pub ticket_count: i64,
     #[serde(rename = "memberCount")]
     pub member_count: i64,
-    pub teams: Vec<TeamSummaryOut>,
+    #[serde(rename = "isMember")]
+    pub is_member: bool,
+    pub teams: Vec<ProjectTeamOut>,
     #[serde(rename = "ownerId")]
     pub owner_id: Option<i32>,
     #[serde(rename = "createdAt")]
@@ -34,6 +52,16 @@ pub struct ProjectOut {
     pub cycle_auto_complete: bool,
     #[serde(rename = "cycleAutoCreateNext")]
     pub cycle_auto_create_next: bool,
+    #[serde(rename = "parentProjectId")]
+    pub parent_project_id: Option<i32>,
+    #[serde(rename = "childCount")]
+    pub child_count: i64,
+    #[serde(rename = "roadmapIds")]
+    pub roadmap_ids: Vec<i32>,
+}
+
+fn default_priority() -> String {
+    "medium".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,6 +70,8 @@ pub struct ProjectWriteIn {
     pub prefix: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default = "default_priority")]
+    pub priority: String,
     #[serde(rename = "teamIds")]
     pub team_ids: Vec<i32>,
 }
@@ -61,6 +91,23 @@ pub struct ProjectPatchIn {
     pub cycle_auto_complete: Option<bool>,
     #[serde(default, rename = "cycleAutoCreateNext")]
     pub cycle_auto_create_next: Option<bool>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default, rename = "parentProjectId", deserialize_with = "deserialize_present")]
+    pub parent_project_id: Option<Option<i32>>,
+}
+
+/// GET /projects/ の絞り込みフィルター
+#[derive(Debug, Clone, Default)]
+pub struct ProjectListFilter {
+    /// 親プロジェクトID。数値で指定すると子のみ、"none" でルートのみ、None で制限なし。
+    pub parent_project_id: Option<String>,
+    /// ロードマップID。指定するとそのロードマップに所属するプロジェクトのみ。
+    pub roadmap_id: Option<i32>,
+    /// 関連プロジェクトID。指定するとそのプロジェクトと関連のあるプロジェクトのみ。
+    pub related_to: Option<i32>,
 }
 
 // ---------------------------------------------------------------------------

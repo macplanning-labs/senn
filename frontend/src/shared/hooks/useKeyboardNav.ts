@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useCallback, useState } from 'react';
+import { hasCommandModifier } from './keyboardGuards';
 
 interface UseKeyboardNavOptions {
   /** リストのアイテム数 */
@@ -55,7 +56,8 @@ export function useKeyboardNav({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (!enabled || isInputFocused()) return;
+      // Cmd+C(コピー)などを、単独キーのショートカットと取り違えない
+      if (!enabled || hasCommandModifier(e) || isInputFocused()) return;
 
       switch (e.key) {
         case 'j':

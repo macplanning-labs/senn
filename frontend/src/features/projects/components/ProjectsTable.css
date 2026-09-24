@@ -1,0 +1,142 @@
+.projects-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.projects-table__th {
+  text-align: left;
+  padding: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.projects-table__th--name {
+  width: 50%;
+}
+
+.projects-table__row {
+  cursor: pointer;
+}
+
+.projects-table__row:hover {
+  background: var(--color-bg-hover);
+}
+
+.projects-table__td {
+  padding: var(--space-2);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-default);
+  white-space: nowrap;
+}
+
+.projects-table__td--name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: normal;
+}
+
+.projects-table__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+
+.projects-table__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.projects-table__name {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.projects-table__prefix {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  flex-shrink: 0;
+}
+
+.projects-table__teams {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--space-2);
+  flex-shrink: 0;
+}
+
+.projects-table__team-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.projects-table__row {
+  transition: opacity 0.15s ease;
+}
+
+.projects-table__row--context {
+  opacity: 0.6;
+}
+
+.projects-table__child-count {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs, 0.75rem);
+  margin-left: var(--space-1);
+}
+
+.projects-table__expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-right: var(--space-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+
+.projects-table__expand-btn:hover {
+  color: var(--color-text-primary);
+}
+
+.projects-table__expand-btn--open {
+  transform: rotate(90deg);
+}
+
+.projects-table__expand-placeholder {
+  display: inline-block;
+  width: 20px;
+  margin-right: var(--space-1);
+}
+
+.projects-table__indent {
+  display: inline-block;
+  flex-shrink: 0;
+}

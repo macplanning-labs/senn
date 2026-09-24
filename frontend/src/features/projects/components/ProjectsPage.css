@@ -1,0 +1,297 @@
+/**
+ * ProjectsPage.css
+ */
+
+.projects-page {
+  max-width: 860px;
+  padding: var(--space-4) var(--space-5);
+}
+
+.projects-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.projects-page__title {
+  font-size: var(--font-size-xl, 1.25rem);
+  font-weight: 650;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.projects-page__create-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-accent-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.projects-page__create-btn:hover {
+  background: var(--color-accent-primary-hover);
+}
+
+.projects-page__filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.projects-page__filter {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.projects-page__group {
+  margin-bottom: var(--space-2);
+}
+
+.projects-page__group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.projects-page__group-header:hover {
+  color: var(--color-text-secondary);
+}
+
+.projects-page__chevron {
+  display: inline-block;
+  transition: transform 0.1s;
+}
+
+.projects-page__chevron--open {
+  transform: rotate(90deg);
+}
+
+.projects-page__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.projects-page__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  border-bottom: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--color-text-secondary);
+}
+
+.projects-page__row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.projects-page__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.projects-page__name {
+  flex: 1;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.projects-page__prefix {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.projects-page__teams {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.projects-page__team-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.projects-page__empty {
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.projects-page__preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.projects-page__preset-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.projects-page__preset-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full, 999px);
+  background: var(--color-accent-primary);
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.projects-page__preset-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 240px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown, 100);
+  padding: var(--space-1);
+}
+
+.projects-page__preset-empty {
+  padding: var(--space-3);
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.projects-page__preset-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.projects-page__preset-apply {
+  flex: 1;
+  text-align: left;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.projects-page__preset-apply:hover {
+  background: var(--color-bg-hover);
+}
+
+.projects-page__preset-delete {
+  padding: var(--space-1);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+}
+
+.projects-page__preset-delete:hover {
+  color: var(--color-error);
+  background: var(--color-bg-hover);
+}
+
+.projects-page__preset-save {
+  display: block;
+  width: 100%;
+  padding: var(--space-2);
+  border-top: 1px solid var(--color-border-default);
+  color: var(--color-accent-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+.projects-page__preset-save:hover {
+  background: var(--color-bg-hover);
+}
+
+.projects-page__hierarchy-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.projects-page__hierarchy-toggle input {
+  cursor: pointer;
+}
+
+.projects-page__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.projects-page__roadmaps-link {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.projects-page__roadmaps-link:hover {
+  background-color: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}

@@ -11,7 +11,11 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import './WorkloadReportPage.css';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconDashboard } from '@/shared/components/layout/Sidebar';
 
 interface WorkloadData {
   period: string;
@@ -40,10 +44,26 @@ function formatMinutes(min: number): string {
 export function WorkloadReportPage() {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<Period>('week');
+  const { currentProject } = useProject();
+  const { currentTeam } = useTeam();
+
+  const projectId = currentProject?.id ?? null;
+  const teamId = currentTeam?.id ?? null;
+
+  const scopeSubtitle = currentProject
+    ? t('report.scopeProject', { name: currentProject.name })
+    : currentTeam
+      ? t('report.scopeTeam', { name: currentTeam.name })
+      : t('report.scopeWorkspace');
 
   const { data, isLoading } = useQuery<WorkloadData>({
-    queryKey: ['workload-report', period],
-    queryFn: async () => (await apiClient.get(`/reports/workload/?period=${period}`)).data,
+    queryKey: ['workload-report', period, teamId, projectId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ period });
+      if (teamId != null) params.set('team_id', String(teamId));
+      if (projectId != null) params.set('project_id', String(projectId));
+      return (await apiClient.get(`/reports/workload/?${params.toString()}`)).data;
+    },
   });
 
   const maxDaily = data ? Math.max(...data.daily.map(d => d.total_minutes), 1) : 1;
@@ -51,20 +71,24 @@ export function WorkloadReportPage() {
   return (
     <div className="workload-report" data-testid="workload-report-page">
       {/* ヘッダー */}
-      <div className="workload-report__header">
-        <h1 className="workload-report__title">📊 {t('report.workload')}</h1>
-        <div className="workload-report__period-tabs">
-          {(['week', 'month', 'year'] as Period[]).map(p => (
-            <button
-              key={p}
-              className={`workload-report__tab ${period === p ? 'workload-report__tab--active' : ''}`}
-              onClick={() => setPeriod(p)}
-            >
-              {t(`report.${p}`)}
-            </button>
-          ))}
-        </div>
-      </div>
+      <TeamTabPageHeader
+        icon={IconDashboard}
+        title={t('nav.reports')}
+        subtitle={<p className="workload-report__scope">{scopeSubtitle}</p>}
+        actions={
+          <div className="workload-report__period-tabs">
+            {(['week', 'month', 'year'] as Period[]).map(p => (
+              <button
+                key={p}
+                className={`workload-report__tab ${period === p ? 'workload-report__tab--active' : ''}`}
+                onClick={() => setPeriod(p)}
+              >
+                {t(`report.${p}`)}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {isLoading && <div className="workload-report__loading">Loading...</div>}
 

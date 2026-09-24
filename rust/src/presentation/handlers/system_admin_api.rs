@@ -1,8 +1,7 @@
 /// presentation/handlers/system_admin_api.rs — システム管理 API（staff のみ）
-
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Extension, Json,
@@ -15,11 +14,22 @@ use tokio::process::Command;
 use tokio_util::io::ReaderStream;
 
 use crate::infrastructure::encrypted_settings::{decrypt_value, encrypt_value, mask_secret_tail};
-use crate::infrastructure::repositories::{system_settings_repo, user_repo};
+use crate::infrastructure::repositories::{ai_agent_key_repo, system_settings_repo, user_repo};
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::presentation::state::AppState;
 
-async fn require_staff(state: &AppState, auth: &AuthUser) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+async fn require_staff(
+    state: &AppState,
+    auth: &AuthUser,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    // customer チャネルでは system-admin API を許さない
+    if state.config.app_channel.to_lowercase() == "customer" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "detail": "Not available on customer channel" })),
+        ));
+    }
+
     match user_repo::find_by_id(&state.pool, auth.user_id).await {
         Ok(Some(user)) if user.is_staff => Ok(()),
         Ok(Some(_)) => Err((
@@ -109,11 +119,12 @@ pub async fn get_settings(
         }
     };
 
-    let plan_type = system_settings_repo::get(&state.pool, system_settings_repo::KEY_WORKSPACE_PLAN_TYPE)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| system_settings_repo::DEFAULT_PLAN_TYPE.to_string());
+    let plan_type =
+        system_settings_repo::get(&state.pool, system_settings_repo::KEY_WORKSPACE_PLAN_TYPE)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| system_settings_repo::DEFAULT_PLAN_TYPE.to_string());
 
     (
         StatusCode::OK,
@@ -146,14 +157,18 @@ pub async fn update_settings(
     }
 
     if let Some(mode) = &body.mail_mode {
-        if mode != system_settings_repo::MAIL_MODE_GMAIL && mode != system_settings_repo::MAIL_MODE_SMTP {
+        if mode != system_settings_repo::MAIL_MODE_GMAIL
+            && mode != system_settings_repo::MAIL_MODE_SMTP
+        {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "mailMode は gmail_api または smtp である必要があります" })),
             )
                 .into_response();
         }
-        if let Err(e) = system_settings_repo::set(&state.pool, system_settings_repo::KEY_MAIL_MODE, mode).await {
+        if let Err(e) =
+            system_settings_repo::set(&state.pool, system_settings_repo::KEY_MAIL_MODE, mode).await
+        {
             tracing::error!("system_settings save failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -172,12 +187,9 @@ pub async fn update_settings(
             )
                 .into_response();
         }
-        if let Err(e) = system_settings_repo::set(
-            &state.pool,
-            system_settings_repo::KEY_MAIL_SENDER,
-            trimmed,
-        )
-        .await
+        if let Err(e) =
+            system_settings_repo::set(&state.pool, system_settings_repo::KEY_MAIL_SENDER, trimmed)
+                .await
         {
             tracing::error!("system_settings save failed: {:?}", e);
             return (
@@ -310,7 +322,9 @@ pub async fn update_settings(
         }
     }
 
-    get_settings(State(state), Extension(auth)).await.into_response()
+    get_settings(State(state), Extension(auth))
+        .await
+        .into_response()
 }
 
 #[derive(Serialize)]
@@ -359,7 +373,11 @@ pub async fn get_ai_agent_key(
         .flatten()
         .filter(|v| !v.is_empty());
 
-    let from_env = state.config.wip_ai_api_key.as_ref().filter(|v| !v.is_empty());
+    let from_env = state
+        .config
+        .wip_ai_api_key
+        .as_ref()
+        .filter(|v| !v.is_empty());
 
     let configured = from_db.is_some() || from_env.is_some();
     let masked_tail = if let Some(blob) = from_db {
@@ -420,7 +438,9 @@ pub async fn update_ai_agent_key(
         }
     };
 
-    if let Err(e) = system_settings_repo::set(&state.pool, system_settings_repo::KEY_AI_AGENT_KEY, &blob).await {
+    if let Err(e) =
+        system_settings_repo::set(&state.pool, system_settings_repo::KEY_AI_AGENT_KEY, &blob).await
+    {
         tracing::error!("system_settings save failed: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -429,7 +449,148 @@ pub async fn update_ai_agent_key(
             .into_response();
     }
 
-    get_ai_agent_key(State(state), Extension(auth)).await.into_response()
+    get_ai_agent_key(State(state), Extension(auth))
+        .await
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// 人ごとのAIエージェント用APIキー (WIPAPPDEV-000100)
+//
+// 全社共有の1本のキーとは別に、staffが特定ユーザー向けにAPIキーを発行できる。
+// 発行時に返す平文キーはこの応答限りで、以後DBにはSHA-256ハッシュのみが残る。
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CreateAiAgentPersonalKeyIn {
+    #[serde(rename = "userId")]
+    pub user_id: i32,
+    pub label: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CreateAiAgentPersonalKeyOut {
+    pub id: i32,
+    /// 発行直後のみ含まれる平文キー。この値はサーバー側に保存されず、二度と取得できない。
+    #[serde(rename = "plainKey")]
+    pub plain_key: String,
+    #[serde(rename = "keyPrefix")]
+    pub key_prefix: String,
+}
+
+/// GET /api/v1/system-admin/ai-agent-personal-keys/ — 発行済みキー一覧(staff限定、平文は含まない)
+pub async fn list_ai_agent_personal_keys(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &auth).await {
+        return resp.into_response();
+    }
+
+    match ai_agent_key_repo::list_all(&state.pool).await {
+        Ok(keys) => (StatusCode::OK, Json(keys)).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "サーバーエラーが発生しました" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /api/v1/system-admin/ai-agent-personal-keys/ — 新規発行(staff限定)。
+/// レスポンスに平文キーを含むのはこの一度きり。以後は取得不可(GitHub PAT等と同じUX)。
+pub async fn create_ai_agent_personal_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<CreateAiAgentPersonalKeyIn>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &auth).await {
+        return resp.into_response();
+    }
+
+    match user_repo::find_by_id(&state.pool, body.user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "指定されたユーザーが見つかりません" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "サーバーエラーが発生しました" })),
+            )
+                .into_response();
+        }
+    }
+
+    let plain_key = ai_agent_key_repo::generate_plain_key();
+    let key_hash = ai_agent_key_repo::hash_key(&plain_key);
+    let key_prefix = ai_agent_key_repo::display_prefix(&plain_key);
+    let label = body.label.as_deref().filter(|l| !l.trim().is_empty());
+
+    match ai_agent_key_repo::create(
+        &state.pool,
+        body.user_id,
+        &key_hash,
+        &key_prefix,
+        label,
+        auth.user_id,
+    )
+    .await
+    {
+        Ok(id) => (
+            StatusCode::CREATED,
+            Json(CreateAiAgentPersonalKeyOut {
+                id,
+                plain_key,
+                key_prefix,
+            }),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "キーの発行に失敗しました" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// DELETE /api/v1/system-admin/ai-agent-personal-keys/{id}/ — 失効(staff限定、ソフト削除・冪等)
+pub async fn revoke_ai_agent_personal_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &auth).await {
+        return resp.into_response();
+    }
+
+    match ai_agent_key_repo::revoke(&state.pool, id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "キーが見つからないか、既に失効しています" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "サーバーエラーが発生しました" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 struct PgConnParams {
@@ -451,14 +612,8 @@ fn parse_database_url(database_url: &str) -> Result<PgConnParams, String> {
         .to_string();
     let port = parsed.port().unwrap_or(5432);
     let user = parsed.username().to_string();
-    let password = parsed
-        .password()
-        .unwrap_or("")
-        .to_string();
-    let database = parsed
-        .path()
-        .trim_start_matches('/')
-        .to_string();
+    let password = parsed.password().unwrap_or("").to_string();
+    let database = parsed.path().trim_start_matches('/').to_string();
     if database.is_empty() {
         return Err("DATABASE_URL にデータベース名がありません".to_string());
     }
@@ -554,9 +709,8 @@ pub async fn backup_export(
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("senn_backup_{timestamp}.sql.gz");
 
-    let stream = ReaderStream::new(stdout).map(|chunk| {
-        chunk.map_err(|e| std::io::Error::other(e.to_string()))
-    });
+    let stream = ReaderStream::new(stdout)
+        .map(|chunk| chunk.map_err(|e| std::io::Error::other(e.to_string())));
 
     let mut response = Response::new(Body::from_stream(stream));
     *response.status_mut() = StatusCode::OK;

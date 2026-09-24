@@ -334,9 +334,9 @@
 }
 
 .sidebar__nav-label {
-  font-size: 10px;
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: var(--space-2) var(--space-2) 2px;
@@ -386,6 +386,28 @@
   text-overflow: ellipsis;
 }
 
+.sidebar__empty-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-2);
+  margin: 2px 0;
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sidebar__empty-cta:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
 .sidebar__team-block {
   display: flex;
   flex-direction: column;
@@ -395,7 +417,7 @@
 .sidebar__team-row {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 2px;
   width: 100%;
   border-radius: var(--radius-md);
 }
@@ -470,6 +492,82 @@
   opacity: 1;
 }
 
+.sidebar__team-more {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sidebar__team-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.sidebar__team-more-btn:hover,
+.sidebar__team-more-btn[aria-expanded="true"] {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  opacity: 1;
+}
+
+/* 固定済みは常にピンを見せる（色は他のサイドバーアイコンと同じ secondary） */
+.sidebar__team-more-btn--pinned {
+  color: var(--color-text-secondary);
+  opacity: 1;
+}
+
+.sidebar__team-more-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-dropdown, 100);
+  min-width: 140px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated, var(--color-bg-secondary));
+  border: 1px solid var(--color-border-default);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.sidebar__team-more-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sidebar__team-more-item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.sidebar__team-collapsed-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.sidebar__team-collapsed-row .sidebar__team-collapsed-item {
+  flex: 1;
+  min-width: 0;
+}
+
+
 .sidebar__nested {
   display: flex;
   flex-direction: column;
@@ -483,6 +581,15 @@
 
 .sidebar__team-toggle--collapsed-group {
   opacity: 0.85;
+}
+
+.sidebar__project-icon--show-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0;
 }
 
 .sidebar__collapsed-teams {
@@ -722,4 +829,229 @@
   .sidebar--open .sidebar__icon {
     margin: 0;
   }
+}
+
+.sidebar__section-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.sidebar__section-header .sidebar__nav-label {
+  white-space: nowrap;
+  padding: var(--space-2) 0 2px;
+}
+
+.sidebar__section-label-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  min-width: 0;
+}
+
+.sidebar__section-label-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  padding: 0;
+}
+
+.sidebar__section-label-link:hover .sidebar__nav-label {
+  color: var(--color-text-primary);
+}
+
+.sidebar__section-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-1);
+}
+
+.sidebar__section-add-btn {
+  /* 「＋」と「…」を同じ大きさの箱にして、高さ・中心をそろえる */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+.sidebar__section-add-btn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.sidebar__section-add-btn--attention {
+  color: var(--color-accent, var(--color-text-primary));
+  box-shadow: 0 0 0 2px var(--color-accent, var(--color-border-default));
+  animation: sidebar-add-attention 1.8s ease-in-out infinite;
+}
+
+@keyframes sidebar-add-attention {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-accent, var(--color-border-default)); }
+  50%      { box-shadow: 0 0 0 5px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar__section-add-btn--attention { animation: none; }
+}
+
+.sidebar__teams-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.sidebar__teams-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__teams-menu-list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-dropdown);
+  min-width: 240px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  margin-top: 2px;
+}
+
+.sidebar__teams-menu-section {
+  padding: var(--space-2) 0;
+}
+
+.sidebar__teams-menu-section:first-child {
+  padding-top: var(--space-2);
+}
+
+.sidebar__teams-menu-section:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.sidebar__teams-menu-section-title {
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sidebar__teams-menu-item-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 var(--space-2);
+}
+
+.sidebar__teams-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: background-color 150ms ease;
+  margin: 0 var(--space-2);
+}
+
+.sidebar__teams-menu-item:hover,
+.sidebar__teams-menu-item:focus-visible {
+  background: var(--color-bg-tertiary);
+  outline: none;
+}
+
+.sidebar__teams-menu-item-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: white;
+}
+
+.sidebar__teams-menu-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar__teams-menu-item-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.sidebar__teams-menu-item-action {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+
+/* チーム見出しの「…」メニュー（＋の右） */
+.sidebar__section-more {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar__section-more-menu {
+  min-width: 200px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.sidebar__section-more-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border-default);
+}
+
+.sidebar__section-more-heading {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.sidebar__team-more-item:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
 }

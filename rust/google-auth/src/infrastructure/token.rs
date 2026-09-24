@@ -1,6 +1,5 @@
 //! Google サービスアカウント JWT 認証 → OAuth2 アクセストークン取得
 //!
-//! Sophia の `src/infrastructure/google_auth.rs` から移植。
 //! ドメイン全体委任（`impersonate`）とスコープを引数で汎用パラメータ化しているため、
 //! Drive / Sheets / Gmail など任意の Google API スコープで共用できる。
 

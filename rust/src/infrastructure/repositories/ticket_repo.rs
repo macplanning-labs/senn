@@ -1,10 +1,9 @@
+use chrono::{NaiveDate, Utc};
 /// infrastructure/repositories/ticket_repo.rs — チケット永続化
 ///
 /// sqlx を使用した t_tickets テーブルの CRUD 操作。
 /// JOINでユーザー名・カテゴリー名等を取得する。
-
 use sqlx::{PgPool, Row};
-use chrono::{NaiveDate, Utc};
 
 use crate::domain::models::ticket::{Ticket, TicketStatusHistory};
 use crate::domain::models::ticket_api::*;
@@ -25,9 +24,15 @@ pub struct TicketFilter {
 impl Default for TicketFilter {
     fn default() -> Self {
         Self {
-            keyword: None, status: None, priority: None,
-            assignee_id: None, phase_id: None, category_id: None,
-            milestone_id: None, project_id: None, parent_id: None,
+            keyword: None,
+            status: None,
+            priority: None,
+            assignee_id: None,
+            phase_id: None,
+            category_id: None,
+            milestone_id: None,
+            project_id: None,
+            parent_id: None,
         }
     }
 }
@@ -71,7 +76,8 @@ pub async fn find_all(pool: &PgPool, filter: &TicketFilter) -> anyhow::Result<Ve
     if let Some(ref kw) = filter.keyword {
         if !kw.is_empty() {
             let pattern = format!("%{}%", kw);
-            builder.push(" AND (t.title ILIKE ")
+            builder
+                .push(" AND (t.title ILIKE ")
                 .push_bind(pattern.clone())
                 .push(" OR t.description ILIKE ")
                 .push_bind(pattern.clone())
@@ -87,7 +93,9 @@ pub async fn find_all(pool: &PgPool, filter: &TicketFilter) -> anyhow::Result<Ve
     }
     if let Some(ref priority) = filter.priority {
         if !priority.is_empty() {
-            builder.push(" AND t.priority = ").push_bind(priority.clone());
+            builder
+                .push(" AND t.priority = ")
+                .push_bind(priority.clone());
         }
     }
     if let Some(aid) = filter.assignee_id {
@@ -140,14 +148,23 @@ pub async fn find_by_key(pool: &PgPool, key: &str) -> anyhow::Result<Option<Tick
 /// チケット作成
 pub async fn create(
     pool: &PgPool,
-    ticket_key: &str, title: &str, description: &str,
-    status: &str, priority: &str, ticket_type: &str,
-    parent_id: Option<i32>, category_id: Option<i32>, project_id: Option<i32>,
-    author_id: i32, assignee_id: Option<i32>, milestone_id: Option<i32>,
-    start_date: Option<chrono::NaiveDate>, due_date: Option<chrono::NaiveDate>,
+    ticket_key: &str,
+    title: &str,
+    description: &str,
+    status: &str,
+    priority: &str,
+    ticket_type: &str,
+    parent_id: Option<i32>,
+    category_id: Option<i32>,
+    project_id: Option<i32>,
+    author_id: i32,
+    assignee_id: Option<i32>,
+    milestone_id: Option<i32>,
+    start_date: Option<chrono::NaiveDate>,
+    due_date: Option<chrono::NaiveDate>,
 ) -> anyhow::Result<i32> {
     let gantt_order: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1"
+        "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1",
     )
     .bind(project_id)
     .fetch_one(pool)
@@ -169,10 +186,13 @@ pub async fn create(
     .await?;
 
     if let Some(aid) = assignee_id {
-        sqlx::query("INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)")
-            .bind(ticket_id).bind(aid)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)",
+        )
+        .bind(ticket_id)
+        .bind(aid)
+        .execute(pool)
+        .await?;
     }
 
     Ok(ticket_id)
@@ -180,12 +200,11 @@ pub async fn create(
 
 /// 次のチケットキーを生成（例: DEMO-000042）
 pub async fn generate_next_key(pool: &PgPool, prefix: &str) -> anyhow::Result<String> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets_ticket WHERE ticket_key LIKE $1"
-    )
-    .bind(format!("{}-%", prefix))
-    .fetch_one(pool)
-    .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE ticket_key LIKE $1")
+            .bind(format!("{}-%", prefix))
+            .fetch_one(pool)
+            .await?;
 
     Ok(format!("{}-{:06}", prefix, count + 1))
 }
@@ -194,9 +213,10 @@ pub async fn generate_next_key(pool: &PgPool, prefix: &str) -> anyhow::Result<St
 pub async fn add_watcher(pool: &PgPool, ticket_id: i32, user_id: i32) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO tickets_ticket_watchers (ticketmodel_id, user_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING"
+         ON CONFLICT DO NOTHING",
     )
-    .bind(ticket_id).bind(user_id)
+    .bind(ticket_id)
+    .bind(user_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -205,7 +225,8 @@ pub async fn add_watcher(pool: &PgPool, ticket_id: i32, user_id: i32) -> anyhow:
 /// ウォッチ解除
 pub async fn remove_watcher(pool: &PgPool, ticket_id: i32, user_id: i32) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM tickets_ticket_watchers WHERE ticketmodel_id=$1 AND user_id=$2")
-        .bind(ticket_id).bind(user_id)
+        .bind(ticket_id)
+        .bind(user_id)
         .execute(pool)
         .await?;
     Ok(())
@@ -224,12 +245,11 @@ pub async fn is_watching(pool: &PgPool, ticket_id: i32, user_id: i32) -> anyhow:
 
 /// ウォッチャー一覧（user_id のリスト）
 pub async fn find_watchers(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<i32>> {
-    let ids: Vec<(i32,)> = sqlx::query_as(
-        "SELECT user_id::int4 FROM tickets_ticket_watchers WHERE ticketmodel_id=$1"
-    )
-    .bind(ticket_id)
-    .fetch_all(pool)
-    .await?;
+    let ids: Vec<(i32,)> =
+        sqlx::query_as("SELECT user_id::int4 FROM tickets_ticket_watchers WHERE ticketmodel_id=$1")
+            .bind(ticket_id)
+            .fetch_all(pool)
+            .await?;
     Ok(ids.into_iter().map(|(id,)| id).collect())
 }
 
@@ -244,7 +264,9 @@ pub struct DueTicketAssignee {
     pub user_id: i32,
 }
 
-pub async fn find_due_or_overdue_with_assignees(pool: &PgPool) -> anyhow::Result<Vec<DueTicketAssignee>> {
+pub async fn find_due_or_overdue_with_assignees(
+    pool: &PgPool,
+) -> anyhow::Result<Vec<DueTicketAssignee>> {
     let rows = sqlx::query_as::<_, DueTicketAssignee>(
         "SELECT t.id::int4 AS ticket_id, t.ticket_key, t.title, t.due_date, ta.user_id::int4 AS user_id
          FROM tickets_ticket t
@@ -361,7 +383,8 @@ pub async fn api_find_all(
             (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
             (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
             COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
-            proj.prefix as list_project_prefix
+            proj.prefix as list_project_prefix,
+            proj.name as list_project_name
          FROM tickets_ticket t
          LEFT JOIN accounts_user au ON t.author_id = au.id
          LEFT JOIN tickets_category cat ON t.category_id = cat.id
@@ -386,7 +409,10 @@ pub async fn api_find_all(
                     .map(|i| format!("${}", param_count + i))
                     .collect::<Vec<_>>()
                     .join(",");
-                query.push_str(&format!(" AND t.status = ANY(ARRAY[{}]::text[])", placeholders));
+                query.push_str(&format!(
+                    " AND t.status = ANY(ARRAY[{}]::text[])",
+                    placeholders
+                ));
                 param_count += statuses.len();
             }
         }
@@ -403,7 +429,10 @@ pub async fn api_find_all(
                     .map(|i| format!("${}", param_count + i))
                     .collect::<Vec<_>>()
                     .join(",");
-                query.push_str(&format!(" AND t.priority = ANY(ARRAY[{}]::text[])", placeholders));
+                query.push_str(&format!(
+                    " AND t.priority = ANY(ARRAY[{}]::text[])",
+                    placeholders
+                ));
                 param_count += priorities.len();
             }
         }
@@ -544,8 +573,7 @@ pub async fn api_find_all(
         sql_query = sql_query.bind(proj_id);
     }
     if let Some(user_id) = filter.user_id {
-        sql_query = sql_query.bind(user_id)
-            .bind(user_id);
+        sql_query = sql_query.bind(user_id).bind(user_id);
     }
     if let Some(ref prefix) = filter.project_prefix {
         sql_query = sql_query.bind(prefix.as_str());
@@ -597,7 +625,7 @@ pub async fn api_find_all(
                  FROM tickets_ticket_assignees ta
                  JOIN accounts_user u ON ta.user_id = u.id
                  WHERE ta.ticketmodel_id = ANY($1)
-                 ORDER BY u.id"
+                 ORDER BY u.id",
             )
             .bind(&ticket_ids)
             .fetch_all(pool)
@@ -628,7 +656,7 @@ pub async fn api_find_all(
                  FROM tickets_ticket_reviewers tr
                  JOIN accounts_user u ON tr.user_id = u.id
                  WHERE tr.ticketmodel_id = ANY($1)
-                 ORDER BY u.id"
+                 ORDER BY u.id",
             )
             .bind(&ticket_ids)
             .fetch_all(pool)
@@ -652,9 +680,8 @@ pub async fn api_find_all(
         };
 
     // labels をまとめて取得
-    let labels_map: std::collections::HashMap<i32, Vec<LabelOut>> =
-        if !ticket_ids.is_empty() {
-            let labels_rows = sqlx::query(
+    let labels_map: std::collections::HashMap<i32, Vec<LabelOut>> = if !ticket_ids.is_empty() {
+        let labels_rows = sqlx::query(
                 "SELECT tl.ticketmodel_id::int4, l.id::int4, l.name, l.color, l.project_id::int4, l.created_at, l.description, l.category, l.is_ai_enabled
                  FROM tickets_ticket_labels tl
                  JOIN m_label l ON tl.labelmodel_id = l.id
@@ -665,33 +692,31 @@ pub async fn api_find_all(
             .fetch_all(pool)
             .await?;
 
-            let mut map: std::collections::HashMap<i32, Vec<LabelOut>> =
-                std::collections::HashMap::new();
-            for row in labels_rows {
-                let ticket_id: i32 = row.get(0);
-                let label = LabelOut {
-                    id: row.get(1),
-                    name: row.get(2),
-                    color: row.get(3),
-                    project: row.get(4),
-                    team_id: None,
-                    created_at: row.get(5),
-                    description: row.get(6),
-                    category: row.get(7),
-                    is_ai_enabled: row.get(8),
-                };
-                map.entry(ticket_id).or_insert_with(Vec::new).push(label);
-            }
-            map
-        } else {
-            std::collections::HashMap::new()
-        };
+        let mut map: std::collections::HashMap<i32, Vec<LabelOut>> =
+            std::collections::HashMap::new();
+        for row in labels_rows {
+            let ticket_id: i32 = row.get(0);
+            let label = LabelOut {
+                id: row.get(1),
+                name: row.get(2),
+                color: row.get(3),
+                project: row.get(4),
+                team_id: None,
+                created_at: row.get(5),
+                description: row.get(6),
+                category: row.get(7),
+                is_ai_enabled: row.get(8),
+            };
+            map.entry(ticket_id).or_insert_with(Vec::new).push(label);
+        }
+        map
+    } else {
+        std::collections::HashMap::new()
+    };
 
     // milestones のカウント取得
-    let milestone_counts_map: std::collections::HashMap<
-        i32,
-        (i64, i64),
-    > = if !ticket_ids.is_empty() {
+    let milestone_counts_map: std::collections::HashMap<i32, (i64, i64)> = if !ticket_ids.is_empty()
+    {
         let milestone_ids: Vec<i32> = rows
             .iter()
             .filter_map(|row| row.get::<Option<i32>, _>(14))
@@ -704,7 +729,7 @@ pub async fn api_find_all(
                         COUNT(CASE WHEN status = 'closed' THEN 1 END) as closed_count
                  FROM tickets_ticket
                  WHERE milestone_id = ANY($1)
-                 GROUP BY milestone_id"
+                 GROUP BY milestone_id",
             )
             .bind(&milestone_ids)
             .fetch_all(pool)
@@ -761,6 +786,7 @@ pub async fn api_find_all(
             let child_count: i64 = row.get(43);
             let total_time_spent: i64 = row.get(44);
             let project_prefix: Option<String> = row.get(45);
+            let project_name: Option<String> = row.get(46);
 
             // Author
             let author = UserSummaryOut {
@@ -790,10 +816,8 @@ pub async fn api_find_all(
             // Milestone
             let milestone = if let Some(ms_id) = milestone_id_opt {
                 row.get::<Option<i32>, _>(29).and_then(|_| {
-                    let (open_count, closed_count) = milestone_counts_map
-                        .get(&ms_id)
-                        .copied()
-                        .unwrap_or((0, 0));
+                    let (open_count, closed_count) =
+                        milestone_counts_map.get(&ms_id).copied().unwrap_or((0, 0));
 
                     Some(MilestoneOut {
                         id: ms_id,
@@ -827,19 +851,13 @@ pub async fn api_find_all(
             };
 
             // Assignees
-            let assignees = assignees_map
-                .get(&ticket_id)
-                .cloned()
-                .unwrap_or_default();
+            let assignees = assignees_map.get(&ticket_id).cloned().unwrap_or_default();
 
             // Labels
             let labels = labels_map.get(&ticket_id).cloned().unwrap_or_default();
 
             // Reviewers
-            let reviewers = reviewers_map
-                .get(&ticket_id)
-                .cloned()
-                .unwrap_or_default();
+            let reviewers = reviewers_map.get(&ticket_id).cloned().unwrap_or_default();
 
             TicketListOut {
                 id: ticket_id,
@@ -855,6 +873,7 @@ pub async fn api_find_all(
                 milestone,
                 project: project_id,
                 project_prefix,
+                project_name,
                 parent: parent_id,
                 labels,
                 start_date,
@@ -896,7 +915,10 @@ pub async fn api_count_all(
                     .map(|i| format!("${}", param_count + i))
                     .collect::<Vec<_>>()
                     .join(",");
-                query.push_str(&format!(" AND t.status = ANY(ARRAY[{}]::text[])", placeholders));
+                query.push_str(&format!(
+                    " AND t.status = ANY(ARRAY[{}]::text[])",
+                    placeholders
+                ));
                 param_count += statuses.len();
             }
         }
@@ -911,7 +933,10 @@ pub async fn api_count_all(
                     .map(|i| format!("${}", param_count + i))
                     .collect::<Vec<_>>()
                     .join(",");
-                query.push_str(&format!(" AND t.priority = ANY(ARRAY[{}]::text[])", placeholders));
+                query.push_str(&format!(
+                    " AND t.priority = ANY(ARRAY[{}]::text[])",
+                    placeholders
+                ));
                 param_count += priorities.len();
             }
         }
@@ -964,7 +989,11 @@ pub async fn api_count_all(
         param_count += 1;
     }
     if let Some(is_null) = filter.parent_isnull {
-        query.push_str(if is_null { " AND t.parent_id IS NULL" } else { " AND t.parent_id IS NOT NULL" });
+        query.push_str(if is_null {
+            " AND t.parent_id IS NULL"
+        } else {
+            " AND t.parent_id IS NOT NULL"
+        });
     }
     if filter.due_date_gte.is_some() {
         query.push_str(&format!(" AND t.due_date >= ${}", param_count));
@@ -975,13 +1004,19 @@ pub async fn api_count_all(
         param_count += 1;
     }
     if let Some(is_null) = filter.due_date_isnull {
-        query.push_str(if is_null { " AND t.due_date IS NULL" } else { " AND t.due_date IS NOT NULL" });
+        query.push_str(if is_null {
+            " AND t.due_date IS NULL"
+        } else {
+            " AND t.due_date IS NOT NULL"
+        });
     }
     if let Some(search_term) = search {
         if !search_term.is_empty() {
             query.push_str(&format!(
                 " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
-                param_count, param_count + 1, param_count + 2
+                param_count,
+                param_count + 1,
+                param_count + 2
             ));
         }
     }
@@ -1004,8 +1039,7 @@ pub async fn api_count_all(
         sql_query = sql_query.bind(proj_id);
     }
     if let Some(user_id) = filter.user_id {
-        sql_query = sql_query.bind(user_id)
-            .bind(user_id);
+        sql_query = sql_query.bind(user_id).bind(user_id);
     }
     if let Some(ref prefix) = filter.project_prefix {
         sql_query = sql_query.bind(prefix.as_str());
@@ -1048,7 +1082,12 @@ pub async fn api_count_all(
 }
 
 /// チケット詳細取得(JSON API用)
-pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Option<i32>) -> anyhow::Result<Option<TicketDetailOut>> {
+pub async fn api_find_by_key(
+    pool: &PgPool,
+    ticket_key: &str,
+    viewer_user_id: Option<i32>,
+    ai_agent_username: &str,
+) -> anyhow::Result<Option<TicketDetailOut>> {
     // 基本的なチケット情報を取得
     let base_query_result = sqlx::query(
         "SELECT
@@ -1064,7 +1103,8 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
             team_m.id::int4 as team_id, team_m.name as team_name, team_m.slug as team_slug, team_m.icon as team_icon, team_m.color as team_color,
             (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
             (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
-            COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent
+            COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
+            proj.name as detail_project_name, proj.prefix as detail_project_prefix
          FROM tickets_ticket t
          LEFT JOIN accounts_user au ON t.author_id = au.id
          LEFT JOIN tickets_category cat ON t.category_id = cat.id
@@ -1091,7 +1131,7 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
          FROM tickets_ticket_assignees ta
          JOIN accounts_user u ON ta.user_id = u.id
          WHERE ta.ticketmodel_id = $1
-         ORDER BY u.id"
+         ORDER BY u.id",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -1107,13 +1147,17 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
         })
         .collect();
 
+    let viewer_is_assignee = viewer_user_id
+        .map(|uid| assignees.iter().any(|a| a.id == uid))
+        .unwrap_or(false);
+
     // Reviewers
     let reviewers_rows = sqlx::query(
         "SELECT tr.user_id::int4, u.id::int4, u.username, u.email, u.display_name
          FROM tickets_ticket_reviewers tr
          JOIN accounts_user u ON tr.user_id = u.id
          WHERE tr.ticketmodel_id = $1
-         ORDER BY u.id"
+         ORDER BY u.id",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -1160,13 +1204,17 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
     let comments_rows = sqlx::query(
         "SELECT c.id::int4, c.body, c.created_at, c.author_id::int4, u.id::int4, u.username, u.email, u.display_name, c.updated_at,
                 c.anchor_start, c.anchor_end, c.anchor_quote, c.parent_comment_id::int4, (c.deleted_at IS NOT NULL) AS is_deleted,
-                (SELECT COUNT(*) FROM tickets_comment r WHERE r.parent_comment_id = c.id)::int4 AS reply_count
+                (SELECT COUNT(*) FROM tickets_comment r WHERE r.parent_comment_id = c.id)::int4 AS reply_count,
+                au.id::int4, au.username, au.email, au.display_name,
+                (u.username = $2) AS is_ai_agent_author
          FROM tickets_comment c
          LEFT JOIN accounts_user u ON c.author_id = u.id
+         LEFT JOIN accounts_user au ON c.ai_agent_acting_user_id = au.id
          WHERE c.ticket_id = $1
          ORDER BY c.created_at ASC"
     )
     .bind(ticket_id)
+    .bind(ai_agent_username)
     .fetch_all(pool)
     .await?;
 
@@ -1182,10 +1230,27 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
             };
             let is_deleted: bool = r.get(13);
             let body: String = if is_deleted { String::new() } else { r.get(1) };
+            let acting_user_id: Option<i32> = r.get(15);
+            let acting_user = acting_user_id.map(|id| UserSummaryOut {
+                id,
+                username: r.get(16),
+                email: r.get(17),
+                display_name: r.get(18),
+            });
+            let is_ai_agent_author: bool = r.get(19);
+
+            let is_own = viewer_user_id == Some(author_id);
+            let is_acting_user = acting_user_id == viewer_user_id;
+            let is_ai_agent_and_assignee = is_ai_agent_author && viewer_is_assignee;
+            let can_edit = !is_deleted && (is_own || is_acting_user || is_ai_agent_and_assignee);
+            let can_delete = can_edit;
+
+
             CommentOut {
                 id: r.get(0),
                 body,
                 author,
+                acting_user,
                 created_at: r.get(2),
                 updated_at: r.get(8),
                 anchor_start: r.get(9),
@@ -1194,48 +1259,52 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
                 parent_comment_id: r.get(12),
                 is_deleted,
                 reply_count: r.get(14),
+                can_edit,
+                can_delete,
             }
         })
         .collect();
 
     // Attachments
-    let attachments: Vec<AttachmentOut> = crate::infrastructure::repositories::attachment_repo::find_by_ticket(pool, ticket_id)
-        .await?
-        .into_iter()
-        .map(|att| AttachmentOut {
-            id: att.id,
-            filename: att.filename.clone(),
-            file_size: att.file_size,
-            size_display: att.human_size(),
-            is_image: att.is_image(),
-            created_at: att.created_at,
-            uploader: UserSummaryOut {
-                id: att.uploader_id,
-                username: String::new(),
-                email: String::new(),
-                display_name: att.uploader_name.clone().unwrap_or_default(),
-            },
-            file_url: format!("/media/{}", att.file_path),
-        })
-        .collect();
+    let attachments: Vec<AttachmentOut> =
+        crate::infrastructure::repositories::attachment_repo::find_by_ticket(pool, ticket_id)
+            .await?
+            .into_iter()
+            .map(|att| AttachmentOut {
+                id: att.id,
+                filename: att.filename.clone(),
+                file_size: att.file_size,
+                size_display: att.human_size(),
+                is_image: att.is_image(),
+                created_at: att.created_at,
+                uploader: UserSummaryOut {
+                    id: att.uploader_id,
+                    username: String::new(),
+                    email: String::new(),
+                    display_name: att.uploader_name.clone().unwrap_or_default(),
+                },
+                file_url: format!("/media/{}", att.file_path),
+            })
+            .collect();
 
     // Reference Links
-    let links: Vec<TicketLinkOut> = crate::infrastructure::repositories::ticket_link_repo::find_by_ticket(pool, ticket_id)
-        .await?
-        .into_iter()
-        .map(|l| TicketLinkOut {
-            id: l.id,
-            url: l.url.clone(),
-            title: l.title.clone(),
-            created_by: UserSummaryOut {
-                id: l.created_by_id,
-                username: String::new(),
-                email: String::new(),
-                display_name: l.created_by_name.clone().unwrap_or_default(),
-            },
-            created_at: l.created_at,
-        })
-        .collect();
+    let links: Vec<TicketLinkOut> =
+        crate::infrastructure::repositories::ticket_link_repo::find_by_ticket(pool, ticket_id)
+            .await?
+            .into_iter()
+            .map(|l| TicketLinkOut {
+                id: l.id,
+                url: l.url.clone(),
+                title: l.title.clone(),
+                created_by: UserSummaryOut {
+                    id: l.created_by_id,
+                    username: String::new(),
+                    email: String::new(),
+                    display_name: l.created_by_name.clone().unwrap_or_default(),
+                },
+                created_at: l.created_at,
+            })
+            .collect();
 
     // Linked Rules
     let linked_rules_rows = sqlx::query(
@@ -1243,7 +1312,7 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
          FROM tickets_ticket_linked_rules ttlr
          LEFT JOIN m_team_rule tr ON ttlr.teamrulemodel_id = tr.id
          LEFT JOIN m_team tm ON tr.team_id = tm.id
-         WHERE ttlr.ticketmodel_id = $1"
+         WHERE ttlr.ticketmodel_id = $1",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -1264,7 +1333,7 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
         "SELECT w.id::int4, w.title, w.slug, w.category
          FROM wiki_page_linked_tickets wplt
          LEFT JOIN wiki_page w ON wplt.wikipage_id = w.id
-         WHERE wplt.ticketmodel_id = $1"
+         WHERE wplt.ticketmodel_id = $1",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -1288,7 +1357,7 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
                 COUNT(CASE WHEN status != 'closed' THEN 1 END),
                 COUNT(CASE WHEN status = 'closed' THEN 1 END)
              FROM tickets_ticket
-             WHERE milestone_id = $1"
+             WHERE milestone_id = $1",
         )
         .bind(ms_id)
         .fetch_one(pool)
@@ -1373,7 +1442,8 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
         category,
         milestone,
         project: project_id,
-        project_prefix: None,
+        project_prefix: row.get(48),
+        project_name: row.get(47),
         parent: parent_id,
         labels,
         start_date: row.get(12),
@@ -1408,34 +1478,58 @@ pub async fn api_find_by_key(pool: &PgPool, ticket_key: &str, viewer_user_id: Op
     }))
 }
 
+pub async fn api_find_user_username(pool: &PgPool, user_id: i32) -> anyhow::Result<Option<String>> {
+    let username: Option<String> = sqlx::query_scalar(
+        "SELECT username FROM accounts_user WHERE id = $1"
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(username)
+}
+
+pub async fn is_ticket_assignee(pool: &PgPool, ticket_id: i32, user_id: i32) -> anyhow::Result<bool> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = $1 AND user_id = $2)"
+    )
+    .bind(ticket_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(exists)
+}
+
 /// ticket_key から ticket_id を解決する共通ヘルパー(Step 0.5: 識別子体系の統一)。
 ///
 /// 対外APIの識別子は原則 ticket_key(文字列)に統一し、dependencies/git-events等
 /// Django側が数値ticket_idベースで実装されているリソースをRustへ移植する際は、
 /// この関数でticket_idへ解決してから内部クエリを行う方針とする。
 pub async fn resolve_ticket_id(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
-    let id: Option<i32> = sqlx::query_scalar(
-        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
-    )
-    .bind(ticket_key)
-    .fetch_optional(pool)
-    .await?;
+    let id: Option<i32> =
+        sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(ticket_key)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(id)
 }
 
 pub async fn get_ticket_project_id(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
-    let project_id: Option<i32> = sqlx::query_scalar(
-        "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1"
-    )
-    .bind(ticket_key)
-    .fetch_optional(pool)
-    .await?;
+    let project_id: Option<i32> =
+        sqlx::query_scalar("SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(ticket_key)
+            .fetch_optional(pool)
+            .await?;
     Ok(project_id)
 }
 
 /// プロジェクト内のルートチケットキー一覧（一括削除用）
-pub async fn list_root_ticket_keys_by_project(pool: &PgPool, project_id: i32) -> anyhow::Result<Vec<String>> {
+pub async fn list_root_ticket_keys_by_project(
+    pool: &PgPool,
+    project_id: i32,
+) -> anyhow::Result<Vec<String>> {
     let keys: Vec<String> = sqlx::query_scalar(
         "SELECT ticket_key FROM tickets_ticket WHERE project_id = $1 AND parent_id IS NULL ORDER BY id"
     )
@@ -1446,13 +1540,15 @@ pub async fn list_root_ticket_keys_by_project(pool: &PgPool, project_id: i32) ->
 }
 
 /// project_prefix から project_id を解決する共通ヘルパー(api_create_externalと同じ検索をAI用外部APIでも再利用)。
-pub async fn resolve_project_id_by_prefix(pool: &PgPool, project_prefix: &str) -> anyhow::Result<Option<i32>> {
-    let id: Option<i32> = sqlx::query_scalar(
-        "SELECT id::int4 FROM tickets_project WHERE prefix = $1"
-    )
-    .bind(project_prefix)
-    .fetch_optional(pool)
-    .await?;
+pub async fn resolve_project_id_by_prefix(
+    pool: &PgPool,
+    project_prefix: &str,
+) -> anyhow::Result<Option<i32>> {
+    let id: Option<i32> =
+        sqlx::query_scalar("SELECT id::int4 FROM tickets_project WHERE prefix = $1")
+            .bind(project_prefix)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(id)
 }
@@ -1463,13 +1559,12 @@ pub async fn api_generate_ticket_key(
     team_id: i32,
 ) -> anyhow::Result<String> {
     // Team から prefix を取得（G6-1: 新規採番は Team prefix のみ）
-    let prefix: String = sqlx::query_scalar(
-        "SELECT COALESCE(prefix, 'TICKET') FROM m_team WHERE id = $1"
-    )
-    .bind(team_id)
-    .fetch_optional(conn.as_mut())
-    .await?
-    .unwrap_or_else(|| "TICKET".to_string());
+    let prefix: String =
+        sqlx::query_scalar("SELECT COALESCE(prefix, 'TICKET') FROM m_team WHERE id = $1")
+            .bind(team_id)
+            .fetch_optional(conn.as_mut())
+            .await?
+            .unwrap_or_else(|| "TICKET".to_string());
 
     // アドバイザリロック (hashtext は PostgreSQL 内置関数)
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
@@ -1484,12 +1579,11 @@ pub async fn api_generate_ticket_key(
     // 発生していた(2026-09-12)。prefixで閉じた世界の中で実際に使われている番号のうち
     // 数値として最大のものを常に正として採番する。
     let pattern = format!("{}-%", prefix);
-    let existing_keys: Vec<String> = sqlx::query_scalar(
-        "SELECT ticket_key FROM tickets_ticket WHERE ticket_key LIKE $1"
-    )
-    .bind(&pattern)
-    .fetch_all(conn.as_mut())
-    .await?;
+    let existing_keys: Vec<String> =
+        sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE ticket_key LIKE $1")
+            .bind(&pattern)
+            .fetch_all(conn.as_mut())
+            .await?;
 
     let suffix_prefix = format!("{}-", prefix);
     let max_num = existing_keys
@@ -1511,11 +1605,13 @@ pub async fn api_add_comment(
     body: &str,
     anchor: Option<(i32, i32, String)>, // (start, end, quote)
     parent_comment_id: Option<i32>,
+    // AIエージェント経由(人ごとキー認証成功時)の実際の実行者。人間の通常投稿・共有キー経由ではNone。
+    acting_user_id: Option<i32>,
 ) -> anyhow::Result<CommentOut> {
     let comment_row = if let Some((anchor_start, anchor_end, anchor_quote)) = anchor {
         sqlx::query(
-            "INSERT INTO tickets_comment (body, author_id, ticket_id, created_at, anchor_start, anchor_end, anchor_quote, parent_comment_id)
-             VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7)
+            "INSERT INTO tickets_comment (body, author_id, ticket_id, created_at, anchor_start, anchor_end, anchor_quote, parent_comment_id, ai_agent_acting_user_id)
+             VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8)
              RETURNING id::int4, body, created_at, author_id::int4, anchor_start, anchor_end, anchor_quote, parent_comment_id::int4"
         )
         .bind(body)
@@ -1525,18 +1621,20 @@ pub async fn api_add_comment(
         .bind(anchor_end)
         .bind(anchor_quote)
         .bind(parent_comment_id)
+        .bind(acting_user_id)
         .fetch_one(pool)
         .await?
     } else {
         sqlx::query(
-            "INSERT INTO tickets_comment (body, author_id, ticket_id, created_at, parent_comment_id)
-             VALUES ($1, $2, $3, NOW(), $4)
+            "INSERT INTO tickets_comment (body, author_id, ticket_id, created_at, parent_comment_id, ai_agent_acting_user_id)
+             VALUES ($1, $2, $3, NOW(), $4, $5)
              RETURNING id::int4, body, created_at, author_id::int4, anchor_start, anchor_end, anchor_quote, parent_comment_id::int4"
         )
         .bind(body)
         .bind(author_id)
         .bind(ticket_id)
         .bind(parent_comment_id)
+        .bind(acting_user_id)
         .fetch_one(pool)
         .await?
     };
@@ -1551,16 +1649,28 @@ pub async fn api_add_comment(
 
     // 作成者情報を取得
     let author = sqlx::query_as::<_, UserSummaryOut>(
-        "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1"
+        "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1",
     )
     .bind(author_id)
     .fetch_one(pool)
     .await?;
 
+    let acting_user =
+        match acting_user_id {
+            Some(uid) => sqlx::query_as::<_, UserSummaryOut>(
+                "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1",
+            )
+            .bind(uid)
+            .fetch_optional(pool)
+            .await?,
+            None => None,
+        };
+
     Ok(CommentOut {
         id: comment_id,
         body: comment_body,
         author,
+        acting_user,
         created_at,
         updated_at: None,
         anchor_start,
@@ -1569,6 +1679,8 @@ pub async fn api_add_comment(
         parent_comment_id: returned_parent_comment_id,
         is_deleted: false,
         reply_count: 0,
+        can_edit: true,
+        can_delete: true,
     })
 }
 
@@ -1576,15 +1688,16 @@ pub async fn api_add_comment(
 pub async fn api_find_comment_owner(
     pool: &PgPool,
     comment_id: i32,
-) -> anyhow::Result<Option<(i32, i32, bool)>> {
+) -> anyhow::Result<Option<(i32, i32, bool, Option<i32>)>> {
     let row = sqlx::query(
-        "SELECT ticket_id::int4, author_id::int4, (deleted_at IS NOT NULL) AS is_deleted FROM tickets_comment WHERE id = $1"
+        "SELECT ticket_id::int4, author_id::int4, (deleted_at IS NOT NULL) AS is_deleted, ai_agent_acting_user_id::int4
+         FROM tickets_comment WHERE id = $1"
     )
     .bind(comment_id)
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| (r.get(0), r.get(1), r.get(2))))
+    Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))))
 }
 
 /// 返信対象コメントの実効スレッドルートIDを解決する。
@@ -1616,7 +1729,7 @@ pub async fn api_update_comment(
         "UPDATE tickets_comment
          SET body = $1, updated_at = NOW()
          WHERE id = $2
-         RETURNING id::int4, body, created_at, author_id::int4, updated_at, anchor_start, anchor_end, anchor_quote"
+         RETURNING id::int4, body, created_at, author_id::int4, updated_at, anchor_start, anchor_end, anchor_quote, ai_agent_acting_user_id::int4"
     )
     .bind(body)
     .bind(comment_id)
@@ -1625,16 +1738,30 @@ pub async fn api_update_comment(
 
     let author_id: i32 = row.get(3);
     let author = sqlx::query_as::<_, UserSummaryOut>(
-        "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1"
+        "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1",
     )
     .bind(author_id)
     .fetch_one(pool)
     .await?;
 
+    // 編集操作自体では実行者(acting_user)は変わらない。元コメントの記録をそのまま引き継ぐ。
+    let acting_user_id: Option<i32> = row.get(8);
+    let acting_user =
+        match acting_user_id {
+            Some(uid) => sqlx::query_as::<_, UserSummaryOut>(
+                "SELECT id::int4, username, email, display_name FROM accounts_user WHERE id = $1",
+            )
+            .bind(uid)
+            .fetch_optional(pool)
+            .await?,
+            None => None,
+        };
+
     Ok(CommentOut {
         id: row.get(0),
         body: row.get(1),
         author,
+        acting_user,
         created_at: row.get(2),
         updated_at: row.get(4),
         anchor_start: row.get(5),
@@ -1643,20 +1770,17 @@ pub async fn api_update_comment(
         parent_comment_id: None,
         is_deleted: false,
         reply_count: 0,
+        can_edit: true,
+        can_delete: true,
     })
 }
 
 /// コメント削除(JSON API用)。論理削除。
-pub async fn api_delete_comment(
-    pool: &PgPool,
-    comment_id: i32,
-) -> anyhow::Result<()> {
-    sqlx::query(
-        "UPDATE tickets_comment SET deleted_at = NOW() WHERE id = $1"
-    )
-    .bind(comment_id)
-    .execute(pool)
-    .await?;
+pub async fn api_delete_comment(pool: &PgPool, comment_id: i32) -> anyhow::Result<()> {
+    sqlx::query("UPDATE tickets_comment SET deleted_at = NOW() WHERE id = $1")
+        .bind(comment_id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -1673,7 +1797,7 @@ pub async fn api_find_change_logs(
          LEFT JOIN accounts_user u ON cl.changed_by_id = u.id
          WHERE cl.ticket_id = $1
          ORDER BY cl.changed_at DESC
-         LIMIT 50"
+         LIMIT 50",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -1682,16 +1806,14 @@ pub async fn api_find_change_logs(
     let result = rows
         .into_iter()
         .map(|row| {
-            let changed_by = row
-                .get::<Option<i32>, _>(6)
-                .and_then(|_| {
-                    Some(UserSummaryOut {
-                        id: row.get(6),
-                        username: row.get(7),
-                        email: row.get(8),
-                        display_name: row.get(9),
-                    })
-                });
+            let changed_by = row.get::<Option<i32>, _>(6).and_then(|_| {
+                Some(UserSummaryOut {
+                    id: row.get(6),
+                    username: row.get(7),
+                    email: row.get(8),
+                    display_name: row.get(9),
+                })
+            });
 
             ChangeLogOut {
                 id: row.get(0),
@@ -1719,7 +1841,7 @@ pub async fn api_find_point_history(
          LEFT JOIN accounts_user u ON ph.changed_by_id = u.id
          WHERE ph.ticket_id = $1
          ORDER BY ph.changed_at DESC
-         LIMIT 50"
+         LIMIT 50",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -1728,16 +1850,14 @@ pub async fn api_find_point_history(
     let result = rows
         .into_iter()
         .map(|row| {
-            let changed_by = row
-                .get::<Option<i32>, _>(6)
-                .and_then(|_| {
-                    Some(UserSummaryOut {
-                        id: row.get(6),
-                        username: row.get(7),
-                        email: row.get(8),
-                        display_name: row.get(9),
-                    })
-                });
+            let changed_by = row.get::<Option<i32>, _>(6).and_then(|_| {
+                Some(UserSummaryOut {
+                    id: row.get(6),
+                    username: row.get(7),
+                    email: row.get(8),
+                    display_name: row.get(9),
+                })
+            });
 
             PointHistoryOut {
                 id: row.get(0),
@@ -1763,12 +1883,11 @@ pub async fn api_find_point_history(
 pub async fn api_delete(pool: &PgPool, ticket_key: &str) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
-    let root_id: Option<i32> = sqlx::query_scalar(
-        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
-    )
-    .bind(ticket_key)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let root_id: Option<i32> =
+        sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(ticket_key)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let root_id = match root_id {
         Some(id) => id,
@@ -1783,32 +1902,85 @@ pub async fn api_delete(pool: &PgPool, ticket_key: &str) -> anyhow::Result<bool>
             SELECT t.id FROM tickets_ticket t
             JOIN descendants d ON t.parent_id = d.id
          )
-         SELECT id::int4 FROM descendants"
+         SELECT id::int4 FROM descendants",
     )
     .bind(root_id)
     .fetch_all(&mut *tx)
     .await?;
 
     // 直接の子(on_delete=CASCADE、M2M中間テーブルはDjangoが自動除去)
-    sqlx::query("DELETE FROM tickets_comment WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_attachment WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_status_history WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_ticket_watchers WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_ticket_labels WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_change_log WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_ticket_assignees WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM t_task_dependency WHERE from_task_id = ANY($1) OR to_task_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM t_time_entry WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM t_git_event WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM notifications_log WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM notifications_notification WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM notifications_user_read_state WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM h_task_point_history WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE ticketmodel_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM tickets_comment WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_attachment WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_status_history WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_ticket_watchers WHERE ticketmodel_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_ticket_labels WHERE ticketmodel_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_change_log WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_ticket_assignees WHERE ticketmodel_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "DELETE FROM t_task_dependency WHERE from_task_id = ANY($1) OR to_task_id = ANY($1)",
+    )
+    .bind(&ids)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM t_time_entry WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM t_git_event WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM notifications_log WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM notifications_notification WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM notifications_user_read_state WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM h_task_point_history WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE ticketmodel_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE ticketmodel_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
 
     // on_delete=SET_NULL
-    sqlx::query("UPDATE t_triage_request SET ticket_id = NULL WHERE ticket_id = ANY($1)").bind(&ids).execute(&mut *tx).await?;
+    sqlx::query("UPDATE t_triage_request SET ticket_id = NULL WHERE ticket_id = ANY($1)")
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?;
 
     let result = sqlx::query("DELETE FROM tickets_ticket WHERE id = ANY($1)")
         .bind(&ids)
@@ -1831,7 +2003,7 @@ pub async fn api_create(
     } else if let Some(project_id) = input.project {
         // project に参加チームが1つだけなら補完。2つ以上なら要求
         let participating_teams: Vec<i32> = sqlx::query_scalar(
-            "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
         )
         .bind(project_id)
         .fetch_all(conn.as_mut())
@@ -1840,7 +2012,11 @@ pub async fn api_create(
         match participating_teams.as_slice() {
             [single_team] => *single_team,
             [] => return Err(anyhow::anyhow!("project has no participating teams")),
-            _ => return Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "teamId is required when project has multiple teams"
+                ))
+            }
         }
     } else {
         return Err(anyhow::anyhow!("teamId is required"));
@@ -1852,7 +2028,7 @@ pub async fn api_create(
             "SELECT EXISTS(
                 SELECT 1 FROM tickets_project_teams
                 WHERE project_id = $1 AND team_id = $2
-            )"
+            )",
         )
         .bind(project_id)
         .bind(team_id)
@@ -1872,7 +2048,7 @@ pub async fn api_create(
 
     let gantt_order: i32 = if let Some(project_id) = input.project {
         sqlx::query_scalar(
-            "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1"
+            "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1",
         )
         .bind(project_id)
         .fetch_one(conn.as_mut())
@@ -1899,7 +2075,7 @@ pub async fn api_create(
             $12, $13, $14, $15, $16,
             $17, NOW(), NOW()
          )
-         RETURNING id::int4"
+         RETURNING id::int4",
     )
     .bind(&ticket_key)
     .bind(&input.title)
@@ -1925,7 +2101,7 @@ pub async fn api_create(
     for &assignee_id in &input.assignees {
         sqlx::query(
             "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)
-             ON CONFLICT DO NOTHING"
+             ON CONFLICT DO NOTHING",
         )
         .bind(ticket_id)
         .bind(assignee_id)
@@ -1937,7 +2113,7 @@ pub async fn api_create(
     for &reviewer_id in &input.reviewers {
         sqlx::query(
             "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)
-             ON CONFLICT DO NOTHING"
+             ON CONFLICT DO NOTHING",
         )
         .bind(ticket_id)
         .bind(reviewer_id)
@@ -1949,7 +2125,7 @@ pub async fn api_create(
     for &label_id in &input.labels {
         sqlx::query(
             "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)
-             ON CONFLICT DO NOTHING"
+             ON CONFLICT DO NOTHING",
         )
         .bind(ticket_id)
         .bind(label_id)
@@ -1993,12 +2169,11 @@ pub async fn api_update(
     user_id: i32,
 ) -> anyhow::Result<Option<TicketChangeEvents>> {
     // チケットID取得
-    let ticket_id_opt: Option<i32> = sqlx::query_scalar(
-        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
-    )
-    .bind(ticket_key)
-    .fetch_optional(conn.as_mut())
-    .await?;
+    let ticket_id_opt: Option<i32> =
+        sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(ticket_key)
+            .fetch_optional(conn.as_mut())
+            .await?;
 
     let ticket_id = match ticket_id_opt {
         Some(id) => id,
@@ -2010,7 +2185,7 @@ pub async fn api_update(
         "SELECT title, status, priority, ticket_type, category_id::int4, milestone_id::int4,
                 description, start_date, due_date, story_points, cycle_id::int4,
                 parent_id::int4
-         FROM tickets_ticket WHERE id = $1"
+         FROM tickets_ticket WHERE id = $1",
     )
     .bind(ticket_id)
     .fetch_one(conn.as_mut())
@@ -2046,12 +2221,11 @@ pub async fn api_update(
     .await?;
 
     // 参加チーム制約: project 付きチケットの team_id は参加一覧に含まれること
-    let project_id: Option<i32> = sqlx::query_scalar(
-        "SELECT project_id::int4 FROM tickets_ticket WHERE id = $1"
-    )
-    .bind(ticket_id)
-    .fetch_one(conn.as_mut())
-    .await?;
+    let project_id: Option<i32> =
+        sqlx::query_scalar("SELECT project_id::int4 FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_one(conn.as_mut())
+            .await?;
     let effective_project = input.project.or(project_id);
     let effective_team = input.team_id;
     if let (Some(pid), Some(tid)) = (effective_project, effective_team) {
@@ -2059,7 +2233,7 @@ pub async fn api_update(
             "SELECT EXISTS(
                 SELECT 1 FROM tickets_project_teams
                 WHERE project_id = $1 AND team_id = $2
-            )"
+            )",
         )
         .bind(pid)
         .bind(tid)
@@ -2073,7 +2247,9 @@ pub async fn api_update(
             ));
         }
     } else if effective_project.is_some() && effective_team.is_none() {
-        return Err(anyhow::anyhow!("teamId is required for project-attached tickets"));
+        return Err(anyhow::anyhow!(
+            "teamId is required for project-attached tickets"
+        ));
     }
 
     // UPDATE チケット本体
@@ -2083,7 +2259,7 @@ pub async fn api_update(
             category_id = $5, milestone_id = $6, cycle_id = $7,
             description = $8, start_date = $9, due_date = $10,
             story_points = $11, team_id = $12, parent_id = $13, updated_at = NOW()
-         WHERE id = $14"
+         WHERE id = $14",
     )
     .bind(&input.title)
     .bind(&input.status)
@@ -2109,7 +2285,7 @@ pub async fn api_update(
         .await?;
     for &assignee_id in &input.assignees {
         sqlx::query(
-            "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)"
+            "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)",
         )
         .bind(ticket_id)
         .bind(assignee_id)
@@ -2124,7 +2300,7 @@ pub async fn api_update(
         .await?;
     for &reviewer_id in &input.reviewers {
         sqlx::query(
-            "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)"
+            "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)",
         )
         .bind(ticket_id)
         .bind(reviewer_id)
@@ -2138,7 +2314,7 @@ pub async fn api_update(
         .await?;
     for &label_id in &input.labels {
         sqlx::query(
-            "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)"
+            "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)",
         )
         .bind(ticket_id)
         .bind(label_id)
@@ -2182,7 +2358,11 @@ pub async fn api_update(
         ("title", old_title.clone(), input.title.clone()),
         ("status", old_status.clone(), input.status.clone()),
         ("priority", old_priority.clone(), input.priority.clone()),
-        ("ticket_type", old_ticket_type.clone(), input.ticket_type.clone()),
+        (
+            "ticket_type",
+            old_ticket_type.clone(),
+            input.ticket_type.clone(),
+        ),
         (
             "category_id",
             old_category_id.map_or(String::new(), |id| id.to_string()),
@@ -2203,7 +2383,11 @@ pub async fn api_update(
             old_parent_id.map_or(String::new(), |id| id.to_string()),
             input.parent.map_or(String::new(), |id| id.to_string()),
         ),
-        ("description", old_description.clone(), input.description.clone()),
+        (
+            "description",
+            old_description.clone(),
+            input.description.clone(),
+        ),
         (
             "start_date",
             old_start_date.map_or(String::new(), |d| d.to_string()),
@@ -2256,7 +2440,7 @@ pub async fn api_update(
     if old_assignees != sorted_new_assignees {
         let old_usernames = if !old_assignees.is_empty() {
             let usernames: Vec<String> = sqlx::query_scalar(
-                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
             )
             .bind(&old_assignees)
             .fetch_all(conn.as_mut())
@@ -2272,7 +2456,7 @@ pub async fn api_update(
 
         let new_usernames = if !input.assignees.is_empty() {
             let usernames: Vec<String> = sqlx::query_scalar(
-                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
             )
             .bind(&input.assignees)
             .fetch_all(conn.as_mut())
@@ -2313,7 +2497,7 @@ pub async fn api_update(
     if old_reviewers != sorted_new_reviewers {
         let old_usernames = if !old_reviewers.is_empty() {
             let usernames: Vec<String> = sqlx::query_scalar(
-                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
             )
             .bind(&old_reviewers)
             .fetch_all(conn.as_mut())
@@ -2329,7 +2513,7 @@ pub async fn api_update(
 
         let new_usernames = if !input.reviewers.is_empty() {
             let usernames: Vec<String> = sqlx::query_scalar(
-                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
             )
             .bind(&input.reviewers)
             .fetch_all(conn.as_mut())
@@ -2374,7 +2558,13 @@ pub async fn api_update(
         .await?;
     }
 
-    Ok(Some(TicketChangeEvents { ticket_id, status_change, newly_assigned, newly_reviewers, other_changed_fields }))
+    Ok(Some(TicketChangeEvents {
+        ticket_id,
+        status_change,
+        newly_assigned,
+        newly_reviewers,
+        other_changed_fields,
+    }))
 }
 
 /// チケット部分更新(詳細パネルからのインライン編集用)。
@@ -2385,12 +2575,11 @@ pub async fn api_patch(
     input: &TicketPatchIn,
     user_id: i32,
 ) -> anyhow::Result<Option<TicketChangeEvents>> {
-    let ticket_id_opt: Option<i32> = sqlx::query_scalar(
-        "SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1"
-    )
-    .bind(ticket_key)
-    .fetch_optional(conn.as_mut())
-    .await?;
+    let ticket_id_opt: Option<i32> =
+        sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(ticket_key)
+            .fetch_optional(conn.as_mut())
+            .await?;
 
     let ticket_id = match ticket_id_opt {
         Some(id) => id,
@@ -2401,7 +2590,7 @@ pub async fn api_patch(
         "SELECT title, status, priority, ticket_type, category_id::int4, milestone_id::int4,
                 description, start_date, due_date, story_points, cycle_id::int4,
                 parent_id::int4, team_id::int4
-         FROM tickets_ticket WHERE id = $1"
+         FROM tickets_ticket WHERE id = $1",
     )
     .bind(ticket_id)
     .fetch_one(conn.as_mut())
@@ -2436,7 +2625,8 @@ pub async fn api_patch(
     .await?;
 
     // 動的UPDATE(指定されたフィールドのみSETに含める)
-    let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE tickets_ticket SET updated_at = NOW()");
+    let mut builder =
+        sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE tickets_ticket SET updated_at = NOW()");
     let mut has_column_update = false;
 
     if let Some(title) = &input.title {
@@ -2444,7 +2634,9 @@ pub async fn api_patch(
         has_column_update = true;
     }
     if let Some(description) = &input.description {
-        builder.push(", description = ").push_bind(description.clone());
+        builder
+            .push(", description = ")
+            .push_bind(description.clone());
         has_column_update = true;
     }
     if let Some(status) = &input.status {
@@ -2456,7 +2648,9 @@ pub async fn api_patch(
         has_column_update = true;
     }
     if let Some(ticket_type) = &input.ticket_type {
-        builder.push(", ticket_type = ").push_bind(ticket_type.clone());
+        builder
+            .push(", ticket_type = ")
+            .push_bind(ticket_type.clone());
         has_column_update = true;
     }
     if let Some(category) = input.category {
@@ -2477,12 +2671,11 @@ pub async fn api_patch(
     }
     if let Some(team_id) = input.team_id {
         // 参加チーム制約（project 付きのとき）
-        let project_id: Option<i32> = sqlx::query_scalar(
-            "SELECT project_id::int4 FROM tickets_ticket WHERE id = $1"
-        )
-        .bind(ticket_id)
-        .fetch_one(conn.as_mut())
-        .await?;
+        let project_id: Option<i32> =
+            sqlx::query_scalar("SELECT project_id::int4 FROM tickets_ticket WHERE id = $1")
+                .bind(ticket_id)
+                .fetch_one(conn.as_mut())
+                .await?;
         if let Some(pid) = project_id {
             match team_id {
                 None => {
@@ -2495,7 +2688,7 @@ pub async fn api_patch(
                         "SELECT EXISTS(
                             SELECT 1 FROM tickets_project_teams
                             WHERE project_id = $1 AND team_id = $2
-                        )"
+                        )",
                     )
                     .bind(pid)
                     .bind(tid)
@@ -2540,7 +2733,7 @@ pub async fn api_patch(
             .await?;
         for &assignee_id in assignees {
             sqlx::query(
-                "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)"
+                "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)",
             )
             .bind(ticket_id)
             .bind(assignee_id)
@@ -2556,7 +2749,7 @@ pub async fn api_patch(
             .await?;
         for &reviewer_id in reviewers {
             sqlx::query(
-                "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)"
+                "INSERT INTO tickets_ticket_reviewers (ticketmodel_id, user_id) VALUES ($1, $2)",
             )
             .bind(ticket_id)
             .bind(reviewer_id)
@@ -2572,7 +2765,7 @@ pub async fn api_patch(
             .await?;
         for &label_id in labels {
             sqlx::query(
-                "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)"
+                "INSERT INTO tickets_ticket_labels (ticketmodel_id, labelmodel_id) VALUES ($1, $2)",
             )
             .bind(ticket_id)
             .bind(label_id)
@@ -2733,24 +2926,32 @@ pub async fn api_patch(
         if old_assignees != sorted_new_assignees {
             let old_usernames = if !old_assignees.is_empty() {
                 let usernames: Vec<String> = sqlx::query_scalar(
-                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
                 )
                 .bind(&old_assignees)
                 .fetch_all(conn.as_mut())
                 .await?;
-                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+                if usernames.is_empty() {
+                    "(なし)".to_string()
+                } else {
+                    usernames.join(", ")
+                }
             } else {
                 "(なし)".to_string()
             };
 
             let new_usernames = if !assignees.is_empty() {
                 let usernames: Vec<String> = sqlx::query_scalar(
-                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
                 )
                 .bind(assignees)
                 .fetch_all(conn.as_mut())
                 .await?;
-                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+                if usernames.is_empty() {
+                    "(なし)".to_string()
+                } else {
+                    usernames.join(", ")
+                }
             } else {
                 "(なし)".to_string()
             };
@@ -2783,24 +2984,32 @@ pub async fn api_patch(
         if old_reviewers != sorted_new_reviewers {
             let old_usernames = if !old_reviewers.is_empty() {
                 let usernames: Vec<String> = sqlx::query_scalar(
-                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
                 )
                 .bind(&old_reviewers)
                 .fetch_all(conn.as_mut())
                 .await?;
-                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+                if usernames.is_empty() {
+                    "(なし)".to_string()
+                } else {
+                    usernames.join(", ")
+                }
             } else {
                 "(なし)".to_string()
             };
 
             let new_usernames = if !reviewers.is_empty() {
                 let usernames: Vec<String> = sqlx::query_scalar(
-                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id"
+                    "SELECT username FROM accounts_user WHERE id = ANY($1) ORDER BY id",
                 )
                 .bind(reviewers)
                 .fetch_all(conn.as_mut())
                 .await?;
-                if usernames.is_empty() { "(なし)".to_string() } else { usernames.join(", ") }
+                if usernames.is_empty() {
+                    "(なし)".to_string()
+                } else {
+                    usernames.join(", ")
+                }
             } else {
                 "(なし)".to_string()
             };
@@ -2836,7 +3045,13 @@ pub async fn api_patch(
         }
     }
 
-    Ok(Some(TicketChangeEvents { ticket_id, status_change, newly_assigned, newly_reviewers, other_changed_fields }))
+    Ok(Some(TicketChangeEvents {
+        ticket_id,
+        status_change,
+        newly_assigned,
+        newly_reviewers,
+        other_changed_fields,
+    }))
 }
 
 /// field_name をタイトルケースに変換(Pythonの.title()相当)
@@ -2907,7 +3122,7 @@ pub async fn api_create_external(
 
     // project に参加チームが1つだけなら補完。2つ以上ならエラー
     let participating_teams: Vec<i32> = sqlx::query_scalar(
-        "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
+        "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id",
     )
     .bind(project_id)
     .fetch_all(&mut *tx)
@@ -2916,13 +3131,17 @@ pub async fn api_create_external(
     let team_id = match participating_teams.as_slice() {
         [single_team] => *single_team,
         [] => return Err(anyhow::anyhow!("project has no participating teams")),
-        _ => return Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "teamId is required when project has multiple teams"
+            ))
+        }
     };
 
     let ticket_key = api_generate_ticket_key(&mut tx, team_id).await?;
 
     let gantt_order: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1"
+        "SELECT COALESCE(MAX(gantt_order), 0) + 1 FROM tickets_ticket WHERE project_id = $1",
     )
     .bind(project_id)
     .fetch_one(&mut *tx)
@@ -2933,7 +3152,7 @@ pub async fn api_create_external(
             (ticket_key, title, description, status, priority, ticket_type,
              author_id, project_id, due_date, gantt_order, team_id, created_at, updated_at)
          VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
-         RETURNING id::int4"
+         RETURNING id::int4",
     )
     .bind(&ticket_key)
     .bind(title)
@@ -2983,7 +3202,9 @@ const DEPENDENCY_SELECT: &str = "
      LEFT JOIN accounts_user cb ON d.created_by_id = cb.id
 ";
 
-fn row_to_dependency(row: &sqlx::postgres::PgRow) -> crate::domain::models::dependency_api::TaskDependencyOut {
+fn row_to_dependency(
+    row: &sqlx::postgres::PgRow,
+) -> crate::domain::models::dependency_api::TaskDependencyOut {
     use crate::domain::models::dependency_api::TaskDependencyOut;
     let cb_id: Option<i32> = row.get("cb_id");
     TaskDependencyOut {
@@ -3036,10 +3257,11 @@ pub async fn create_dependency(
         return Ok(CreateDependencyResult::SelfReference);
     }
 
-    let to_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
-        .bind(to_task_id)
-        .fetch_one(pool)
-        .await?;
+    let to_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
+            .bind(to_task_id)
+            .fetch_one(pool)
+            .await?;
     if !to_exists {
         return Ok(CreateDependencyResult::ToTaskNotFound);
     }
@@ -3066,7 +3288,7 @@ pub async fn create_dependency(
             JOIN reachable r ON d.from_task_id = r.task_id
         )
         SELECT EXISTS (SELECT 1 FROM reachable WHERE task_id = $2)
-        "#
+        "#,
     )
     .bind(to_task_id)
     .bind(from_task_id)
@@ -3096,7 +3318,10 @@ pub async fn find_dependency_by_id(
     dep_id: i32,
 ) -> anyhow::Result<Option<crate::domain::models::dependency_api::TaskDependencyOut>> {
     let query = format!("{DEPENDENCY_SELECT} WHERE d.id = $1");
-    let row = sqlx::query(&query).bind(dep_id).fetch_optional(pool).await?;
+    let row = sqlx::query(&query)
+        .bind(dep_id)
+        .fetch_optional(pool)
+        .await?;
     Ok(row.map(|r| row_to_dependency(&r)))
 }
 
@@ -3108,11 +3333,17 @@ pub enum DeleteDependencyResult {
     NotRelated,
 }
 
-pub async fn delete_dependency(pool: &PgPool, dep_id: i32, ticket_id: i32) -> anyhow::Result<DeleteDependencyResult> {
-    let row = sqlx::query("SELECT from_task_id::int4, to_task_id::int4 FROM t_task_dependency WHERE id = $1")
-        .bind(dep_id)
-        .fetch_optional(pool)
-        .await?;
+pub async fn delete_dependency(
+    pool: &PgPool,
+    dep_id: i32,
+    ticket_id: i32,
+) -> anyhow::Result<DeleteDependencyResult> {
+    let row = sqlx::query(
+        "SELECT from_task_id::int4, to_task_id::int4 FROM t_task_dependency WHERE id = $1",
+    )
+    .bind(dep_id)
+    .fetch_optional(pool)
+    .await?;
 
     let row = match row {
         Some(r) => r,
@@ -3125,7 +3356,10 @@ pub async fn delete_dependency(pool: &PgPool, dep_id: i32, ticket_id: i32) -> an
         return Ok(DeleteDependencyResult::NotRelated);
     }
 
-    sqlx::query("DELETE FROM t_task_dependency WHERE id = $1").bind(dep_id).execute(pool).await?;
+    sqlx::query("DELETE FROM t_task_dependency WHERE id = $1")
+        .bind(dep_id)
+        .execute(pool)
+        .await?;
     Ok(DeleteDependencyResult::Deleted)
 }
 
@@ -3185,7 +3419,7 @@ pub async fn find_tickets_for_csv_export(
         let assignees: Vec<String> = sqlx::query_scalar(
             "SELECT COALESCE(NULLIF(u.display_name, ''), u.username)
              FROM tickets_ticket_assignees ta JOIN accounts_user u ON ta.user_id = u.id
-             WHERE ta.ticketmodel_id = $1"
+             WHERE ta.ticketmodel_id = $1",
         )
         .bind(ticket_id)
         .fetch_all(pool)
@@ -3193,7 +3427,7 @@ pub async fn find_tickets_for_csv_export(
 
         let labels: Vec<String> = sqlx::query_scalar(
             "SELECT l.name FROM tickets_ticket_labels tl JOIN m_label l ON tl.labelmodel_id = l.id
-             WHERE tl.ticketmodel_id = $1"
+             WHERE tl.ticketmodel_id = $1",
         )
         .bind(ticket_id)
         .fetch_all(pool)
@@ -3212,13 +3446,23 @@ pub async fn find_tickets_for_csv_export(
             priority: row.get("priority"),
             ticket_type: row.get("ticket_type"),
             assignees: assignees.join(", "),
-            category: row.get::<Option<String>, _>("category_name").unwrap_or_default(),
-            milestone: row.get::<Option<String>, _>("milestone_name").unwrap_or_default(),
+            category: row
+                .get::<Option<String>, _>("category_name")
+                .unwrap_or_default(),
+            milestone: row
+                .get::<Option<String>, _>("milestone_name")
+                .unwrap_or_default(),
             labels: labels.join(", "),
-            start_date: start_date.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
-            due_date: due_date.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
+            start_date: start_date
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default(),
+            due_date: due_date
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default(),
             story_points: story_points.map(|p| p.to_string()).unwrap_or_default(),
-            cycle: row.get::<Option<String>, _>("cycle_name").unwrap_or_default(),
+            cycle: row
+                .get::<Option<String>, _>("cycle_name")
+                .unwrap_or_default(),
             created_at: created_at.format("%Y-%m-%d %H:%M").to_string(),
             updated_at: updated_at.format("%Y-%m-%d %H:%M").to_string(),
         });
@@ -3318,7 +3562,9 @@ pub async fn find_dependency_graph_for_project(
     pool: &PgPool,
     project_id: i32,
 ) -> anyhow::Result<crate::domain::models::dependency_api::DependencyGraphOut> {
-    use crate::domain::models::dependency_api::{DependencyGraphNodeOut, DependencyGraphOut, DependencyGraphCycleOut};
+    use crate::domain::models::dependency_api::{
+        DependencyGraphCycleOut, DependencyGraphNodeOut, DependencyGraphOut,
+    };
 
     // ノード: プロジェクト内の全チケット
     let ticket_rows = sqlx::query(
@@ -3327,7 +3573,7 @@ pub async fn find_dependency_graph_for_project(
          FROM tickets_ticket t
          LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
          WHERE t.project_id = $1
-         ORDER BY t.id"
+         ORDER BY t.id",
     )
     .bind(project_id)
     .fetch_all(pool)
@@ -3351,12 +3597,15 @@ pub async fn find_dependency_graph_for_project(
         std::collections::HashMap::new();
     for r in &assignee_rows {
         let ticket_id: i32 = r.get("ticket_id");
-        assignees_by_ticket.entry(ticket_id).or_default().push(UserSummaryOut {
-            id: r.get("user_id"),
-            username: r.get("username"),
-            email: r.get("email"),
-            display_name: r.get("display_name"),
-        });
+        assignees_by_ticket
+            .entry(ticket_id)
+            .or_default()
+            .push(UserSummaryOut {
+                id: r.get("user_id"),
+                username: r.get("username"),
+                email: r.get("email"),
+                display_name: r.get("display_name"),
+            });
     }
 
     let nodes: Vec<DependencyGraphNodeOut> = ticket_rows
@@ -3381,7 +3630,10 @@ pub async fn find_dependency_graph_for_project(
     let edges_query = format!(
         "{DEPENDENCY_SELECT} WHERE ft.project_id = $1 AND tt.project_id = $1 ORDER BY d.created_at DESC"
     );
-    let edge_rows = sqlx::query(&edges_query).bind(project_id).fetch_all(pool).await?;
+    let edge_rows = sqlx::query(&edges_query)
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
     let edges = edge_rows.iter().map(row_to_dependency).collect();
 
     // Cycle位置: プロジェクトに属する全Cycleの保存済み座標(未配置ならNULL)
@@ -3389,28 +3641,36 @@ pub async fn find_dependency_graph_for_project(
         "SELECT id::int4, graph_position_x, graph_position_y
          FROM t_cycle
          WHERE project_id = $1
-         ORDER BY id"
+         ORDER BY id",
     )
     .bind(project_id)
     .fetch_all(pool)
     .await?;
     let cycles: Vec<crate::domain::models::dependency_api::DependencyGraphCycleOut> = cycle_rows
         .iter()
-        .map(|r| crate::domain::models::dependency_api::DependencyGraphCycleOut {
-            id: r.get("id"),
-            graph_position_x: r.get("graph_position_x"),
-            graph_position_y: r.get("graph_position_y"),
-        })
+        .map(
+            |r| crate::domain::models::dependency_api::DependencyGraphCycleOut {
+                id: r.get("id"),
+                graph_position_x: r.get("graph_position_x"),
+                graph_position_y: r.get("graph_position_y"),
+            },
+        )
         .collect();
 
-    Ok(DependencyGraphOut { nodes, edges, cycles })
+    Ok(DependencyGraphOut {
+        nodes,
+        edges,
+        cycles,
+    })
 }
 
 pub async fn find_dependency_graph_for_team(
     pool: &PgPool,
     team_id: i32,
 ) -> anyhow::Result<crate::domain::models::dependency_api::DependencyGraphOut> {
-    use crate::domain::models::dependency_api::{DependencyGraphNodeOut, DependencyGraphOut, DependencyGraphCycleOut};
+    use crate::domain::models::dependency_api::{
+        DependencyGraphCycleOut, DependencyGraphNodeOut, DependencyGraphOut,
+    };
 
     // ノード: チーム内の全チケット
     let ticket_rows = sqlx::query(
@@ -3419,7 +3679,7 @@ pub async fn find_dependency_graph_for_team(
          FROM tickets_ticket t
          LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
          WHERE t.team_id = $1
-         ORDER BY t.id"
+         ORDER BY t.id",
     )
     .bind(team_id)
     .fetch_all(pool)
@@ -3443,12 +3703,15 @@ pub async fn find_dependency_graph_for_team(
         std::collections::HashMap::new();
     for r in &assignee_rows {
         let ticket_id: i32 = r.get("ticket_id");
-        assignees_by_ticket.entry(ticket_id).or_default().push(UserSummaryOut {
-            id: r.get("user_id"),
-            username: r.get("username"),
-            email: r.get("email"),
-            display_name: r.get("display_name"),
-        });
+        assignees_by_ticket
+            .entry(ticket_id)
+            .or_default()
+            .push(UserSummaryOut {
+                id: r.get("user_id"),
+                username: r.get("username"),
+                email: r.get("email"),
+                display_name: r.get("display_name"),
+            });
     }
 
     let nodes: Vec<DependencyGraphNodeOut> = ticket_rows
@@ -3473,7 +3736,10 @@ pub async fn find_dependency_graph_for_team(
     let edges_query = format!(
         "{DEPENDENCY_SELECT} WHERE ft.team_id = $1 AND tt.team_id = $1 ORDER BY d.created_at DESC"
     );
-    let edge_rows = sqlx::query(&edges_query).bind(team_id).fetch_all(pool).await?;
+    let edge_rows = sqlx::query(&edges_query)
+        .bind(team_id)
+        .fetch_all(pool)
+        .await?;
     let edges = edge_rows.iter().map(row_to_dependency).collect();
 
     // Cycle位置: チームに属する全Cycleの保存済み座標
@@ -3481,21 +3747,27 @@ pub async fn find_dependency_graph_for_team(
         "SELECT id::int4, graph_position_x, graph_position_y
          FROM t_cycle
          WHERE team_id = $1
-         ORDER BY id"
+         ORDER BY id",
     )
     .bind(team_id)
     .fetch_all(pool)
     .await?;
     let cycles: Vec<crate::domain::models::dependency_api::DependencyGraphCycleOut> = cycle_rows
         .iter()
-        .map(|r| crate::domain::models::dependency_api::DependencyGraphCycleOut {
-            id: r.get("id"),
-            graph_position_x: r.get("graph_position_x"),
-            graph_position_y: r.get("graph_position_y"),
-        })
+        .map(
+            |r| crate::domain::models::dependency_api::DependencyGraphCycleOut {
+                id: r.get("id"),
+                graph_position_x: r.get("graph_position_x"),
+                graph_position_y: r.get("graph_position_y"),
+            },
+        )
         .collect();
 
-    Ok(DependencyGraphOut { nodes, edges, cycles })
+    Ok(DependencyGraphOut {
+        nodes,
+        edges,
+        cycles,
+    })
 }
 
 pub async fn assert_team_participates_in_project(
@@ -3507,7 +3779,7 @@ pub async fn assert_team_participates_in_project(
         "SELECT EXISTS(
             SELECT 1 FROM tickets_project_teams
             WHERE project_id = $1 AND team_id = $2
-        )"
+        )",
     )
     .bind(project_id)
     .bind(team_id)
@@ -3533,20 +3805,28 @@ mod tests {
     /// 循環(A→B→C→A)になるため拒否されることを確認する。
     #[tokio::test]
     async fn create_dependency_rejects_direct_cycle() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "cycle-author").await;
         let project = test_support::create_test_project(&pool, "CYC", author).await;
         let a = test_support::create_test_ticket(&pool, project, "CYC-A", author).await;
         let b = test_support::create_test_ticket(&pool, project, "CYC-B", author).await;
         let c = test_support::create_test_ticket(&pool, project, "CYC-C", author).await;
 
-        let r1 = create_dependency(&pool, a, b, "blocks", author).await.unwrap();
+        let r1 = create_dependency(&pool, a, b, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r1, CreateDependencyResult::Success(_)));
-        let r2 = create_dependency(&pool, b, c, "blocks", author).await.unwrap();
+        let r2 = create_dependency(&pool, b, c, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r2, CreateDependencyResult::Success(_)));
 
         // C→A を追加すると A→B→C→A の循環になるため拒否されるはず
-        let r3 = create_dependency(&pool, c, a, "blocks", author).await.unwrap();
+        let r3 = create_dependency(&pool, c, a, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r3, CreateDependencyResult::CircularDependency));
     }
 
@@ -3554,64 +3834,86 @@ mod tests {
     /// (循環検知が誤検知しないことの確認)。
     #[tokio::test]
     async fn create_dependency_allows_non_circular_branch() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "branch-author").await;
         let project = test_support::create_test_project(&pool, "BR", author).await;
         let a = test_support::create_test_ticket(&pool, project, "BR-A", author).await;
         let b = test_support::create_test_ticket(&pool, project, "BR-B", author).await;
         let c = test_support::create_test_ticket(&pool, project, "BR-C", author).await;
 
-        let r1 = create_dependency(&pool, a, b, "blocks", author).await.unwrap();
+        let r1 = create_dependency(&pool, a, b, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r1, CreateDependencyResult::Success(_)));
 
         // A→C は A→B と無関係の新規依存であり循環ではない
-        let r2 = create_dependency(&pool, a, c, "blocks", author).await.unwrap();
+        let r2 = create_dependency(&pool, a, c, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r2, CreateDependencyResult::Success(_)));
     }
 
     /// 自己参照は循環検知より前の自己参照チェックで拒否されることを確認する。
     #[tokio::test]
     async fn create_dependency_rejects_self_reference() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "self-author").await;
         let project = test_support::create_test_project(&pool, "SLF", author).await;
         let a = test_support::create_test_ticket(&pool, project, "SLF-A", author).await;
 
-        let r = create_dependency(&pool, a, a, "blocks", author).await.unwrap();
+        let r = create_dependency(&pool, a, a, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r, CreateDependencyResult::SelfReference));
     }
 
     /// 同一(from, to)ペアの重複追加は拒否されることを確認する。
     #[tokio::test]
     async fn create_dependency_rejects_duplicate() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "dup-author").await;
         let project = test_support::create_test_project(&pool, "DUP", author).await;
         let a = test_support::create_test_ticket(&pool, project, "DUP-A", author).await;
         let b = test_support::create_test_ticket(&pool, project, "DUP-B", author).await;
 
-        let r1 = create_dependency(&pool, a, b, "blocks", author).await.unwrap();
+        let r1 = create_dependency(&pool, a, b, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r1, CreateDependencyResult::Success(_)));
-        let r2 = create_dependency(&pool, a, b, "blocks", author).await.unwrap();
+        let r2 = create_dependency(&pool, a, b, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r2, CreateDependencyResult::Duplicate));
     }
 
     /// 存在しないチケットへの依存追加は拒否されることを確認する。
     #[tokio::test]
     async fn create_dependency_rejects_missing_to_task() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "missing-author").await;
         let project = test_support::create_test_project(&pool, "MIS", author).await;
         let a = test_support::create_test_ticket(&pool, project, "MIS-A", author).await;
 
-        let r = create_dependency(&pool, a, 999_999_999, "blocks", author).await.unwrap();
+        let r = create_dependency(&pool, a, 999_999_999, "blocks", author)
+            .await
+            .unwrap();
         assert!(matches!(r, CreateDependencyResult::ToTaskNotFound));
     }
 
     /// find_by_id / api_find_by_key の基本的なCRUD往復を確認する。
     #[tokio::test]
     async fn find_by_id_returns_created_ticket() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "crud-author").await;
         let project = test_support::create_test_project(&pool, "CRUD", author).await;
         let ticket_id = test_support::create_test_ticket(&pool, project, "CRUD-T", author).await;
@@ -3619,6 +3921,37 @@ mod tests {
         let found = find_by_id(&pool, ticket_id).await.unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, ticket_id);
+    }
+
+    /// api_find_by_key（チケット詳細JSON API）が project の name/prefix を
+    /// 数値IDではなく実際の名称で返すことを確認する（WIPAPPDEV-000095の再発防止）。
+    #[tokio::test]
+    async fn api_find_by_key_includes_project_name_and_prefix() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let author = test_support::create_test_user(&pool, "detail-author").await;
+        let project = test_support::create_test_project(&pool, "DETAIL", author).await;
+        let ticket_id = test_support::create_test_ticket(&pool, project, "DETAIL-T", author).await;
+        let ticket_key: String =
+            sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
+                .bind(ticket_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let (expected_name, expected_prefix): (String, String) =
+            sqlx::query_as("SELECT name, prefix FROM tickets_project WHERE id = $1")
+                .bind(project)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        let detail = api_find_by_key(&pool, &ticket_key, None, "ai_agent").await.unwrap();
+        assert!(detail.is_some());
+        let detail = detail.unwrap();
+        assert_eq!(detail.base.project, Some(project));
+        assert_eq!(detail.base.project_name, Some(expected_name));
+        assert_eq!(detail.base.project_prefix, Some(expected_prefix));
     }
 
     /// find_all がステータス・プロジェクトIDフィルタで正しく絞り込めることを確認する
@@ -3629,12 +3962,16 @@ mod tests {
     /// 修正している)。
     #[tokio::test]
     async fn find_all_filters_by_status_and_project() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "filter-author").await;
         let project_a = test_support::create_test_project(&pool, "FA", author).await;
         let project_b = test_support::create_test_project(&pool, "FB", author).await;
-        let ticket_open = test_support::create_test_ticket(&pool, project_a, "FIL-OPEN", author).await;
-        let ticket_other_project = test_support::create_test_ticket(&pool, project_b, "FIL-OTHER", author).await;
+        let ticket_open =
+            test_support::create_test_ticket(&pool, project_a, "FIL-OPEN", author).await;
+        let ticket_other_project =
+            test_support::create_test_ticket(&pool, project_b, "FIL-OTHER", author).await;
 
         sqlx::query("UPDATE tickets_ticket SET status = 'closed' WHERE id = $1")
             .bind(ticket_other_project)
@@ -3656,14 +3993,18 @@ mod tests {
     /// 保存済み位置がある場合はgraphPositionX/Yが設定されることを確認する。
     #[tokio::test]
     async fn find_dependency_graph_includes_cycles_with_positions() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "dgraph-author").await;
         let project = test_support::create_test_project(&pool, "DG", author).await;
 
         // テスト用のCycleを作成
         let today = chrono::Local::now().naive_local().date();
-        use crate::infrastructure::repositories::cycle_repo::{create_cycle, update_cycle_graph_position};
         use crate::domain::models::cycle_api::CycleWriteIn;
+        use crate::infrastructure::repositories::cycle_repo::{
+            create_cycle, update_cycle_graph_position,
+        };
 
         let cycle_id = create_cycle(
             &pool,
@@ -3686,7 +4027,11 @@ mod tests {
             .await
             .expect("find_dependency_graph_for_project failed");
         assert!(!graph.cycles.is_empty());
-        let cycle_entry = graph.cycles.iter().find(|c| c.id == cycle_id).expect("Cycle not found");
+        let cycle_entry = graph
+            .cycles
+            .iter()
+            .find(|c| c.id == cycle_id)
+            .expect("Cycle not found");
         assert!(cycle_entry.graph_position_x.is_none());
         assert!(cycle_entry.graph_position_y.is_none());
 
@@ -3699,7 +4044,11 @@ mod tests {
         let graph = find_dependency_graph_for_project(&pool, project)
             .await
             .expect("find_dependency_graph_for_project failed");
-        let cycle_entry = graph.cycles.iter().find(|c| c.id == cycle_id).expect("Cycle not found");
+        let cycle_entry = graph
+            .cycles
+            .iter()
+            .find(|c| c.id == cycle_id)
+            .expect("Cycle not found");
         assert_eq!(cycle_entry.graph_position_x, Some(100.5));
         assert_eq!(cycle_entry.graph_position_y, Some(200.75));
     }
@@ -3708,11 +4057,15 @@ mod tests {
     /// 列番号がずれると i64 デコードでパニックし、一覧 API が 502 になる。
     #[tokio::test]
     async fn api_find_all_reads_counts_after_team_columns() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "list-team-author").await;
         let project = test_support::create_test_project(&pool, "LTEAM", author).await;
-        let ticket_no_team = test_support::create_test_ticket(&pool, project, "LTEAM-N", author).await;
-        let ticket_with_team = test_support::create_test_ticket(&pool, project, "LTEAM-T", author).await;
+        let ticket_no_team =
+            test_support::create_test_ticket(&pool, project, "LTEAM-N", author).await;
+        let ticket_with_team =
+            test_support::create_test_ticket(&pool, project, "LTEAM-T", author).await;
 
         let team_id: i32 = sqlx::query_scalar(
             "INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, created_at)
@@ -3740,13 +4093,19 @@ mod tests {
             .await
             .expect("api_find_all should not panic after team columns");
 
-        let no_team = results.iter().find(|t| t.id == ticket_no_team).expect("ticket without team");
+        let no_team = results
+            .iter()
+            .find(|t| t.id == ticket_no_team)
+            .expect("ticket without team");
         assert!(no_team.team.is_none());
         assert_eq!(no_team.comment_count, 0);
         assert_eq!(no_team.child_count, 0);
         assert_eq!(no_team.total_time_spent, 0);
 
-        let with_team = results.iter().find(|t| t.id == ticket_with_team).expect("ticket with team");
+        let with_team = results
+            .iter()
+            .find(|t| t.id == ticket_with_team)
+            .expect("ticket with team");
         assert_eq!(with_team.team.as_ref().map(|t| t.id), Some(team_id));
         assert_eq!(with_team.comment_count, 0);
     }

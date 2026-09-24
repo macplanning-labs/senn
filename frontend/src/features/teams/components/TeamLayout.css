@@ -1,0 +1,102 @@
+/* ─── TeamLayout - チーム詳細画面レイアウト ─────────────────────────────── */
+
+/* MainLayout の max-width / 非対称っぽい余白を解除し、チーム画面で左右を共通管理する */
+.layout__content > .team-layout {
+  max-width: none;
+  width: 100%;
+  padding: 0;
+  height: 100%;
+}
+
+
+
+.team-layout {
+  --team-layout-inline: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ─── ヘッダー ───────────────────────────────────────────────────────── */
+
+.team-layout__header {
+  padding: var(--space-5) var(--team-layout-inline);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.team-layout__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.team-layout__status-badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+/* ─── タブバー ───────────────────────────────────────────────────────── */
+
+.team-layout__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border-default);
+  padding: 0 var(--team-layout-inline);
+  background-color: var(--color-bg-secondary);
+  overflow-x: auto;
+}
+
+.team-layout__tab {
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.team-layout__tab:hover {
+  color: var(--color-text-primary);
+}
+
+.team-layout__tab--active {
+  color: var(--color-accent-primary);
+  border-bottom-color: var(--color-accent-primary);
+}
+
+/* ─── コンテンツ領域 ─────────────────────────────────────────────────── */
+
+.team-layout__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--team-layout-inline) var(--space-6);
+  box-sizing: border-box;
+}
+
+.team-layout__loading,
+.team-layout__error {
+  padding: var(--space-6) 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.team-layout__error {
+  color: var(--color-error);
+}

@@ -11,7 +11,7 @@
 import { defineConfig } from 'orval';
 
 export default defineConfig({
-  wip: {
+  senn: {
     input: {
       target: './openapi.json',
     },

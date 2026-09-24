@@ -370,7 +370,7 @@ pub async fn create_cycle(
     } else if let Some(project_id) = input.project {
         // project に参加チームが1つだけなら補完。2つ以上なら要求
         let participating_teams: Vec<i32> = sqlx::query_scalar(
-            "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
         )
         .bind(project_id)
         .fetch_all(pool)
@@ -1307,6 +1307,7 @@ pub async fn auto_complete_overdue_cycles(
          LEFT JOIN tickets_project p ON p.id = c.project_id
          WHERE c.status = 'active'
            AND c.end_date < CURRENT_DATE
+           AND NOT team_is_archived(c.team_id)
            AND (
              (c.project_id IS NOT NULL AND p.cycle_auto_complete = true)
              OR (c.project_id IS NULL AND c.team_id IS NOT NULL)

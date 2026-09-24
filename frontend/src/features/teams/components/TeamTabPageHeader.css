@@ -1,0 +1,43 @@
+.team-tab-page__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  /* タブ直下の上下余白を均等に（全タブ共通） */
+  margin: 0;
+  padding: var(--space-4) 0;
+}
+
+.team-tab-page__heading {
+  min-width: 0;
+}
+
+.team-tab-page__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.team-tab-page__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 1.15em;
+  height: 1.15em;
+  color: currentColor;
+}
+
+.team-tab-page__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.team-tab-page__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+}

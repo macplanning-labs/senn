@@ -6,7 +6,7 @@
 //!   WIPの`rate_limiter.rs`から移植・一般化した。
 //! - ②`attempt_lock_middleware`: アカウント（メールアドレス等）単位の試行回数
 //!   ロック。`axum::middleware::from_fn`ベースで、ログイン系ルートに
-//!   `route_layer`として個別適用する。Sophiaの`login_guard.rs`相当の新規実装。
+//!   `route_layer`として個別適用する。
 
 use std::future::Future;
 use std::pin::Pin;

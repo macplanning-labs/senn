@@ -1,11 +1,12 @@
 /**
  * TriageRequestsPage.tsx — トリアージ依頼一覧 + 作成 + 承認/却下UI
  *
- * URL: /triage
+ * URL: /team/:teamSlug/triage
  * 開発標準書: モーダル編集方式準拠
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useTriageRequests,
   useCreateTriageRequest,
@@ -13,8 +14,11 @@ import {
   useRejectTriageRequest,
 } from '../hooks/useTriageRequests';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { FilterBar } from '@/shared/components/ui/FilterBar';
 import type { TriageRequest, TriageStatus } from '@/shared/api/types';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconTicket } from '@/shared/components/layout/Sidebar';
 
 const STATUS_BADGES: Record<TriageStatus, { label: string; color: string; bg: string }> = {
   pending: { label: '承認待ち', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
@@ -28,13 +32,17 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
 };
 
 export function TriageRequestsPage() {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<TriageStatus | ''>('');
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [reviewComment, setReviewComment] = useState('');
 
-  const { data: requests, isLoading } = useTriageRequests(filter || undefined);
+  const { currentTeam, isLoading: teamLoading } = useTeam();
+  const teamId = currentTeam?.id;
+
+  const { data: requests, isLoading } = useTriageRequests(teamId, filter || undefined);
   const createMutation = useCreateTriageRequest();
   const approveMutation = useApproveTriageRequest();
   const rejectMutation = useRejectTriageRequest();
@@ -46,11 +54,22 @@ export function TriageRequestsPage() {
 
   // プロジェクト一覧取得
   const { projectList: projects } = useProject();
+  const teamProjects = projects.filter((p) =>
+    teamId ? (p.teams ?? []).some((t) => t.id === teamId) : false,
+  );
+
+  if (!teamId && !teamLoading) {
+    return (
+      <div style={{ textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
+        チームが見つかりません
+      </div>
+    );
+  }
 
   function handleCreate() {
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim() || !teamId) return;
     createMutation.mutate(
-      { title: newTitle, description: newDesc, change_type: newType },
+      { title: newTitle, description: newDesc, change_type: newType, team: teamId },
       {
         onSuccess: () => {
           setShowCreate(false);
@@ -82,28 +101,29 @@ export function TriageRequestsPage() {
   }
 
   return (
-    <div style={{ padding: 'var(--space-6)', maxWidth: 900, margin: '0 auto' }}>
+    <div className="triage-requests-page" data-testid="triage-requests-page">
       {/* ヘッダー */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
-        <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 'var(--font-weight-bold)', color: 'var(--color-text-primary)' }}>
-          📋 Triage Requests
-        </h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          style={{
-            padding: 'var(--space-2) var(--space-4)',
-            background: 'var(--color-accent-primary)',
-            color: 'white',
-            border: 'none',
-            borderRadius: 'var(--radius-md)',
-            cursor: 'pointer',
-            fontWeight: 'var(--font-weight-semibold)',
-          }}
-          data-testid="create-triage-btn"
-        >
-          + 新規依頼
-        </button>
-      </div>
+      <TeamTabPageHeader
+        icon={IconTicket}
+        title={t('nav.triage')}
+        actions={
+          <button
+            onClick={() => setShowCreate(true)}
+            style={{
+              padding: 'var(--space-2) var(--space-4)',
+              background: 'var(--color-accent-primary)',
+              color: 'white',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              cursor: 'pointer',
+              fontWeight: 'var(--font-weight-semibold)',
+            }}
+            data-testid="create-triage-btn"
+          >
+            + 新規依頼
+          </button>
+        }
+      />
 
       {/* フィルタバー（共有コンポーネント） */}
       <FilterBar
@@ -328,7 +348,7 @@ export function TriageRequestsPage() {
                             }}
                           >
                             <option value="">起票先プロジェクト</option>
-                            {projects.map((p) => (
+                            {teamProjects.map((p) => (
                               <option key={p.id} value={p.id}>{p.prefix} — {p.name}</option>
                             ))}
                           </select>

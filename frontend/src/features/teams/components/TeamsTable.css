@@ -1,0 +1,140 @@
+/**
+ * TeamsTable.css — ProjectsTable に倣った行テーブル
+ */
+
+.teams-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.teams-table__th {
+  text-align: left;
+  padding: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs, 0.75rem);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.teams-table__th--name {
+  width: 28%;
+}
+
+.teams-table__th--desc {
+  width: 32%;
+}
+
+.teams-table__row {
+  cursor: pointer;
+}
+
+.teams-table__row:hover {
+  background: var(--color-bg-hover);
+}
+
+.teams-table__td {
+  padding: var(--space-2);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-default);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.teams-table__td--name {
+  white-space: normal;
+}
+
+.teams-table__td--desc {
+  white-space: normal;
+  max-width: 280px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.teams-table__td--actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.teams-table__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+
+.teams-table__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.teams-table__name-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.teams-table__name {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.teams-table__slug {
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.teams-table__badge {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs, 0.75rem);
+  color: var(--color-text-tertiary);
+  border: 1px solid var(--color-border-default);
+  vertical-align: middle;
+}
+
+.teams-table__action-link {
+  color: var(--color-accent-primary);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+}
+
+.teams-table__action-link:hover {
+  text-decoration: underline;
+}
+
+.teams-table__action-btn {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.teams-table__action-btn:hover {
+  background: var(--color-bg-tertiary);
+}

@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * WIP — Playwright E2E テスト設定
  *
- * 前提: Django API (localhost:8000) + Vite dev server (localhost:5173) が起動済み
+ * 前提: API サーバー (localhost:8151) + Vite dev server (localhost:5173) が起動済み
  * 実行: cd frontend && npx playwright test
  */
 export default defineConfig({
@@ -27,5 +27,5 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  /* Django API + Vite を手動起動する前提（CI では webServer で自動起動） */
+  /* API サーバー + Vite を手動起動する前提（CI では webServer で自動起動） */
 });

@@ -6,8 +6,9 @@
  */
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useTeams } from '@/features/teams/hooks/useTeams';
+import { activeTeams as filterActiveTeams, archivedTeams as filterArchivedTeams } from '@/features/teams/utils/archivedTeams';
 import type { Team } from '@/shared/api/types';
 
 export type { Team };
@@ -26,7 +27,13 @@ export function useTeam() {
 
   const teamList = teams ?? [];
 
-  // URLのteamSlugからTeamを特定
+  // アーカイブされていないチームのみ
+  const activeTeamList = useMemo(() => filterActiveTeams(teamList), [teamList]);
+
+  // アーカイブ済みチームのみ
+  const archivedTeamList = useMemo(() => filterArchivedTeams(teamList), [teamList]);
+
+  // URLのteamSlugからTeamを特定（全チームから検索）
   const currentTeam = teamSlug
     ? teamList.find((t) => t.slug.toLowerCase() === teamSlug.toLowerCase())
     : null;
@@ -45,6 +52,10 @@ export function useTeam() {
     currentTeam,
     /** 全Team一覧 */
     teamList,
+    /** アーカイブされていないチーム一覧 */
+    activeTeams: activeTeamList,
+    /** アーカイブ済みチーム一覧 */
+    archivedTeams: archivedTeamList,
     /** 読み込み中 */
     isLoading: teamsLoading,
   };

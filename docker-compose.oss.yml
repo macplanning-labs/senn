@@ -4,7 +4,7 @@
 # One-command deployment for users who want to self-host SENN
 # Usage:
 #   ./scripts/oss-up.sh
-#   # → http://localhost:8080
+#   # → http://localhost:8151
 #
 # To stop:
 #   ./scripts/oss-down.sh
@@ -23,11 +23,11 @@ services:
     env_file:
       - .env.oss
     environment:
-      - POSTGRES_DB=${POSTGRES_DB:-qa_tool}
-      - POSTGRES_USER=${POSTGRES_USER:-qa_admin}
+      - POSTGRES_DB=${POSTGRES_DB:-senn}
+      - POSTGRES_USER=${POSTGRES_USER:-senn}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qa_admin} -d ${POSTGRES_DB:-qa_tool}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-senn} -d ${POSTGRES_DB:-senn}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -45,10 +45,13 @@ services:
     env_file:
       - .env.oss
     environment:
-      - DATABASE_URL=postgres://${POSTGRES_USER:-qa_admin}:${DB_PASSWORD}@db:5432/${POSTGRES_DB:-qa_tool}
+      - DATABASE_URL=postgres://${POSTGRES_USER:-senn}:${DB_PASSWORD}@db:5432/${POSTGRES_DB:-senn}
       - PORT=8151
-      - SESSION_SECRET=${SESSION_SECRET}
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - BASE_URL=${BASE_URL:-http://localhost:8151}
+      - COOKIE_SECURE=false
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-localhost}
+      - WEBAUTHN_RP_ORIGIN=${BASE_URL:-http://localhost:8151}
       - RUST_RUN_MIGRATIONS=true
     depends_on:
       db:
@@ -65,7 +68,7 @@ services:
     image: senn-web:oss
     container_name: senn-oss-web
     ports:
-      - "8080:80"
+      - "${PORT:-8151}:80"
     volumes:
       - senn-oss-media:/app/media:ro
     depends_on:

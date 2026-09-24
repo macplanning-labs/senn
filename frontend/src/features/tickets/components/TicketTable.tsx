@@ -35,6 +35,8 @@ import {
   buildTicketDetailPath,
   buildTicketListPath,
 } from '@/features/tickets/utils/ticketNavigation';
+import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
+import { IconTicket } from '@/shared/components/layout/Sidebar';
 
 interface Ticket {
   id: number;
@@ -47,6 +49,7 @@ interface Ticket {
   labels: Label[];
   dueDate: string | null;
   updatedAt: string;
+  createdAt: string;
   commentCount: number;
   childCount: number;
   project?: number | null;
@@ -60,23 +63,24 @@ function ticketDetailPath(
   cycleId: number | undefined,
   pageTeamSlug: string | null,
 ): string {
-  // リンクはチケット自身の prefix / Team。prefix も Team も無い旧データだけページ文脈に戻す。
-  const projectKey = ticket.projectPrefix ?? (ticket.team?.slug ? null : pageProjectKey ?? null);
-  const slug = ticket.team?.slug ?? pageTeamSlug;
-  return buildTicketDetailPath(projectKey, ticket.ticketKey, cycleId, slug);
+  // 表示中のページの文脈(チーム画面 or プロジェクト画面)を優先する。
+  // プロジェクト付きチケットは必ずteam_idも持つため、チケット自身のprefixを
+  // 優先すると、チーム画面で見ているだけなのにプロジェクト側へ遷移してしまう。
+  if (pageTeamSlug) {
+    return buildTicketDetailPath(null, ticket.ticketKey, undefined, pageTeamSlug);
+  }
+  if (pageProjectKey) {
+    return buildTicketDetailPath(pageProjectKey, ticket.ticketKey, cycleId, null);
+  }
+  // ページ文脈が無い場合(埋め込み利用等)はチケット自身の所属から判断する。
+  if (ticket.team?.slug) {
+    return buildTicketDetailPath(null, ticket.ticketKey, undefined, ticket.team.slug);
+  }
+  return buildTicketDetailPath(ticket.projectPrefix ?? null, ticket.ticketKey, cycleId, null);
 }
 
 const STATUS_OPTIONS = ['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled'] as const;
 const PRIORITY_OPTIONS = ['urgent', 'high', 'medium', 'low'] as const;
-
-const statusLabels: Record<string, string> = {
-  backlog: 'Backlog',
-  open: 'Open',
-  in_progress: 'In Progress',
-  resolved: 'Resolved',
-  closed: 'Closed',
-  canceled: 'Canceled',
-};
 
 const statusColors: Record<string, string> = {
   backlog: 'var(--color-status-backlog, #6b7280)',
@@ -110,6 +114,7 @@ const TABLE_COLUMNS: ColumnDef[] = [
   { key: 'assignee', defaultWidth: 140, minWidth: 80 },
   { key: 'labels', defaultWidth: 140, minWidth: 60 },
   { key: 'due', defaultWidth: 100, minWidth: 70 },
+  { key: 'created', defaultWidth: 100, minWidth: 70 },
   { key: 'meta', defaultWidth: 80, minWidth: 50 },
 ];
 
@@ -121,6 +126,8 @@ interface TicketTableProps {
 
 export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const { t } = useTranslation();
+  const statusLabel = (s: string) => t(`ticket.status.${s}`, { defaultValue: s });
+  const priorityLabel = (p: string) => t(`ticket.priority_label.${p}`, { defaultValue: p });
   const { projectKey, currentProject } = useProject();
   const { teamSlug, currentTeam } = useTeam();
   const { data: workflowStatuses = [] } = useWorkflowStatuses(
@@ -632,65 +639,78 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
     rows?.[selectedIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedIndex]);
 
+  const ticketHeaderActions = (
+    <>
+      <button
+        className="ticket-table__export-btn"
+        onClick={async () => {
+          try {
+            const params = new URLSearchParams();
+            if (currentProject?.id) params.set('project', String(currentProject.id));
+            if (statusFilter) params.set('status', statusFilter);
+            if (priorityFilter) params.set('priority', priorityFilter);
+            const res = await apiClient.get(`/tickets/export/csv/?${params}`, {
+              responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data as BlobPart]));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tickets_${projectKey || 'all'}_${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+          } catch {
+            // silent fail
+          }
+        }}
+        data-testid="csv-export-btn"
+      >
+        📥 CSV
+      </button>
+      <button
+        className="ticket-table__import-btn"
+        onClick={() => setMarkdownImportOpen(true)}
+        data-testid="markdown-import-btn"
+        title="Markdownからインポート"
+      >
+        📄 MD
+      </button>
+      <button
+        type="button"
+        className="ticket-table__create-btn"
+        onClick={() => {
+          if (projectKey) {
+            openTicketFormModal(projectKey);
+          } else if (teamSlug) {
+            openTicketFormModal(null, teamSlug);
+          } else {
+            navigate('/tickets/new');
+          }
+        }}
+        data-testid="create-ticket-btn"
+      >
+        + {t('ticket.create')}
+      </button>
+    </>
+  );
+
   return (
     <div className="ticket-table" data-testid="ticket-table-page">
       {/* 固定ヘッダー（スクロールしても検索欄・フィルタが隠れないように） */}
       <div className="ticket-table__sticky-top">
         {/* ヘッダー */}
-        <div className="ticket-table__header">
-          {!cycleId && <h1 className="ticket-table__title">{t('nav.tickets')}</h1>}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: cycleId ? 'auto' : undefined }}>
-            <button
-              className="ticket-table__export-btn"
-              onClick={async () => {
-                try {
-                  const params = new URLSearchParams();
-                  if (currentProject?.id) params.set('project', String(currentProject.id));
-                  if (statusFilter) params.set('status', statusFilter);
-                  if (priorityFilter) params.set('priority', priorityFilter);
-                  const res = await apiClient.get(`/tickets/export/csv/?${params}`, {
-                    responseType: 'blob',
-                  });
-                  const url = window.URL.createObjectURL(new Blob([res.data as BlobPart]));
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `tickets_${projectKey || 'all'}_${new Date().toISOString().slice(0, 10)}.csv`;
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                } catch {
-                  // silent fail
-                }
-              }}
-              data-testid="csv-export-btn"
-            >
-              📥 CSV
-            </button>
-            <button
-              className="ticket-table__import-btn"
-              onClick={() => setMarkdownImportOpen(true)}
-              data-testid="markdown-import-btn"
-              title="Markdownからインポート"
-            >
-              📄 MD
-            </button>
-            <button
-              type="button"
-              className="ticket-table__create-btn"
-              onClick={() => {
-                if (projectKey) {
-                  openTicketFormModal(projectKey);
-                } else if (teamSlug) {
-                  openTicketFormModal(null, teamSlug);
-                } else {
-                  navigate('/tickets/new');
-                }
-              }}
-              data-testid="create-ticket-btn"
-            >
-              + {t('ticket.create')}
-            </button>
+        {cycleId ? (
+          <div className="ticket-table__header">
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginLeft: 'auto' }}>
+              {ticketHeaderActions}
+            </div>
           </div>
-        </div>
+        ) : (
+          <TeamTabPageHeader
+            icon={IconTicket}
+            title={t('nav.tickets')}
+            actions={ticketHeaderActions}
+          />
+        )}
 
         {/* フィルタバー（共有コンポーネント） */}
         <FilterBar
@@ -705,9 +725,9 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             onChange={(e) => { setStatusFilter(e.target.value); setStatusInFilter(''); }}
             data-testid="status-filter"
           >
-            <option value="">All Status</option>
+            <option value="">{t('ticketTable.allStatus')}</option>
             {statusOptions.map((s) => (
-              <option key={s} value={s}>{statusLabels[s] ?? s}</option>
+              <option key={s} value={s}>{statusLabel(s)}</option>
             ))}
           </select>
           <select
@@ -716,9 +736,9 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             onChange={(e) => setPriorityFilter(e.target.value)}
             data-testid="priority-filter"
           >
-            <option value="">All Priority</option>
+            <option value="">{t('ticketTable.allPriority')}</option>
             {PRIORITY_OPTIONS.map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>{priorityLabel(p)}</option>
             ))}
           </select>
           <select
@@ -727,9 +747,9 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             onChange={(e) => setDueFilter(e.target.value)}
             data-testid="due-filter"
           >
-            <option value="">All Due Dates</option>
-            <option value="overdue">Overdue</option>
-            <option value="due_soon">Due Soon</option>
+            <option value="">{t('ticketTable.allDueDates')}</option>
+            <option value="overdue">{t('ticketTable.overdue')}</option>
+            <option value="due_soon">{t('ticketTable.dueSoon')}</option>
           </select>
 
           {/* プリセット（Saved Views） */}
@@ -752,7 +772,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                       <button className="ticket-table__preset-apply" onClick={() => applyPreset(view)}>
                         {view.name}
                         <span className="ticket-table__preset-detail">
-                          {[view.filters.status && statusLabels[view.filters.status], view.filters.priority, view.filters.search && `"${view.filters.search}"`].filter(Boolean).join(' · ') || 'All'}
+                          {[view.filters.status && statusLabel(view.filters.status), view.filters.priority, view.filters.search && `"${view.filters.search}"`].filter(Boolean).join(' · ') || 'All'}
                         </span>
                       </button>
                       <button className="ticket-table__preset-delete" onClick={() => deletePreset(view.id)} title={t('common.delete')} disabled={deleteSavedViewMutation.isPending}>×</button>
@@ -797,7 +817,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
           >
             <option value="">ステータス変更...</option>
             {statusOptions.map((s) => (
-              <option key={s} value={s}>{statusLabels[s] ?? s}</option>
+              <option key={s} value={s}>{statusLabel(s)}</option>
             ))}
           </select>
           {isProjectOwner && (
@@ -856,28 +876,32 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                   />
                 </th>
                 <th className="ticket-table__th ticket-table__th--key">
-                  Key
+                  {t('ticketTable.key')}
                   <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('key', e)} />
                 </th>
                 <th className="ticket-table__th ticket-table__th--title">
-                  Title
+                  {t('ticketTable.title')}
                   <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('title', e)} />
                 </th>
                 <th className="ticket-table__th ticket-table__th--status">
-                  Status
+                  {t('ticketTable.status')}
                   <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('status', e)} />
                 </th>
                 <th className="ticket-table__th ticket-table__th--assignee">
-                  Assignee
+                  {t('ticketTable.assignee')}
                   <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('assignee', e)} />
                 </th>
                 <th className="ticket-table__th ticket-table__th--labels">
-                  Labels
+                  {t('ticketTable.labels')}
                   <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('labels', e)} />
                 </th>
                 <th className="ticket-table__th ticket-table__th--due">
-                  Due
+                  {t('ticketTable.due')}
                   <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('due', e)} />
+                </th>
+                <th className="ticket-table__th ticket-table__th--created">
+                  {t('ticketTable.created')}
+                  <span className="ticket-table__resize-handle" onMouseDown={(e) => onResizeStart('created', e)} />
                 </th>
                 <th className="ticket-table__th ticket-table__th--meta"></th>
               </tr>
@@ -940,6 +964,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                     <select
                       className="ticket-table__status-select"
                       value={ticket.status}
+                      onClick={(e) => e.stopPropagation()}
                       onChange={(e) => {
                         statusMutation.mutate({ ticketKey: ticket.ticketKey, status: e.target.value });
                       }}
@@ -950,7 +975,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                       data-testid={`status-select-${ticket.ticketKey}`}
                     >
                       {statusOptions.map((s) => (
-                        <option key={s} value={s}>{statusLabels[s] ?? s}</option>
+                        <option key={s} value={s}>{statusLabel(s)}</option>
                       ))}
                     </select>
                   </td>
@@ -996,6 +1021,13 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                     ) : (
                       '—'
                     )}
+                  </td>
+
+                  {/* Created date */}
+                  <td className="ticket-table__td ticket-table__td--created">
+                    {ticket.createdAt
+                      ? new Date(ticket.createdAt).toLocaleDateString()
+                      : '—'}
                   </td>
 
                   {/* メタ情報 */}

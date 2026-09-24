@@ -92,7 +92,7 @@ pub fn decrypt_secret(blob_b64: &str, secret_key: &str) -> Result<Vec<u8>, AuthE
 
 /// AES-256-GCM暗号化結果（ciphertext/nonceを別々のDBカラムに保存するアプリ向け）。
 /// [`EncryptedSecret`]（単一blobカラム）とは異なり、ciphertext/nonceを個別に
-/// 永続化するスキーマ（例: Sophiaのsecret_encrypted/nonceカラム）向けに用意した。
+/// 永続化するスキーマ（例: secret_encrypted / nonce の2カラム）向けに用意した。
 pub struct EncryptedSecretSplit {
     pub ciphertext_b64: String,
     pub nonce_b64: String,
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
-        let secret_key = "test-secret-key-for-wip";
+        let secret_key = "test-secret-key";
         let original = b"test-totp-secret-bytes-here";
 
         let encrypted = encrypt_secret(original, secret_key).unwrap();
@@ -273,10 +273,10 @@ mod tests {
 
     #[test]
     fn base32_roundtrip_matches_current_code() {
-        let (secret_base32, _uri) = generate_totp_setup("WIP", "alice").unwrap();
+        let (secret_base32, _uri) = generate_totp_setup("SENN", "alice").unwrap();
         let secret_bytes = Secret::Encoded(secret_base32.clone()).to_bytes().unwrap();
-        let totp = build_totp(&secret_bytes, "WIP", "alice").unwrap();
+        let totp = build_totp(&secret_bytes, "SENN", "alice").unwrap();
         let code = totp.generate_current().unwrap();
-        assert!(verify_code_base32(&secret_base32, "WIP", &code).unwrap());
+        assert!(verify_code_base32(&secret_base32, "SENN", &code).unwrap());
     }
 }

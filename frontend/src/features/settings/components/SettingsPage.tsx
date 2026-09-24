@@ -436,6 +436,46 @@ export function SettingsPage() {
                     <kbd>G</kbd> then <kbd>S</kbd>
                     <span>{t('shortcuts.goToSettings')}</span>
                   </div>
+                  <div className="settings__shortcut">
+                    <kbd>S</kbd>
+                    <span>{t('shortcuts.status')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>A</kbd>
+                    <span>{t('shortcuts.assignee')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>P</kbd>
+                    <span>{t('shortcuts.priority')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>C</kbd>
+                    <span>{t('shortcuts.cycle')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>Shift</kbd> + <kbd>P</kbd>
+                    <span>{t('shortcuts.project')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>L</kbd>
+                    <span>{t('shortcuts.labels')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>E</kbd>
+                    <span>{t('shortcuts.estimate')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>Shift</kbd> + <kbd>D</kbd>
+                    <span>{t('shortcuts.dueDate')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>I</kbd>
+                    <span>{t('shortcuts.focusTitle')}</span>
+                  </div>
+                  <div className="settings__shortcut">
+                    <kbd>D</kbd>
+                    <span>{t('shortcuts.focusDescription')}</span>
+                  </div>
                 </div>
               </div>
             </section>

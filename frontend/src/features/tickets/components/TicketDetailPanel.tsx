@@ -10,14 +10,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
-import { useEditor, useEditorState, EditorContent, ReactRenderer } from '@tiptap/react';
+import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TiptapPlaceholder from '@tiptap/extension-placeholder';
-import TiptapMention from '@tiptap/extension-mention';
-import tippy from 'tippy.js';
-import type { Instance as TippyInstance, GetReferenceClientRect } from 'tippy.js';
-import { MentionList } from './MentionList';
-import type { MentionListRef, MentionListItem } from './MentionList';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
@@ -35,6 +30,11 @@ import { GitActivity } from './GitActivity';
 import ChangeLogTimeline from './ChangeLogTimeline';
 import { AIAnalysisPanel } from '@/features/ai/components/AIAnalysisPanel';
 import { CloseAnalysisDialog } from '@/features/ai/components/CloseAnalysisDialog';
+import { ReactionBar } from './ReactionBar';
+import { buildTicketShareUrl, buildTicketEditPath } from '../utils/ticketNavigation';
+import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
+import { createMentionExtension } from '../utils/createMentionExtension';
+import { IconMoreHorizontal } from '@/shared/components/ui/icons';
 import './TicketDetailPanel.css';
 
 interface TicketData {
@@ -160,68 +160,6 @@ interface Props {
 
 // @メンション拡張の共通ファクトリ。メインのコメント入力欄・返信入力欄の
 // 両方で同じサジェスト挙動(候補一覧・キーボード操作)を使うために切り出した。
-function createMentionExtension(userOptionsRef: React.MutableRefObject<UserOption[]>) {
-  return TiptapMention.extend({
-    // 注意: `@[label](id)` のような丸括弧付き形式はMarkdownのリンク記法と
-    // 完全に一致してしまい、ReactMarkdownが実際にリンクとしてパースしてしまう
-    // （このメンション検出ロジックが動く前に消費される）ため、コロン区切りの
-    // 単一角括弧形式にする（`[text]`単体はCommonMarkのリンクにはならない）。
-    renderText({ node }) {
-      return `@[${node.attrs.label ?? node.attrs.id}:${node.attrs.id}]`;
-    },
-  }).configure({
-    HTMLAttributes: { class: 'mention-node' },
-    suggestion: {
-      items: ({ query }: { query: string }): MentionListItem[] => {
-        const q = query.toLowerCase();
-        return userOptionsRef.current
-          .filter((u) =>
-            q.length === 0
-            || u.username.toLowerCase().startsWith(q)
-            || (u.displayName ?? '').toLowerCase().includes(q)
-            || (u.alias ?? '').toLowerCase().includes(q)
-          )
-          .slice(0, 10);
-      },
-      render: () => {
-        let component: ReactRenderer<MentionListRef, any>;
-        let popup: TippyInstance[];
-        return {
-          onStart: (props) => {
-            component = new ReactRenderer(MentionList, { props, editor: props.editor });
-            if (!props.clientRect) return;
-            popup = tippy('body', {
-              getReferenceClientRect: props.clientRect as GetReferenceClientRect,
-              appendTo: () => document.body,
-              content: component.element,
-              showOnCreate: true,
-              interactive: true,
-              trigger: 'manual',
-              placement: 'bottom-start',
-            });
-          },
-          onUpdate: (props) => {
-            component.updateProps(props);
-            if (!props.clientRect) return;
-            popup[0]?.setProps({ getReferenceClientRect: props.clientRect as GetReferenceClientRect });
-          },
-          onKeyDown: (props) => {
-            if (props.event.key === 'Escape') {
-              popup[0]?.hide();
-              return true;
-            }
-            return component.ref?.onKeyDown(props) ?? false;
-          },
-          onExit: () => {
-            popup[0]?.destroy();
-            component.destroy();
-          },
-        };
-      },
-    },
-  });
-}
-
 export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -250,6 +188,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const [inlineCommentText, setInlineCommentText] = useState('');
   const [inlineCommentFloatingPos, setInlineCommentFloatingPos] = useState<{ x: number; y: number } | null>(null);
   const descriptionRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const currentUser = useAuthStore((s) => s.user);
   const { openAndGenerate, phase } = usePromptGenerationStore();
   const { openTicketFormModal } = useUIStore();
@@ -296,18 +235,22 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   });
   const labelOptions = labelOptionsData?.results ?? [];
 
-  // プロジェクトで使えるユーザー一覧(ピッカー表示用、コメント欄の@メンション候補・ハイライトにも使う)
-  const { data: userOptionsData } = useQuery<{ results?: UserOption[] } & UserOption[]>({
-    queryKey: ['users', ticket?.project],
-    queryFn: async () => {
-      const res = await apiClient.get<{ results?: UserOption[] } & UserOption[]>('/users/', {
-        params: { project: ticket?.project },
-      });
-      return res.data;
-    },
-    enabled: !!ticket?.project,
+  // 担当者・レビュアー・@メンション候補（プロジェクト優先、チームのみはメンバー）
+  const userScopeProject = ticket?.project ?? null;
+  const userScopeTeam = ticket?.team?.id ?? null;
+  const { data: userOptionsData } = useQuery<UserOption[]>({
+    queryKey: ['users', userScopeProject, userScopeTeam],
+    queryFn: () =>
+      fetchTicketUserOptions(apiClient, {
+        projectId: userScopeProject,
+        teamId: userScopeTeam,
+      }),
+    enabled: ticketUserOptionsEnabled({
+      projectId: userScopeProject,
+      teamId: userScopeTeam,
+    }),
   });
-  const userOptions: UserOption[] = (userOptionsData as any)?.results ?? (Array.isArray(userOptionsData) ? userOptionsData : []);
+  const userOptions: UserOption[] = userOptionsData ?? [];
 
   // userOptionsはReact Queryで非同期に更新されるが、TipTapのMention拡張の
   // suggestion.items()はエディタ生成時に一度だけクロージャとして固定されるため、
@@ -316,6 +259,32 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   useEffect(() => {
     userOptionsRef.current = userOptions;
   }, [userOptions]);
+
+  // チケット切り替え時、前のチケットで開いていたインラインコメントUIの
+  // 状態（position: fixedのフローティングボタン等）を持ち越さないようリセットする
+  useEffect(() => {
+    setShowInlineCommentForm(false);
+    setInlineCommentAnchor(null);
+    setInlineCommentText('');
+    setInlineCommentFloatingPos(null);
+  }, [ticketId]);
+
+  // インラインコメントのフローティングボタン／フォームは選択範囲の
+  // getBoundingClientRect()を基にposition: fixedで一度だけ配置しているため、
+  // パネル内をスクロールすると選択テキストから位置がずれて「宙に浮いた」ように
+  // 見えてしまう。スクロールされたら追従させず、閉じる。
+  useEffect(() => {
+    if (!inlineCommentFloatingPos) return;
+    const panelEl = panelRef.current;
+    if (!panelEl) return;
+    const handleScroll = () => {
+      setShowInlineCommentForm(false);
+      setInlineCommentAnchor(null);
+      setInlineCommentFloatingPos(null);
+    };
+    panelEl.addEventListener('scroll', handleScroll);
+    return () => panelEl.removeEventListener('scroll', handleScroll);
+  }, [inlineCommentFloatingPos]);
 
   // コメントメニューの外側クリックで閉じる
   useEffect(() => {
@@ -843,7 +812,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   // コメント表示時のメンション処理（テキストノード内での処理用）
   //
-  // usernameは`n.hidaka@macplanning.com`のようにメール形式（内部に@を含む）のことが
+  // usernameは`user@example.com`のようにメール形式（内部に@を含む）のことが
   // 多いため、文字クラスベースの正規表現（例: /@([A-Za-z0-9_.-]+)/）では内部の@で
   // 途切れて誤検出する。プロジェクトメンバーの実在するusername/表示名の一覧を先に
   // 用意し、本文中の@の直後にどのトークンが（最長一致で）続くかを走査する方式にする
@@ -1056,7 +1025,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 aria-label="コメントメニュー"
                 title="メニュー"
               >
-                ⋯
+                <IconMoreHorizontal />
               </button>
               {openMenuCommentId === comment.id && (
                 <div className="detail-panel__comment-menu">
@@ -1090,7 +1059,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                     type="button"
                     className="detail-panel__comment-menu-item"
                     onClick={() => {
-                      const url = `${window.location.origin}/p/${projectKey}/tickets/${ticket.ticketKey}#comment-${comment.id}`;
+                      const url = buildTicketShareUrl(window.location.origin, ticket.ticketKey, shareCtx, `comment-${comment.id}`);
                       void navigator.clipboard.writeText(url);
                       toast.success('コメントへのリンクをコピーしました');
                       setOpenMenuCommentId(null);
@@ -1214,8 +1183,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     );
   };
 
+  // 「リンクをコピー」用。チーム画面では projectKey が空なので、画面の文脈 → チケット自身の所属の順で使う
+  const shareCtx = {
+    projectKey,
+    teamSlug,
+    ticketProjectPrefix: ticket.projectPrefix,
+    ticketTeamSlug: ticket.team?.slug,
+  };
+
   return (
-    <div className="detail-panel" data-testid="detail-panel">
+    <div className="detail-panel" data-testid="detail-panel" ref={panelRef}>
       {/* ヘッダー */}
       <div className="detail-panel__header">
         <span className="detail-panel__key">{ticket.ticketKey}</span>
@@ -1223,7 +1200,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           <button
             className="detail-panel__edit-btn"
             onClick={() => {
-              const url = `${window.location.origin}/p/${projectKey}/tickets/${ticket.ticketKey}`;
+              const url = buildTicketShareUrl(window.location.origin, ticket.ticketKey, shareCtx);
               void navigator.clipboard.writeText(url);
               setLinkCopied(true);
               setTimeout(() => setLinkCopied(false), 1500);
@@ -1257,13 +1234,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           <button
             className="detail-panel__edit-btn"
             onClick={() => {
-              const prefix = ticket.projectPrefix ?? projectKey;
-              const slug = ticket.team?.slug ?? teamSlug;
-              if (prefix) {
-                navigate(`/project/${prefix}/tickets/${ticket.ticketKey}/edit`);
-              } else if (slug) {
-                navigate(`/team/${slug}/tickets/${ticket.ticketKey}/edit`);
-              }
+              const editPath = buildTicketEditPath(ticket.ticketKey, shareCtx);
+              if (editPath) navigate(editPath);
             }}
             aria-label="Edit ticket"
             title="編集"
@@ -1659,9 +1631,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       </div>
 
       {/* 説明 */}
-      {ticket.description && (
-        <div className="detail-panel__description">
-          <h3 className="detail-panel__section-title">Description</h3>
+      <div className="detail-panel__description">
+        <h3 className="detail-panel__section-title">Description</h3>
+        {ticket.description ? (
           <div
             ref={descriptionRef}
             className="detail-panel__description-text"
@@ -1670,8 +1642,15 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           >
             <ReactMarkdown>{ticket.description}</ReactMarkdown>
           </div>
-          {/* インラインコメント追加ボタン */}
-          {inlineCommentFloatingPos && inlineCommentAnchor && !showInlineCommentForm && (
+        ) : null}
+        <ReactionBar
+          ticketKey={ticket.ticketKey}
+          ticketId={ticket.id}
+          projectPrefix={ticket.projectPrefix}
+          projectId={ticket.project}
+        />
+        {/* インラインコメント追加ボタン（説明文がある場合のみ） */}
+        {ticket.description && inlineCommentFloatingPos && inlineCommentAnchor && !showInlineCommentForm && (
             <button
               onClick={() => setShowInlineCommentForm(true)}
               style={{
@@ -1691,8 +1670,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               コメントを追加
             </button>
           )}
-          {/* インラインコメントミニフォーム */}
-          {showInlineCommentForm && inlineCommentAnchor && (
+        {/* インラインコメントミニフォーム（説明文がある場合のみ） */}
+        {ticket.description && showInlineCommentForm && inlineCommentAnchor && (
             <div
               style={{
                 position: 'fixed',
@@ -1765,9 +1744,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 </button>
               </div>
             </div>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {/* 経過メモ */}
       <div className="detail-panel__comments">
@@ -2060,7 +2038,11 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       <GitActivity ticketKey={ticket.ticketKey} />
 
       {/* 変更履歴タイムライン */}
-      <ChangeLogTimeline ticketId={ticket.ticketKey} />
+      <ChangeLogTimeline
+        ticketId={ticket.ticketKey}
+        createdAt={ticket.createdAt}
+        createdByName={ticket.author?.displayName || ticket.author?.username}
+      />
 
       {/* 紐付きWikiページ */}
       {ticket.linkedWikiPages && ticket.linkedWikiPages.length > 0 && (

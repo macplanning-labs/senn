@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import { apiClient, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/shared/api/client';
+import { enableDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
 
 interface User {
   id: number;
@@ -40,6 +41,7 @@ interface AuthState {
   logout: () => Promise<void>;
   fetchUser: () => Promise<void>;
   setUser: (user: User | null) => void;
+  enterDemoMode: () => Promise<void>;
 }
 
 async function completeLogin(
@@ -92,6 +94,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
       // ログアウトAPI失敗でもローカル状態はクリア
     }
     clearTokens();
+    const { clearDemoMode } = await import('@/features/demo/demoMode');
+    clearDemoMode();
     set({ user: null, isAuthenticated: false, isLoading: false });
   },
 
@@ -111,4 +115,16 @@ export const useAuthStore = create<AuthState>()((set) => ({
   },
 
   setUser: (user) => set({ user, isAuthenticated: !!user }),
+
+  enterDemoMode: async () => {
+    enableDemoMode();
+    setTokens(DEMO_ACCESS_TOKEN, DEMO_ACCESS_TOKEN);
+    set({ isAuthenticated: true });
+    try {
+      const userRes = await apiClient.get<User>('/auth/me/');
+      set({ user: userRes.data, isLoading: false });
+    } catch {
+      set({ isLoading: false });
+    }
+  },
 }));

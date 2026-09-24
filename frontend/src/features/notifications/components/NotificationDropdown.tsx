@@ -153,7 +153,9 @@ export function NotificationDropdown() {
     }
 
     if (notification.ticketKey) {
-      navigate(buildTicketDetailPath(notification.projectKey, notification.ticketKey, undefined, notification.teamSlug));
+      // teamSlugがある通知はチーム側の詳細に留める(プロジェクト側への意図しない遷移を防ぐ)
+      const projectKey = notification.teamSlug ? null : notification.projectKey;
+      navigate(buildTicketDetailPath(projectKey, notification.ticketKey, undefined, notification.teamSlug));
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {
