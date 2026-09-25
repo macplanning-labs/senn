@@ -7,6 +7,7 @@ export type TicketHotkeyAction =
   | 'status'
   | 'assignee'
   | 'priority'
+  | 'type'
   | 'cycle'
   | 'project'
   | 'labels'
@@ -92,6 +93,9 @@ export function useTicketDetailHotkeys(opts: {
         switch (e.key) {
           case 's':
             action = 'status';
+            break;
+          case 't':
+            action = 'type';
             break;
           case 'a':
             action = 'assignee';

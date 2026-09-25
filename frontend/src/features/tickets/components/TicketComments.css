@@ -282,6 +282,11 @@
   resize: vertical;
 }
 
+.ticket-comment-item__edit-textarea:hover {
+  border-color: var(--color-accent, #6366f1);
+  background: var(--color-bg-tertiary, #2a2a2a);
+}
+
 .ticket-comment-item__edit-textarea:focus {
   outline: none;
   border-color: var(--color-accent, #6366f1);

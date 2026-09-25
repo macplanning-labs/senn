@@ -7,11 +7,12 @@
 use axum::{
     extract::{State, Path, Query},
     response::IntoResponse,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     Json,
     Extension,
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
@@ -496,8 +497,20 @@ pub async fn project_team_remove(
 pub async fn project_create(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthUser>,
+    headers: HeaderMap,
     Json(body): Json<ProjectWriteIn>,
 ) -> impl IntoResponse {
+    // 冪等キー（詳細設計 §2.5）: 同じキーで作成済みなら、その行を 200 で返す
+    let client_request_id = match super::idempotency::parse_key(&headers) {
+        Ok(k) => k,
+        Err(resp) => return resp,
+    };
+    if let Some(key) = client_request_id {
+        if let Some(resp) = existing_project_for_key(&state, key, auth.user_id).await {
+            return resp;
+        }
+    }
+
     // アーカイブ済みのチームは、新しいプロジェクトの担当にできない
     if let Ok(true) = crate::infrastructure::repositories::team_archive_repo::any_archived(&state.pool, &body.team_ids).await {
         return (
@@ -508,7 +521,8 @@ pub async fn project_create(
         )
             .into_response();
     }
-    match resource_repo::create_project(&state.pool, &body, Some(auth.user_id)).await {
+
+    match resource_repo::create_project(&state.pool, &body, Some(auth.user_id), client_request_id).await {
         Ok(project_id) => {
             // 作成したプロジェクトを返す
             match resource_repo::find_project_by_id(&state.pool, project_id, Some(auth.user_id)).await {
@@ -533,6 +547,15 @@ pub async fn project_create(
             }
         }
         Err(e) => {
+            // 同時に同じキーで作成された場合は、先に作られた行を返す
+            if let Some(key) = client_request_id {
+                if super::idempotency::is_unique_violation(&e) {
+                    if let Some(resp) = existing_project_for_key(&state, key, auth.user_id).await {
+                        return resp;
+                    }
+                }
+            }
+
             tracing::error!("DB operation failed: {:?}", e);
             let detail = e.to_string();
             if detail.contains("team_ids") || detail.contains("at least one") {
@@ -549,6 +572,50 @@ pub async fn project_create(
                 }),
             )
                 .into_response()
+        }
+    }
+}
+
+/// 冪等キーで作成済みのプロジェクトを探し、あれば応答（200 か、別の利用者なら 409）を返す。
+async fn existing_project_for_key(
+    state: &AppState,
+    key: Uuid,
+    user_id: i32,
+) -> Option<axum::response::Response> {
+    let found = sqlx::query_as::<_, (i32, Option<i32>)>(
+        "SELECT id::int4, owner_id::int4 FROM tickets_project WHERE client_request_id = $1",
+    )
+    .bind(key)
+    .fetch_optional(&state.pool)
+    .await;
+    let (project_id, owner_id) = match found {
+        Ok(Some(row)) => row,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::error!("idempotency lookup failed: {:?}", e);
+            return Some(
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                )
+                    .into_response(),
+            );
+        }
+    };
+    if owner_id.is_some_and(|o| o != user_id) {
+        return Some(super::idempotency::conflict_response());
+    }
+    match resource_repo::find_project_by_id(&state.pool, project_id, Some(user_id)).await {
+        Ok(Some(project)) => Some((StatusCode::OK, Json(project)).into_response()),
+        other => {
+            tracing::error!("idempotency fetch failed: {:?}", other.err());
+            Some(
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                )
+                    .into_response(),
+            )
         }
     }
 }

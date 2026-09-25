@@ -10,13 +10,15 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, Link } from 'react-router-dom';
-import { useProject } from '@/shared/hooks/useProject';
+import { useNavigate, Link, useParams } from 'react-router-dom';
+import { useProjectByPrefix } from '@/shared/sync/repos/projectRepo';
 import { ProjectTeamsSection } from '@/features/projects/components/ProjectTeamsSection';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { localUpdateProject } from '@/shared/sync/projectWrites';
+import { runCycle } from '@/shared/sync/syncEngine';
 import { useToastStore } from '@/shared/stores/toastStore';
 import { LabelSettings } from './LabelSettings';
 import { CategorySettings } from './CategorySettings';
@@ -57,14 +59,12 @@ const LANGUAGES = [
 ] as const;
 
 /** General タブ — 言語・テーマ・プロフィール（旧 SettingsPage の内容を統合） */
-function GeneralSettings() {
+function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof useProjectByPrefix> }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useUIStore();
   const { user } = useAuthStore();
-  const { currentProject } = useProject();
   const { addToast } = useToastStore();
-  const queryClient = useQueryClient();
   const [descriptionEdit, setDescriptionEdit] = useState(false);
   const [descriptionValue, setDescriptionValue] = useState(currentProject?.description ?? '');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -83,7 +83,7 @@ function GeneralSettings() {
       });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // invalidateQueries は不要（端末内 DB は localUpdateProject() で更新される）
       setDescriptionEdit(false);
       addToast({ message: '説明を更新しました', type: 'success' });
     },
@@ -97,10 +97,9 @@ function GeneralSettings() {
       cycleAutoComplete?: boolean;
       cycleAutoCreateNext?: boolean;
     }) => {
-      await apiClient.patch(`/projects/${currentProject?.id}/`, payload);
+      await localUpdateProject(currentProject!.id, payload, payload);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
       addToast({ message: 'サイクル設定を更新しました', type: 'success' });
     },
     onError: () => {
@@ -115,7 +114,9 @@ function GeneralSettings() {
     onSuccess: () => {
       addToast({ message: t('settings.projectDeleted'), type: 'success' });
       setDeleteConfirm(false);
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // invalidateQueries は不要（端末内 DB は自動更新される）
+      // サーバー直のままにした理由：拒否された理由を画面で出しているため
+      void runCycle();
       navigate('/my-issues');
     },
     onError: (error: unknown) => {
@@ -476,8 +477,9 @@ function GeneralSettings() {
 
 export function ProjectSettingsPage() {
   const { t } = useTranslation();
+  const { projectKey } = useParams<{ projectKey: string }>();
   const [activeTab, setActiveTab] = useState<TabKey>('general');
-  const { currentProject } = useProject();
+  const currentProject = useProjectByPrefix(projectKey);
   const tabs = getTabs(t);
 
   if (!currentProject) {
@@ -521,7 +523,7 @@ export function ProjectSettingsPage() {
 
       {/* タブコンテンツ */}
       <div role="tabpanel">
-        {activeTab === 'general' && <GeneralSettings />}
+        {activeTab === 'general' && <GeneralSettings currentProject={currentProject} />}
         {activeTab === 'workflow' && <WorkflowSettings />}
         {activeTab === 'labels' && (
           <LabelSettings projectId={currentProject.id} />

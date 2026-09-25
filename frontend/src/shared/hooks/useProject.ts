@@ -7,9 +7,8 @@
  */
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/shared/api/client';
 import { useCallback, useEffect } from 'react';
+import { useProjects, useProjectByPrefix } from '@/shared/sync/repos/projectRepo';
 
 const LAST_PROJECT_KEY = 'wip-last-project-key';
 
@@ -38,22 +37,11 @@ export interface Project {
 export function useProject() {
   const { projectKey } = useParams<{ projectKey: string }>();
 
-  // プロジェクト一覧を取得
-  const { data: projects, isLoading: projectsLoading } = useQuery<{ results: Project[] }>({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ results: Project[] }>('/projects/');
-      return res.data;
-    },
-    staleTime: 1000 * 60 * 10, // 10分キャッシュ
-  });
-
-  const projectList = projects?.results ?? [];
+  // プロジェクト一覧を取得（端末内 DB から）
+  const { projects: projectList, isLoading } = useProjects();
 
   // URLのプロジェクトキーからプロジェクトを特定
-  const currentProject = projectKey
-    ? projectList.find((p) => p.prefix.toLowerCase() === projectKey.toLowerCase())
-    : null;
+  const currentProject = useProjectByPrefix(projectKey);
 
   // 最後に選択したプロジェクトキーを保存
   useEffect(() => {
@@ -65,12 +53,12 @@ export function useProject() {
   return {
     /** URLの生のプロジェクトキー */
     projectKey: projectKey ?? null,
-    /** 現在のプロジェクトオブジェクト（APIから取得） */
-    currentProject,
+    /** 現在のプロジェクトオブジェクト（端末内DBから取得） */
+    currentProject: currentProject ?? null,
     /** 全プロジェクト一覧 */
     projectList,
     /** 読み込み中 */
-    isLoading: projectsLoading,
+    isLoading,
   };
 }
 

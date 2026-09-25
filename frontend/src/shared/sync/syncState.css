@@ -1,0 +1,33 @@
+/* 同期状態の表示スタイル */
+
+[data-sync-state="pending"] {
+  opacity: 0.75;
+}
+
+[data-sync-state="error"] {
+  box-shadow: inset 3px 0 0 var(--color-danger, #dc2626);
+}
+
+.sync-badge {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--color-bg-subtle, #f3f4f6);
+  color: var(--color-text-muted, #6b7280);
+}
+
+.sync-badge--creating::before {
+  content: '●';
+  margin-right: 4px;
+  font-size: 8px;
+  vertical-align: middle;
+  animation: sync-badge-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sync-badge-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}

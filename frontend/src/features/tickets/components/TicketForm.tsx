@@ -11,6 +11,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { apiClient } from '@/shared/api/client';
+import { localCreateTicket, localUpdateTicket } from '@/shared/sync/ticketWrites';
+import { runCycle } from '@/shared/sync/syncEngine';
+import type { LocalTicket } from '@/shared/sync/db';
 import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
@@ -332,7 +335,7 @@ export function TicketForm({
         labels: selectedLabels,
         parent: parentId ? Number(parentId) : null,
         category: categoryId ? Number(categoryId) : null,
-        teamId: teamId ? Number(teamId) : null,
+        team_id: teamId ? Number(teamId) : null,
         project: isEditing
           ? (existingTicket?.project ?? null)
           : (activeProject?.id ?? null),
@@ -340,11 +343,57 @@ export function TicketForm({
 
       let targetTicketKey: string;
       if (isEditing) {
-        await apiClient.patch(`/tickets/${ticketId}/`, payload);
+        // 編集: localUpdateTicket を使用
+        const rowPatch: Partial<LocalTicket> = {
+          title: data.title,
+          description: data.description,
+          status: data.status,
+          priority: data.priority,
+          ticketType: data.ticket_type,
+          dueDate: data.due_date,
+          startDate: data.start_date,
+          storyPoints: data.story_points,
+          assignees: (users ?? []).filter((u) => assigneeIds.includes(u.id)),
+          labels: (labels ?? []).filter((l) => selectedLabels.includes(l.id)),
+          cycle: cycleId ? Number(cycleId) : null,
+          parent: parentId ? Number(parentId) : null,
+        };
+        if (pendingImages.length > 0) {
+          // 画像を添付する編集は、この後サーバーへ説明文ごと PATCH し直すので、ここでもサーバー直にする
+          // （端末のキュー経由にすると、後から届いた古い説明文で画像が消えることがある）
+          await apiClient.patch(`/tickets/${ticketId}/`, payload);
+        } else {
+          await localUpdateTicket(ticketId as string, payload, rowPatch);
+        }
         targetTicketKey = ticketId as string;
       } else {
-        const res = await apiClient.post<{ id: number; ticketKey: string }>('/tickets/', payload);
-        targetTicketKey = res.data.ticketKey;
+        // 新規作成
+        // 添付がある場合はサーバー直（仮キーでは添付APIが使えない）
+        if (pendingImages.length > 0) {
+          const res = await apiClient.post<{ id: number; ticketKey: string }>('/tickets/', payload);
+          targetTicketKey = res.data.ticketKey;
+        } else {
+          // 添付がない場合は localCreateTicket を使用
+          const preview: Partial<LocalTicket> = {
+            title: data.title,
+            description: data.description,
+            status: data.status,
+            priority: data.priority,
+            ticketType: data.ticket_type,
+            dueDate: data.due_date,
+            startDate: data.start_date,
+            storyPoints: data.story_points,
+            assignees: (users ?? []).filter((u) => assigneeIds.includes(u.id)),
+            labels: (labels ?? []).filter((l) => selectedLabels.includes(l.id)),
+            cycle: cycleId ? Number(cycleId) : null,
+            parent: parentId ? Number(parentId) : null,
+            team: teamId ? (teamList).find((t) => t.id === Number(teamId)) ?? null : null,
+            projectPrefix: activeProject?.prefix ?? null,
+            projectName: activeProject?.name ?? null,
+          };
+          const { tempKey } = await localCreateTicket(payload, preview);
+          targetTicketKey = tempKey;
+        }
       }
 
       if (pendingImages.length > 0) {
@@ -366,6 +415,8 @@ export function TicketForm({
       }
     },
     onSuccess: () => {
+      // サーバー直で書いた分（画像付き）も端末内 DB にすぐ取り込む
+      if (pendingImages.length > 0) void runCycle();
       pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
       setPendingImages([]);
       for (const key of TICKET_DASHBOARD_INVALIDATE_KEYS) {

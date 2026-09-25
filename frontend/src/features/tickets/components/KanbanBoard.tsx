@@ -8,32 +8,20 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
-import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
-import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
+import { useTicketList, type TicketListParams } from '@/shared/sync/repos/ticketRepo';
+import type { LocalTicket } from '@/shared/sync/db';
+import { syncStateOf } from '@/shared/sync/ticketMapping';
+import { isTempTicketKey, localUpdateTicket } from '@/shared/sync/ticketWrites';
 import { LabelList } from '@/shared/components/ui/LabelBadge';
-import type { Label } from '@/shared/components/ui/LabelBadge';
 import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
 import { TicketDetailPanel } from '@/features/tickets/components/TicketDetailPanel';
+import '@/shared/sync/syncState.css';
 import './KanbanBoard.css';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconBoard } from '@/shared/components/layout/Sidebar';
-
-interface KanbanTicket {
-  id: number;
-  ticketKey: string;
-  title: string;
-  status: string;
-  priority: string;
-  assignees: { id: number; username: string; displayName: string }[];
-  labels: Label[];
-  dueDate: string | null;
-  commentCount: number;
-}
 
 // フォールバック用の固定カラム（ワークフローが未シードの場合）
 const FALLBACK_COLUMNS = [
@@ -81,42 +69,23 @@ export function KanbanBoard() {
       }))
     : FALLBACK_COLUMNS;
 
-  const queryKey = ['tickets', 'kanban', currentProject?.id, currentTeam?.id] as const;
-
   // Fetch tickets
-  const { data, isLoading } = useQuery<{ results: KanbanTicket[] }>({
-    queryKey,
-    queryFn: async () => {
-      const params: Record<string, string> = {};
-      if (currentProject?.id) params.project = String(currentProject.id);
-      if (teamSlug) params.team_slug = teamSlug;
-      const res = await apiClient.get<{ results: KanbanTicket[] }>('/tickets/', { params });
-      return res.data;
-    },
-  });
+  const buildListParams = (): TicketListParams => {
+    const params: TicketListParams = {};
+    if (currentProject?.id) params.project = currentProject.id;
+    if (teamSlug) params.team_slug = teamSlug;
+    return params;
+  };
 
-  const tickets = data?.results ?? [];
+  const { tickets, isLoading } = useTicketList(buildListParams());
 
-  // 楽観的ステータス更新 — D&D時にカードが即座に移動先カラムに表示（0ms）
-  const statusMutation = useOptimisticMutation<void, { ticketKey: string; status: string }>({
-    mutationFn: async ({ ticketKey, status }) => {
-      await apiClient.patch(`/tickets/${ticketKey}/`, { status });
+  // ステータス更新 — 端末内 DB に即時反映、送信は裏側で行う
+  const statusMutation = {
+    mutate: async ({ ticketKey, status }: { ticketKey: string; status: string }) => {
+      await localUpdateTicket(ticketKey, { status }, { status });
     },
-    queryKey,
-    updater: (currentData, { ticketKey, status }) => {
-      const data = currentData as { results: KanbanTicket[] } | undefined;
-      if (!data?.results) return currentData;
-      return {
-        ...data,
-        results: data.results.map((t) =>
-          t.ticketKey === ticketKey ? { ...t, status } : t,
-        ),
-      };
-    },
-    // ['ticket'] も無効化: 開いている詳細パネルが古いステータスのまま残るのを防ぐ
-    invalidateKeys: [...TICKET_DASHBOARD_INVALIDATE_KEYS, ['ticket']],
-    errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
-  });
+    isPending: false,
+  };
 
   // Group tickets by status
   const ticketsByStatus = columns.reduce(
@@ -124,7 +93,7 @@ export function KanbanBoard() {
       acc[col.status] = tickets.filter((t) => t.status === col.status);
       return acc;
     },
-    {} as Record<string, KanbanTicket[]>,
+    {} as Record<string, LocalTicket[]>,
   );
 
   // Drag handlers
@@ -217,7 +186,9 @@ export function KanbanBoard() {
 
               {/* Cards */}
               <div className="kanban__cards">
-                {ticketsByStatus[col.status]?.map((ticket) => (
+                {ticketsByStatus[col.status]?.map((ticket) => {
+                  const isTemp = isTempTicketKey(ticket.ticketKey);
+                  return (
                   <div
                     key={ticket.id}
                     className={`kanban__card ${draggingId === ticket.ticketKey ? 'kanban__card--dragging' : ''}`}
@@ -233,10 +204,15 @@ export function KanbanBoard() {
                       }
                     }}
                     data-testid={`kanban-card-${ticket.ticketKey}`}
+                    data-sync-state={syncStateOf(ticket)}
                   >
                     {/* Card header: key + priority */}
                     <div className="kanban__card-header">
-                      <span className="kanban__card-key">{ticket.ticketKey}</span>
+                      {isTemp ? (
+                        <span className="sync-badge sync-badge--creating">{t('sync.creating')}</span>
+                      ) : (
+                        <span className="kanban__card-key">{ticket.ticketKey}</span>
+                      )}
                       <span
                         className="kanban__card-priority"
                         style={{ color: priorityColors[ticket.priority] }}
@@ -291,7 +267,8 @@ export function KanbanBoard() {
                       </span>
                     </div>
                   </div>
-                ))}
+                );
+                })}
               </div>
             </div>
           ))

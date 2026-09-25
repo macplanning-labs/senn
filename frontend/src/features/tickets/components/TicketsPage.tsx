@@ -14,26 +14,12 @@ import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { useTicketList, type TicketListParams } from '@/shared/sync/repos/ticketRepo';
+import { syncStateOf } from '@/shared/sync/ticketMapping';
+import { isTempTicketKey } from '@/shared/sync/ticketWrites';
 import { buildTicketDetailPath } from '../utils/ticketNavigation';
+import '@/shared/sync/syncState.css';
 import './TicketsPage.css';
-
-interface TicketListItem {
-  id: number;
-  ticketKey: string;
-  title: string;
-  status: string;
-  priority: string;
-  assignees: { id: number; username: string; displayName: string }[];
-  project: number | null;
-  projectPrefix: string | null;
-  team: { id: number; name: string; slug: string; icon: string; color: string } | null;
-  dueDate: string | null;
-}
-
-interface TicketsListResponse {
-  count: number;
-  results: TicketListItem[];
-}
 
 const STATUS_LABELS: Record<string, string> = {
   backlog: 'Backlog',
@@ -87,22 +73,17 @@ export function TicketsPage() {
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const presetRef = useRef<HTMLDivElement>(null);
 
-  const ticketsQueryKey = ['tickets', 'global', statusFilter, priorityFilter, mineOnly, projectFilter, teamFilter];
-  const { data, isLoading } = useQuery<TicketsListResponse>({
-    queryKey: ticketsQueryKey,
-    queryFn: async () => {
-      const params: Record<string, string | number> = {};
-      if (statusFilter) params.status = statusFilter;
-      if (priorityFilter) params.priority = priorityFilter;
-      if (mineOnly && user?.id) params.assignees = user.id;
-      if (projectFilter) params.project__prefix = projectFilter;
-      if (teamFilter) params.team_slug = teamFilter;
-      const res = await apiClient.get<TicketsListResponse>('/tickets/', { params });
-      return res.data;
-    },
-  });
+  const buildListParams = (): TicketListParams => {
+    const params: TicketListParams = {};
+    if (statusFilter) params.status = statusFilter;
+    if (priorityFilter) params.priority = priorityFilter;
+    if (mineOnly && user?.id) params.assignees = user.id;
+    if (projectFilter) params.project__prefix = projectFilter;
+    if (teamFilter) params.team_slug = teamFilter;
+    return params;
+  };
 
-  const tickets = data?.results ?? [];
+  const { tickets, isLoading } = useTicketList(buildListParams());
 
   const savedViewsQueryKey = ['saved-views', 'tickets'];
   const { data: savedViewsData = [] } = useQuery<TicketSavedView[]>({
@@ -301,17 +282,23 @@ export function TicketsPage() {
                 undefined,
                 ticket.team?.slug ?? null,
               );
+              const isTemp = isTempTicketKey(ticket.ticketKey);
               return (
                 <tr
                   key={ticket.id}
                   className="tickets-page__row"
                   onClick={() => navigate(path)}
                   style={{ cursor: 'pointer' }}
+                  data-sync-state={syncStateOf(ticket)}
                 >
                   <td className="tickets-page__td">
-                    <Link to={path} className="tickets-page__key-link" onClick={(e) => e.stopPropagation()}>
-                      {ticket.ticketKey}
-                    </Link>
+                    {isTemp ? (
+                      <span className="sync-badge sync-badge--creating">{t('sync.creating')}</span>
+                    ) : (
+                      <Link to={path} className="tickets-page__key-link" onClick={(e) => e.stopPropagation()}>
+                        {ticket.ticketKey}
+                      </Link>
+                    )}
                   </td>
                   <td className="tickets-page__td tickets-page__td--title">
                     <Link to={path} className="tickets-page__title-link" onClick={(e) => e.stopPropagation()}>

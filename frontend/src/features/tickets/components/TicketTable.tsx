@@ -15,17 +15,20 @@ import { useTeam } from '@/shared/hooks/useTeam';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useToastStore } from '@/shared/stores/toastStore';
-import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { localDateStr } from '@/shared/utils/localDateStr';
-import {
-  TICKET_DASHBOARD_INVALIDATE_KEYS,
-} from '@/shared/utils/ticketQueryInvalidation';
 import { useKeyboardNav } from '@/shared/hooks/useKeyboardNav';
 import { InlineEdit } from '@/shared/components/ui/InlineEdit';
 import { LabelList } from '@/shared/components/ui/LabelBadge';
 import type { Label } from '@/shared/components/ui/LabelBadge';
 import { FilterBar } from '@/shared/components/ui/FilterBar';
 import { MarkdownImportModal } from './MarkdownImportModal';
+import { useTicketList, type TicketListParams } from '@/shared/sync/repos/ticketRepo';
+import { syncStateOf } from '@/shared/sync/ticketMapping';
+import { isTempTicketKey, localUpdateTicket, localUpdateTickets, localDeleteTickets } from '@/shared/sync/ticketWrites';
+import { runCycle } from '@/shared/sync/syncEngine';
+import { db } from '@/shared/sync/db';
+import { queryTickets } from '@/shared/sync/repos/ticketQuery';
+import '@/shared/sync/syncState.css';
 import './TicketTable.css';
 import { useColumnResize } from '@/shared/hooks/useColumnResize';
 import type { ColumnDef } from '@/shared/hooks/useColumnResize';
@@ -152,9 +155,6 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const [priorityFilter, setPriorityFilter] = useState<string>(() => searchParams.get('priority') ?? '');
   const [dueFilter, setDueFilter] = useState<string>(() => searchParams.get('due') ?? '');
   const [statusInFilter, setStatusInFilter] = useState<string>(() => searchParams.get('status_in') ?? '');
-
-  // QueryKey（フィルタ状態を含む）
-  const ticketsQueryKey = ['tickets', currentProject?.id, teamSlug, cycleId, search, statusFilter, priorityFilter, dueFilter, statusInFilter];
 
   // --- フィルタプリセット（Saved Views） ---
   const savedViewsQueryKey = ['saved-views', currentProject?.id ?? null, currentTeam?.id ?? null];
@@ -452,9 +452,9 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
     }
   };
 
-  const buildListParams = (page?: number): Record<string, string> => {
-    const params: Record<string, string> = {};
-    if (currentProject?.id) params.project = String(currentProject.id);
+  const buildListParams = (): TicketListParams => {
+    const params: TicketListParams = {};
+    if (currentProject?.id) params.project = currentProject.id;
     // Team-onlyの場合は team_id で絞り込み（APIで実装されていると想定）
     // NOTE: G6-1 API で team_id パラメータがサポートされていることを前提
     if (teamSlug && !currentProject?.id) {
@@ -462,7 +462,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
       // ここではteamSlug を送り、API側で解決するように設計
       params.team_slug = teamSlug;
     }
-    if (cycleId) params.cycle = String(cycleId);
+    if (cycleId) params.cycle = cycleId;
     if (search) params.search = search;
     if (statusInFilter) {
       params.status__in = statusInFilter;
@@ -476,84 +476,64 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
       params.due_date__gte = localDateStr(0);
       params.due_date__lte = localDateStr(3);
     }
-    if (page) params.page = String(page);
     return params;
   };
 
   const hasActiveFilters = !!(search || statusFilter || priorityFilter || dueFilter || statusInFilter);
 
   const fetchAllTicketKeys = async (): Promise<string[]> => {
-    const keys: string[] = [];
-    let page = 1;
-    while (true) {
-      const res = await apiClient.get<{ results: Ticket[]; next: string | null }>(
-        '/tickets/',
-        { params: buildListParams(page) },
-      );
-      keys.push(...res.data.results.map((t) => t.ticketKey));
-      if (!res.data.next) break;
-      page += 1;
-    }
-    return keys;
+    const rows = await db.tickets.toArray();
+    const filtered = queryTickets(rows, buildListParams());
+    return filtered.map((t) => t.ticketKey);
   };
 
-  const bulkStatusMutation = useOptimisticMutation<void, { ticketKeys: string[]; status: string }>({
-    mutationFn: async ({ ticketKeys, status }) => {
-      await Promise.all(ticketKeys.map(ticketKey => apiClient.patch(`/tickets/${ticketKey}/`, { status })));
-    },
-    queryKey: ticketsQueryKey,
-    updater: (currentData, { ticketKeys, status }) => {
-      const data = currentData as { results: Ticket[] } | undefined;
-      if (!data?.results) return currentData;
-      const ticketKeySet = new Set(ticketKeys);
-      return {
-        ...data,
-        results: data.results.map((t) =>
-          ticketKeySet.has(t.ticketKey) ? { ...t, status } : t,
-        ),
-      };
-    },
-    onSuccessCallback: () => {
+  const bulkStatusMutation = {
+    mutate: async ({ ticketKeys, status }: { ticketKeys: string[]; status: string }) => {
+      await localUpdateTickets(ticketKeys, { status }, { status });
       setSelectedIds(new Set());
     },
-    // ['ticket'] も無効化: 開いている詳細パネルが古いステータスのまま残るのを防ぐ
-    // cycleId がある場合は Cycle 詳細の進捗サマリー(未完了/完了件数)も無効化する
-    invalidateKeys: [
-      ...TICKET_DASHBOARD_INVALIDATE_KEYS,
-      ['ticket'],
-      ...(cycleId ? [['cycle-progress', cycleId]] : []),
-    ],
-    errorMessage: '一括ステータス変更に失敗しました。元に戻しました。',
-  });
+    isPending: false,
+  };
 
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async () => {
+  const bulkDeleteMutation = {
+    mutate: async () => {
       if (selectAllInProject && currentProject?.id && !hasActiveFilters) {
-        await apiClient.post('/tickets/bulk-delete/', {
-          project_id: currentProject.id,
-          delete_all: true,
-        });
+        // プロジェクト全体削除はサーバー API のまま残す
+        try {
+          await apiClient.post('/tickets/bulk-delete/', {
+            project_id: currentProject.id,
+            delete_all: true,
+          });
+          setSelectedIds(new Set());
+          setSelectAllInProject(false);
+          addToast({ message: '選択したチケットを削除しました', type: 'success' });
+          // サーバー側の削除確認後、同期を実行
+          void runCycle();
+        } catch (error: unknown) {
+          const axiosErr = error as { response?: { data?: { detail?: string } } };
+          addToast({
+            message: axiosErr.response?.data?.detail ?? '一括削除に失敗しました',
+            type: 'error',
+          });
+        }
       } else {
-        await apiClient.post('/tickets/bulk-delete/', {
-          ticket_keys: Array.from(selectedIds),
-        });
+        // キー指定の削除は端末内 DB から
+        try {
+          await localDeleteTickets(Array.from(selectedIds));
+          setSelectedIds(new Set());
+          setSelectAllInProject(false);
+          addToast({ message: '選択したチケットを削除しました', type: 'success' });
+        } catch (error: unknown) {
+          const axiosErr = error as { response?: { data?: { detail?: string } } };
+          addToast({
+            message: axiosErr.response?.data?.detail ?? '一括削除に失敗しました',
+            type: 'error',
+          });
+        }
       }
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
-      setSelectedIds(new Set());
-      setSelectAllInProject(false);
-      addToast({ message: '選択したチケットを削除しました', type: 'success' });
-    },
-    onError: (error: unknown) => {
-      const axiosErr = error as { response?: { data?: { detail?: string } } };
-      addToast({
-        message: axiosErr.response?.data?.detail ?? '一括削除に失敗しました',
-        type: 'error',
-      });
-    },
-  });
+    isPending: false,
+  };
 
   const handleBulkDelete = async () => {
     const count = selectAllInProject ? totalCount : selectedIds.size;
@@ -569,45 +549,15 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const { widths, onResizeStart, isResizing } = useColumnResize('ticket-table', TABLE_COLUMNS);
 
   // チケット取得
-  const { data, isLoading } = useQuery<{ count: number; results: Ticket[]; next: string | null }>({
-    queryKey: ticketsQueryKey,
-    queryFn: async () => {
-      const res = await apiClient.get<{ count: number; results: Ticket[]; next: string | null }>(
-        '/tickets/',
-        { params: buildListParams() },
-      );
-      return res.data;
-    },
-  });
+  const { tickets, totalCount, isLoading } = useTicketList(buildListParams());
 
-  // 楽観的ステータス変更 — ドロップダウン変更の瞬間にテーブル行が即更新（0ms）
-  const statusMutation = useOptimisticMutation<void, { ticketKey: string; status: string }>({
-    mutationFn: async ({ ticketKey, status }) => {
-      await apiClient.patch(`/tickets/${ticketKey}/`, { status });
+  // ステータス変更 — 端末内 DB に即時反映、送信は裏側で行う
+  const statusMutation = {
+    mutate: async ({ ticketKey, status }: { ticketKey: string; status: string }) => {
+      await localUpdateTicket(ticketKey, { status }, { status });
     },
-    queryKey: ticketsQueryKey,
-    updater: (currentData, { ticketKey, status }) => {
-      const data = currentData as { results: Ticket[] } | undefined;
-      if (!data?.results) return currentData;
-      return {
-        ...data,
-        results: data.results.map((t) =>
-          t.ticketKey === ticketKey ? { ...t, status } : t,
-        ),
-      };
-    },
-    // ['ticket'] も無効化: 開いている詳細パネルが古いステータスのまま残るのを防ぐ
-    // cycleId がある場合は Cycle 詳細の進捗サマリー(未完了/完了件数)も無効化する
-    invalidateKeys: [
-      ...TICKET_DASHBOARD_INVALIDATE_KEYS,
-      ['ticket'],
-      ...(cycleId ? [['cycle-progress', cycleId]] : []),
-    ],
-    errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
-  });
-
-  const tickets = data?.results ?? [];
-  const totalCount = data?.count ?? tickets.length;
+    isPending: false,
+  };
   const navigate = useNavigate();
   const tableRef = useRef<HTMLDivElement>(null);
 
@@ -912,6 +862,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                   key={ticket.id}
                   className={`ticket-table__row ${index === selectedIndex ? 'ticket-table__row--selected' : ''}`}
                   data-testid={`ticket-row-${ticket.ticketKey}`}
+                  data-sync-state={syncStateOf(ticket)}
                   onClick={() => {
                     navigate(ticketDetailPath(ticket, projectKey, cycleId, teamSlug));
                   }}
@@ -942,9 +893,13 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
 
                   {/* キー */}
                   <td className="ticket-table__td ticket-table__td--key">
-                    <Link to={ticketDetailPath(ticket, projectKey, cycleId, teamSlug)} className="ticket-table__key-link">
-                      {ticket.ticketKey}
-                    </Link>
+                    {isTempTicketKey(ticket.ticketKey) ? (
+                      <span className="sync-badge sync-badge--creating">{t('sync.creating')}</span>
+                    ) : (
+                      <Link to={ticketDetailPath(ticket, projectKey, cycleId, teamSlug)} className="ticket-table__key-link">
+                        {ticket.ticketKey}
+                      </Link>
+                    )}
                   </td>
 
                   {/* タイトル（ダブルクリックでインライン編集） */}
@@ -953,7 +908,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                       type="text"
                       value={ticket.title}
                       onSave={async (newTitle) => {
-                        await apiClient.patch(`/tickets/${ticket.ticketKey}/`, { title: newTitle });
+                        await localUpdateTicket(ticket.ticketKey, { title: newTitle }, { title: newTitle });
                       }}
                       placeholder="Untitled"
                     />

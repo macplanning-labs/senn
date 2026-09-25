@@ -16,6 +16,9 @@ import { getLastProjectKey } from '@/shared/hooks/useProject';
 import { getLastTeamSlug } from '@/shared/hooks/useTeam';
 import { useTeams } from '@/features/teams/hooks/useTeams';
 import { apiClient } from '@/shared/api/client';
+import { searchTicketsLocal } from '@/shared/sync/repos/ticketRepo';
+import { isTempTicketKey } from '@/shared/sync/ticketWrites';
+import { buildTicketDetailPath } from '@/features/tickets/utils/ticketNavigation';
 import './CommandPalette.css';
 
 interface SearchResult {
@@ -117,23 +120,53 @@ export function CommandPalette() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // API検索（debounce付き）
+  // 検索: チケットは端末内 DB から入力と同時に出し、サーバー検索（debounce）の結果からはチケット以外を後ろに足す
   useEffect(() => {
     if (!searchQuery || searchQuery.length < 2) {
       setSearchResults([]);
       return;
     }
+    let cancelled = false;
+    let localResults: SearchResult[] = [];
+    void searchTicketsLocal(searchQuery, 8).then((tickets) => {
+      if (cancelled) return;
+      localResults = tickets
+        .filter((t) => !isTempTicketKey(t.ticketKey))
+        .map((t) => ({
+          type: 'ticket' as const,
+          id: t.id,
+          key: t.ticketKey,
+          title: t.title,
+          status: t.status,
+          projectKey: t.projectPrefix ?? '',
+          // 画面のルート（/project/{prefix}/tickets/{key} または /team/{slug}/tickets/{key}）
+          url: buildTicketDetailPath(t.projectPrefix, t.ticketKey, undefined, t.projectPrefix ? null : (t.team?.slug ?? null)),
+          icon: '🎫',
+        }));
+      setSearchResults(localResults);
+    });
     const timer = setTimeout(async () => {
       try {
-        const { data } = await apiClient.get('/search/', {
+        const { data } = await apiClient.get<{ results?: SearchResult[] }>('/search/', {
           params: { q: searchQuery, limit: 8 },
         });
-        setSearchResults(data.results ?? []);
+        if (cancelled) return;
+        const serverResults = data.results ?? [];
+        const localKeys = new Set(localResults.map((r) => r.key));
+        // 端末内に無いチケット（同期範囲外など）はサーバーの結果を使う
+        const extraTickets = serverResults
+          .filter((r) => r.type === 'ticket' && !localKeys.has(r.key))
+          .slice(0, Math.max(0, 8 - localResults.length));
+        const others = serverResults.filter((r) => r.type !== 'ticket');
+        setSearchResults([...localResults, ...extraTickets, ...others]);
       } catch {
-        setSearchResults([]);
+        // サーバー検索に失敗しても端末内の結果は残す
       }
     }, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [searchQuery]);
 
   // パレットを閉じるときにクリア
@@ -168,7 +201,8 @@ export function CommandPalette() {
   };
 
   const handleSearchSelect = (result: SearchResult) => {
-    navigate(result.url);
+    // サーバー検索の URL は古い形（/p/{prefix}/...）のことがあるので、画面のルートへ直す
+    navigate(result.url.replace(/^\/p\//, '/project/'));
     setCommandPaletteOpen(false);
   };
 

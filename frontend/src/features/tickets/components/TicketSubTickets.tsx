@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { apiClient } from '../../../shared/api/client';
-import type { TicketListItem } from '../../../shared/api/types';
+import { useSubTickets } from '../../../shared/sync/repos/ticketRepo';
+import { isTempTicketKey } from '../../../shared/sync/ticketWrites';
+import { syncStateOf } from '../../../shared/sync/ticketMapping';
 import { buildTicketDetailPath } from '../utils/ticketNavigation';
 import './TicketSubTickets.css';
 
@@ -22,17 +22,7 @@ export function TicketSubTickets({
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const { data: childTickets = [], isLoading } = useQuery<TicketListItem[]>({
-    queryKey: ['ticket-children', parentTicketId],
-    queryFn: async () => {
-      const res = await apiClient.get(`/tickets/`, {
-        params: { parent: parentTicketId },
-      });
-      return res.data?.results || [];
-    },
-    enabled: !!parentTicketId,
-    staleTime: 30_000,
-  });
+  const { data: childTickets = [], isLoading } = useSubTickets(parentTicketId);
 
   return (
     <div className="ticket-sub-tickets" data-testid="ticket-sub-tickets">
@@ -56,6 +46,7 @@ export function TicketSubTickets({
               key={child.id}
               type="button"
               className="ticket-sub-ticket-item"
+              data-sync-state={syncStateOf(child)}
               onClick={() =>
                 navigate(
                   buildTicketDetailPath(
@@ -68,7 +59,13 @@ export function TicketSubTickets({
               }
             >
               <div className="ticket-sub-ticket-item__header">
-                <span className="ticket-sub-ticket-item__key">{child.ticketKey}</span>
+                <span className="ticket-sub-ticket-item__key">
+                  {isTempTicketKey(child.ticketKey) ? (
+                    <span className="sync-badge sync-badge--creating">{t('sync.creating')}</span>
+                  ) : (
+                    child.ticketKey
+                  )}
+                </span>
                 <span
                   className={`ticket-sub-ticket-item__status ticket-sub-ticket-item__status--${child.status}`}
                 >

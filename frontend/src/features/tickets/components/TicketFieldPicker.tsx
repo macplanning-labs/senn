@@ -3,6 +3,7 @@ import { Command } from 'cmdk';
 import './TicketFieldPicker.css';
 
 export type TicketPickerField =
+  | 'type'
   | 'status'
   | 'assignee'
   | 'priority'

@@ -6,6 +6,7 @@ import StarterKit from '@tiptap/starter-kit';
 import TiptapPlaceholder from '@tiptap/extension-placeholder';
 import { apiClient } from '../../../shared/api/client';
 import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
+import { bumpTicketCounter } from '../../../shared/sync/ticketWrites';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { createMentionExtension, renderCommentBodyWithMentions } from '../utils/createMentionExtension';
 import type { Comment, TicketAttachment, TicketDetailView } from '../types/ticketDetailView';
@@ -134,6 +135,7 @@ export function TicketComments({
     onSuccessCallback: () => {
       commentEditor?.commands.clearContent();
       setReplyingToRootId(null);
+      void bumpTicketCounter(ticketId, 'commentCount', 1);
       void queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
     },
     errorMessage: t('ticketDetail.errors.commentFailed'),
@@ -171,6 +173,9 @@ export function TicketComments({
         ...data,
         comments: (data.comments || []).map((c) => (c.id === commentId ? { ...c, isDeleted: true, body: '' } : c)),
       };
+    },
+    onSuccessCallback: () => {
+      void bumpTicketCounter(ticketId, 'commentCount', -1);
     },
     errorMessage: t('ticketDetail.errors.commentDeleteFailed'),
   });

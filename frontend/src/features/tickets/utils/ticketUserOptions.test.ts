@@ -67,4 +67,45 @@ describe('fetchTicketUserOptions', () => {
     expect(users).toEqual([]);
     expect(api.get).not.toHaveBeenCalled();
   });
+
+  it('複数の team members が返された場合、すべて TicketUserOption[] に変換される', async () => {
+    const api = mockApi({
+      get: async (url) => {
+        expect(url).toBe('/teams/7/members/');
+        return {
+          data: [
+            {
+              id: 1,
+              team: 7,
+              role: 'admin',
+              joinedAt: '2026-01-01',
+              user: { id: 10, username: 'alice', displayName: 'Alice Aoki', alias: 'aa' },
+            },
+            {
+              id: 2,
+              team: 7,
+              role: 'member',
+              joinedAt: '2026-01-02',
+              user: { id: 20, username: 'bob', displayName: 'Bob Brown', alias: 'bb' },
+            },
+            {
+              id: 3,
+              team: 7,
+              role: 'member',
+              joinedAt: '2026-01-03',
+              user: { id: 30, username: 'charlie', displayName: 'Charlie Chen', alias: null },
+            },
+          ],
+        };
+      },
+    });
+    const users = await fetchTicketUserOptions(api, { projectId: null, teamId: 7 });
+    expect(users).toHaveLength(3);
+    expect(users).toEqual([
+      { id: 10, username: 'alice', displayName: 'Alice Aoki', alias: 'aa' },
+      { id: 20, username: 'bob', displayName: 'Bob Brown', alias: 'bb' },
+      { id: 30, username: 'charlie', displayName: 'Charlie Chen', alias: null },
+    ]);
+  });
+
 });

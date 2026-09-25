@@ -191,6 +191,58 @@ describe('demoMode', () => {
         expect(result).not.toBeNull();
         expect(result?.status).toBe(403);
       });
+
+      it('should return sync DTO array for /sync/tickets/', () => {
+        const result = handleDemoRequest({
+          method: 'get',
+          url: '/sync/tickets/?cursor=demo&limit=500',
+        });
+        expect(result?.status).toBe(200);
+        const data = result?.data as any;
+        expect(data.changes).toBeInstanceOf(Array);
+        expect(data.changes.length).toBeGreaterThan(0);
+        expect(data.deleted).toEqual([]);
+        expect(data.access).toEqual({ all: true, teamIds: [], scopedProjects: [] });
+        expect(data.cursor).toBe('demo');
+        expect(data.hasMore).toBe(false);
+        expect(data.serverTime).toBeDefined();
+        // 最初の change が DTO 形式
+        expect(data.changes[0]).toHaveProperty('id');
+        expect(data.changes[0]).toHaveProperty('ticketKey');
+        expect(data.changes[0]).toHaveProperty('title');
+      });
+
+      it('should return sync DTO for /sync/projects/', () => {
+        const result = handleDemoRequest({
+          method: 'get',
+          url: '/sync/projects/?cursor=demo&limit=500',
+        });
+        expect(result?.status).toBe(200);
+        const data = result?.data as any;
+        expect(data.changes).toBeInstanceOf(Array);
+        expect(data.changes.length).toBe(1);
+        expect(data.changes[0]).toHaveProperty('id');
+        expect(data.changes[0]).toHaveProperty('name');
+        expect(data.deleted).toEqual([]);
+        expect(data.access).toEqual({ all: true, teamIds: [], scopedProjects: [] });
+        expect(data.cursor).toBe('demo');
+        expect(data.hasMore).toBe(false);
+      });
+
+      it('should return extras for /tickets/{key}/extras/', () => {
+        const result = handleDemoRequest({
+          method: 'get',
+          url: '/tickets/DEMO-1/extras/',
+        });
+        expect(result?.status).toBe(200);
+        const data = result?.data as any;
+        expect(data).toHaveProperty('comments');
+        expect(data).toHaveProperty('attachments');
+        expect(data).toHaveProperty('links');
+        expect(data).toHaveProperty('linkedWikiPages');
+        expect(data).toHaveProperty('isWatching');
+        expect(data.isWatching).toBe(false);
+      });
     });
   });
 });

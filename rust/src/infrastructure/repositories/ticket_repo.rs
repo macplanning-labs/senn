@@ -340,280 +340,39 @@ fn push_team_slug_sql(query: &mut String, param_count: &mut usize) {
     *param_count += 1;
 }
 
-/// チケット一覧取得(JSON API用)
-pub async fn api_find_all(
+/// チケット一覧API用のSELECT句（WHERE句の手前まで）
+pub(crate) const API_TICKET_SELECT: &str = "SELECT
+    t.id::int4, t.ticket_key, t.title, t.status, t.priority, t.ticket_type,
+    t.author_id::int4, t.category_id::int4, t.project_id::int4, t.milestone_id::int4, t.parent_id::int4,
+    t.start_date, t.due_date, t.story_points, t.cycle_id::int4,
+    t.gantt_order, t.created_at, t.updated_at,
+    au.id::int4 as author_id_2, au.username as author_username, au.email as author_email, au.display_name as author_display_name,
+    cat.id::int4 as cat_id, cat.name as cat_name, cat.slug as cat_slug, cat.level as cat_level, cat.parent_id::int4 as cat_parent, cat.sort_order as cat_sort, cat.color as cat_color,
+    ms.id::int4 as ms_id, ms.name as ms_name, ms.due_date as ms_due_date, ms.description as ms_desc, ms.project_id::int4 as ms_project, ms.created_at as ms_created,
+    proj.id::int4 as proj_id,
+    tc.name as cycle_name,
+    team_m.id::int4 as team_id, team_m.name as team_name, team_m.slug as team_slug, team_m.icon as team_icon, team_m.color as team_color,
+    (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
+    (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
+    COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
+    proj.prefix as list_project_prefix,
+    proj.name as list_project_name
+ FROM tickets_ticket t
+ LEFT JOIN accounts_user au ON t.author_id = au.id
+ LEFT JOIN tickets_category cat ON t.category_id = cat.id
+ LEFT JOIN milestones_milestone ms ON t.milestone_id = ms.id
+ LEFT JOIN tickets_project proj ON t.project_id = proj.id
+ LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
+ LEFT JOIN m_team team_m ON t.team_id = team_m.id";
+
+/// Hydrate raw SQL rows into TicketListOut DTOs
+///
+/// Takes rows from an API_TICKET_SELECT query and fetches related data (assignees, reviewers,
+/// labels, milestone counts) to build complete TicketListOut objects.
+pub(crate) async fn hydrate_ticket_rows(
     pool: &PgPool,
-    filter: &ApiTicketFilter,
-    sort: &str,
-    search: Option<&str>,
-    page: i64,
+    rows: Vec<sqlx::postgres::PgRow>,
 ) -> anyhow::Result<Vec<TicketListOut>> {
-    // DjangoのDEFAULT_PAGINATION_CLASS(PageNumberPagination, PAGE_SIZE=50)と一致させる
-    const PAGE_SIZE: i64 = 50;
-    let page = page.max(1);
-    let offset = (page - 1) * PAGE_SIZE;
-    // 標準化されたソート値
-    let order_clause = match sort {
-        "created_at" => "t.created_at ASC",
-        "-created_at" => "t.created_at DESC",
-        "updated_at" => "t.updated_at ASC",
-        "-updated_at" => "t.updated_at DESC",
-        "due_date" => "t.due_date ASC",
-        "-due_date" => "t.due_date DESC",
-        "priority" => "t.priority ASC",
-        "-priority" => "t.priority DESC",
-        "gantt_order" => "t.gantt_order ASC",
-        "-gantt_order" => "t.gantt_order DESC",
-        _ => "t.updated_at DESC", // デフォルト
-    };
-
-    // 基本クエリ：チケット+スカラー値
-    let mut query = String::from(
-        "SELECT
-            t.id::int4, t.ticket_key, t.title, t.status, t.priority, t.ticket_type,
-            t.author_id::int4, t.category_id::int4, t.project_id::int4, t.milestone_id::int4, t.parent_id::int4,
-            t.start_date, t.due_date, t.story_points, t.cycle_id::int4,
-            t.gantt_order, t.created_at, t.updated_at,
-            au.id::int4 as author_id_2, au.username as author_username, au.email as author_email, au.display_name as author_display_name,
-            cat.id::int4 as cat_id, cat.name as cat_name, cat.slug as cat_slug, cat.level as cat_level, cat.parent_id::int4 as cat_parent, cat.sort_order as cat_sort, cat.color as cat_color,
-            ms.id::int4 as ms_id, ms.name as ms_name, ms.due_date as ms_due_date, ms.description as ms_desc, ms.project_id::int4 as ms_project, ms.created_at as ms_created,
-            proj.id::int4 as proj_id,
-            tc.name as cycle_name,
-            team_m.id::int4 as team_id, team_m.name as team_name, team_m.slug as team_slug, team_m.icon as team_icon, team_m.color as team_color,
-            (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
-            (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
-            COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
-            proj.prefix as list_project_prefix,
-            proj.name as list_project_name
-         FROM tickets_ticket t
-         LEFT JOIN accounts_user au ON t.author_id = au.id
-         LEFT JOIN tickets_category cat ON t.category_id = cat.id
-         LEFT JOIN milestones_milestone ms ON t.milestone_id = ms.id
-         LEFT JOIN tickets_project proj ON t.project_id = proj.id
-         LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
-         LEFT JOIN m_team team_m ON t.team_id = team_m.id
-         WHERE 1=1"
-    );
-
-    // フィルタ条件を動的に追加
-    let mut param_count = 1;
-
-    // status フィルタ
-    if let Some(ref statuses) = filter.status {
-        if !statuses.is_empty() {
-            if statuses.len() == 1 {
-                query.push_str(&format!(" AND t.status = ${}", param_count));
-                param_count += 1;
-            } else {
-                let placeholders = (0..statuses.len())
-                    .map(|i| format!("${}", param_count + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                query.push_str(&format!(
-                    " AND t.status = ANY(ARRAY[{}]::text[])",
-                    placeholders
-                ));
-                param_count += statuses.len();
-            }
-        }
-    }
-
-    // priority フィルタ
-    if let Some(ref priorities) = filter.priority {
-        if !priorities.is_empty() {
-            if priorities.len() == 1 {
-                query.push_str(&format!(" AND t.priority = ${}", param_count));
-                param_count += 1;
-            } else {
-                let placeholders = (0..priorities.len())
-                    .map(|i| format!("${}", param_count + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                query.push_str(&format!(
-                    " AND t.priority = ANY(ARRAY[{}]::text[])",
-                    placeholders
-                ));
-                param_count += priorities.len();
-            }
-        }
-    }
-
-    // assignees フィルタ (EXISTS)
-    if let Some(assignee_id) = filter.assignees {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-
-    // project フィルタ
-    if filter.project.is_some() {
-        query.push_str(&format!(" AND t.project_id = ${}", param_count));
-        param_count += 1;
-    }
-    if filter.user_id.is_some() {
-        push_ticket_access_sql(&mut query, &mut param_count);
-    }
-
-    // project__prefix フィルタ
-    if let Some(ref prefix) = filter.project_prefix {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-    if filter.team_slug.is_some() {
-        push_team_slug_sql(&mut query, &mut param_count);
-    }
-
-    // milestone フィルタ
-    if let Some(ms_id) = filter.milestone {
-        query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // cycle フィルタ
-    if let Some(cycle_id) = filter.cycle {
-        query.push_str(&format!(" AND t.cycle_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // category フィルタ
-    if let Some(cat_id) = filter.category {
-        query.push_str(&format!(" AND t.category_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // labels フィルタ (EXISTS)
-    if let Some(label_id) = filter.labels {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-
-    // parent フィルタ
-    if let Some(parent_id) = filter.parent {
-        query.push_str(&format!(" AND t.parent_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // parent_isnull フィルタ
-    if let Some(is_null) = filter.parent_isnull {
-        if is_null {
-            query.push_str(" AND t.parent_id IS NULL");
-        } else {
-            query.push_str(" AND t.parent_id IS NOT NULL");
-        }
-    }
-
-    // due_date gte
-    if let Some(due_gte) = filter.due_date_gte {
-        query.push_str(&format!(" AND t.due_date >= ${}", param_count));
-        param_count += 1;
-    }
-
-    // due_date lte
-    if let Some(due_lte) = filter.due_date_lte {
-        query.push_str(&format!(" AND t.due_date <= ${}", param_count));
-        param_count += 1;
-    }
-
-    // due_date_isnull
-    if let Some(is_null) = filter.due_date_isnull {
-        if is_null {
-            query.push_str(" AND t.due_date IS NULL");
-        } else {
-            query.push_str(" AND t.due_date IS NOT NULL");
-        }
-    }
-
-    // 全文検索
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            let search_pattern = format!("%{}%", search_term);
-            query.push_str(&format!(
-                " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
-                param_count,
-                param_count + 1,
-                param_count + 2
-            ));
-            param_count += 3;
-        }
-    }
-
-    // ソート追加 + ページネーション(Django PageNumberPagination相当)
-    query.push_str(&format!(
-        " ORDER BY {} LIMIT ${} OFFSET ${}",
-        order_clause,
-        param_count,
-        param_count + 1
-    ));
-
-    // パラメータをバインド
-    let mut sql_query = sqlx::query(&query);
-
-    if let Some(ref statuses) = filter.status {
-        for status in statuses {
-            sql_query = sql_query.bind(status.as_str());
-        }
-    }
-    if let Some(ref priorities) = filter.priority {
-        for priority in priorities {
-            sql_query = sql_query.bind(priority.as_str());
-        }
-    }
-    if let Some(assignee_id) = filter.assignees {
-        sql_query = sql_query.bind(assignee_id);
-    }
-    if let Some(proj_id) = filter.project {
-        sql_query = sql_query.bind(proj_id);
-    }
-    if let Some(user_id) = filter.user_id {
-        sql_query = sql_query.bind(user_id).bind(user_id);
-    }
-    if let Some(ref prefix) = filter.project_prefix {
-        sql_query = sql_query.bind(prefix.as_str());
-    }
-    if let Some(ref slug) = filter.team_slug {
-        sql_query = sql_query.bind(slug.as_str());
-    }
-    if let Some(ms_id) = filter.milestone {
-        sql_query = sql_query.bind(ms_id);
-    }
-    if let Some(cycle_id) = filter.cycle {
-        sql_query = sql_query.bind(cycle_id);
-    }
-    if let Some(cat_id) = filter.category {
-        sql_query = sql_query.bind(cat_id);
-    }
-    if let Some(label_id) = filter.labels {
-        sql_query = sql_query.bind(label_id);
-    }
-    if let Some(parent_id) = filter.parent {
-        sql_query = sql_query.bind(parent_id);
-    }
-    if let Some(due_gte) = filter.due_date_gte {
-        sql_query = sql_query.bind(due_gte);
-    }
-    if let Some(due_lte) = filter.due_date_lte {
-        sql_query = sql_query.bind(due_lte);
-    }
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            let pattern = format!("%{}%", search_term);
-            sql_query = sql_query.bind(pattern.clone());
-            sql_query = sql_query.bind(pattern.clone());
-            sql_query = sql_query.bind(pattern);
-        }
-    }
-    sql_query = sql_query.bind(PAGE_SIZE).bind(offset);
-
-    let rows = sql_query.fetch_all(pool).await?;
-
     // ticket_id のリストを集める
     let ticket_ids: Vec<i32> = rows.iter().map(|row| row.get::<i32, _>(0)).collect();
 
@@ -893,6 +652,260 @@ pub async fn api_find_all(
         .collect();
 
     Ok(result)
+}
+
+/// チケット一覧取得(JSON API用)
+pub async fn api_find_all(
+    pool: &PgPool,
+    filter: &ApiTicketFilter,
+    sort: &str,
+    search: Option<&str>,
+    page: i64,
+) -> anyhow::Result<Vec<TicketListOut>> {
+    // DjangoのDEFAULT_PAGINATION_CLASS(PageNumberPagination, PAGE_SIZE=50)と一致させる
+    const PAGE_SIZE: i64 = 50;
+    let page = page.max(1);
+    let offset = (page - 1) * PAGE_SIZE;
+    // 標準化されたソート値
+    let order_clause = match sort {
+        "created_at" => "t.created_at ASC, t.id DESC",
+        "-created_at" => "t.created_at DESC, t.id DESC",
+        "updated_at" => "t.updated_at ASC, t.id DESC",
+        "-updated_at" => "t.updated_at DESC, t.id DESC",
+        "due_date" => "t.due_date ASC, t.id DESC",
+        "-due_date" => "t.due_date DESC, t.id DESC",
+        "priority" => "t.priority ASC, t.id DESC",
+        "-priority" => "t.priority DESC, t.id DESC",
+        "gantt_order" => "t.gantt_order ASC, t.id DESC",
+        "-gantt_order" => "t.gantt_order DESC, t.id DESC",
+        _ => "t.updated_at DESC, t.id DESC", // デフォルト
+    };
+
+    // 基本クエリ：API_TICKET_SELECT を使用
+    let mut query = String::from(API_TICKET_SELECT);
+    query.push_str(" WHERE 1=1");
+
+    // フィルタ条件を動的に追加
+    let mut param_count = 1;
+
+    // status フィルタ
+    if let Some(ref statuses) = filter.status {
+        if !statuses.is_empty() {
+            if statuses.len() == 1 {
+                query.push_str(&format!(" AND t.status = ${}", param_count));
+                param_count += 1;
+            } else {
+                let placeholders = (0..statuses.len())
+                    .map(|i| format!("${}", param_count + i))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                query.push_str(&format!(
+                    " AND t.status = ANY(ARRAY[{}]::text[])",
+                    placeholders
+                ));
+                param_count += statuses.len();
+            }
+        }
+    }
+
+    // priority フィルタ
+    if let Some(ref priorities) = filter.priority {
+        if !priorities.is_empty() {
+            if priorities.len() == 1 {
+                query.push_str(&format!(" AND t.priority = ${}", param_count));
+                param_count += 1;
+            } else {
+                let placeholders = (0..priorities.len())
+                    .map(|i| format!("${}", param_count + i))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                query.push_str(&format!(
+                    " AND t.priority = ANY(ARRAY[{}]::text[])",
+                    placeholders
+                ));
+                param_count += priorities.len();
+            }
+        }
+    }
+
+    // assignees フィルタ (EXISTS)
+    if let Some(assignee_id) = filter.assignees {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+
+    // project フィルタ
+    if filter.project.is_some() {
+        query.push_str(&format!(" AND t.project_id = ${}", param_count));
+        param_count += 1;
+    }
+    if filter.user_id.is_some() {
+        push_ticket_access_sql(&mut query, &mut param_count);
+    }
+
+    // project__prefix フィルタ
+    if let Some(ref prefix) = filter.project_prefix {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+    if filter.team_slug.is_some() {
+        push_team_slug_sql(&mut query, &mut param_count);
+    }
+
+    // milestone フィルタ
+    if let Some(ms_id) = filter.milestone {
+        query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // cycle フィルタ
+    if let Some(cycle_id) = filter.cycle {
+        query.push_str(&format!(" AND t.cycle_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // category フィルタ
+    if let Some(cat_id) = filter.category {
+        query.push_str(&format!(" AND t.category_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // labels フィルタ (EXISTS)
+    if let Some(label_id) = filter.labels {
+        query.push_str(&format!(
+            " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
+            param_count
+        ));
+        param_count += 1;
+    }
+
+    // parent フィルタ
+    if let Some(parent_id) = filter.parent {
+        query.push_str(&format!(" AND t.parent_id = ${}", param_count));
+        param_count += 1;
+    }
+
+    // parent_isnull フィルタ
+    if let Some(is_null) = filter.parent_isnull {
+        if is_null {
+            query.push_str(" AND t.parent_id IS NULL");
+        } else {
+            query.push_str(" AND t.parent_id IS NOT NULL");
+        }
+    }
+
+    // due_date gte
+    if let Some(due_gte) = filter.due_date_gte {
+        query.push_str(&format!(" AND t.due_date >= ${}", param_count));
+        param_count += 1;
+    }
+
+    // due_date lte
+    if let Some(due_lte) = filter.due_date_lte {
+        query.push_str(&format!(" AND t.due_date <= ${}", param_count));
+        param_count += 1;
+    }
+
+    // due_date_isnull
+    if let Some(is_null) = filter.due_date_isnull {
+        if is_null {
+            query.push_str(" AND t.due_date IS NULL");
+        } else {
+            query.push_str(" AND t.due_date IS NOT NULL");
+        }
+    }
+
+    // 全文検索
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            let search_pattern = format!("%{}%", search_term);
+            query.push_str(&format!(
+                " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
+                param_count,
+                param_count + 1,
+                param_count + 2
+            ));
+            param_count += 3;
+        }
+    }
+
+    // ソート追加 + ページネーション(Django PageNumberPagination相当)
+    query.push_str(&format!(
+        " ORDER BY {} LIMIT ${} OFFSET ${}",
+        order_clause,
+        param_count,
+        param_count + 1
+    ));
+
+    // パラメータをバインド
+    let mut sql_query = sqlx::query(&query);
+
+    if let Some(ref statuses) = filter.status {
+        for status in statuses {
+            sql_query = sql_query.bind(status.as_str());
+        }
+    }
+    if let Some(ref priorities) = filter.priority {
+        for priority in priorities {
+            sql_query = sql_query.bind(priority.as_str());
+        }
+    }
+    if let Some(assignee_id) = filter.assignees {
+        sql_query = sql_query.bind(assignee_id);
+    }
+    if let Some(proj_id) = filter.project {
+        sql_query = sql_query.bind(proj_id);
+    }
+    if let Some(user_id) = filter.user_id {
+        sql_query = sql_query.bind(user_id).bind(user_id);
+    }
+    if let Some(ref prefix) = filter.project_prefix {
+        sql_query = sql_query.bind(prefix.as_str());
+    }
+    if let Some(ref slug) = filter.team_slug {
+        sql_query = sql_query.bind(slug.as_str());
+    }
+    if let Some(ms_id) = filter.milestone {
+        sql_query = sql_query.bind(ms_id);
+    }
+    if let Some(cycle_id) = filter.cycle {
+        sql_query = sql_query.bind(cycle_id);
+    }
+    if let Some(cat_id) = filter.category {
+        sql_query = sql_query.bind(cat_id);
+    }
+    if let Some(label_id) = filter.labels {
+        sql_query = sql_query.bind(label_id);
+    }
+    if let Some(parent_id) = filter.parent {
+        sql_query = sql_query.bind(parent_id);
+    }
+    if let Some(due_gte) = filter.due_date_gte {
+        sql_query = sql_query.bind(due_gte);
+    }
+    if let Some(due_lte) = filter.due_date_lte {
+        sql_query = sql_query.bind(due_lte);
+    }
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            let pattern = format!("%{}%", search_term);
+            sql_query = sql_query.bind(pattern.clone());
+            sql_query = sql_query.bind(pattern.clone());
+            sql_query = sql_query.bind(pattern);
+        }
+    }
+    sql_query = sql_query.bind(PAGE_SIZE).bind(offset);
+
+    let rows = sql_query.fetch_all(pool).await?;
+
+    // Use extracted hydration function to build TicketListOut objects
+    hydrate_ticket_rows(pool, rows).await
 }
 
 /// チケット件数取得(JSON API一覧用。api_find_allと同じフィルタ条件をLIMIT/OFFSET無しで

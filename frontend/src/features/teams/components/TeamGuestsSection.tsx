@@ -9,8 +9,8 @@ import { useState } from 'react';
 import { useTeamGuests, useAddTeamGuest, useRemoveTeamGuest } from '../hooks/useTeams';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { useProjects } from '@/shared/sync/repos/projectRepo';
 import type { Team, UserSummary } from '@/shared/api/types';
-import type { Project } from '@/shared/hooks/useProject';
 import { useToastStore } from '@/shared/stores/toastStore';
 
 interface Props {
@@ -37,15 +37,9 @@ export function TeamGuestsSection({ team }: Props) {
     },
   });
 
-  // このチームが参加するProject一覧(限定先の選択肢)
-  const { data: projectsData } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ results: Project[] }>('/projects/');
-      return res.data;
-    },
-  });
-  const teamProjects = (projectsData?.results ?? []).filter((p) => (p.teams ?? []).some((t) => t.id === team.id));
+  // このチームが参加するProject一覧(限定先の選択肢、端末内 DB から取得)
+  const { projects: allProjects } = useProjects();
+  const teamProjects = allProjects.filter((p) => (p.teams ?? []).some((t) => t.id === team.id));
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');

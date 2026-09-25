@@ -312,6 +312,7 @@ pub async fn create_project(
     pool: &PgPool,
     input: &ProjectWriteIn,
     owner_id: Option<i32>,
+    client_request_id: Option<uuid::Uuid>,
 ) -> anyhow::Result<i32> {
     // Validate team_ids is not empty
     if input.team_ids.is_empty() {
@@ -325,8 +326,8 @@ pub async fn create_project(
     // grace_period_days はDjangoの ProjectCreateSerializer に含まれず、モデルのdefault=7が
     // 常に使われる(APIから変更不可)。Rust側も同じ既定値7を使う(0だと猶予なしになりDjangoと乖離する)。
     let project_id: i32 = sqlx::query_scalar(
-        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_id, priority)
-         VALUES ($1, $2, $3, NOW(), 7, 'in_progress', $4, $5)
+        "INSERT INTO tickets_project (name, prefix, description, created_at, grace_period_days, status, owner_id, priority, client_request_id)
+         VALUES ($1, $2, $3, NOW(), 7, 'in_progress', $4, $5, $6)
          RETURNING id::int4"
     )
     .bind(&input.name)
@@ -334,6 +335,7 @@ pub async fn create_project(
     .bind(&input.description)
     .bind(owner_id)
     .bind(&input.priority)
+    .bind(client_request_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1103,7 +1105,7 @@ mod tests {
         let team_id = test_support::create_test_team(&pool, "team_prj").await;
         let input = write_in(&prefix, vec![team_id]);
 
-        let id = create_project(&pool, &input, None).await.unwrap();
+        let id = create_project(&pool, &input, None, None).await.unwrap();
 
         let found = find_project_by_id(&pool, id, None).await.unwrap();
         assert!(found.is_some());
@@ -1119,7 +1121,7 @@ mod tests {
         let Some(pool) = test_support::test_pool().await else { return; };
         let prefix = format!("UPD{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_upd").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
 
         let mut updated = write_in(&prefix, vec![team_id]);
         updated.name = "更新後の名前".to_string();
@@ -1136,7 +1138,7 @@ mod tests {
         let owner = test_support::create_test_user(&pool, "project-owner").await;
         let team_id = test_support::create_test_team(&pool, "team_own").await;
         let prefix = format!("OWN{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), Some(owner)).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), Some(owner), None).await.unwrap();
 
         let owner_id = get_project_owner_id(&pool, id).await.unwrap();
         assert_eq!(owner_id, Some(owner));
@@ -1148,7 +1150,7 @@ mod tests {
         let author = test_support::create_test_user(&pool, "del-guard-author").await;
         let team_id = test_support::create_test_team(&pool, "team_del").await;
         let prefix = format!("DEL{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
         test_support::create_test_ticket(&pool, id, "DELGUARD", author).await;
 
         let result = delete_project(&pool, id).await.unwrap();
@@ -1164,7 +1166,7 @@ mod tests {
         let Some(pool) = test_support::test_pool().await else { return; };
         let prefix = format!("DOK{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_dok").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
 
         let result = delete_project(&pool, id).await.unwrap();
         assert!(matches!(result, DeleteProjectResult::Deleted));
@@ -1187,7 +1189,7 @@ mod tests {
         let team_id = test_support::create_test_team(&pool, "team_sts").await;
         let input = write_in(&prefix, vec![team_id]);
 
-        let id = create_project(&pool, &input, None).await.unwrap();
+        let id = create_project(&pool, &input, None, None).await.unwrap();
 
         let found = find_project_by_id(&pool, id, None).await.unwrap();
         assert!(found.is_some());
@@ -1202,7 +1204,7 @@ mod tests {
         let team_id = test_support::create_test_team(&pool, "team_pri").await;
         let input = write_in(&prefix, vec![team_id]);
 
-        let id = create_project(&pool, &input, None).await.unwrap();
+        let id = create_project(&pool, &input, None, None).await.unwrap();
 
         let found = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
         assert_eq!(found.priority, "medium");
@@ -1215,7 +1217,7 @@ mod tests {
         let Some(pool) = test_support::test_pool().await else { return; };
         let prefix = format!("PST{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_pst").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
 
         let patch_input = ProjectPatchIn {
             status: Some("paused".to_string()),
@@ -1235,7 +1237,7 @@ mod tests {
         let team_id = test_support::create_test_team(&pool, "team_mem").await;
         let member_user = test_support::create_test_user(&pool, "project-member").await;
         let outsider_user = test_support::create_test_user(&pool, "project-outsider").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
 
         sqlx::query(
             "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())"
@@ -1264,7 +1266,7 @@ mod tests {
         let prefix = format!("GST{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_gst").await;
         let guest_user = test_support::create_test_user(&pool, "project-guest").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
 
         // create_project の grace_period_days 既定値は 7。end_date を昨日にして、
         // 期限自体は過ぎているがグレースピリオド内であることを確認する。
@@ -1293,7 +1295,7 @@ mod tests {
         let prefix = format!("EXP{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_exp").await;
         let expired_guest = test_support::create_test_user(&pool, "project-expired-guest").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
 
         let long_ago = chrono::Utc::now().date_naive() - Duration::days(30);
         sqlx::query(

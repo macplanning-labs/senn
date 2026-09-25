@@ -7,25 +7,14 @@
 
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
+import { useGanttTickets } from '@/shared/sync/repos/ticketRepo';
 import './GanttChart.css';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconGantt } from '@/shared/components/layout/Sidebar';
 
-interface GanttTicket {
-  id: number;
-  ticketKey: string;
-  title: string;
-  status: string;
-  priority: string;
-  startDate: string | null;
-  dueDate: string | null;
-  assignees: { id: number; displayName: string; username: string }[];
-}
 
 const statusColors: Record<string, string> = {
   backlog: 'var(--color-status-backlog, #6b7280)',
@@ -55,22 +44,9 @@ export function GanttChart() {
   const { projectKey } = useProject();
   const { teamSlug } = useTeam();
 
-  const { data, isLoading } = useQuery<{ results: GanttTicket[] }>({
-    queryKey: ['tickets', 'gantt', projectKey, teamSlug],
-    queryFn: async () => {
-      const res = await apiClient.get<{ results: GanttTicket[] }>('/tickets/', {
-        params: {
-          due_date__isnull: false,
-          ordering: 'gantt_order,due_date',
-          ...(projectKey ? { project__prefix: projectKey } : {}),
-          ...(teamSlug ? { team_slug: teamSlug } : {}),
-        },
-      });
-      return res.data;
-    },
-  });
+  const { data, isLoading } = useGanttTickets({ projectKey, teamSlug });
 
-  const tickets = useMemo(() => data?.results ?? [], [data]);
+  const tickets = useMemo(() => data ?? [], [data]);
 
   // タイムライン範囲を計算
   const { timelineStart, totalDays, weekMarkers } = useMemo(() => {

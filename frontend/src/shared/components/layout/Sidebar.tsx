@@ -19,6 +19,8 @@ import {
   togglePinnedSlug,
   splitPinnedTeams,
 } from '@/shared/utils/sidebarTeamPins';
+import { useSyncStatus } from '@/shared/sync/syncStatusStore';
+import { SyncFailuresPanel } from '@/shared/sync/components/SyncFailuresPanel';
 import { TeamSidebarMoreMenu } from './TeamSidebarMoreMenu';
 import { TeamSectionMenu } from './TeamSectionMenu';
 import { IconPlus } from '@/shared/components/ui/icons';
@@ -293,6 +295,9 @@ export function Sidebar() {
   const [userMenuPosition, setUserMenuPosition] = useState<{ left: number; bottom: number } | null>(null);
   const userMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  const [syncFailuresOpen, setSyncFailuresOpen] = useState(false);
+  const failedCount = useSyncStatus((s) => s.failedCount);
 
   const showAddAttention = !isLoading && teamList.length === 0;
 
@@ -706,6 +711,18 @@ export function Sidebar() {
           </NavLink>
         )}
 
+        {failedCount > 0 && (
+          <button
+            type="button"
+            className="sidebar__sync-failures"
+            onClick={() => setSyncFailuresOpen(true)}
+            title={t('sync.failedTitle')}
+            data-testid="sync-failures-open"
+          >
+            ⚠{sidebarOpen ? ` ${t('sync.failedBadge', { count: failedCount })}` : ` ${failedCount}`}
+          </button>
+        )}
+
         {user && (
           <div className="sidebar__user" data-testid="sidebar-user">
             <button
@@ -764,6 +781,8 @@ export function Sidebar() {
           </div>
         )}
       </div>
+
+      <SyncFailuresPanel isOpen={syncFailuresOpen} onClose={() => setSyncFailuresOpen(false)} />
     </aside>
   );
 }

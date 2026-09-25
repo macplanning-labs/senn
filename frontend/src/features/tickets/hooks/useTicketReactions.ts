@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { liveQuery } from 'dexie';
 import { useObservable } from '../../../shared/hooks/useObservable';
-import { db, type LocalReaction } from '../../../shared/sync/db';
+import { db, type LocalReaction, useDbGeneration } from '../../../shared/sync/db';
 import { localToggleReaction, pullReactions } from '../../../shared/sync/syncEngine';
 
 const EMPTY_REACTIONS: LocalReaction[] = [];
@@ -15,6 +15,7 @@ const EMPTY_REACTIONS: LocalReaction[] = [];
  * - チケット詳細オープン・window focus時に pullReactions
  */
 export function useTicketReactions(ticketKey: string | null, ticketId: number | null) {
+  const dbGen = useDbGeneration();
   const reactionsByTicket = useObservable(
     useMemo(
       () =>
@@ -55,7 +56,9 @@ export function useTicketReactions(ticketKey: string | null, ticketId: number | 
               return merged;
             })
           : null,
-      [ticketId],
+      // dbGen: 端末内 DB がユーザー切り替えで差し替わったら購読し直す
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [ticketId, dbGen],
     ),
     EMPTY_REACTIONS,
   );

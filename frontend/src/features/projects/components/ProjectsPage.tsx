@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
-import { useProject } from '@/shared/hooks/useProject';
+import { useProjects } from '@/shared/sync/repos/projectRepo';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useToastStore } from '@/shared/stores/toastStore';
 import { useRoadmaps } from '@/features/projects/hooks/useProjectStructure';
@@ -71,7 +71,7 @@ function loadGroupOpenState(): Record<string, boolean> {
 
 export function ProjectsPage() {
   const { t } = useTranslation();
-  const { projectList, isLoading } = useProject();
+  const { projects: projectList, isLoading } = useProjects();
   const { teamList } = useTeam();
   const { data: roadmaps = [] } = useRoadmaps();
   const { addToast } = useToastStore();

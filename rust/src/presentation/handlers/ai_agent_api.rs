@@ -218,7 +218,7 @@ pub async fn create_project(
         team_ids: body.team_ids.clone(),
     };
 
-    match resource_repo::create_project(&state.pool, &input, None).await {
+    match resource_repo::create_project(&state.pool, &input, None, None).await {
         Ok(project_id) => {
             match resource_repo::find_project_by_id(&state.pool, project_id, None).await {
                 Ok(Some(project)) => (StatusCode::CREATED, Json(project)).into_response(),
