@@ -14,12 +14,14 @@ import {
   type TicketFieldPickerOption,
   type TicketPickerField,
 } from './TicketFieldPicker';
+import { TICKET_TYPES } from '../constants/ticketTypes';
 
 const PRIORITIES = ['urgent', 'high', 'medium', 'low'] as const;
 const ESTIMATES = [1, 2, 3, 5, 8, 13, 21] as const;
 
 /** Properties / Others section labels are English-fixed for keyboard shortcut UX (design §4). */
 const PICKER_FIELD_TITLES: Record<TicketPickerField, string> = {
+  type: 'Type',
   status: 'Status',
   assignee: 'Assignee',
   priority: 'Priority',
@@ -188,6 +190,8 @@ export function TicketPropertiesSidebar({
         }));
       case 'priority':
         return PRIORITIES.map((p) => ({ id: p, label: p }));
+      case 'type':
+        return TICKET_TYPES.map((t) => ({ id: t, label: t }));
       case 'cycle':
         return cycles.map((c) => ({ id: String(c.id), label: c.name }));
       case 'project':
@@ -228,6 +232,8 @@ export function TicketPropertiesSidebar({
         return ticket.reviewers.map((r) => String(r.id));
       case 'priority':
         return ticket.priority ? [ticket.priority] : [];
+      case 'type':
+        return ticket.ticketType ? [ticket.ticketType] : [];
       case 'cycle':
         return ticket.cycle != null ? [String(ticket.cycle)] : [];
       case 'project':
@@ -267,6 +273,11 @@ export function TicketPropertiesSidebar({
       case 'priority': {
         const p = ids[0];
         if (p) mutations.priority.mutate(p);
+        break;
+      }
+      case 'type': {
+        const t = ids[0];
+        if (t) mutations.type.mutate(t);
         break;
       }
       case 'estimate': {
@@ -380,6 +391,7 @@ export function TicketPropertiesSidebar({
         <h3 className="ticket-properties-sidebar__title">Properties</h3>
         <div className="ticket-properties-list">
           {row('status', 'Status', ticket.status || '—', true)}
+          {row('type', 'Type', ticket.ticketType || '—', true)}
           {row(
             'assignee',
             'Assignee',

@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { liveQuery } from 'dexie';
 import { useObservable } from '../../../shared/hooks/useObservable';
-import { db } from '../../../shared/sync/db';
+import { db, useDbGeneration } from '../../../shared/sync/db';
 import {
   localUploadCustomEmoji,
   localDeleteCustomEmoji,
@@ -27,6 +27,7 @@ export function useCustomEmojis(
   projectPrefix: string | null,
   projectId: number | null,
 ) {
+  const dbGen = useDbGeneration();
   const rawEmojis = useObservable(
     useMemo(
       () =>
@@ -35,7 +36,9 @@ export function useCustomEmojis(
               db.customEmojis.where('projectId').equals(projectId).toArray(),
             )
           : null,
-      [projectId],
+      // dbGen: 端末内 DB がユーザー切り替えで差し替わったら購読し直す
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [projectId, dbGen],
     ),
     EMPTY_EMOJIS,
   );

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
+import { localDeleteTickets } from '../../../shared/sync/ticketWrites';
 import {
   buildTicketListPath,
   buildTicketShareUrl,
@@ -22,7 +22,6 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const queryClient = useQueryClient();
   const { addToast } = useToastStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -64,19 +63,15 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
     errorMessage: t('ticketDetail.watchError'),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      await apiClient.delete(`/tickets/${ticketId}/`);
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
+  const handleDeleteConfirm = async () => {
+    try {
+      await localDeleteTickets([ticketId]);
       navigate(buildTicketListPath(ticket.projectPrefix, undefined, ticket.team?.slug));
-    },
-    onError: () => {
+    } catch {
       addToast({ message: t('ticketDetail.deleteError'), type: 'error' });
       setConfirmDelete(false);
-    },
-  });
+    }
+  };
 
   const teamSlug = ticket.team?.slug ?? null;
   const projectKey = ticket.projectPrefix ?? null;
@@ -199,8 +194,7 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
                   type="button"
                   role="menuitem"
                   className="ticket-detail-topbar__dropdown-danger"
-                  disabled={deleteMutation.isPending}
-                  onClick={() => deleteMutation.mutate()}
+                  onClick={() => void handleDeleteConfirm()}
                   data-testid="ticket-detail-delete-confirm"
                 >
                   {t('ticketDetail.deleteConfirm')}

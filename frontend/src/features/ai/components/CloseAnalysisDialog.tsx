@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useCloseAnalysis } from '../useAIAnalysis';
+import { localCreateTicket } from '@/shared/sync/ticketWrites';
 import { apiClient } from '@/shared/api/client';
 import type { CloseAnalysisResult } from '@/shared/api/types';
 import { useQueryClient } from '@tanstack/react-query';
@@ -35,14 +36,17 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
 
   const handleCreateBacklogTicket = async (title: string, description: string, index: number) => {
     try {
-      await apiClient.post('/tickets/', {
-        title,
-        description,
-        project: projectId,
-        status: 'backlog',
-      });
+      await localCreateTicket(
+        {
+          title,
+          description,
+          project: projectId,
+          status: 'backlog',
+          ticket_type: 'task',
+        },
+        {}
+      );
       setCreatedItems((prev) => new Set(prev).add(`ticket-${index}`));
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
     } catch {
       // グローバルエラーハンドラで処理
     }

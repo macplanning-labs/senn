@@ -116,9 +116,7 @@ docker run --rm -v senn-oss-media:/data -v $(pwd):/backup \
 | `scripts/oss-down.sh` | 停止（データ保持） |
 | `scripts/oss-down.sh --volumes` | **アンインストール**（コンテナ停止＋ボリューム削除） |
 
-本リポジトリ（OSS 自己ホスト利用者向け）には `scripts/oss-sync.sh` は用意していない。最新コードの取り込みは `git pull` のあと `oss-down.sh` → `oss-up.sh` で再起動する。
-
-社内メンテナ向けの OSS 展開・公開 mirror 同期は **OSSP** リポジトリ（`/Users/yutaka/workspace/OSSP`）で運用する。`scripts/oss-sync.sh` と公開用作業コピー `oss-checkout/` は OSSP 側にある（旧 `senn-oss-extract` パスは廃止）。本リポ（senn）へ `oss-sync.sh` をコピーしない。
+最新コードの取り込みは `git pull` のあと `oss-down.sh` → `oss-up.sh` で再起動する。
 
 ## 停止・削除（アンインストール）
 

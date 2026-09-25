@@ -336,13 +336,77 @@ pub async fn detail(
     }
 }
 
+/// チケットの付随データ GET /api/v1/tickets/{ticket_key}/extras/
+///
+/// Local-first では「行」（タイトル・属性）は端末内 DB から表示し、行ではない付随データ
+/// （コメント・添付・リンク・ルール・Wiki・ウォッチ）だけをこの API で取る（詳細設計 §2.4）。
+/// 権限・404 は詳細 API と同じ。
+pub async fn extras(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(ticket_key): Path<String>,
+) -> impl IntoResponse {
+    let ticket = match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(auth.user_id), &state.config.wip_ai_api_user).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response();
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    };
+    match membership_repo::check_ticket_access(&state.pool, ticket.base.id, auth.user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response();
+        }
+        Err(e) => {
+            tracing::error!("Access check failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response();
+        }
+    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "comments": ticket.comments,
+            "attachments": ticket.attachments,
+            "links": ticket.links,
+            "linkedRules": ticket.linked_rules,
+            "linkedWikiPages": ticket.linked_wiki_pages,
+            "isWatching": ticket.is_watching,
+        })),
+    )
+        .into_response()
+}
+
 /// チケット作成 POST /api/v1/tickets/
 pub async fn create(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthUser>,
+    headers: HeaderMap,
     Json(body): Json<TicketWriteIn>,
 ) -> impl IntoResponse {
     // G6-1: teamId は必須、project は任意。api_create で検証
+
+    // 冪等キー（詳細設計 §2.5）: 同じキーで作成済みなら、その行を 200 で返す
+    let client_request_id = match super::idempotency::parse_key(&headers) {
+        Ok(k) => k,
+        Err(resp) => return resp,
+    };
+    if let Some(key) = client_request_id {
+        if let Some(resp) = existing_ticket_for_key(&state, key, auth.user_id).await {
+            return resp;
+        }
+    }
 
     // story_points バリデーション
     if let Some(points) = body.story_points {
@@ -474,6 +538,35 @@ pub async fn create(
         }
     };
 
+    // 冪等キーを同じトランザクションで保存する。同時に同じキーで作成された場合は UNIQUE 違反になるので、
+    // こちらは取り消して先に作られた行を返す。
+    if let Some(key) = client_request_id {
+        if let Err(e) = sqlx::query("UPDATE tickets_ticket SET client_request_id = $1 WHERE id = $2")
+            .bind(key)
+            .bind(ticket_id)
+            .execute(&mut *tx)
+            .await
+        {
+            if let Err(re) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", re);
+            }
+            let e = anyhow::Error::from(e);
+            if super::idempotency::is_unique_violation(&e) {
+                if let Some(resp) = existing_ticket_for_key(&state, key, auth.user_id).await {
+                    return resp;
+                }
+            }
+            tracing::error!("saving client_request_id failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
     // コミット
     if let Err(e) = tx.commit().await {
         tracing::error!("transaction commit failed: {:?}", e);
@@ -531,6 +624,54 @@ pub async fn create(
             }),
         )
             .into_response()
+    }
+}
+
+/// 冪等キーで作成済みのチケットを探し、あれば応答（200 か、別の利用者なら 409）を返す。
+async fn existing_ticket_for_key(
+    state: &AppState,
+    key: uuid::Uuid,
+    user_id: i32,
+) -> Option<Response> {
+    let found = sqlx::query_as::<_, (String, i32)>(
+        "SELECT ticket_key, author_id::int4 FROM tickets_ticket WHERE client_request_id = $1",
+    )
+    .bind(key)
+    .fetch_optional(&state.pool)
+    .await;
+    let (ticket_key, author_id) = match found {
+        Ok(Some(row)) => row,
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::error!("idempotency lookup failed: {:?}", e);
+            return Some(
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response(),
+            );
+        }
+    };
+    if author_id != user_id {
+        return Some(super::idempotency::conflict_response());
+    }
+    match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(user_id), &state.config.wip_ai_api_user).await {
+        Ok(Some(ticket)) => Some((StatusCode::OK, Json(ticket)).into_response()),
+        other => {
+            tracing::error!("idempotency fetch failed: {:?}", other.err());
+            Some(
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response(),
+            )
+        }
     }
 }
 

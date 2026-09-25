@@ -52,6 +52,7 @@ import { useAuthStore } from '@/shared/stores/authStore';
 import { getLastProjectKey } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { registerSyncQueryClient } from '@/shared/sync/pull';
 import { useEffect } from 'react';
 import type { AxiosError } from 'axios';
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
@@ -87,6 +88,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// 同期エンジンに QueryClient を登録
+registerSyncQueryClient(queryClient);
 
 /** 認証ガード — 未ログイン時はログインページにリダイレクト */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {

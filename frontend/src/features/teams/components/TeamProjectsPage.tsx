@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { useProject } from '@/shared/hooks/useProject';
+import { useProjects } from '@/shared/sync/repos/projectRepo';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { ProjectsTable } from '@/features/projects/components/ProjectsTable';
 import { ProjectCreateModal } from '@/features/projects/components/ProjectCreateModal';
@@ -24,7 +24,7 @@ export function TeamProjectsPage() {
   const { t } = useTranslation();
   const { teamSlug } = useParams<{ teamSlug: string }>();
   const { currentTeam } = useTeam();
-  const { projectList, isLoading } = useProject();
+  const { projects: projectList, isLoading } = useProjects();
   const queryClient = useQueryClient();
   const { success: showSuccess, error: showError } = useToast();
 
@@ -48,8 +48,7 @@ export function TeamProjectsPage() {
     try {
       await deleteDemoProject(projectId);
 
-      // キャッシュを無効化
-      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      // キャッシュを無効化（['projects'] は端末内 DB が自動更新）
       void queryClient.invalidateQueries({ queryKey: ['tickets'] });
 
       showSuccess(t('onboarding.deleted'));

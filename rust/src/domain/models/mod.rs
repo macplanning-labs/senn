@@ -26,3 +26,4 @@ pub mod wiki_api;
 pub mod saved_view_api;
 pub mod project_activity_api;
 pub mod reaction;
+pub mod sync_api;

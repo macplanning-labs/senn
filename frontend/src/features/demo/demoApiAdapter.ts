@@ -63,6 +63,56 @@ export function handleDemoRequest(req: AdapterRequest): AdapterResponse | null {
     return { status: 200, data: demoMyTickets };
   }
 
+  // 差分同期 API（Local-first。詳細設計 §3.9）— デモのチケット・プロジェクトを端末内 DB へ入れる
+  const demoSyncPage = (changes: unknown[]) => ({
+    status: 200,
+    data: {
+      changes,
+      deleted: [],
+      access: { all: true, teamIds: [], scopedProjects: [] },
+      cursor: 'demo',
+      hasMore: false,
+      serverTime: new Date().toISOString(),
+    },
+  });
+  if (path.includes('/sync/tickets/')) {
+    return demoSyncPage(
+      demoMyTickets
+        .map((t) => getDemoTicketDetail(t.ticket_key))
+        .filter((d): d is NonNullable<typeof d> => d !== null),
+    );
+  }
+  if (path.includes('/sync/projects/')) {
+    return demoSyncPage([
+      {
+        ...demoProject,
+        status: 'in_progress',
+        priority: 'medium',
+        isMember: true,
+        teams: [{ id: demoTeam.id, name: demoTeam.name, slug: demoTeam.slug, icon: demoTeam.icon, color: demoTeam.color }],
+        createdAt: '2026-09-10T00:00:00Z',
+        updatedAt: '2026-09-10T00:00:00Z',
+      },
+    ]);
+  }
+
+  // 付随データ API — チケット詳細の extras
+  const extrasMatch = path.match(/\/tickets\/([^/?]+)\/extras\//);
+  if (extrasMatch?.[1]) {
+    const detail = getDemoTicketDetail(extrasMatch[1]);
+    return {
+      status: 200,
+      data: {
+        comments: detail?.comments ?? [],
+        attachments: detail?.attachments ?? [],
+        links: detail?.links ?? [],
+        linkedRules: [],
+        linkedWikiPages: (detail as any)?.linkedWikiPages ?? [],
+        isWatching: false,
+      },
+    };
+  }
+
   if (/\/tickets\/[^/]+\/(change-logs|git-events)\//.test(path)) {
     return { status: 200, data: [] };
   }

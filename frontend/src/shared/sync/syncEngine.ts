@@ -1,140 +1,144 @@
 /**
- * syncEngine.ts — ローカルファースト同期エンジン
+ * syncEngine.ts — Local-first 同期エンジン
  *
- * LWW (Last Write Wins) 方式の同期:
- *   1. ローカル変更 → IndexedDB に即時保存 + SyncQueue に追加
- *   2. オンライン時 → SyncQueue を順次処理してサーバーに送信
- *   3. サーバーからの最新データ → ローカルを上書き（LWW）
+ * 詳細設計 §3.5・§3.8。
+ *   書き込み: 画面 → 端末内 DB（即時） → 送信キュー → pushChanges でサーバーへ
+ *   読み取り: サーバー → pullEntity（差分同期 API） → 端末内 DB → 画面（liveQuery）
  *
- * Phase 2 では CRDT に移行予定。MVP では LWW で十分。
+ * - 起動: startSync(userId)。以後 30秒ごと・フォーカス時・画面に戻ったとき・オンライン復帰時に runCycle
+ * - 排他: 同じタブ内では送信・同期を直列に、複数タブ間は Web Locks（navigator.locks）で1タブずつ
  */
 
-import { db, type SyncQueueItem, type LocalReaction } from './db';
+import { db, type SyncQueueItem, type LocalReaction, openUserDb } from './db';
 import { apiClient } from '../api/client';
 import { registerBlobAdapter, pushBlobCreate, enqueueBlobCreate } from './blobSync';
 import { customEmojiAdapter } from './adapters/customEmojiBlob';
+import { hasCompletedFullSync, pullEntity, registerSyncTrigger } from './pull';
+import { MAX_RETRY, pushEntityItem } from './push';
+import { registerPushRequester } from './pushRequester';
+import { useSyncStatus } from './syncStatusStore';
+import { registerDevConsistencyCheck } from './devConsistencyCheck';
+
+const SYNC_INTERVAL_MS = 30_000;
+/** 送信順（プロジェクト作成をチケットより先に。チケットはプロジェクトに依存しうる） */
+const ENTITY_ORDER: Record<SyncQueueItem['entity'], number> = {
+  custom_emoji: 0,
+  reaction: 1,
+  project: 2,
+  ticket: 3,
+  wiki: 4,
+};
 
 // ── 同期状態 ──
-let isSyncing = false;
+let currentUserId: number | null = null;
+let cycleRunning = false;
+let rerunRequested = false;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
+let focusListenerFn: (() => void) | null = null;
+let visibilityListenerFn: (() => void) | null = null;
+let onlineListenerFn: (() => void) | null = null;
+/** タブ内で pushChanges を直列にするための鎖 */
+let pushChain: Promise<void> = Promise.resolve();
 
 registerBlobAdapter(customEmojiAdapter);
+registerPushRequester(() => requestPush());
+registerSyncTrigger(() => void runCycle());
+registerDevConsistencyCheck();
 
-/**
- * サーバーからチケット一覧を取得してローカルDBに保存
- */
-export async function pullTickets(): Promise<void> {
+/** 複数タブで同時に送信・同期しないためのロック（使えない環境ではそのまま実行） */
+export async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (locks?.request && currentUserId !== null) {
+    return locks.request(`senn-sync-${currentUserId}`, fn) as Promise<T>;
+  }
+  return fn();
+}
+
+/** 1回分の同期: 送信 → プロジェクト取得 → チケット取得。実行中に呼ばれたら、終わってからもう1回だけ回す */
+export async function runCycle(): Promise<void> {
+  if (currentUserId === null) return;
+  if (cycleRunning) {
+    rerunRequested = true;
+    return;
+  }
+  cycleRunning = true;
+  rerunRequested = false;
+  const status = useSyncStatus.getState();
+  status.set({ syncing: true });
   try {
-    const res = await apiClient.get<{ results: Record<string, unknown>[] }>('/tickets/', {
-      params: { ordering: '-updated_at' },
+    await withSyncLock(async () => {
+      await pushChangesUnlocked();
+      await pullEntity('projects');
+      await pullEntity('tickets');
     });
-
-    const tickets = res.data.results ?? [];
-
-    await db.transaction('rw', db.tickets, async () => {
-      for (const t of tickets) {
-        const existing = await db.tickets.get(t.id as number);
-        // ローカルにdirtyな変更がなければ上書き
-        if (!existing || !existing._dirty) {
-          await db.tickets.put({
-            id: t.id as number,
-            ticketKey: (t.ticketKey ?? t.ticket_key ?? '') as string,
-            title: (t.title ?? '') as string,
-            description: (t.description ?? '') as string,
-            status: (t.status ?? 'open') as string,
-            priority: (t.priority ?? 'medium') as string,
-            ticketType: (t.ticketType ?? t.ticket_type ?? 'issue') as string,
-            assigneeId: ((t.assignees as { id: number }[]) ?? [])[0]?.id ?? null,
-            projectId: (t.project as number | null) ?? null,
-            dueDate: (t.dueDate ?? t.due_date ?? null) as string | null,
-            updatedAt: (t.updatedAt ?? t.updated_at ?? new Date().toISOString()) as string,
-            _dirty: false,
-            _syncedAt: new Date().toISOString(),
-          });
-        }
-      }
-    });
-  } catch {
-    // オフライン時は無視（ローカルデータを使用）
+    status.set({ lastSyncAt: new Date().toISOString(), lastError: null, initialSyncDone: true });
+  } catch (err) {
+    status.set({ lastError: err instanceof Error ? err.message : String(err) });
+    // 初回同期に失敗しても、以前のフル同期が端末にあれば画面は出せる
+    if (!status.initialSyncDone && (await hasCompletedFullSync('tickets').catch(() => false))) {
+      status.set({ initialSyncDone: true });
+    }
+  } finally {
+    cycleRunning = false;
+    useSyncStatus.getState().set({ syncing: false });
+    await useSyncStatus.getState().refreshQueueCounts();
+    if (rerunRequested) {
+      rerunRequested = false;
+      void runCycle();
+    }
   }
 }
 
-/**
- * サーバーからプロジェクト一覧を取得してローカルDBに保存
- */
-export async function pullProjects(): Promise<void> {
-  try {
-    const res = await apiClient.get<{ results: Record<string, unknown>[] }>('/projects/');
-    const projects = res.data.results ?? [];
-
-    await db.transaction('rw', db.projects, async () => {
-      for (const p of projects) {
-        const existing = await db.projects.get(p.id as number);
-        if (!existing || !existing._dirty) {
-          await db.projects.put({
-            id: p.id as number,
-            name: (p.name ?? '') as string,
-            prefix: (p.prefix ?? '') as string,
-            description: (p.description ?? '') as string,
-            updatedAt: (p.updatedAt ?? p.updated_at ?? new Date().toISOString()) as string,
-            _dirty: false,
-            _syncedAt: new Date().toISOString(),
-          });
-        }
-      }
-    });
-  } catch {
-    // オフライン時は無視
-  }
-}
-
-/**
- * SyncQueue の未送信変更をサーバーに送信
- * 処理順: custom_emoji → reaction → その他（ticket/project/wiki）
- */
+/** 送信キューを送る（タブ間ロック付き） */
 export async function pushChanges(): Promise<void> {
-  if (isSyncing) return;
-  isSyncing = true;
+  await withSyncLock(() => pushChangesUnlocked());
+  await useSyncStatus.getState().refreshQueueCounts();
+}
 
+/** 送信キューを送る（タブ内は直列。呼び出し側がタブ間ロックを持っている前提） */
+function pushChangesUnlocked(): Promise<void> {
+  const run = pushChain.then(pushQueueOnce, pushQueueOnce);
+  pushChain = run.catch(() => undefined);
+  return run;
+}
+
+async function pushQueueOnce(): Promise<void> {
+  let queue: SyncQueueItem[];
   try {
-    const queue = await db.syncQueue
-      .where('retryCount')
-      .below(5) // 5回以上リトライ失敗は無視
-      .toArray();
+    queue = await db.syncQueue.where('retryCount').below(MAX_RETRY).toArray();
+  } catch {
+    return; // DB の切り替え直後など
+  }
+  queue.sort((a, b) => ENTITY_ORDER[a.entity] - ENTITY_ORDER[b.entity] || (a.id ?? 0) - (b.id ?? 0));
 
-    // entity 種別でソート（custom_emoji を優先）
-    const sorted = queue.sort((a, b) => {
-      const order = { custom_emoji: 0, reaction: 1, ticket: 2, project: 3, wiki: 4 };
-      return (order[a.entity as keyof typeof order] ?? 5) - (order[b.entity as keyof typeof order] ?? 5);
-    });
+  for (const snapshot of queue) {
+    // 並べた後に、先の項目の送信（付け替え等）で内容が変わっている場合があるので読み直す
+    const item = snapshot.id !== undefined ? await db.syncQueue.get(snapshot.id) : undefined;
+    if (!item || item.retryCount >= MAX_RETRY) continue;
 
-    for (const item of sorted) {
-      try {
-        await pushSingleChange(item);
-        // 成功したらキューから削除
-        if (item.id) {
-          await db.syncQueue.delete(item.id);
-        }
-        // custom_emoji create は remap 内で dirty クリア済み
-        if (!(item.entity === 'custom_emoji' && item.operation === 'create')) {
-          await clearDirtyFlag(item.entity, item.entityId);
-        }
-      } catch {
-        // リトライカウントを増加
-        if (item.id) {
-          await db.syncQueue.update(item.id, {
-            retryCount: item.retryCount + 1,
-          });
-        }
+    if (item.entity === 'ticket' || item.entity === 'project') {
+      await pushEntityItem(item);
+      continue;
+    }
+    try {
+      await pushSingleChange(item);
+      if (item.id) await db.syncQueue.delete(item.id);
+      // custom_emoji create は remap 内で dirty クリア済み
+      if (!(item.entity === 'custom_emoji' && item.operation === 'create')) {
+        await clearDirtyFlag(item.entity, item.entityId);
+      }
+    } catch (err) {
+      if (item.id) {
+        await db.syncQueue.update(item.id, {
+          retryCount: item.retryCount + 1,
+          lastError: err instanceof Error ? err.message : String(err),
+        });
       }
     }
-  } catch {
-    // キュー取得自体の失敗（DBスキーマ不整合など）は無視
-  } finally {
-    isSyncing = false;
   }
 }
 
+/** リアクション・カスタム絵文字・Wiki の送信（チケット／プロジェクトは push.ts） */
 async function pushSingleChange(item: SyncQueueItem): Promise<void> {
   const payload = JSON.parse(item.payload) as Record<string, unknown>;
 
@@ -197,15 +201,8 @@ async function pushSingleChange(item: SyncQueueItem): Promise<void> {
         }
         break;
     }
-  } else {
-    // 既存のエンドポイント
-    const endpoints: Record<string, string> = {
-      ticket: '/tickets',
-      project: '/projects',
-      wiki: '/wiki',
-    };
-    const base = endpoints[item.entity] ?? '/tickets';
-
+  } else if (item.entity === 'wiki') {
+    const base = '/wiki';
     switch (item.operation) {
       case 'create':
         await apiClient.post(`${base}/`, payload);
@@ -220,34 +217,95 @@ async function pushSingleChange(item: SyncQueueItem): Promise<void> {
   }
 }
 
-async function clearDirtyFlag(
-  entity: string,
-  entityId: number | string,
-): Promise<void> {
+async function clearDirtyFlag(entity: string, entityId: number | string): Promise<void> {
+  const syncedAt = new Date().toISOString();
   if (entity === 'reaction') {
-    await db.reactions.update(entityId as number, {
-      _dirty: false,
-      _syncedAt: new Date().toISOString(),
-    });
+    await db.reactions.update(entityId as number, { _dirty: false, _syncedAt: syncedAt });
   } else if (entity === 'custom_emoji') {
-    await db.customEmojis.update(entityId as string, {
-      _dirty: false,
-      _syncedAt: new Date().toISOString(),
-    });
-  } else {
-    const table =
-      entity === 'ticket'
-        ? db.tickets
-        : entity === 'project'
-          ? db.projects
-          : db.wikiPages;
-
-    await table.update(entityId as number, {
-      _dirty: false,
-      _syncedAt: new Date().toISOString(),
-    } as Record<string, unknown>);
+    await db.customEmojis.update(entityId as string, { _dirty: false, _syncedAt: syncedAt });
+  } else if (entity === 'wiki') {
+    await db.wikiPages.update(entityId as number, { _dirty: false, _syncedAt: syncedAt });
   }
 }
+
+/** 書き込み直後に呼ぶ: オンラインならすぐ送り、続けてチケットを取り直す（サーバー側で変わった項目を拾う） */
+export function requestPush(): void {
+  void useSyncStatus.getState().refreshQueueCounts();
+  if (currentUserId === null) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  void (async () => {
+    try {
+      await withSyncLock(async () => {
+        await pushChangesUnlocked();
+        await pullEntity('tickets');
+      });
+    } catch (err) {
+      useSyncStatus.getState().set({ lastError: err instanceof Error ? err.message : String(err) });
+    } finally {
+      await useSyncStatus.getState().refreshQueueCounts();
+    }
+  })();
+}
+
+/** 同期を開始する（ログイン後に MainLayout から） */
+export function startSync(userId: number): void {
+  stopSync();
+  currentUserId = userId;
+  openUserDb(userId);
+
+  const status = useSyncStatus.getState();
+  status.set({ initialSyncDone: false, syncing: false, lastError: null, lastSyncAt: null });
+  void hasCompletedFullSync('tickets')
+    .then((done) => {
+      if (done && currentUserId === userId) useSyncStatus.getState().set({ initialSyncDone: true });
+    })
+    .catch(() => undefined);
+
+  void runCycle();
+  syncInterval = setInterval(() => void runCycle(), SYNC_INTERVAL_MS);
+
+  if (typeof window === 'undefined') return;
+  focusListenerFn = () => void runCycle();
+  visibilityListenerFn = () => {
+    if (document.visibilityState === 'visible') void runCycle();
+  };
+  onlineListenerFn = () => void runCycle();
+  window.addEventListener('focus', focusListenerFn);
+  document.addEventListener('visibilitychange', visibilityListenerFn);
+  window.addEventListener('online', onlineListenerFn);
+}
+
+/** 同期を止める（ログアウト・ユーザー切り替え時） */
+export function stopSync(): void {
+  if (syncInterval) {
+    clearInterval(syncInterval);
+    syncInterval = null;
+  }
+  if (typeof window !== 'undefined') {
+    if (focusListenerFn) window.removeEventListener('focus', focusListenerFn);
+    if (visibilityListenerFn) document.removeEventListener('visibilitychange', visibilityListenerFn);
+    if (onlineListenerFn) window.removeEventListener('online', onlineListenerFn);
+  }
+  focusListenerFn = null;
+  visibilityListenerFn = null;
+  onlineListenerFn = null;
+  currentUserId = null;
+  rerunRequested = false;
+}
+
+/** ログアウト前: 未送信の変更を最大5秒送ってみて、残った件数を返す */
+export async function prepareLogout(): Promise<{ pending: number }> {
+  await Promise.race([
+    pushChanges().catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
+  const pending = await db.syncQueue.count();
+  return { pending };
+}
+
+/** 互換: 旧名 */
+export const pullTickets = () => pullEntity('tickets');
+export const pullProjects = () => pullEntity('projects');
 
 /**
  * リアクションをトグル（追加/削除）。ローカルDB即時更新＋SyncQueue
@@ -328,8 +386,8 @@ export async function localToggleReaction(
   }
 
   // オンラインなら即時プッシュ
-  if (navigator.onLine) {
-    void pushChanges();
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    void requestPush();
   }
 }
 
@@ -387,82 +445,6 @@ export async function pullReactions(ticketKey: string, ticketId: number): Promis
     });
   } catch {
     // オフライン時は無視
-  }
-}
-
-/**
- * ローカルに変更を保存し、SyncQueue に追加
- */
-export async function localUpdate(
-  entity: 'ticket' | 'project' | 'wiki',
-  entityId: number,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  const table =
-    entity === 'ticket'
-      ? db.tickets
-      : entity === 'project'
-        ? db.projects
-        : db.wikiPages;
-
-  // ローカルDB を即時更新
-  await table.update(entityId, {
-    ...patch,
-    _dirty: true,
-    updatedAt: new Date().toISOString(),
-  } as Record<string, unknown>);
-
-  // SyncQueue に追加
-  await db.syncQueue.add({
-    entity,
-    entityId,
-    operation: 'update',
-    payload: JSON.stringify(patch),
-    createdAt: new Date().toISOString(),
-    retryCount: 0,
-  });
-
-  // オンラインなら即時プッシュ
-  if (navigator.onLine) {
-    void pushChanges();
-  }
-}
-
-/**
- * 定期同期の開始（30秒間隔）
- * 定期実行で pullReactions は呼ばない（詳細オープン・focus時に明示的に呼ぶ）
- */
-export function startSync(): void {
-  if (syncInterval) return;
-
-  // 初回同期
-  void pullTickets();
-  void pullProjects();
-  void pushChanges();
-
-  // 定期実行
-  syncInterval = setInterval(() => {
-    void pullTickets();
-    void pullProjects();
-    void pushChanges();
-    // pullReactionsは呼ばない（詳細オープン・focus時に明示的に呼ぶ）
-  }, 30_000);
-
-  // オンライン復帰時に即時同期
-  window.addEventListener('online', () => {
-    void pushChanges();
-    void pullTickets();
-    void pullProjects();
-  });
-}
-
-/**
- * 同期の停止
- */
-export function stopSync(): void {
-  if (syncInterval) {
-    clearInterval(syncInterval);
-    syncInterval = null;
   }
 }
 
@@ -537,8 +519,8 @@ export async function localDeleteCustomEmoji(
     },
   );
 
-  if (navigator.onLine) {
-    void pushChanges();
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    void requestPush();
   }
 }
 

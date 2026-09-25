@@ -41,6 +41,7 @@ export interface TicketDetailView {
   ticketKey: string;
   title: string;
   description: string;
+  ticketType?: string | null;
   status: string;
   priority: string;
   assignees: Array<{ id: number; username: string; displayName: string }>;

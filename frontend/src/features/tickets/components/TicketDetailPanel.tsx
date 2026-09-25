@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -18,9 +18,10 @@ import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
-import {
-  TICKET_DASHBOARD_INVALIDATE_KEYS,
-} from '@/shared/utils/ticketQueryInvalidation';
+import { useTicketDetail } from '@/shared/sync/repos/ticketRepo';
+import { localUpdateTicket, localDeleteTickets, isTempTicketKey } from '@/shared/sync/ticketWrites';
+import { syncStateOf } from '@/shared/sync/ticketMapping';
+import type { LocalTicket } from '@/shared/sync/db';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { usePromptGenerationStore } from '@/shared/stores/promptGenerationStore';
@@ -195,24 +196,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   const ticketQueryKey = ['ticket', ticketId];
 
-  // チケット詳細取得
-  const { data: ticket, isLoading } = useQuery<TicketData>({
-    queryKey: ticketQueryKey,
-    queryFn: async () => {
-      const res = await apiClient.get<TicketData>(`/tickets/${ticketId}/`);
-      return res.data;
-    },
-    enabled: !!ticketId,
-  });
-
-  // 一覧を経由しないステータス変更(他タブ・他セッション・APIの直接更新等)を
-  // 一覧側の表示に反映させるため、詳細取得時に一覧キャッシュを無効化する
-  useEffect(() => {
-    if (ticket) {
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['my-issues'] });
-    }
-  }, [ticket?.id, ticket?.status, queryClient]);
+  // チケット詳細取得（端末内DBから）
+  const { data: ticket, isLoading } = useTicketDetail(ticketId) as { data: TicketData | undefined; isLoading: boolean };
 
   const { data: workflowStatuses = [] } = useWorkflowStatuses(
     ticket?.project ?? undefined,
@@ -406,153 +391,38 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     },
   });
 
-  // 楽観的ステータス変更 — ドロップダウン変更の瞬間にパネルが即更新（0ms）
-  const statusMutation = useOptimisticMutation<void, string>({
-    mutationFn: async (status) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { status });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, status) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, status };
-    },
-    invalidateKeys: TICKET_DASHBOARD_INVALIDATE_KEYS,
-    errorMessage: 'ステータス変更に失敗しました。元に戻しました。',
-  });
-
   // ステータス変更ハンドラ — closed/resolved 時にクローズ分析を起動
   const handleStatusChange = (newStatus: string) => {
-    statusMutation.mutate(newStatus);
+    void localUpdateTicket(ticketId, { status: newStatus }, { status: newStatus });
     if (newStatus === 'closed' || newStatus === 'resolved') {
       setShowCloseAnalysis(true);
     }
   };
 
-  // 楽観的優先度変更
-  const priorityMutation = useOptimisticMutation<void, string>({
-    mutationFn: async (priority) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { priority });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, priority) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, priority };
-    },
-    invalidateKeys: [['tickets']],
-    errorMessage: '優先度変更に失敗しました。元に戻しました。',
-  });
-
-  // 楽観的ストーリーポイント変更
-  const storyPointsMutation = useOptimisticMutation<void, number | null>({
-    mutationFn: async (points) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { story_points: points });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, points) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, storyPoints: points };
-    },
-    invalidateKeys: [['tickets']],
-    errorMessage: 'ストーリーポイント変更に失敗しました。',
-  });
-
-  // 楽観的開始日変更
-  const startDateMutation = useOptimisticMutation<void, string | null>({
-    mutationFn: async (startDate) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { start_date: startDate });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, startDate) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, startDate };
-    },
-    invalidateKeys: TICKET_DASHBOARD_INVALIDATE_KEYS,
-    errorMessage: '開始日の変更に失敗しました。',
-  });
-
-  // 楽観的期限変更
-  const dueDateMutation = useOptimisticMutation<void, string | null>({
-    mutationFn: async (dueDate) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { due_date: dueDate });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, dueDate) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, dueDate };
-    },
-    invalidateKeys: TICKET_DASHBOARD_INVALIDATE_KEYS,
-    errorMessage: '期限の変更に失敗しました。',
-  });
-
-  // 楽観的ラベル変更(全置換)
-  const labelsMutation = useOptimisticMutation<void, LabelOption[]>({
-    mutationFn: async (labels) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { labels: labels.map((l) => l.id) });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, labels) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, labels };
-    },
-    invalidateKeys: [['tickets']],
-    errorMessage: 'ラベルの変更に失敗しました。',
-  });
-
-  // 楽観的担当者変更(全置換)
-  const assigneesMutation = useOptimisticMutation<void, UserOption[]>({
-    mutationFn: async (assignees) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { assignees: assignees.map((a) => a.id) });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, assignees) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, assignees };
-    },
-    invalidateKeys: [['tickets']],
-    errorMessage: '担当者の変更に失敗しました。',
-  });
-
-  // 楽観的レビュアー変更(全置換)
-  const reviewersMutation = useOptimisticMutation<void, UserOption[]>({
-    mutationFn: async (reviewers) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { reviewers: reviewers.map((r) => r.id) });
-    },
-    queryKey: ticketQueryKey,
-    updater: (currentData, reviewers) => {
-      const data = currentData as TicketData | undefined;
-      if (!data) return currentData;
-      return { ...data, reviewers };
-    },
-    invalidateKeys: [['tickets']],
-    errorMessage: 'レビュアーの変更に失敗しました。',
-  });
+  // ローカル更新ヘルパー
+  const handleMutateLocal = (apiPatch: Record<string, unknown>, rowPatch: Record<string, unknown>) => {
+    void localUpdateTicket(ticketId, apiPatch, rowPatch);
+  };
 
   const toggleLabel = (label: LabelOption) => {
     const current = ticket?.labels ?? [];
     const exists = current.some((l) => l.id === label.id);
     const next = exists ? current.filter((l) => l.id !== label.id) : [...current, label];
-    labelsMutation.mutate(next);
+    handleMutateLocal({ labels: next.map((l) => l.id) }, { labels: next });
   };
 
   const toggleAssignee = (user: UserOption) => {
     const current = ticket?.assignees ?? [];
     const exists = current.some((a) => a.id === user.id);
     const next = exists ? current.filter((a) => a.id !== user.id) : [...current, user];
-    assigneesMutation.mutate(next);
+    handleMutateLocal({ assignees: next.map((a) => a.id) }, { assignees: next });
   };
 
   const toggleReviewer = (user: UserOption) => {
     const current = ticket?.reviewers ?? [];
     const exists = current.some((r) => r.id === user.id);
     const next = exists ? current.filter((r) => r.id !== user.id) : [...current, user];
-    reviewersMutation.mutate(next);
+    handleMutateLocal({ reviewers: next.map((r) => r.id) }, { reviewers: next });
   };
 
   // 楽観的コメント追加 — 投稿ボタン押下で即スレッドに表示
@@ -937,27 +807,19 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   };
 
   // チケット削除(子チケットも再帰的に削除される)
-  const deleteTicketMutation = useMutation({
-    mutationFn: async () => {
-      await apiClient.delete(`/tickets/${ticketId}/`);
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      onClose();
-    },
-    onError: (error) => {
-      console.error('チケット削除失敗:', error);
-      alert('チケットの削除に失敗しました。');
-    },
-  });
-
-  const handleDeleteTicket = () => {
+  const handleDeleteTicket = async () => {
     if (!ticket) return;
     const warning = ticket.childCount > 0
       ? `このチケットには子チケットが${ticket.childCount}件あります。削除すると子チケットもすべて削除されます。本当に削除しますか？`
       : 'このチケットを削除しますか？この操作は取り消せません。';
     if (!window.confirm(warning)) return;
-    deleteTicketMutation.mutate();
+    try {
+      await localDeleteTickets([ticketId]);
+      onClose();
+    } catch (error) {
+      console.error('チケット削除失敗:', error);
+      alert('チケットの削除に失敗しました。');
+    }
   };
 
   // コメント一覧のグルーピング(Hooksは早期returnより前で呼ぶ必要があるため、
@@ -1192,10 +1054,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   };
 
   return (
-    <div className="detail-panel" data-testid="detail-panel" ref={panelRef}>
+    <div className="detail-panel" data-testid="detail-panel" ref={panelRef} data-sync-state={syncStateOf(ticket as unknown as LocalTicket)}>
       {/* ヘッダー */}
       <div className="detail-panel__header">
-        <span className="detail-panel__key">{ticket.ticketKey}</span>
+        <span className="detail-panel__key">
+          {isTempTicketKey(ticket.ticketKey) ? (
+            <span className="sync-badge sync-badge--creating">{t('sync.creating')}</span>
+          ) : (
+            ticket.ticketKey
+          )}
+        </span>
         <div className="detail-panel__header-actions">
           <button
             className="detail-panel__edit-btn"
@@ -1244,8 +1112,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           </button>
           <button
             className="detail-panel__edit-btn detail-panel__edit-btn--danger"
-            onClick={handleDeleteTicket}
-            disabled={deleteTicketMutation.isPending}
+            onClick={() => void handleDeleteTicket()}
             aria-label="Delete ticket"
             title="削除"
             data-testid="delete-ticket-btn"
@@ -1289,7 +1156,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           <select
             className="detail-panel__field-select"
             value={ticket.priority}
-            onChange={(e) => priorityMutation.mutate(e.target.value)}
+            onChange={(e) => handleMutateLocal({ priority: e.target.value }, { priority: e.target.value })}
           >
             {PRIORITY_OPTIONS.map((p) => (
               <option key={p.value} value={p.value}>{p.icon} {p.label}</option>
@@ -1450,7 +1317,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             type="date"
             className="detail-panel__field-select"
             value={ticket.startDate ? ticket.startDate.slice(0, 10) : ''}
-            onChange={(e) => startDateMutation.mutate(e.target.value || null)}
+            onChange={(e) => handleMutateLocal({ start_date: e.target.value || null }, { startDate: e.target.value || null })}
             data-testid="start-date-input"
           />
         </div>
@@ -1462,7 +1329,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             type="date"
             className={`detail-panel__field-select ${ticket.dueDate && new Date(ticket.dueDate) < new Date() ? 'detail-panel__overdue' : ''}`}
             value={ticket.dueDate ? ticket.dueDate.slice(0, 10) : ''}
-            onChange={(e) => dueDateMutation.mutate(e.target.value || null)}
+            onChange={(e) => handleMutateLocal({ due_date: e.target.value || null }, { dueDate: e.target.value || null })}
             data-testid="due-date-input"
           />
         </div>
@@ -1547,7 +1414,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               value={ticket.storyPoints ?? ''}
               onChange={(e) => {
                 const val = e.target.value === '' ? null : Number(e.target.value);
-                storyPointsMutation.mutate(val);
+                handleMutateLocal({ story_points: val }, { storyPoints: val });
               }}
               style={{
                 padding: '2px 6px',
@@ -1583,7 +1450,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                   const data = res.data as { suggested_points: number; confidence_score: number; reason: string };
                   setAiSuggestion(data);
                   if (data.confidence_score > 0) {
-                    storyPointsMutation.mutate(data.suggested_points);
+                    handleMutateLocal({ story_points: data.suggested_points }, { storyPoints: data.suggested_points });
                   }
                 } catch {
                   setAiSuggestion({ suggested_points: 2, confidence_score: 0, reason: 'AI unavailable' });

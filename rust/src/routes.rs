@@ -20,7 +20,7 @@ use crate::presentation::{
         cycle_api, dashboard_api, external_api, health, integration_api, notification_api2,
         password_reset_api, project_activity_api, project_structure_api, project_team_api,
         reaction_api, reports_api, resource_api, roadmap_api, saved_view_api, search_api,
-        security_api, settings_api, system_admin_api, team_api, team_archive_api, team_rule_api,
+        security_api, settings_api, sync_api, system_admin_api, team_api, team_archive_api, team_rule_api,
         ticket_link_api, tickets_api, time_entry_api, triage_api, wiki_api, workflow_status_api,
     },
     middleware::{auth::require_auth, jwt_auth},
@@ -246,6 +246,10 @@ pub fn create_router(state: AppState) -> Router {
                 .delete(tickets_api::delete),
         )
         .route(
+            "/api/v1/tickets/{ticket_key}/extras/",
+            get(tickets_api::extras),
+        )
+        .route(
             "/api/v1/tickets/{ticket_key}/comments/",
             get(tickets_api::list_comments).post(tickets_api::add_comment),
         )
@@ -310,6 +314,9 @@ pub fn create_router(state: AppState) -> Router {
             axum::routing::delete(ticket_link_api::delete_link),
         )
         .route("/api/v1/tickets/export/csv/", get(tickets_api::export_csv))
+        // Sync API (Local-first)
+        .route("/api/v1/sync/tickets/", get(sync_api::sync_tickets))
+        .route("/api/v1/sync/projects/", get(sync_api::sync_projects))
         // JSON 通知 API (Phase 3 第二弾)
         .route("/api/v1/notifications/", get(notification_api2::list))
         .route(

@@ -6,7 +6,7 @@
  * デモモードバナー対応。
  */
 
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { NotificationDropdown } from '@/features/notifications/components/NotificationDropdown';
 import { useUIStore } from '@/shared/stores/uiStore';
@@ -14,6 +14,7 @@ import { useOfflineStatus } from '@/shared/hooks/useOfflineStatus';
 import { useGoToHotkeys } from '@/shared/hooks/useGoToHotkeys';
 import { useHistoryNav } from '@/shared/hooks/useHistoryNav';
 import { startSync, stopSync } from '@/shared/sync/syncEngine';
+import { onKeyRemap } from '@/shared/sync/push';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { isDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
@@ -68,7 +69,9 @@ export function MainLayout() {
   const { canGoBack, canGoForward, goBack, goForward } = useHistoryNav();
   const { isOffline } = useOfflineStatus();
   const navigate = useNavigate();
+  const location = useLocation();
   const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
   const { t } = useTranslation();
   const demoMode = isDemoMode();
 
@@ -78,7 +81,7 @@ export function MainLayout() {
   // デモ TTL 切れでフラグだけ消えたあと、デモトークンが残っている場合は logout
   useEffect(() => {
     if (getAccessToken() === DEMO_ACCESS_TOKEN && !isDemoMode()) {
-      void logout().then(() => {
+      void logout({ force: true }).then(() => {
         navigate('/login');
       });
     }
@@ -92,7 +95,7 @@ export function MainLayout() {
 
     const intervalId = setInterval(() => {
       if (!isDemoMode()) {
-        void logout().then(() => {
+        void logout({ force: true }).then(() => {
           navigate('/login');
         });
       }
@@ -101,14 +104,24 @@ export function MainLayout() {
     return () => clearInterval(intervalId);
   }, [demoMode, logout, navigate]);
 
-  // 認証済みでマウント時に同期開始（デモはネットワーク同期しない）
+  // 認証済みでマウント時に同期開始（デモでも同期する）
   useEffect(() => {
-    if (demoMode) {
+    if (!user?.id) {
       return;
     }
-    startSync();
+    startSync(user.id);
     return () => stopSync();
-  }, [demoMode]);
+  }, [user?.id]);
+
+  // キーの付け替え（仮キー → 本キー）を監視
+  useEffect(() => {
+    const unsubscribe = onKeyRemap((tempKey, realKey) => {
+      if (location.pathname.includes(tempKey)) {
+        navigate(location.pathname.replace(tempKey, realKey) + location.search, { replace: true });
+      }
+    });
+    return unsubscribe as () => void;
+  }, [location, navigate]);
 
   async function handleLogout() {
     await logout();

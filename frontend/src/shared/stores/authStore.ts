@@ -38,7 +38,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<LoginResult>;
   verifyMfa: (mfaToken: string, totpCode: string) => Promise<void>;
   loginWithPasskey: (access: string, refresh: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: (opts?: { force?: boolean }) => Promise<void>;
   fetchUser: () => Promise<void>;
   setUser: (user: User | null) => void;
   enterDemoMode: () => Promise<void>;
@@ -85,7 +85,29 @@ export const useAuthStore = create<AuthState>()((set) => ({
     await completeLogin(set, access, refresh);
   },
 
-  logout: async () => {
+  logout: async (opts) => {
+    const force = opts?.force ?? false;
+
+    // 強制ログアウトでなければ、未送信の変更を確認
+    if (!force) {
+      try {
+        const { prepareLogout } = await import('@/shared/sync/syncEngine');
+        const { pending } = await prepareLogout();
+        if (pending > 0) {
+          const i18n = (await import('@/i18n')).default;
+          const confirmed = window.confirm(
+            i18n.t('sync.logoutPendingConfirm', { count: pending }),
+          );
+          if (!confirmed) {
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[auth] prepareLogout failed:', err);
+      }
+    }
+
+    // ログアウト API を呼ぶ
     try {
       // ボディを省略するとContent-Typeが付かずJson抽出器に415で弾かれるため、
       // リフレッシュトークンを明示的に送る(サーバー側のブラックリスト登録に必要)
@@ -93,6 +115,17 @@ export const useAuthStore = create<AuthState>()((set) => ({
     } catch {
       // ログアウトAPI失敗でもローカル状態はクリア
     }
+
+    // 同期を停止して DB を削除
+    try {
+      const { stopSync } = await import('@/shared/sync/syncEngine');
+      stopSync();
+      const { deleteCurrentUserDb } = await import('@/shared/sync/db');
+      await deleteCurrentUserDb();
+    } catch (err) {
+      console.warn('[auth] cleanup failed:', err);
+    }
+
     clearTokens();
     const { clearDemoMode } = await import('@/features/demo/demoMode');
     clearDemoMode();

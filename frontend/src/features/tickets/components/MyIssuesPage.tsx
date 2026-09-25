@@ -8,29 +8,20 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { apiClient } from '@/shared/api/client';
 import { useKeyboardNav } from '@/shared/hooks/useKeyboardNav';
 import { usePanelResize } from '@/shared/hooks/usePanelResize';
 import { useUIStore } from '@/shared/stores/uiStore';
+import { useAuthStore } from '@/shared/stores/authStore';
 import { getLastTeamSlug, useTeam } from '@/shared/hooks/useTeam';
 import { getLastProjectKey, useProject } from '@/shared/hooks/useProject';
 import { useTeams } from '@/features/teams/hooks/useTeams';
+import { useMyIssues } from '@/shared/sync/repos/ticketRepo';
+import { syncStateOf } from '@/shared/sync/ticketMapping';
+import { isTempTicketKey } from '@/shared/sync/ticketWrites';
 import { GettingStartedChecklist } from '@/features/onboarding/components/GettingStartedChecklist';
 import { TicketDetailPanel } from './TicketDetailPanel';
 import './MyIssuesPage.css';
-
-interface MyTicket {
-  id: number;
-  ticket_key: string;
-  title: string;
-  status: string;
-  priority: string;
-  due_date: string | null;
-  updated_at: string;
-  project_key: string | null;
-}
 
 const priorityIcons: Record<string, string> = {
   urgent: '⚠',
@@ -44,23 +35,11 @@ export function MyIssuesPage() {
   const { ticketId } = useParams<{ ticketId?: string }>();
   const navigate = useNavigate();
   const { openTicketFormModal } = useUIStore();
+  const { user: currentUser } = useAuthStore();
   const { width: panelWidth, onResizeStart, isResizing } = usePanelResize('ticket-detail', 380);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const {
-    data: tickets = [],
-    isLoading,
-    isError,
-    refetch,
-  } = useQuery<MyTicket[]>({
-    queryKey: ['my-issues'],
-    queryFn: async () => {
-      const res = await apiClient.get<MyTicket[]>('/dashboard/my-tickets/', {
-        params: { limit: 50 },
-      });
-      return res.data;
-    },
-  });
+  const { data: tickets = [], isLoading } = useMyIssues(currentUser?.id);
 
   const { isLoading: teamsLoading } = useTeams();
   const { teamList, isLoading: teamsHookLoading } = useTeam();
@@ -116,13 +95,6 @@ export function MyIssuesPage() {
 
         {isLoading || teamsLoading || teamsHookLoading || projectsLoading ? (
           <div className="my-issues__empty">{t('common.loading')}</div>
-        ) : isError ? (
-          <div className="my-issues__empty" data-testid="my-issues-error">
-            <p>{t('common.error')}</p>
-            <button type="button" className="my-issues__create-btn" onClick={() => refetch()}>
-              {t('common.retry')}
-            </button>
-          </div>
         ) : tickets.length === 0 ? (
           <div className="my-issues__empty" data-testid="my-issues-empty">
             {!hasTeam || !hasProject || demoPrefix ? (
@@ -153,6 +125,7 @@ export function MyIssuesPage() {
           <ul className="my-issues__list">
             {tickets.map((ticket, index) => {
               const selected = selectedIndex === index || ticketId === ticket.ticket_key;
+              const isTemp = isTempTicketKey(ticket.ticket_key);
               return (
                 <li key={ticket.id}>
                   <button
@@ -160,11 +133,15 @@ export function MyIssuesPage() {
                     className={`my-issues__row ${selected ? 'my-issues__row--selected' : ''}`}
                     onClick={() => navigate(`/my-issues/${ticket.ticket_key}`)}
                     data-testid={`my-issue-${ticket.ticket_key}`}
+                    data-sync-state={syncStateOf(ticket._row)}
                   >
                     <span className="my-issues__priority" title={ticket.priority}>
                       {priorityIcons[ticket.priority] ?? '—'}
                     </span>
-                    <span className="my-issues__key">{ticket.ticket_key}</span>
+                    <span className="my-issues__key">
+                      {isTemp && <span className="sync-badge sync-badge--creating">{t('sync.creating')}</span>}
+                      {!isTemp && ticket.ticket_key}
+                    </span>
                     <span className="my-issues__row-title">{ticket.title}</span>
                     <span className="my-issues__status">{ticket.status.replace('_', ' ')}</span>
                     {ticket.due_date && (

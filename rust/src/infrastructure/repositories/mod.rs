@@ -39,3 +39,4 @@ pub mod wiki_attachment_repo;
 pub mod wiki_repo;
 pub mod workflow_status_repo;
 pub mod workload_report_repo;
+pub mod sync_repo;

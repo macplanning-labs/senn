@@ -8,8 +8,9 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/shared/api/client';
+import { useMutation } from '@tanstack/react-query';
+import { localCreateTicket } from '@/shared/sync/ticketWrites';
+import { runCycle } from '@/shared/sync/syncEngine';
 import { useProject } from '@/shared/hooks/useProject';
 import './MarkdownImportModal.css';
 
@@ -56,23 +57,33 @@ function parseMarkdownChecklists(content: string): TicketData[] {
 export function MarkdownImportModal({ isOpen, onClose, onSuccess }: MarkdownImportModalProps) {
   const { t } = useTranslation();
   const { currentProject } = useProject();
-  const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<TicketData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const bulkImportMutation = useMutation({
     mutationFn: async (tickets: TicketData[]) => {
-      return apiClient.post('/tickets/bulk-import/', {
-        tickets: tickets.map(t => ({
-          ...t,
-          project: currentProject?.id,
-        })),
-      });
+      // 各チケットを1件ずつ localCreateTicket で作成
+      for (const ticket of tickets) {
+        await localCreateTicket(
+          {
+            title: ticket.title,
+            description: ticket.description,
+            status: ticket.status,
+            priority: ticket.priority,
+            project: currentProject?.id ?? null,
+            ticket_type: 'task',
+          },
+          {
+            projectPrefix: currentProject?.prefix ?? null,
+            projectName: currentProject?.name ?? null,
+          }
+        );
+      }
+      // 同期を実行して、サーバーへの送信と pull を行う
+      void runCycle();
     },
     onSuccess: () => {
-      // チケット一覧を再取得
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
       setFile(null);
       setPreview([]);
       onClose();

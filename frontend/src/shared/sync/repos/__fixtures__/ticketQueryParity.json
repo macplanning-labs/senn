@@ -1,0 +1,2637 @@
+{
+  "cases": [
+    {
+      "expected": [
+        "PQ563B0-000028",
+        "PQ563B0-000019",
+        "PQ563B0-000010",
+        "PQ563B0-000001",
+        "PQ563B0-000029",
+        "PQ563B0-000020",
+        "PQ563B0-000011",
+        "PQ563B0-000002",
+        "PQ563B0-000030",
+        "PQ563B0-000021",
+        "PQ563B0-000012",
+        "PQ563B0-000003",
+        "PQ563B0-000031",
+        "PQ563B0-000022",
+        "PQ563B0-000013",
+        "PQ563B0-000004",
+        "PQ563B0-000032",
+        "PQ563B0-000023",
+        "PQ563B0-000014",
+        "PQ563B0-000005",
+        "PQ563B0-000024",
+        "PQ563B0-000015",
+        "PQ563B0-000006",
+        "PQ563B0-000025",
+        "PQ563B0-000016",
+        "PQ563B0-000007",
+        "PQ563B0-000026",
+        "PQ563B0-000017",
+        "PQ563B0-000008",
+        "PQ563B0-000027",
+        "PQ563B0-000018",
+        "PQ563B0-000009"
+      ],
+      "name": "ordering -updated_at",
+      "params": {
+        "ordering": "-updated_at",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000009",
+        "PQ563B0-000018",
+        "PQ563B0-000027",
+        "PQ563B0-000008",
+        "PQ563B0-000017",
+        "PQ563B0-000026",
+        "PQ563B0-000007",
+        "PQ563B0-000016",
+        "PQ563B0-000025",
+        "PQ563B0-000006",
+        "PQ563B0-000015",
+        "PQ563B0-000024",
+        "PQ563B0-000005",
+        "PQ563B0-000014",
+        "PQ563B0-000023",
+        "PQ563B0-000032",
+        "PQ563B0-000004",
+        "PQ563B0-000013",
+        "PQ563B0-000022",
+        "PQ563B0-000031",
+        "PQ563B0-000003",
+        "PQ563B0-000012",
+        "PQ563B0-000021",
+        "PQ563B0-000030",
+        "PQ563B0-000002",
+        "PQ563B0-000011",
+        "PQ563B0-000020",
+        "PQ563B0-000029",
+        "PQ563B0-000001",
+        "PQ563B0-000010",
+        "PQ563B0-000019",
+        "PQ563B0-000028"
+      ],
+      "name": "ordering updated_at",
+      "params": {
+        "ordering": "updated_at",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000032",
+        "PQ563B0-000031",
+        "PQ563B0-000030",
+        "PQ563B0-000029",
+        "PQ563B0-000028",
+        "PQ563B0-000027",
+        "PQ563B0-000026",
+        "PQ563B0-000025",
+        "PQ563B0-000024",
+        "PQ563B0-000023",
+        "PQ563B0-000022",
+        "PQ563B0-000021",
+        "PQ563B0-000020",
+        "PQ563B0-000019",
+        "PQ563B0-000018",
+        "PQ563B0-000017",
+        "PQ563B0-000016",
+        "PQ563B0-000015",
+        "PQ563B0-000014",
+        "PQ563B0-000013",
+        "PQ563B0-000012",
+        "PQ563B0-000011",
+        "PQ563B0-000010",
+        "PQ563B0-000009",
+        "PQ563B0-000008",
+        "PQ563B0-000007",
+        "PQ563B0-000006",
+        "PQ563B0-000005",
+        "PQ563B0-000004",
+        "PQ563B0-000003",
+        "PQ563B0-000002",
+        "PQ563B0-000001"
+      ],
+      "name": "ordering -created_at",
+      "params": {
+        "ordering": "-created_at",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000001",
+        "PQ563B0-000002",
+        "PQ563B0-000003",
+        "PQ563B0-000004",
+        "PQ563B0-000005",
+        "PQ563B0-000006",
+        "PQ563B0-000007",
+        "PQ563B0-000008",
+        "PQ563B0-000009",
+        "PQ563B0-000010",
+        "PQ563B0-000011",
+        "PQ563B0-000012",
+        "PQ563B0-000013",
+        "PQ563B0-000014",
+        "PQ563B0-000015",
+        "PQ563B0-000016",
+        "PQ563B0-000017",
+        "PQ563B0-000018",
+        "PQ563B0-000019",
+        "PQ563B0-000020",
+        "PQ563B0-000021",
+        "PQ563B0-000022",
+        "PQ563B0-000023",
+        "PQ563B0-000024",
+        "PQ563B0-000025",
+        "PQ563B0-000026",
+        "PQ563B0-000027",
+        "PQ563B0-000028",
+        "PQ563B0-000029",
+        "PQ563B0-000030",
+        "PQ563B0-000031",
+        "PQ563B0-000032"
+      ],
+      "name": "ordering created_at",
+      "params": {
+        "ordering": "created_at",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000022",
+        "PQ563B0-000015",
+        "PQ563B0-000008",
+        "PQ563B0-000030",
+        "PQ563B0-000023",
+        "PQ563B0-000016",
+        "PQ563B0-000002",
+        "PQ563B0-000031",
+        "PQ563B0-000024",
+        "PQ563B0-000010",
+        "PQ563B0-000003",
+        "PQ563B0-000032",
+        "PQ563B0-000018",
+        "PQ563B0-000011",
+        "PQ563B0-000004",
+        "PQ563B0-000026",
+        "PQ563B0-000019",
+        "PQ563B0-000012",
+        "PQ563B0-000027",
+        "PQ563B0-000020",
+        "PQ563B0-000006",
+        "PQ563B0-000028",
+        "PQ563B0-000014",
+        "PQ563B0-000007",
+        "PQ563B0-000029",
+        "PQ563B0-000025",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000013",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000001"
+      ],
+      "name": "ordering due_date",
+      "params": {
+        "ordering": "due_date",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000029",
+        "PQ563B0-000025",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000013",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000001",
+        "PQ563B0-000028",
+        "PQ563B0-000014",
+        "PQ563B0-000007",
+        "PQ563B0-000027",
+        "PQ563B0-000020",
+        "PQ563B0-000006",
+        "PQ563B0-000026",
+        "PQ563B0-000019",
+        "PQ563B0-000012",
+        "PQ563B0-000032",
+        "PQ563B0-000018",
+        "PQ563B0-000011",
+        "PQ563B0-000004",
+        "PQ563B0-000031",
+        "PQ563B0-000024",
+        "PQ563B0-000010",
+        "PQ563B0-000003",
+        "PQ563B0-000030",
+        "PQ563B0-000023",
+        "PQ563B0-000016",
+        "PQ563B0-000002",
+        "PQ563B0-000022",
+        "PQ563B0-000015",
+        "PQ563B0-000008"
+      ],
+      "name": "ordering -due_date",
+      "params": {
+        "ordering": "-due_date",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000031",
+        "PQ563B0-000027",
+        "PQ563B0-000023",
+        "PQ563B0-000019",
+        "PQ563B0-000015",
+        "PQ563B0-000011",
+        "PQ563B0-000007",
+        "PQ563B0-000003",
+        "PQ563B0-000029",
+        "PQ563B0-000025",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000013",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000001",
+        "PQ563B0-000030",
+        "PQ563B0-000026",
+        "PQ563B0-000022",
+        "PQ563B0-000018",
+        "PQ563B0-000014",
+        "PQ563B0-000010",
+        "PQ563B0-000006",
+        "PQ563B0-000002",
+        "PQ563B0-000032",
+        "PQ563B0-000028",
+        "PQ563B0-000024",
+        "PQ563B0-000020",
+        "PQ563B0-000016",
+        "PQ563B0-000012",
+        "PQ563B0-000008",
+        "PQ563B0-000004"
+      ],
+      "name": "ordering priority",
+      "params": {
+        "ordering": "priority",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000032",
+        "PQ563B0-000028",
+        "PQ563B0-000024",
+        "PQ563B0-000020",
+        "PQ563B0-000016",
+        "PQ563B0-000012",
+        "PQ563B0-000008",
+        "PQ563B0-000004",
+        "PQ563B0-000030",
+        "PQ563B0-000026",
+        "PQ563B0-000022",
+        "PQ563B0-000018",
+        "PQ563B0-000014",
+        "PQ563B0-000010",
+        "PQ563B0-000006",
+        "PQ563B0-000002",
+        "PQ563B0-000029",
+        "PQ563B0-000025",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000013",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000001",
+        "PQ563B0-000031",
+        "PQ563B0-000027",
+        "PQ563B0-000023",
+        "PQ563B0-000019",
+        "PQ563B0-000015",
+        "PQ563B0-000011",
+        "PQ563B0-000007",
+        "PQ563B0-000003"
+      ],
+      "name": "ordering -priority",
+      "params": {
+        "ordering": "-priority",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000029",
+        "PQ563B0-000025",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000013",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000001",
+        "PQ563B0-000030",
+        "PQ563B0-000026",
+        "PQ563B0-000022",
+        "PQ563B0-000018",
+        "PQ563B0-000014",
+        "PQ563B0-000010",
+        "PQ563B0-000006",
+        "PQ563B0-000002",
+        "PQ563B0-000031",
+        "PQ563B0-000027",
+        "PQ563B0-000023",
+        "PQ563B0-000019",
+        "PQ563B0-000015",
+        "PQ563B0-000011",
+        "PQ563B0-000007",
+        "PQ563B0-000003",
+        "PQ563B0-000032",
+        "PQ563B0-000028",
+        "PQ563B0-000024",
+        "PQ563B0-000020",
+        "PQ563B0-000016",
+        "PQ563B0-000012",
+        "PQ563B0-000008",
+        "PQ563B0-000004"
+      ],
+      "name": "ordering gantt_order",
+      "params": {
+        "ordering": "gantt_order",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000032",
+        "PQ563B0-000028",
+        "PQ563B0-000024",
+        "PQ563B0-000020",
+        "PQ563B0-000016",
+        "PQ563B0-000012",
+        "PQ563B0-000008",
+        "PQ563B0-000004",
+        "PQ563B0-000031",
+        "PQ563B0-000027",
+        "PQ563B0-000023",
+        "PQ563B0-000019",
+        "PQ563B0-000015",
+        "PQ563B0-000011",
+        "PQ563B0-000007",
+        "PQ563B0-000003",
+        "PQ563B0-000030",
+        "PQ563B0-000026",
+        "PQ563B0-000022",
+        "PQ563B0-000018",
+        "PQ563B0-000014",
+        "PQ563B0-000010",
+        "PQ563B0-000006",
+        "PQ563B0-000002",
+        "PQ563B0-000029",
+        "PQ563B0-000025",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000013",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000001"
+      ],
+      "name": "ordering -gantt_order",
+      "params": {
+        "ordering": "-gantt_order",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000028",
+        "PQ563B0-000019",
+        "PQ563B0-000010",
+        "PQ563B0-000001",
+        "PQ563B0-000029",
+        "PQ563B0-000020",
+        "PQ563B0-000011",
+        "PQ563B0-000002",
+        "PQ563B0-000030",
+        "PQ563B0-000021",
+        "PQ563B0-000012",
+        "PQ563B0-000003",
+        "PQ563B0-000031",
+        "PQ563B0-000022",
+        "PQ563B0-000013",
+        "PQ563B0-000004",
+        "PQ563B0-000032",
+        "PQ563B0-000023",
+        "PQ563B0-000014",
+        "PQ563B0-000005",
+        "PQ563B0-000024",
+        "PQ563B0-000015",
+        "PQ563B0-000006",
+        "PQ563B0-000025",
+        "PQ563B0-000016",
+        "PQ563B0-000007",
+        "PQ563B0-000026",
+        "PQ563B0-000017",
+        "PQ563B0-000008",
+        "PQ563B0-000027",
+        "PQ563B0-000018",
+        "PQ563B0-000009"
+      ],
+      "name": "ordering unknown",
+      "params": {
+        "ordering": "unknown",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000002",
+        "PQ563B0-000012",
+        "PQ563B0-000022",
+        "PQ563B0-000032",
+        "PQ563B0-000007",
+        "PQ563B0-000017",
+        "PQ563B0-000027"
+      ],
+      "name": "status",
+      "params": {
+        "status": "open",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000028",
+        "PQ563B0-000002",
+        "PQ563B0-000012",
+        "PQ563B0-000003",
+        "PQ563B0-000022",
+        "PQ563B0-000013",
+        "PQ563B0-000032",
+        "PQ563B0-000023",
+        "PQ563B0-000007",
+        "PQ563B0-000017",
+        "PQ563B0-000008",
+        "PQ563B0-000027",
+        "PQ563B0-000018"
+      ],
+      "name": "status__in",
+      "params": {
+        "status__in": "open,in_progress",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000031",
+        "PQ563B0-000027",
+        "PQ563B0-000023",
+        "PQ563B0-000019",
+        "PQ563B0-000015",
+        "PQ563B0-000011",
+        "PQ563B0-000007",
+        "PQ563B0-000003",
+        "PQ563B0-000032",
+        "PQ563B0-000028",
+        "PQ563B0-000024",
+        "PQ563B0-000020",
+        "PQ563B0-000016",
+        "PQ563B0-000012",
+        "PQ563B0-000008",
+        "PQ563B0-000004"
+      ],
+      "name": "priority__in",
+      "params": {
+        "ordering": "priority",
+        "priority__in": "high,urgent",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000019",
+        "PQ563B0-000001",
+        "PQ563B0-000029",
+        "PQ563B0-000011",
+        "PQ563B0-000021",
+        "PQ563B0-000003",
+        "PQ563B0-000031",
+        "PQ563B0-000013",
+        "PQ563B0-000023",
+        "PQ563B0-000005",
+        "PQ563B0-000015",
+        "PQ563B0-000025",
+        "PQ563B0-000007",
+        "PQ563B0-000017",
+        "PQ563B0-000027",
+        "PQ563B0-000009"
+      ],
+      "name": "assignees",
+      "params": {
+        "assignees": 138,
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000010",
+        "PQ563B0-000002",
+        "PQ563B0-000030",
+        "PQ563B0-000022",
+        "PQ563B0-000014",
+        "PQ563B0-000006",
+        "PQ563B0-000026",
+        "PQ563B0-000018"
+      ],
+      "name": "labels",
+      "params": {
+        "labels": 7,
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000029",
+        "PQ563B0-000020",
+        "PQ563B0-000011",
+        "PQ563B0-000002",
+        "PQ563B0-000030",
+        "PQ563B0-000021",
+        "PQ563B0-000012",
+        "PQ563B0-000003",
+        "PQ563B0-000032",
+        "PQ563B0-000023",
+        "PQ563B0-000014",
+        "PQ563B0-000005",
+        "PQ563B0-000024",
+        "PQ563B0-000015",
+        "PQ563B0-000006",
+        "PQ563B0-000026",
+        "PQ563B0-000017",
+        "PQ563B0-000008",
+        "PQ563B0-000027",
+        "PQ563B0-000018",
+        "PQ563B0-000009"
+      ],
+      "name": "project",
+      "params": {
+        "project": 151,
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000029",
+        "PQ563B0-000021",
+        "PQ563B0-000017",
+        "PQ563B0-000009",
+        "PQ563B0-000005",
+        "PQ563B0-000030",
+        "PQ563B0-000026",
+        "PQ563B0-000018",
+        "PQ563B0-000014",
+        "PQ563B0-000006",
+        "PQ563B0-000002",
+        "PQ563B0-000027",
+        "PQ563B0-000023",
+        "PQ563B0-000015",
+        "PQ563B0-000011",
+        "PQ563B0-000003",
+        "PQ563B0-000032",
+        "PQ563B0-000024",
+        "PQ563B0-000020",
+        "PQ563B0-000012",
+        "PQ563B0-000008"
+      ],
+      "name": "project__prefix",
+      "params": {
+        "ordering": "gantt_order",
+        "project__prefix": "PQ563B0",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000029",
+        "PQ563B0-000011",
+        "PQ563B0-000021",
+        "PQ563B0-000003",
+        "PQ563B0-000023",
+        "PQ563B0-000005",
+        "PQ563B0-000015",
+        "PQ563B0-000017",
+        "PQ563B0-000027",
+        "PQ563B0-000009"
+      ],
+      "name": "milestone",
+      "params": {
+        "milestone": 2,
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000029",
+        "PQ563B0-000022",
+        "PQ563B0-000015",
+        "PQ563B0-000008"
+      ],
+      "name": "parent",
+      "params": {
+        "parent": 84,
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000028",
+        "PQ563B0-000019",
+        "PQ563B0-000010",
+        "PQ563B0-000001",
+        "PQ563B0-000020",
+        "PQ563B0-000011",
+        "PQ563B0-000002",
+        "PQ563B0-000030",
+        "PQ563B0-000021",
+        "PQ563B0-000012",
+        "PQ563B0-000003",
+        "PQ563B0-000031",
+        "PQ563B0-000013",
+        "PQ563B0-000004",
+        "PQ563B0-000032",
+        "PQ563B0-000023",
+        "PQ563B0-000014",
+        "PQ563B0-000005",
+        "PQ563B0-000024",
+        "PQ563B0-000006",
+        "PQ563B0-000025",
+        "PQ563B0-000016",
+        "PQ563B0-000007",
+        "PQ563B0-000026",
+        "PQ563B0-000017",
+        "PQ563B0-000027",
+        "PQ563B0-000018",
+        "PQ563B0-000009"
+      ],
+      "name": "parent__isnull",
+      "params": {
+        "parent__isnull": true,
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000031",
+        "PQ563B0-000024",
+        "PQ563B0-000010",
+        "PQ563B0-000003",
+        "PQ563B0-000032",
+        "PQ563B0-000018",
+        "PQ563B0-000011",
+        "PQ563B0-000004",
+        "PQ563B0-000026",
+        "PQ563B0-000019",
+        "PQ563B0-000012"
+      ],
+      "name": "due range",
+      "params": {
+        "due_date__gte": "2026-09-22",
+        "due_date__lte": "2026-09-24",
+        "ordering": "due_date",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000028",
+        "PQ563B0-000014",
+        "PQ563B0-000007",
+        "PQ563B0-000027",
+        "PQ563B0-000020",
+        "PQ563B0-000006",
+        "PQ563B0-000026",
+        "PQ563B0-000019",
+        "PQ563B0-000012",
+        "PQ563B0-000032",
+        "PQ563B0-000018",
+        "PQ563B0-000011",
+        "PQ563B0-000004",
+        "PQ563B0-000031",
+        "PQ563B0-000024",
+        "PQ563B0-000010",
+        "PQ563B0-000003",
+        "PQ563B0-000030",
+        "PQ563B0-000023",
+        "PQ563B0-000016",
+        "PQ563B0-000002",
+        "PQ563B0-000022",
+        "PQ563B0-000015",
+        "PQ563B0-000008"
+      ],
+      "name": "due_date__isnull=false",
+      "params": {
+        "due_date__isnull": false,
+        "ordering": "-due_date",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000001",
+        "PQ563B0-000011",
+        "PQ563B0-000021",
+        "PQ563B0-000031",
+        "PQ563B0-000006",
+        "PQ563B0-000016",
+        "PQ563B0-000026"
+      ],
+      "name": "search title",
+      "params": {
+        "search": "login",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000019",
+        "PQ563B0-000001",
+        "PQ563B0-000031",
+        "PQ563B0-000013",
+        "PQ563B0-000025",
+        "PQ563B0-000007"
+      ],
+      "name": "search description",
+      "params": {
+        "search": "api の",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000019",
+        "PQ563B0-000010",
+        "PQ563B0-000011",
+        "PQ563B0-000012",
+        "PQ563B0-000013",
+        "PQ563B0-000014",
+        "PQ563B0-000015",
+        "PQ563B0-000016",
+        "PQ563B0-000017",
+        "PQ563B0-000018"
+      ],
+      "name": "search key",
+      "params": {
+        "search": "pq563b0-00001",
+        "team_slug": "tde3163c6"
+      }
+    },
+    {
+      "expected": [
+        "PQ563B0-000001",
+        "PQ563B0-000011",
+        "PQ563B0-000021",
+        "PQ563B0-000003",
+        "PQ563B0-000031",
+        "PQ563B0-000013",
+        "PQ563B0-000023",
+        "PQ563B0-000007",
+        "PQ563B0-000017",
+        "PQ563B0-000027"
+      ],
+      "name": "my issues",
+      "params": {
+        "assignees": 138,
+        "status__in": "open,backlog,in_progress",
+        "team_slug": "tde3163c6"
+      }
+    }
+  ],
+  "note": "生成: rust/src/infrastructure/repositories/sync_repo.rs generate_ticket_query_parity_fixture",
+  "tickets": [
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 4,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-20T21:49:32.563448Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "API の遅延を調べる",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 84,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "low",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000001",
+      "ticketType": "task",
+      "title": "Login 画面の修正 0",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:49:32.563460Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-20T22:49:32.564481Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-21",
+      "gantt_order": 1,
+      "id": 85,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000002",
+      "ticketType": "task",
+      "title": "タスク 1",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:39:32.564482Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-20T23:49:32.565440Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-22",
+      "gantt_order": 2,
+      "id": 86,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.491705Z",
+          "description": null,
+          "id": 8,
+          "isAiEnabled": true,
+          "name": "ui-2a081010",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "high",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "in_progress",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000003",
+      "ticketType": "task",
+      "title": "タスク 2",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:29:32.565440Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T00:49:32.566196Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-23",
+      "gantt_order": 3,
+      "id": 87,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "resolved",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000004",
+      "ticketType": "task",
+      "title": "タスク 3",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:19:32.566198Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        },
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T01:49:32.566939Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 88,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "low",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "closed",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000005",
+      "ticketType": "task",
+      "title": "タスク 4",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:09:32.566940Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T02:49:32.567751Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-25",
+      "gantt_order": 1,
+      "id": 89,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000006",
+      "ticketType": "task",
+      "title": "Login 画面の修正 5",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:59:32.567751Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T03:49:32.568489Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "API の遅延を調べる",
+      "dueDate": "2026-09-26",
+      "gantt_order": 2,
+      "id": 90,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "high",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000007",
+      "ticketType": "task",
+      "title": "タスク 6",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:49:32.568491Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T04:49:32.569210Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-20",
+      "gantt_order": 3,
+      "id": 91,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.491705Z",
+          "description": null,
+          "id": 8,
+          "isAiEnabled": true,
+          "name": "ui-2a081010",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": 84,
+      "priority": "urgent",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "in_progress",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000008",
+      "ticketType": "task",
+      "title": "タスク 7",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:39:32.569211Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T05:49:32.570140Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 92,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "low",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "resolved",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000009",
+      "ticketType": "task",
+      "title": "タスク 8",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:29:32.570140Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T06:49:32.570892Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-22",
+      "gantt_order": 1,
+      "id": 93,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "closed",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000010",
+      "ticketType": "task",
+      "title": "タスク 9",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:49:32.570894Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        },
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T07:49:32.571680Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-23",
+      "gantt_order": 2,
+      "id": 94,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "high",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000011",
+      "ticketType": "task",
+      "title": "Login 画面の修正 10",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:39:32.571681Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T08:49:32.572440Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-24",
+      "gantt_order": 3,
+      "id": 95,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000012",
+      "ticketType": "task",
+      "title": "タスク 11",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:29:32.572440Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T09:49:32.573180Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "API の遅延を調べる",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 96,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.491705Z",
+          "description": null,
+          "id": 8,
+          "isAiEnabled": true,
+          "name": "ui-2a081010",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "low",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "in_progress",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000013",
+      "ticketType": "task",
+      "title": "タスク 12",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:19:32.573183Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T10:49:32.573904Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-26",
+      "gantt_order": 1,
+      "id": 97,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "resolved",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000014",
+      "ticketType": "task",
+      "title": "タスク 13",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:09:32.573905Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T11:49:32.574567Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-20",
+      "gantt_order": 2,
+      "id": 98,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": 84,
+      "priority": "high",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "closed",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000015",
+      "ticketType": "task",
+      "title": "タスク 14",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:59:32.574567Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T12:49:32.575411Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-21",
+      "gantt_order": 3,
+      "id": 99,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000016",
+      "ticketType": "task",
+      "title": "Login 画面の修正 15",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:49:32.575413Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        },
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T13:49:32.576104Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 100,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "low",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000017",
+      "ticketType": "task",
+      "title": "タスク 16",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:39:32.576106Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T14:49:32.576744Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-23",
+      "gantt_order": 1,
+      "id": 101,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        },
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.491705Z",
+          "description": null,
+          "id": 8,
+          "isAiEnabled": true,
+          "name": "ui-2a081010",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "in_progress",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000018",
+      "ticketType": "task",
+      "title": "タスク 17",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:29:32.576744Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T15:49:32.577439Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "API の遅延を調べる",
+      "dueDate": "2026-09-24",
+      "gantt_order": 2,
+      "id": 102,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "high",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "resolved",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000019",
+      "ticketType": "task",
+      "title": "タスク 18",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:49:32.577441Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T16:49:32.578098Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-25",
+      "gantt_order": 3,
+      "id": 103,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "closed",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000020",
+      "ticketType": "task",
+      "title": "タスク 19",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:39:32.578099Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T17:49:32.578754Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 104,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "low",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000021",
+      "ticketType": "task",
+      "title": "Login 画面の修正 20",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:29:32.578754Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T18:49:32.579521Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-20",
+      "gantt_order": 1,
+      "id": 105,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": 84,
+      "priority": "medium",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000022",
+      "ticketType": "task",
+      "title": "タスク 21",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:19:32.579524Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        },
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T19:49:32.580437Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-21",
+      "gantt_order": 2,
+      "id": 106,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.491705Z",
+          "description": null,
+          "id": 8,
+          "isAiEnabled": true,
+          "name": "ui-2a081010",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "high",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "in_progress",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000023",
+      "ticketType": "task",
+      "title": "タスク 22",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:09:32.580438Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T20:49:32.581138Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-22",
+      "gantt_order": 3,
+      "id": 107,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "resolved",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000024",
+      "ticketType": "task",
+      "title": "タスク 23",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:59:32.581138Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T21:49:32.581768Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "API の遅延を調べる",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 108,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "low",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "closed",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000025",
+      "ticketType": "task",
+      "title": "タスク 24",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:49:32.581770Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T22:49:32.582437Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-24",
+      "gantt_order": 1,
+      "id": 109,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000026",
+      "ticketType": "task",
+      "title": "Login 画面の修正 25",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:39:32.582438Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-21T23:49:32.583136Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-25",
+      "gantt_order": 2,
+      "id": 110,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": null,
+      "priority": "high",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000027",
+      "ticketType": "task",
+      "title": "タスク 26",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T00:29:32.583136Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-22T00:49:32.583959Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-26",
+      "gantt_order": 3,
+      "id": 111,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.491705Z",
+          "description": null,
+          "id": 8,
+          "isAiEnabled": true,
+          "name": "ui-2a081010",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "in_progress",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000028",
+      "ticketType": "task",
+      "title": "タスク 27",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:49:32.583961Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        },
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-22T01:49:32.584616Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": null,
+      "gantt_order": 0,
+      "id": 112,
+      "labels": [],
+      "milestone": {
+        "closedTicketCount": 0,
+        "createdAt": "2026-09-25T01:49:32.489474Z",
+        "description": "",
+        "dueDate": "2026-10-01",
+        "id": 2,
+        "name": "M1",
+        "openTicketCount": 0,
+        "project": 151
+      },
+      "parent": 84,
+      "priority": "low",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "resolved",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000029",
+      "ticketType": "task",
+      "title": "タスク 28",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:39:32.584617Z"
+    },
+    {
+      "assignees": [],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-22T02:49:32.585405Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-21",
+      "gantt_order": 1,
+      "id": 113,
+      "labels": [
+        {
+          "category": null,
+          "color": "#111111",
+          "createdAt": "2026-09-25T01:49:32.490639Z",
+          "description": null,
+          "id": 7,
+          "isAiEnabled": true,
+          "name": "bug-7b8e5d03",
+          "project": null,
+          "teamId": null
+        }
+      ],
+      "milestone": null,
+      "parent": null,
+      "priority": "medium",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "closed",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000030",
+      "ticketType": "task",
+      "title": "タスク 29",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:29:32.585405Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u1-9e3e5896",
+          "email": "par-u1-9e3e5896@test.local",
+          "id": 138,
+          "username": "par-u1-9e3e5896"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-22T03:49:32.586062Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "API の遅延を調べる",
+      "dueDate": "2026-09-22",
+      "gantt_order": 2,
+      "id": 114,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "high",
+      "project": null,
+      "projectName": null,
+      "projectPrefix": null,
+      "reviewers": [],
+      "startDate": null,
+      "status": "backlog",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000031",
+      "ticketType": "task",
+      "title": "Login 画面の修正 30",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:19:32.586064Z"
+    },
+    {
+      "assignees": [
+        {
+          "displayName": "par-u2-f5f17783",
+          "email": "par-u2-f5f17783@test.local",
+          "id": 139,
+          "username": "par-u2-f5f17783"
+        }
+      ],
+      "author": {
+        "displayName": "sync-staff-bc8448a6",
+        "email": "sync-staff-bc8448a6@test.local",
+        "id": 137,
+        "username": "sync-staff-bc8448a6"
+      },
+      "category": null,
+      "childCount": 0,
+      "closedAt": null,
+      "commentCount": 0,
+      "createdAt": "2026-09-22T04:49:32.586763Z",
+      "cycle": null,
+      "cycleName": null,
+      "description": "",
+      "dueDate": "2026-09-23",
+      "gantt_order": 3,
+      "id": 115,
+      "labels": [],
+      "milestone": null,
+      "parent": null,
+      "priority": "urgent",
+      "project": 151,
+      "projectName": "PQ563B0",
+      "projectPrefix": "PQ563B0",
+      "reviewers": [],
+      "startDate": null,
+      "status": "open",
+      "storyPoints": null,
+      "team": {
+        "color": "#6366f1",
+        "icon": "",
+        "id": 167,
+        "name": "parity-de3163c6",
+        "slug": "tde3163c6"
+      },
+      "ticketKey": "PQ563B0-000032",
+      "ticketType": "task",
+      "title": "タスク 31",
+      "totalTimeSpent": 0,
+      "updatedAt": "2026-09-25T01:09:32.586764Z"
+    }
+  ]
+}

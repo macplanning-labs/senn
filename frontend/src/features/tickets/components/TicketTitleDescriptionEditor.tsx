@@ -8,7 +8,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../shared/api/client';
-import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
+import { localUpdateTicket } from '../../../shared/sync/ticketWrites';
 import type { TicketAttachment, TicketDetailView } from '../types/ticketDetailView';
 import { ReactionBar } from './ReactionBar';
 import './TicketTitleDescriptionEditor.css';
@@ -39,6 +39,7 @@ export const TicketTitleDescriptionEditor = forwardRef<
   const titleEditRef = useRef<HTMLInputElement>(null);
   const descriptionEditRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const descriptionEditStartUpdatedAtRef = useRef<string | null>(null);
 
   useEffect(() => {
     setTitleValue(ticket.title);
@@ -50,33 +51,6 @@ export const TicketTitleDescriptionEditor = forwardRef<
     startDescriptionEdit: () => setEditingDescription(true),
   }));
 
-  const titleMutation = useOptimisticMutation<void, { title: string }>({
-    mutationFn: async ({ title }) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { title });
-    },
-    queryKey: ['ticket', ticketId],
-    updater: (currentData, { title }) => {
-      const data = currentData as TicketDetailView | undefined;
-      if (!data) return currentData;
-      return { ...data, title };
-    },
-    onSuccessCallback: () => setEditingTitle(false),
-    errorMessage: t('ticketDetail.errors.titleUpdateFailed'),
-  });
-
-  const descriptionMutation = useOptimisticMutation<void, { description: string }>({
-    mutationFn: async ({ description }) => {
-      await apiClient.patch(`/tickets/${ticketId}/`, { description });
-    },
-    queryKey: ['ticket', ticketId],
-    updater: (currentData, { description }) => {
-      const data = currentData as TicketDetailView | undefined;
-      if (!data) return currentData;
-      return { ...data, description };
-    },
-    onSuccessCallback: () => setEditingDescription(false),
-    errorMessage: t('ticketDetail.errors.descriptionUpdateFailed'),
-  });
 
   useEffect(() => {
     if (editingTitle && titleEditRef.current) {
@@ -91,17 +65,42 @@ export const TicketTitleDescriptionEditor = forwardRef<
     }
   }, [editingDescription]);
 
-  const handleTitleSave = () => {
+  // 同時編集の警告（決定事項1）用: 編集を始めた時点の更新日時を覚える（編集中に届いた他人の変更で上書きしない）
+  useEffect(() => {
+    if (editingDescription) {
+      descriptionEditStartUpdatedAtRef.current = ticket.updatedAt;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingDescription]);
+
+  const handleTitleSave = async () => {
     if (titleValue.trim() !== ticket.title.trim()) {
-      titleMutation.mutate({ title: titleValue });
+      await localUpdateTicket(ticketId, { title: titleValue }, { title: titleValue });
+      setEditingTitle(false);
     } else {
       setEditingTitle(false);
     }
   };
 
-  const handleDescriptionSave = () => {
+  const handleDescriptionSave = async () => {
     if (descriptionValue !== ticket.description) {
-      descriptionMutation.mutate({ description: descriptionValue });
+      // Check for conflict warning (決定1: description only)
+      if (navigator.onLine) {
+        try {
+          const res = await apiClient.get<TicketDetailView>(`/tickets/${ticketId}/`);
+          const serverUpdatedAt = res.data?.updatedAt;
+          const startUpdatedAt = descriptionEditStartUpdatedAtRef.current;
+          if (startUpdatedAt && serverUpdatedAt && startUpdatedAt !== serverUpdatedAt) {
+            const confirmed = window.confirm(t('sync.descriptionConflict'));
+            if (!confirmed) return;
+          }
+        } catch {
+          // If fetch fails, continue with save
+        }
+      }
+
+      await localUpdateTicket(ticketId, { description: descriptionValue }, { description: descriptionValue });
+      setEditingDescription(false);
     } else {
       setEditingDescription(false);
     }
