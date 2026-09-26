@@ -33,7 +33,7 @@ import './TicketTable.css';
 import { useColumnResize } from '@/shared/hooks/useColumnResize';
 import type { ColumnDef } from '@/shared/hooks/useColumnResize';
 import type { SavedView, SavedViewFilters } from '@/shared/api/types';
-import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
+import { useStatusOptions } from '../hooks/useStatusOptions';
 import {
   buildTicketDetailPath,
   buildTicketListPath,
@@ -82,7 +82,6 @@ function ticketDetailPath(
   return buildTicketDetailPath(ticket.projectPrefix ?? null, ticket.ticketKey, cycleId, null);
 }
 
-const STATUS_OPTIONS = ['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled'] as const;
 const PRIORITY_OPTIONS = ['urgent', 'high', 'medium', 'low'] as const;
 
 const statusColors: Record<string, string> = {
@@ -129,17 +128,12 @@ interface TicketTableProps {
 
 export function TicketTable({ cycleId }: TicketTableProps = {}) {
   const { t } = useTranslation();
-  const statusLabel = (s: string) => t(`ticket.status.${s}`, { defaultValue: s });
   const priorityLabel = (p: string) => t(`ticket.priority_label.${p}`, { defaultValue: p });
   const { projectKey, currentProject } = useProject();
   const { teamSlug, currentTeam } = useTeam();
-  const { data: workflowStatuses = [] } = useWorkflowStatuses(
-    currentProject?.id,
-    currentProject?.id ? undefined : currentTeam?.id,
-  );
-  const statusOptions = workflowStatuses.length > 0
-    ? workflowStatuses.map((s) => s.slug)
-    : [...STATUS_OPTIONS];
+  // ステータスの表示名はワークフロー設定の名前（英語）で統一する（詳細画面・ボードと同じ）
+  const { options: statusChoices, labelOf: statusLabel } = useStatusOptions(currentProject?.id, currentTeam?.id);
+  const statusOptions = statusChoices.map((s) => s.value);
   const { user } = useAuthStore();
   const { addToast } = useToastStore();
   const queryClient = useQueryClient();

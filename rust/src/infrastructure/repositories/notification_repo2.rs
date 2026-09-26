@@ -27,7 +27,7 @@ pub async fn find_all_for_user(pool: &PgPool, user_id: i32) -> anyhow::Result<Ve
          LEFT JOIN tickets_project proj ON t.project_id = proj.id
          LEFT JOIN m_team tm ON t.team_id = tm.id
          LEFT JOIN wiki_page wp ON n.wiki_page_id = wp.id
-         WHERE n.user_id = $1::int4
+         WHERE n.user_id = $1::int4 AND n.is_hidden = false
          ORDER BY (CASE WHEN n.category IN ('review_requested', 'mentioned') THEN 0 ELSE 1 END), n.created_at DESC"
     )
     .bind(user_id)
@@ -66,15 +66,45 @@ pub async fn mark_all_read(pool: &PgPool, user_id: i32) -> anyhow::Result<i64> {
     Ok(result.rows_affected() as i64)
 }
 
-/// user_id一致かつis_read=falseの件数。
+/// user_id一致かつis_read=falseかつis_hidden=falseの件数。
 pub async fn unread_count(pool: &PgPool, user_id: i32) -> anyhow::Result<i64> {
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM notifications_notification
-         WHERE user_id = $1::int4 AND is_read = false"
+         WHERE user_id = $1::int4 AND is_read = false AND is_hidden = false"
     )
     .bind(user_id)
     .fetch_one(pool)
     .await?;
 
     Ok(count)
+}
+
+/// 指定IDかつuser_id一致の通知をdismiss（is_hidden=true）。
+/// 権限チェック(他人の通知をdismissできない)。
+/// dismissできたら true、該当なしなら false。
+pub async fn dismiss(pool: &PgPool, id: i32, user_id: i32) -> anyhow::Result<bool> {
+    let result = sqlx::query(
+        "UPDATE notifications_notification SET is_hidden = true
+         WHERE id = $1::int4 AND user_id = $2::int4"
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// user_id一致かつis_read=trueかつis_hidden=falseの全通知をdismiss（is_hidden=true）。
+/// 更新件数を返す。
+pub async fn dismiss_all_read(pool: &PgPool, user_id: i32) -> anyhow::Result<u64> {
+    let result = sqlx::query(
+        "UPDATE notifications_notification SET is_hidden = true
+         WHERE user_id = $1::int4 AND is_read = true AND is_hidden = false"
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
 }

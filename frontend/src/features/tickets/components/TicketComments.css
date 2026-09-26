@@ -30,8 +30,7 @@
   flex-direction: column;
   gap: 12px;
   margin-bottom: 16px;
-  max-height: 400px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .ticket-comments__empty {

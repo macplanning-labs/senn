@@ -5,9 +5,8 @@
  */
 
 import { apiClient } from '../api/client';
-import { db, type SyncQueueItem } from './db';
+import { db, MAX_RETRY, type SyncQueueItem } from './db';
 import { toLocalTicket, toLocalProject } from './ticketMapping';
-import { MAX_RETRY } from './push';
 import { requestPush } from './pushRequester';
 import { useSyncStatus } from './syncStatusStore';
 
@@ -19,6 +18,8 @@ export interface FailedChange {
   label: string;
   lastError: string | undefined;
   createdAt: string;
+  /** 最後に送信を試みて失敗した時刻 */
+  lastAttemptAt?: string;
 }
 
 /**
@@ -47,6 +48,7 @@ export async function listFailedChanges(): Promise<FailedChange[]> {
       label,
       lastError: item.lastError,
       createdAt: item.createdAt,
+      lastAttemptAt: item.lastAttemptAt,
     });
   }
 
@@ -91,6 +93,58 @@ function parsePayload(item: SyncQueueItem): Record<string, unknown> {
   }
 }
 
+/** 再試行するときに消す項目（回数・待ち時間・失敗理由） */
+const RESET = {
+  retryCount: 0,
+  attempts: undefined,
+  nextAttemptAt: undefined,
+  firstFailedAt: undefined,
+  lastAttemptAt: undefined,
+  lastError: undefined,
+} as const;
+
+/** 通信が届かなかっただけの失敗か（以前のバージョンが記録した lastError から判定） */
+function isTransientError(message: string | undefined): boolean {
+  if (!message) return false;
+  return /^(Network Error|timeout of \d+ms exceeded|Request aborted|canceled)/.test(message);
+}
+
+/**
+ * 以前のバージョンでは、通信エラー（Network Error 等）でも5回で失敗扱いにしていた。
+ * そうした項目は送れば通る見込みが高いので、送信待ちに戻す（起動時に1回呼ぶ）。戻した件数を返す
+ */
+export async function reviveTransientFailures(): Promise<number> {
+  const queue = await db.syncQueue.where('retryCount').aboveOrEqual(MAX_RETRY).toArray();
+  let revived = 0;
+  for (const item of queue) {
+    if (!isTransientError(item.lastError)) continue;
+    await db.syncQueue.update(item.id!, RESET);
+    revived++;
+  }
+  if (revived > 0) await useSyncStatus.getState().refreshQueueCounts();
+  return revived;
+}
+
+/** 送信待ちの項目の待ち時間を解除する（オンライン復帰時。回数はそのまま） */
+export async function wakeQueue(): Promise<void> {
+  await db.syncQueue
+    .where('retryCount')
+    .below(MAX_RETRY)
+    .modify((item) => {
+      delete item.nextAttemptAt;
+    });
+}
+
+/** 同じ行に、他の送信待ち項目が残っているか */
+async function hasOtherQueued(item: SyncQueueItem): Promise<boolean> {
+  const n = await db.syncQueue
+    .where('entityId')
+    .equals(item.entityId)
+    .and((q) => q.entity === item.entity && q.id !== item.id)
+    .count();
+  return n > 0;
+}
+
 /**
  * 失敗した項目を再試行（retryCount を 0 にして送信開始）
  */
@@ -98,7 +152,7 @@ export async function retryFailedChange(id: number): Promise<void> {
   const item = await db.syncQueue.get(id);
   if (!item) return;
 
-  await db.syncQueue.update(id, { retryCount: 0, lastError: undefined });
+  await db.syncQueue.update(id, RESET);
   requestPush();
   await useSyncStatus.getState().refreshQueueCounts();
 }
@@ -110,13 +164,8 @@ export async function retryAllFailedChanges(): Promise<void> {
   const queue = await db.syncQueue.where('retryCount').aboveOrEqual(MAX_RETRY).toArray();
   if (queue.length === 0) return;
 
-  const updates: Array<[number, { retryCount: number; lastError: undefined }]> = queue.map((item) => [
-    item.id!,
-    { retryCount: 0, lastError: undefined },
-  ]);
-
-  for (const [itemId, update] of updates) {
-    await db.syncQueue.update(itemId, update);
+  for (const item of queue) {
+    await db.syncQueue.update(item.id!, RESET);
   }
 
   requestPush();
@@ -135,6 +184,15 @@ export async function retryAllFailedChanges(): Promise<void> {
 export async function discardFailedChange(id: number): Promise<void> {
   const item = await db.syncQueue.get(id);
   if (!item) return;
+
+  // 同じ行に他の送信待ちが残っているなら、この項目だけ捨てる。
+  // 行をサーバーの値で上書きすると、残りの未送信の変更まで画面から消えてしまうため
+  // （残りが送れた時点で、サーバーの応答で行が置き換わる）
+  if ((item.entity === 'ticket' || item.entity === 'project') && item.operation !== 'create' && (await hasOtherQueued(item))) {
+    await db.syncQueue.delete(id);
+    await useSyncStatus.getState().refreshQueueCounts();
+    return;
+  }
 
   const payload = parsePayload(item);
 

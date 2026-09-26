@@ -22,6 +22,7 @@ import { activeTeams as filterActiveTeams } from '@/features/teams/utils/archive
 import { useCycle } from '@/features/cycles/hooks/useCycles';
 import { buildTicketShareUrl } from '../utils/ticketNavigation';
 import { projectsForTeam } from '../utils/projectChoice';
+import { useStatusOptions } from '../hooks/useStatusOptions';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import './TicketForm.css';
 
@@ -29,7 +30,8 @@ import './TicketForm.css';
 const ticketSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500),
   description: z.string().default(''),
-  status: z.enum(['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled']).default('open'),
+  // ワークフロー設定で追加したステータスも選べるよう slug を文字列で受ける
+  status: z.string().min(1).default('open'),
   priority: z.enum(['urgent', 'high', 'medium', 'low']).default('medium'),
   ticket_type: z.enum(['bug', 'issue', 'task', 'qa']).default('issue'),
   due_date: z.string().nullable().default(null),
@@ -236,6 +238,9 @@ export function TicketForm({
   );
   const [categoryId, setCategoryId] = useState<string>('');
   const [teamId, setTeamId] = useState<string>('');
+  // ステータスの選択肢（ワークフロー設定の名前で、一覧・詳細と同じ表示）
+  const statusProjectId = isEditing ? (existingTicket?.project ?? null) : (activeProject?.id ?? null);
+  const { options: statusChoices } = useStatusOptions(statusProjectId, teamId ? Number(teamId) : null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isInitialized, setIsInitialized] = useState(false);
   const [pendingImages, setPendingImages] = useState<{ file: File; previewUrl: string }[]>([]);
@@ -596,7 +601,7 @@ export function TicketForm({
         <div className="ticket-form__row">
           <div className="ticket-form__field">
             <label htmlFor="status" className="ticket-form__label">
-              {t('ticket.status.open').replace('Open', 'Status')}
+              {t('ticketTable.status')}
             </label>
             <select
               id="status"
@@ -605,10 +610,9 @@ export function TicketForm({
               onChange={(e) => updateField('status', e.target.value as TicketFormData['status'])}
               data-testid="ticket-status-input"
             >
-              <option value="open">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
+              {statusChoices.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
             </select>
             {fieldError('status')}
           </div>

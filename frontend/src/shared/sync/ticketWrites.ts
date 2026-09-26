@@ -7,7 +7,7 @@
  * - rowPatch: 画面に出す形（LocalTicket の項目。assignees は {id, username, displayName} の配列 など）
  */
 
-import { db, type LocalTicket, type SyncQueueItem } from './db';
+import { db, MAX_RETRY, type LocalTicket, type SyncQueueItem } from './db';
 import { withIndexFields } from './ticketMapping';
 import { requestPush } from './pushRequester';
 
@@ -87,11 +87,18 @@ async function applyUpdate(row: LocalTicket, apiPatch: Record<string, unknown>, 
     return;
   }
 
-  const pending = items.find((q) => q.operation === 'update' && q.retryCount === 0);
+  // 同じ行の更新は1件にまとめる（失敗中・失敗扱いの項目にもまとめる）。
+  // 別の項目に分けると、古い項目を後から送り直したときに新しい値を古い値で上書きしてしまうため。
+  // まとめた項目は、ユーザーの新しい操作なので待ち時間・失敗扱いを解除してすぐ送る
+  const pending = items.filter((q) => q.operation === 'update').pop();
   if (pending) {
     const payload = JSON.parse(pending.payload) as { key: string; patch: Record<string, unknown> };
     payload.patch = { ...payload.patch, ...apiPatch };
-    await db.syncQueue.update(pending.id!, { payload: JSON.stringify(payload) });
+    await db.syncQueue.update(pending.id!, {
+      payload: JSON.stringify(payload),
+      nextAttemptAt: undefined,
+      ...(pending.retryCount >= MAX_RETRY ? { retryCount: 0, firstFailedAt: undefined, lastError: undefined } : {}),
+    });
   } else {
     const item: SyncQueueItem = {
       entity: 'ticket',

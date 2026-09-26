@@ -331,6 +331,14 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/notifications/unread_count/",
             get(notification_api2::unread_count),
         )
+        .route(
+            "/api/v1/notifications/{id}/",
+            axum::routing::delete(notification_api2::dismiss),
+        )
+        .route(
+            "/api/v1/notifications/dismiss_read/",
+            post(notification_api2::dismiss_all_read),
+        )
         // JSON サイクル API (Phase 3 第二弾)
         .route(
             "/api/v1/cycles/",

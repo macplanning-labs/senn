@@ -194,6 +194,8 @@ pub struct AttachmentOut {
     pub uploader: UserSummaryOut,
     #[serde(rename = "fileUrl")]
     pub file_url: String,
+    #[serde(rename = "commentId")]
+    pub comment_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize)]

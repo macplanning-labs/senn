@@ -5,7 +5,7 @@
  * PATCH で送れない項目（名前・説明・プレフィックス）は PUT（method: 'put'）で全項目を送る。
  */
 
-import { db, type LocalProject, type SyncQueueItem } from './db';
+import { db, MAX_RETRY, type LocalProject, type SyncQueueItem } from './db';
 import { requestPush } from './pushRequester';
 
 /** POST /projects/ の本文（サーバー ProjectWriteIn と同じ） */
@@ -62,15 +62,22 @@ export async function localUpdateProject(
       }
       return;
     }
-    const pending = items.find((q) => {
-      if (q.operation !== 'update' || q.retryCount !== 0) return false;
-      const p = JSON.parse(q.payload) as { method?: string };
-      return (p.method ?? 'patch') === method;
-    });
+    // 同じ行・同じ送り方の更新は1件にまとめる（ticketWrites と同じ理由。失敗中の項目にもまとめる）
+    const pending = items
+      .filter((q) => {
+        if (q.operation !== 'update') return false;
+        const p = JSON.parse(q.payload) as { method?: string };
+        return (p.method ?? 'patch') === method;
+      })
+      .pop();
     if (pending) {
       const payload = JSON.parse(pending.payload) as { key: number; patch: Record<string, unknown>; method?: string };
       payload.patch = { ...payload.patch, ...apiPatch };
-      await db.syncQueue.update(pending.id!, { payload: JSON.stringify(payload) });
+      await db.syncQueue.update(pending.id!, {
+        payload: JSON.stringify(payload),
+        nextAttemptAt: undefined,
+        ...(pending.retryCount >= MAX_RETRY ? { retryCount: 0, firstFailedAt: undefined, lastError: undefined } : {}),
+      });
     } else {
       const item: SyncQueueItem = {
         entity: 'project',

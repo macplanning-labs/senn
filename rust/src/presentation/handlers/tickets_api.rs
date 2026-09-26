@@ -864,14 +864,16 @@ pub async fn update(
     // assignees のプロジェクトメンバーバリデーション
     if !body.assignees.is_empty() {
         // チケットのプロジェクトIDを取得
-        let project_id_opt: Option<i32> = match sqlx::query_scalar(
+        // project_id は NULL（チームのみのチケット）がありうるので Option<i32> で受ける。
+        // i32 で受けると NULL の行でデコードに失敗し、担当者・レビュアーの変更が 500 になっていた
+        let project_id_opt: Option<i32> = match sqlx::query_scalar::<_, Option<i32>>(
             "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1",
         )
         .bind(&ticket_key)
         .fetch_optional(&state.pool)
         .await
         {
-            Ok(result) => result,
+            Ok(result) => result.flatten(),
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
                 return (
@@ -921,14 +923,16 @@ pub async fn update(
     // reviewers のプロジェクトメンバーバリデーション
     if !body.reviewers.is_empty() {
         // チケットのプロジェクトIDを取得
-        let project_id_opt: Option<i32> = match sqlx::query_scalar(
+        // project_id は NULL（チームのみのチケット）がありうるので Option<i32> で受ける。
+        // i32 で受けると NULL の行でデコードに失敗し、担当者・レビュアーの変更が 500 になっていた
+        let project_id_opt: Option<i32> = match sqlx::query_scalar::<_, Option<i32>>(
             "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1",
         )
         .bind(&ticket_key)
         .fetch_optional(&state.pool)
         .await
         {
-            Ok(result) => result,
+            Ok(result) => result.flatten(),
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
                 return (
@@ -1146,14 +1150,16 @@ pub async fn patch(
     if let Some(assignees) = &body.assignees {
         if !assignees.is_empty() {
             // チケットのプロジェクトIDを取得
-            let project_id_opt: Option<i32> = match sqlx::query_scalar(
+            // project_id は NULL（チームのみのチケット）がありうるので Option<i32> で受ける。
+            // i32 で受けると NULL の行でデコードに失敗し、担当者・レビュアーの変更が 500 になっていた
+            let project_id_opt: Option<i32> = match sqlx::query_scalar::<_, Option<i32>>(
                 "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1",
             )
             .bind(&ticket_key)
             .fetch_optional(&state.pool)
             .await
             {
-                Ok(result) => result,
+                Ok(result) => result.flatten(),
                 Err(e) => {
                     tracing::error!("DB operation failed: {:?}", e);
                     return (
@@ -1206,14 +1212,16 @@ pub async fn patch(
     if let Some(reviewers) = &body.reviewers {
         if !reviewers.is_empty() {
             // チケットのプロジェクトIDを取得
-            let project_id_opt: Option<i32> = match sqlx::query_scalar(
+            // project_id は NULL（チームのみのチケット）がありうるので Option<i32> で受ける。
+            // i32 で受けると NULL の行でデコードに失敗し、担当者・レビュアーの変更が 500 になっていた
+            let project_id_opt: Option<i32> = match sqlx::query_scalar::<_, Option<i32>>(
                 "SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1",
             )
             .bind(&ticket_key)
             .fetch_optional(&state.pool)
             .await
             {
-                Ok(result) => result,
+                Ok(result) => result.flatten(),
                 Err(e) => {
                     tracing::error!("DB operation failed: {:?}", e);
                     return (

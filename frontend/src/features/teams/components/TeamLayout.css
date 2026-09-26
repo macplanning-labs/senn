@@ -90,6 +90,15 @@
   box-sizing: border-box;
 }
 
+/* チケット詳細フルページ: scroll 所有者を .ticket-detail-main に統一（WIPAPPDEV-000136） */
+.team-layout__content:has(.ticket-detail-page) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+
 .team-layout__loading,
 .team-layout__error {
   padding: var(--space-6) 0;

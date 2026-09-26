@@ -1297,6 +1297,7 @@ pub async fn api_find_by_key(
                     display_name: att.uploader_name.clone().unwrap_or_default(),
                 },
                 file_url: format!("/media/{}", att.file_path),
+                comment_id: att.comment_id,
             })
             .collect();
 
@@ -1530,12 +1531,13 @@ pub async fn resolve_ticket_id(pool: &PgPool, ticket_key: &str) -> anyhow::Resul
 }
 
 pub async fn get_ticket_project_id(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
-    let project_id: Option<i32> =
+    // project_id は NULL（チームのみのチケット）がありうるので Option<i32> で受ける（i32 だと NULL でデコードエラー）
+    let project_id: Option<Option<i32>> =
         sqlx::query_scalar("SELECT project_id::int4 FROM tickets_ticket WHERE ticket_key = $1")
             .bind(ticket_key)
             .fetch_optional(pool)
             .await?;
-    Ok(project_id)
+    Ok(project_id.flatten())
 }
 
 /// プロジェクト内のルートチケットキー一覧（一括削除用）
