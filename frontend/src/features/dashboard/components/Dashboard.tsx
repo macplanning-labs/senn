@@ -17,6 +17,7 @@ import { TicketDrilldownPopover } from './TicketDrilldownPopover';
 import type { DrilldownFilter } from './TicketDrilldownPopover';
 import { IconPlus } from '@/shared/components/ui/icons';
 import './Dashboard.css';
+import { DEFAULT_STATUS_OPTIONS, statusLabelOf } from '@/features/tickets/utils/statusOptions';
 
 // ── 型定義 ──────────────────────────────────
 
@@ -145,7 +146,6 @@ function StatsCardsWidget({ data }: WidgetProps) {
 }
 
 function TicketOverviewWidget({ data }: WidgetProps) {
-  const { t } = useTranslation();
   const d = data as {
     open: number; in_progress: number; resolved: number; closed: number; total: number;
     by_project: Array<{ project_key: string; project_name: string; open: number; in_progress: number; resolved: number; closed: number }>;
@@ -153,10 +153,10 @@ function TicketOverviewWidget({ data }: WidgetProps) {
   const total = d.total || 1;
   const byProject = d.by_project ?? [];
   const segments = [
-    { key: 'open', label: t('ticket.status.open'), count: d.open, color: 'hsl(210, 70%, 55%)' },
-    { key: 'in_progress', label: t('ticket.status.in_progress'), count: d.in_progress, color: 'hsl(45, 80%, 55%)' },
-    { key: 'resolved', label: t('ticket.status.resolved'), count: d.resolved, color: 'hsl(150, 60%, 50%)' },
-    { key: 'closed', label: t('ticket.status.closed'), count: d.closed, color: 'hsl(220, 10%, 50%)' },
+    { key: 'open', label: statusLabelOf('open', DEFAULT_STATUS_OPTIONS), count: d.open, color: 'hsl(210, 70%, 55%)' },
+    { key: 'in_progress', label: statusLabelOf('in_progress', DEFAULT_STATUS_OPTIONS), count: d.in_progress, color: 'hsl(45, 80%, 55%)' },
+    { key: 'resolved', label: statusLabelOf('resolved', DEFAULT_STATUS_OPTIONS), count: d.resolved, color: 'hsl(150, 60%, 50%)' },
+    { key: 'closed', label: statusLabelOf('closed', DEFAULT_STATUS_OPTIONS), count: d.closed, color: 'hsl(220, 10%, 50%)' },
   ] as const;
 
   // conic-gradient を生成

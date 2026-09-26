@@ -168,7 +168,7 @@ export const TicketTitleDescriptionEditor = forwardRef<
     }
   };
 
-  const attachments = ticket.attachments ?? [];
+  const attachments = (ticket.attachments ?? []).filter((a) => !a.commentId);
 
   return (
     <div className="ticket-title-description-editor">

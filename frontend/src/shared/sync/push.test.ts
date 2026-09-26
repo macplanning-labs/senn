@@ -97,16 +97,41 @@ describe('チケットの更新', () => {
     expect(addToast).toHaveBeenCalledWith({ type: 'error', message: 'このチームに存在しないステータスです' });
   });
 
-  it('5xx・通信エラーは再送回数を増やし、5回で自動送信を止める', async () => {
-    await localUpdateTicket('ABC-000001', { status: 'closed' }, { status: 'closed' });
-    mocked.patch.mockRejectedValue(httpError(503));
-    for (let i = 0; i < 7; i++) await flush();
+  it('5xx が続いても10分経つまでは失敗扱いにせず、10分以上続いて5回失敗したら自動送信を止める', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-09-26T07:00:00Z'));
+      await localUpdateTicket('ABC-000001', { status: 'closed' }, { status: 'closed' });
+      mocked.patch.mockRejectedValue(httpError(503));
 
-    expect(mocked.patch).toHaveBeenCalledTimes(MAX_RETRY);
+      // 短時間に何度失敗しても、失敗扱いにはならない
+      for (let i = 0; i < 7; i++) await flush();
+      expect((await db.syncQueue.toArray())[0].retryCount).toBe(MAX_RETRY - 1);
+
+      // 10分以上続いたら失敗扱い
+      vi.setSystemTime(new Date('2026-09-26T07:11:00Z'));
+      await flush();
+      await flush();
+      expect(mocked.patch).toHaveBeenCalledTimes(8);
+      const [item] = await db.syncQueue.toArray();
+      expect(item.retryCount).toBe(MAX_RETRY);
+      expect(item.lastError).toMatch(/^HTTP 503/);
+      expect((await db.tickets.get(1))?.status).toBe('closed'); // 端末の変更は保ったまま
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('通信エラー（応答なし）は何度失敗しても失敗扱いにしない', async () => {
+    await localUpdateTicket('ABC-000001', { status: 'closed' }, { status: 'closed' });
+    mocked.patch.mockRejectedValue(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }));
+    for (let i = 0; i < 10; i++) await flush();
+
     const [item] = await db.syncQueue.toArray();
-    expect(item.retryCount).toBe(MAX_RETRY);
-    expect(item.lastError).toBe('HTTP 503');
-    expect((await db.tickets.get(1))?.status).toBe('closed'); // 端末の変更は保ったまま
+    expect(item.retryCount).toBe(0);
+    expect(item.attempts).toBe(10);
+    expect(item.nextAttemptAt).toBeDefined();
+    expect(item.lastError).toMatch(/^Network Error \[ERR_NETWORK\]/);
   });
 
   it('一括更新は1トランザクションで各行に当たる', async () => {

@@ -16,20 +16,13 @@ import type { LocalTicket } from '@/shared/sync/db';
 import { syncStateOf } from '@/shared/sync/ticketMapping';
 import { isTempTicketKey, localUpdateTicket } from '@/shared/sync/ticketWrites';
 import { LabelList } from '@/shared/components/ui/LabelBadge';
-import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
+import { useStatusOptions } from '../hooks/useStatusOptions';
 import { TicketDetailPanel } from '@/features/tickets/components/TicketDetailPanel';
 import '@/shared/sync/syncState.css';
 import './KanbanBoard.css';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconBoard } from '@/shared/components/layout/Sidebar';
 
-// フォールバック用の固定カラム（ワークフローが未シードの場合）
-const FALLBACK_COLUMNS = [
-  { status: 'open', label: 'Open', color: 'var(--color-status-open)' },
-  { status: 'in_progress', label: 'In Progress', color: 'var(--color-status-in-progress)' },
-  { status: 'resolved', label: 'Resolved', color: 'var(--color-status-resolved)' },
-  { status: 'closed', label: 'Closed', color: 'var(--color-status-closed)' },
-] as const;
 
 const priorityIcons: Record<string, string> = {
   urgent: '⬆⬆',
@@ -55,19 +48,10 @@ export function KanbanBoard() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   // プロジェクト/チーム固有ワークフローステータスを取得
-  const { data: workflowStatuses = [] } = useWorkflowStatuses(
-    currentProject?.id,
-    currentTeam?.id
-  );
+  const { options: statusOptions } = useStatusOptions(currentProject?.id, currentTeam?.id);
 
-  // 動的カラム生成: ワークフローがあればそれを使用、なければフォールバック
-  const columns = workflowStatuses.length > 0
-    ? workflowStatuses.map(ws => ({
-        status: ws.slug,
-        label: ws.name,
-        color: ws.color,
-      }))
-    : FALLBACK_COLUMNS;
+  // カラム: ワークフロー設定があればそれ、なければ標準の6種類（表示名は一覧・詳細と共通）
+  const columns = statusOptions.map((s) => ({ status: s.value, label: s.label, color: s.color }));
 
   // Fetch tickets
   const buildListParams = (): TicketListParams => {

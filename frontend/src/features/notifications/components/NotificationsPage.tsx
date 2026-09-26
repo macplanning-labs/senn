@@ -200,6 +200,40 @@ export function NotificationsPage() {
     successMessage: t('notifications.markedAllRead', { defaultValue: 'All notifications marked as read' }),
   });
 
+  // 楽観的dismiss（単一）
+  const dismissMutation = useOptimisticMutation<void, number>({
+    mutationFn: async (id) => {
+      await apiClient.delete(`/notifications/${id}/`);
+    },
+    queryKey: ['notifications'],
+    updater: (currentData, id) => {
+      const data = currentData as { results: Notification[] } | undefined;
+      if (!data?.results) return currentData;
+      return {
+        ...data,
+        results: data.results.filter((n) => n.id !== id),
+      };
+    },
+    invalidateKeys: [['unread-count']],
+  });
+
+  // 楽観的dismiss_all_read
+  const dismissReadMutation = useOptimisticMutation<void, void>({
+    mutationFn: async () => {
+      await apiClient.post('/notifications/dismiss_read/');
+    },
+    queryKey: ['notifications'],
+    updater: (currentData) => {
+      const data = currentData as { results: Notification[] } | undefined;
+      if (!data?.results) return currentData;
+      return {
+        ...data,
+        results: data.results.filter((n) => !n.isRead),
+      };
+    },
+    invalidateKeys: [['unread-count']],
+  });
+
   // 通知クリック時のナビゲーション
   function handleNotificationClick(notification: Notification) {
     if (!notification.isRead) {
@@ -238,6 +272,16 @@ export function NotificationsPage() {
               data-testid="mark-all-read"
             >
               ✓ Mark all read
+            </button>
+          )}
+          {notifications.some((n) => n.isRead) && (
+            <button
+              className="notifications-page__dismiss-read"
+              onClick={() => dismissReadMutation.mutate()}
+              disabled={dismissReadMutation.isPending}
+              data-testid="dismiss-read"
+            >
+              {t('notifications.dismissRead')}
             </button>
           )}
         </div>
@@ -296,6 +340,17 @@ export function NotificationsPage() {
                 )}
               </div>
               {!n.isRead && <span className="notifications-page__unread-dot" />}
+              <button
+                className="notifications-page__dismiss"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismissMutation.mutate(n.id);
+                }}
+                data-testid={`notif-dismiss-${n.id}`}
+                title={t('notifications.dismiss')}
+              >
+                🗑️
+              </button>
             </div>
           );
           })

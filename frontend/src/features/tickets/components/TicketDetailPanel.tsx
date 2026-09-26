@@ -16,7 +16,7 @@ import TiptapPlaceholder from '@tiptap/extension-placeholder';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
-import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
+import { useStatusOptions } from '../hooks/useStatusOptions';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import { useTicketDetail } from '@/shared/sync/repos/ticketRepo';
 import { localUpdateTicket, localDeleteTickets, isTempTicketKey } from '@/shared/sync/ticketWrites';
@@ -117,15 +117,6 @@ interface ReferenceLinkData {
   createdAt: string;
 }
 
-const STATUS_OPTIONS = [
-  { value: 'backlog', label: 'Backlog', color: 'var(--color-status-backlog, #6b7280)' },
-  { value: 'open', label: 'Open', color: 'var(--color-status-open)' },
-  { value: 'in_progress', label: 'In Progress', color: 'var(--color-status-in-progress)' },
-  { value: 'resolved', label: 'Resolved', color: 'var(--color-status-resolved)' },
-  { value: 'closed', label: 'Closed', color: 'var(--color-status-closed)' },
-  { value: 'canceled', label: 'Canceled', color: 'var(--color-status-canceled, #9ca3af)' },
-] as const;
-
 const PRIORITY_OPTIONS = [
   { value: 'urgent', label: 'Urgent', icon: '⚠' },
   { value: 'high', label: 'High', icon: '▮▮▮' },
@@ -199,10 +190,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   // チケット詳細取得（端末内DBから）
   const { data: ticket, isLoading } = useTicketDetail(ticketId) as { data: TicketData | undefined; isLoading: boolean };
 
-  const { data: workflowStatuses = [] } = useWorkflowStatuses(
-    ticket?.project ?? undefined,
-    ticket?.project ? undefined : ticket?.team?.id,
-  );
+  const { options: statusChoices } = useStatusOptions(ticket?.project, ticket?.team?.id);
 
   // プロジェクト／Team で使えるラベル一覧(ピッカー表示用)
   const { data: labelOptionsData } = useQuery<{ results: LabelOption[] }>({
@@ -852,9 +840,6 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   if (!ticket) return null;
 
-  const statusChoices = workflowStatuses.length > 0
-    ? workflowStatuses.map((s) => ({ value: s.slug, label: s.name, color: s.color }))
-    : STATUS_OPTIONS;
   const currentStatus = statusChoices.find((s) => s.value === ticket.status);
 
   // renderComment関数の定義

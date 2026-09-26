@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand';
-import { db } from './db';
+import { db, MAX_RETRY } from './db';
 
 export interface SyncStatusState {
   /** フル同期が1回以上完了した */
@@ -47,7 +47,7 @@ export const useSyncStatus = create<SyncStatusState>((set) => ({
 
       for (const item of queue) {
         const retryCount = item.retryCount ?? 0;
-        if (retryCount >= 5) {
+        if (retryCount >= MAX_RETRY) {
           failed++;
         } else {
           pending++;

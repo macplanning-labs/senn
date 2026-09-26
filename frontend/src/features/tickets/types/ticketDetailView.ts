@@ -33,6 +33,7 @@ export interface TicketAttachment {
   createdAt: string;
   uploader: { id: number; username: string; displayName: string };
   fileUrl: string;
+  commentId?: number | null;
 }
 
 /** API TicketDetailOut に合わせた詳細画面用型（createdBy は使わない） */

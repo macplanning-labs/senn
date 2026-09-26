@@ -1,5 +1,13 @@
 /* ─── ProjectLayout - プロジェクト詳細画面レイアウト ─────────────────────── */
 
+/* MainLayout の max-width / padding を解除（TeamLayout.css と同パターン） */
+.layout__content > .project-layout {
+  max-width: none;
+  width: 100%;
+  padding: 0;
+  height: 100%;
+}
+
 .project-layout {
   display: flex;
   flex-direction: column;
@@ -146,6 +154,14 @@
 .project-layout__content {
   flex: 1;
   overflow-y: auto;
+}
+
+.project-layout__content:has(.ticket-detail-page) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
 }
 
 .project-layout__loading,
