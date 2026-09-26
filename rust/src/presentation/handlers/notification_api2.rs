@@ -37,6 +37,11 @@ pub struct UnreadCountResponse {
 }
 
 #[derive(Serialize)]
+pub struct DismissedResponse {
+    pub dismissed: i64,
+}
+
+#[derive(Serialize)]
 pub struct ErrorResponse {
     pub detail: String,
 }
@@ -119,6 +124,51 @@ pub async fn unread_count(
 ) -> impl IntoResponse {
     match notification_repo2::unread_count(&state.pool, auth.user_id).await {
         Ok(count) => (StatusCode::OK, Json(UnreadCountResponse { count })).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            ).into_response()
+        }
+    }
+}
+
+/// DELETE /api/v1/notifications/{id}/ — 通知をdismiss
+pub async fn dismiss(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    match notification_repo2::dismiss(&state.pool, id, auth.user_id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "通知が見つかりません".to_string(),
+            }),
+        ).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            ).into_response()
+        }
+    }
+}
+
+/// POST /api/v1/notifications/dismiss_read/ — 既読通知を全てdismiss
+pub async fn dismiss_all_read(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+) -> impl IntoResponse {
+    match notification_repo2::dismiss_all_read(&state.pool, auth.user_id).await {
+        Ok(count) => (StatusCode::OK, Json(DismissedResponse { dismissed: count as i64 })).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (

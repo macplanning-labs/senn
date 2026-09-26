@@ -1,7 +1,20 @@
+/* MainLayout の max-width / padding を解除 */
+.layout__content > .ticket-detail-page {
+  max-width: none;
+  width: 100%;
+  padding: 0;
+}
+
+/* 直接 /my-issues/:id だけでなく team/project 経由も含む */
+.layout__content:has(.ticket-detail-page) {
+  overflow: hidden;
+}
+
 .ticket-detail-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   background: var(--color-bg-primary, #0a0a0a);
   color: var(--color-text-primary, #e0e0e0);
 }
@@ -11,7 +24,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
+  height: 100%;
 }
 
 .ticket-detail-spinner {
@@ -120,8 +133,10 @@
   grid-template-columns: 1fr 360px;
   gap: 16px;
   padding: 16px;
-  overflow: auto;
+  overflow-y: auto;
   flex: 1;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .ticket-detail-content {

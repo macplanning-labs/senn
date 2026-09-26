@@ -180,6 +180,9 @@ export interface LocalPendingBlob {
   createdAt: string;
 }
 
+/** サーバーのエラー応答がこの回数続いたら「同期できなかった変更」として扱う */
+export const MAX_RETRY = 5;
+
 export interface SyncQueueItem {
   id?: number;
   /** 対象エンティティ種別 */
@@ -192,8 +195,19 @@ export interface SyncQueueItem {
   payload: string;
   /** キュー追加日時 */
   createdAt: string;
-  /** リトライ回数 */
+  /**
+   * 失敗扱いまでの回数（サーバーがエラー応答を返した回数）。MAX_RETRY 以上で「同期できなかった変更」になる。
+   * 通信そのものが届かなかった失敗（Network Error・タイムアウト）は数えない（送れるようになるまで待って送り直す）
+   */
   retryCount: number;
+  /** 失敗した回数の合計（通信エラーも含む）。次に送るまでの待ち時間（指数バックオフ）の計算に使う */
+  attempts?: number;
+  /** この時刻（ISO）より前には送らない。未設定ならすぐ送ってよい */
+  nextAttemptAt?: string;
+  /** 最初に失敗した時刻（ISO）。失敗扱いにするかの判定に使う */
+  firstFailedAt?: string;
+  /** 最後に送信を試みて失敗した時刻（ISO） */
+  lastAttemptAt?: string;
   /** 冪等キー（create のみ） */
   idempotencyKey?: string;
   /** 直近のエラーメッセージ */

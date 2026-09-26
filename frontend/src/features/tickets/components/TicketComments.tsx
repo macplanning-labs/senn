@@ -76,6 +76,7 @@ export function TicketComments({
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const [replyingToRootId, setReplyingToRootId] = useState<number | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [comments, setComments] = useState(initialComments);
 
@@ -88,6 +89,9 @@ export function TicketComments({
   useEffect(() => {
     setAttachments(initialAttachments ?? []);
   }, [initialAttachments]);
+
+  const attachmentsForComment = (commentId: number) =>
+    attachments.filter((a) => a.commentId === commentId);
 
   // @メンション候補（プロジェクト優先、チームのみはメンバー）
   const { data: userOptionsData } = useQuery({
@@ -105,9 +109,10 @@ export function TicketComments({
     userOptionsRef.current = userOptions;
   }, [userOptions]);
 
-  const commentMutation = useOptimisticMutation<void, { body: string; parentCommentId?: number | null }>({
+  const commentMutation = useOptimisticMutation<number, { body: string; parentCommentId?: number | null }>({
     mutationFn: async ({ body, parentCommentId }) => {
-      await apiClient.post(`/tickets/${ticketId}/comments/`, { body, parentCommentId });
+      const res = await apiClient.post<{ id: number }>(`/tickets/${ticketId}/comments/`, { body, parentCommentId });
+      return res.data.id;
     },
     queryKey: ['ticket', ticketId],
     updater: (currentData, { body, parentCommentId }) => {
@@ -132,10 +137,18 @@ export function TicketComments({
         ],
       };
     },
-    onSuccessCallback: () => {
+    onSuccessCallback: async (commentId) => {
       commentEditor?.commands.clearContent();
       setReplyingToRootId(null);
       void bumpTicketCounter(ticketId, 'commentCount', 1);
+
+      if (pendingFiles.length > 0) {
+        for (const file of pendingFiles) {
+          await uploadAttachmentFile(file, commentId);
+        }
+        setPendingFiles([]);
+      }
+
       void queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
     },
     errorMessage: t('ticketDetail.errors.commentFailed'),
@@ -240,9 +253,10 @@ export function TicketComments({
     selector: ({ editor }) => !editor || editor.isEmpty,
   });
 
-  const uploadAttachmentFile = async (file: File) => {
+  const uploadAttachmentFile = async (file: File, commentId?: number) => {
     const formData = new FormData();
     formData.append('file', file);
+    if (commentId != null) formData.append('commentId', String(commentId));
 
     setAttachmentUploading(true);
     try {
@@ -250,6 +264,7 @@ export function TicketComments({
         `/tickets/${ticketId}/attachments/`,
         formData,
       );
+      setAttachments((prev) => [...prev, res.data]);
       queryClient.setQueryData<TicketDetailView | undefined>(['ticket', ticketId], (old) => {
         if (!old) return old;
         return {
@@ -269,9 +284,7 @@ export function TicketComments({
     const files = e.currentTarget.files;
     if (!files || files.length === 0) return;
 
-    for (const file of Array.from(files)) {
-      await uploadAttachmentFile(file);
-    }
+    setPendingFiles((prev) => [...prev, ...Array.from(files)]);
     e.currentTarget.value = '';
   };
 
@@ -323,40 +336,6 @@ export function TicketComments({
         {t('ticketDetail.comments')}
         <span className="ticket-comments__count">{comments.length}</span>
       </h4>
-
-      {attachments.length > 0 && (
-        <ul className="ticket-comments__attachments">
-          {attachments.map((att) => (
-            <li key={att.id} className="ticket-comments__attachment">
-              <span className="ticket-comments__attachment-icon">
-                {att.isImage ? '🖼️' : '📄'}
-              </span>
-              <a
-                href={att.fileUrl}
-                download={att.filename}
-                className="ticket-comments__attachment-link"
-                title={att.filename}
-              >
-                {att.filename}
-              </a>
-              <span className="ticket-comments__attachment-size">
-                ({att.sizeDisplay})
-              </span>
-              <button
-                type="button"
-                className="ticket-comments__attachment-delete"
-                onClick={() => handleDeleteAttachment(att.id)}
-                title={t('ticketDetail.deleteAttachment', { defaultValue: 'Delete attachment' })}
-                aria-label={t('ticketDetail.deleteAttachment', {
-                  defaultValue: 'Delete attachment',
-                })}
-              >
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
 
       <div className="ticket-comments__list">
         {comments.length === 0 ? (
@@ -416,6 +395,39 @@ export function TicketComments({
                     <p className="ticket-comment-item__body">
                       {renderCommentBodyWithMentions(rootComment.body, userOptions)}
                     </p>
+                  )}
+                  {!rootComment.isDeleted && attachmentsForComment(rootComment.id).length > 0 && (
+                    <ul className="ticket-comments__attachments">
+                      {attachmentsForComment(rootComment.id).map((att) => (
+                        <li key={att.id} className="ticket-comments__attachment">
+                          <span className="ticket-comments__attachment-icon">
+                            {att.isImage ? '🖼️' : '📄'}
+                          </span>
+                          <a
+                            href={att.fileUrl}
+                            download={att.filename}
+                            className="ticket-comments__attachment-link"
+                            title={att.filename}
+                          >
+                            {att.filename}
+                          </a>
+                          <span className="ticket-comments__attachment-size">
+                            ({att.sizeDisplay})
+                          </span>
+                          <button
+                            type="button"
+                            className="ticket-comments__attachment-delete"
+                            onClick={() => handleDeleteAttachment(att.id)}
+                            title={t('ticketDetail.deleteAttachment', { defaultValue: 'Delete attachment' })}
+                            aria-label={t('ticketDetail.deleteAttachment', {
+                              defaultValue: 'Delete attachment',
+                            })}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                   {!rootComment.isDeleted && (rootComment.canEdit || rootComment.canDelete) && (
                     <div className="ticket-comment-item__actions">
@@ -511,6 +523,39 @@ export function TicketComments({
                           {renderCommentBodyWithMentions(reply.body, userOptions)}
                         </p>
                       )}
+                      {!reply.isDeleted && attachmentsForComment(reply.id).length > 0 && (
+                        <ul className="ticket-comments__attachments">
+                          {attachmentsForComment(reply.id).map((att) => (
+                            <li key={att.id} className="ticket-comments__attachment">
+                              <span className="ticket-comments__attachment-icon">
+                                {att.isImage ? '🖼️' : '📄'}
+                              </span>
+                              <a
+                                href={att.fileUrl}
+                                download={att.filename}
+                                className="ticket-comments__attachment-link"
+                                title={att.filename}
+                              >
+                                {att.filename}
+                              </a>
+                              <span className="ticket-comments__attachment-size">
+                                ({att.sizeDisplay})
+                              </span>
+                              <button
+                                type="button"
+                                className="ticket-comments__attachment-delete"
+                                onClick={() => handleDeleteAttachment(att.id)}
+                                title={t('ticketDetail.deleteAttachment', { defaultValue: 'Delete attachment' })}
+                                aria-label={t('ticketDetail.deleteAttachment', {
+                                  defaultValue: 'Delete attachment',
+                                })}
+                              >
+                                ✕
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                       {!reply.isDeleted && (reply.canEdit || reply.canDelete) && (
                         <div className="ticket-comment-item__actions">
                           {reply.canEdit && (
@@ -579,16 +624,42 @@ export function TicketComments({
           setIsDragOver(true);
         }}
         onDragLeave={() => setIsDragOver(false)}
-        onDrop={async (e) => {
+        onDrop={(e) => {
           e.preventDefault();
           setIsDragOver(false);
           const files = Array.from(e.dataTransfer.files);
-          for (const file of files) {
-            await uploadAttachmentFile(file);
-          }
+          setPendingFiles((prev) => [...prev, ...files]);
         }}
       >
         <EditorContent editor={commentEditor} className="ticket-comments__input" />
+        {pendingFiles.length > 0 && (
+          <ul className="ticket-comments__attachments">
+            {pendingFiles.map((file, idx) => (
+              <li key={`${file.name}-${idx}`} className="ticket-comments__attachment">
+                <span className="ticket-comments__attachment-icon">
+                  {file.type.startsWith('image/') ? '🖼️' : '📄'}
+                </span>
+                <span className="ticket-comments__attachment-link">{file.name}</span>
+                <span className="ticket-comments__attachment-size">
+                  ({(file.size / 1024).toFixed(1)} KB)
+                </span>
+                <button
+                  type="button"
+                  className="ticket-comments__attachment-delete"
+                  onClick={() =>
+                    setPendingFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  title={t('ticketDetail.deleteAttachment', { defaultValue: 'Delete attachment' })}
+                  aria-label={t('ticketDetail.deleteAttachment', {
+                    defaultValue: 'Delete attachment',
+                  })}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="ticket-comments__form-actions">
           <button
             type="button"

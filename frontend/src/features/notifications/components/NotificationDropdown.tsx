@@ -9,6 +9,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
@@ -53,6 +54,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export function NotificationDropdown() {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const bellRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -117,6 +119,42 @@ export function NotificationDropdown() {
     },
     invalidateKeys: [['unread-count']],
     errorMessage: '一括既読に失敗しました。',
+  });
+
+  // 楽観的dismiss（単一）— クリックの瞬間にリストから除去
+  const dismissMutation = useOptimisticMutation<void, number>({
+    mutationFn: async (id) => {
+      await apiClient.delete(`/notifications/${id}/`);
+    },
+    queryKey: ['notifications'],
+    updater: (currentData, id) => {
+      const data = currentData as { results: Notification[] } | undefined;
+      if (!data?.results) return currentData;
+      return {
+        ...data,
+        results: data.results.filter((n) => n.id !== id),
+      };
+    },
+    invalidateKeys: [['unread-count']],
+    errorMessage: '削除に失敗しました。',
+  });
+
+  // 楽観的dismiss_all_read — クリックの瞬間に既読通知がリストから除去
+  const dismissReadMutation = useOptimisticMutation<void, void>({
+    mutationFn: async () => {
+      await apiClient.post('/notifications/dismiss_read/');
+    },
+    queryKey: ['notifications'],
+    updater: (currentData) => {
+      const data = currentData as { results: Notification[] } | undefined;
+      if (!data?.results) return currentData;
+      return {
+        ...data,
+        results: data.results.filter((n) => !n.isRead),
+      };
+    },
+    invalidateKeys: [['unread-count']],
+    errorMessage: '既読の削除に失敗しました。',
   });
 
   // ドロップダウンを開いた時、ベルボタン基準で位置を計算する(document.bodyへポータルするため)
@@ -194,15 +232,27 @@ export function NotificationDropdown() {
         >
           <div className="notif__header">
             <span className="notif__header-title">Notifications</span>
-            {unreadCount > 0 && (
-              <button
-                className="notif__mark-all"
-                onClick={() => readAllMutation.mutate()}
-                data-testid="notif-mark-all"
-              >
-                Mark all read
-              </button>
-            )}
+            <div className="notif__header-actions">
+              {unreadCount > 0 && (
+                <button
+                  className="notif__mark-all"
+                  onClick={() => readAllMutation.mutate()}
+                  data-testid="notif-mark-all"
+                >
+                  Mark all read
+                </button>
+              )}
+              {notifications.some((n) => n.isRead) && (
+                <button
+                  className="notif__dismiss-read"
+                  onClick={() => dismissReadMutation.mutate()}
+                  disabled={dismissReadMutation.isPending}
+                  data-testid="notif-dismiss-read"
+                >
+                  {t('notifications.dismissRead')}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="notif__list">
@@ -229,6 +279,17 @@ export function NotificationDropdown() {
                     <span className="notif__time">{timeAgo(n.createdAt)}</span>
                   </div>
                   {!n.isRead && <span className="notif__unread-dot" />}
+                  <button
+                    className="notif__dismiss"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dismissMutation.mutate(n.id);
+                    }}
+                    data-testid={`notif-dismiss-${n.id}`}
+                    title={t('notifications.dismiss')}
+                  >
+                    🗑️
+                  </button>
                 </div>
               );
               })

@@ -163,7 +163,13 @@ export function SyncFailuresPanel({ isOpen, onClose }: Props) {
                         <div className="sync-failure-error">{change.lastError}</div>
                       )}
                       <div className="sync-failure-time">
-                        {new Date(change.createdAt).toLocaleString()}
+                        {t('sync.editedAt')}: {new Date(change.createdAt).toLocaleString()}
+                        {change.lastAttemptAt && (
+                          <>
+                            {' / '}
+                            {t('sync.lastFailedAt')}: {new Date(change.lastAttemptAt).toLocaleString()}
+                          </>
+                        )}
                       </div>
                     </div>
 

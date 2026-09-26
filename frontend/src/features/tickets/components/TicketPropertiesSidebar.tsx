@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
 import { useProject } from '@/shared/hooks/useProject';
 import { useToastStore } from '@/shared/stores/toastStore';
-import { useWorkflowStatuses } from '@/features/settings/hooks/useWorkflowStatuses';
+import { useStatusOptions } from '../hooks/useStatusOptions';
 import type { TicketDetailView } from '../types/ticketDetailView';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { useTicketPropertyMutations } from '../hooks/useTicketPropertyMutations';
@@ -93,10 +93,7 @@ export function TicketPropertiesSidebar({
 
   useTicketDetailHotkeys({ enabled: true, onAction: onHotkey });
 
-  const { data: workflowStatuses = [] } = useWorkflowStatuses(
-    ticket.project ?? undefined,
-    ticket.project ? undefined : ticket.team?.id,
-  );
+  const { options: statusOptions, labelOf: statusLabelOf } = useStatusOptions(ticket.project, ticket.team?.id);
 
   const usersEnabled =
     ticketUserOptionsEnabled({
@@ -180,7 +177,7 @@ export function TicketPropertiesSidebar({
   const pickerOptions: TicketFieldPickerOption[] = useMemo(() => {
     switch (openField) {
       case 'status':
-        return workflowStatuses.map((s) => ({ id: s.slug, label: s.name }));
+        return statusOptions.map((s) => ({ id: s.value, label: s.label }));
       case 'assignee':
       case 'reviewer':
         return userOptions.map((u) => ({
@@ -213,7 +210,7 @@ export function TicketPropertiesSidebar({
     }
   }, [
     openField,
-    workflowStatuses,
+    statusOptions,
     userOptions,
     cycles,
     projectList,
@@ -390,7 +387,7 @@ export function TicketPropertiesSidebar({
       <div className="ticket-properties-sidebar">
         <h3 className="ticket-properties-sidebar__title">Properties</h3>
         <div className="ticket-properties-list">
-          {row('status', 'Status', ticket.status || '—', true)}
+          {row('status', 'Status', statusLabelOf(ticket.status), true)}
           {row('type', 'Type', ticket.ticketType || '—', true)}
           {row(
             'assignee',

@@ -39,6 +39,8 @@ pub struct AttachmentOut {
     pub uploader: UploaderInfo,
     #[serde(rename = "fileUrl")]
     pub file_url: String,
+    #[serde(rename = "commentId")]
+    pub comment_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,10 +93,11 @@ pub async fn upload_attachment(
 
     let ticket_id = ticket.base.id;
 
-    // マルチパートから file フィールドを抽出
+    // マルチパートから file / commentId フィールドを抽出
     let mut file_field = None;
     let mut original_filename = String::new();
     let mut file_bytes = Vec::new();
+    let mut comment_id: Option<i32> = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         if field.name() == Some("file") {
@@ -115,7 +118,10 @@ pub async fn upload_attachment(
                         .into_response();
                 }
             }
-            break;
+        } else if field.name() == Some("commentId") {
+            if let Ok(text) = field.text().await {
+                comment_id = text.parse::<i32>().ok();
+            }
         }
     }
 
@@ -127,6 +133,29 @@ pub async fn upload_attachment(
             }),
         )
             .into_response();
+    }
+
+    // commentId が指定された場合、チケットに属するコメントか検証
+    if let Some(cid) = comment_id {
+        match sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM tickets_comment WHERE id = $1 AND ticket_id = $2)"
+        )
+        .bind(cid)
+        .bind(ticket_id)
+        .fetch_one(&state.pool)
+        .await
+        {
+            Ok(true) => {}
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        detail: "Invalid commentId for this ticket".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
     }
 
     let file_size = file_bytes.len() as i32;
@@ -172,7 +201,7 @@ pub async fn upload_attachment(
     let attachment_id = match attachment_repo::create(
         &state.pool,
         ticket_id,
-        None, // comment_id は None（チケットレベルの添付）
+        comment_id,
         auth.user_id,
         &original_filename,
         &relative_path,
@@ -240,6 +269,7 @@ pub async fn upload_attachment(
             display_name,
         },
         file_url: format!("/media/{}", relative_path),
+        comment_id,
     };
 
     (StatusCode::CREATED, Json(attachment)).into_response()
@@ -337,6 +367,7 @@ pub async fn list_attachments(
                 display_name,
             },
             file_url: format!("/media/{}", att.file_path),
+            comment_id: att.comment_id,
         });
     }
 

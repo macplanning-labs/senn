@@ -22,6 +22,7 @@ import { isTempTicketKey } from '@/shared/sync/ticketWrites';
 import { GettingStartedChecklist } from '@/features/onboarding/components/GettingStartedChecklist';
 import { TicketDetailPanel } from './TicketDetailPanel';
 import './MyIssuesPage.css';
+import { DEFAULT_STATUS_OPTIONS, statusLabelOf } from '../utils/statusOptions';
 
 const priorityIcons: Record<string, string> = {
   urgent: '⚠',
@@ -143,7 +144,7 @@ export function MyIssuesPage() {
                       {!isTemp && ticket.ticket_key}
                     </span>
                     <span className="my-issues__row-title">{ticket.title}</span>
-                    <span className="my-issues__status">{ticket.status.replace('_', ' ')}</span>
+                    <span className="my-issues__status">{statusLabelOf(ticket.status, DEFAULT_STATUS_OPTIONS)}</span>
                     {ticket.due_date && (
                       <span
                         className={`my-issues__due ${

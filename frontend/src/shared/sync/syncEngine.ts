@@ -6,6 +6,8 @@
  *   読み取り: サーバー → pullEntity（差分同期 API） → 端末内 DB → 画面（liveQuery）
  *
  * - 起動: startSync(userId)。以後 30秒ごと・フォーカス時・画面に戻ったとき・オンライン復帰時に runCycle
+ * - 再送: 送れなかった項目は nextAttemptAt まで待つ（指数バックオフ）。きっかけの回数では数えない。
+ *   通信が届かない失敗（Network Error 等）が出たら、その回の送信は打ち切る
  * - 排他: 同じタブ内では送信・同期を直列に、複数タブ間は Web Locks（navigator.locks）で1タブずつ
  */
 
@@ -14,7 +16,8 @@ import { apiClient } from '../api/client';
 import { registerBlobAdapter, pushBlobCreate, enqueueBlobCreate } from './blobSync';
 import { customEmojiAdapter } from './adapters/customEmojiBlob';
 import { hasCompletedFullSync, pullEntity, registerSyncTrigger } from './pull';
-import { MAX_RETRY, pushEntityItem } from './push';
+import { MAX_RETRY, isDue, pushEntityItem, recordFailure, setPushTrigger } from './push';
+import { reviveTransientFailures, wakeQueue } from './failedChanges';
 import { registerPushRequester } from './pushRequester';
 import { useSyncStatus } from './syncStatusStore';
 import { registerDevConsistencyCheck } from './devConsistencyCheck';
@@ -33,6 +36,7 @@ const ENTITY_ORDER: Record<SyncQueueItem['entity'], number> = {
 let currentUserId: number | null = null;
 let cycleRunning = false;
 let rerunRequested = false;
+let rerunTrigger: string | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let focusListenerFn: (() => void) | null = null;
 let visibilityListenerFn: (() => void) | null = null;
@@ -42,7 +46,7 @@ let pushChain: Promise<void> = Promise.resolve();
 
 registerBlobAdapter(customEmojiAdapter);
 registerPushRequester(() => requestPush());
-registerSyncTrigger(() => void runCycle());
+registerSyncTrigger(() => void runCycle('pull'));
 registerDevConsistencyCheck();
 
 /** 複数タブで同時に送信・同期しないためのロック（使えない環境ではそのまま実行） */
@@ -55,19 +59,24 @@ export async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** 1回分の同期: 送信 → プロジェクト取得 → チケット取得。実行中に呼ばれたら、終わってからもう1回だけ回す */
-export async function runCycle(): Promise<void> {
+export async function runCycle(trigger: string = 'manual'): Promise<void> {
   if (currentUserId === null) return;
+  // オフラインと分かっているときは送らない（送っても必ず失敗する）
+  if (isOffline()) return;
   if (cycleRunning) {
     rerunRequested = true;
+    rerunTrigger = trigger;
     return;
   }
   cycleRunning = true;
   rerunRequested = false;
+  const t = rerunTrigger ?? trigger;
+  rerunTrigger = null;
   const status = useSyncStatus.getState();
   status.set({ syncing: true });
   try {
     await withSyncLock(async () => {
-      await pushChangesUnlocked();
+      await pushChangesUnlocked(t);
       await pullEntity('projects');
       await pullEntity('tickets');
     });
@@ -84,25 +93,38 @@ export async function runCycle(): Promise<void> {
     await useSyncStatus.getState().refreshQueueCounts();
     if (rerunRequested) {
       rerunRequested = false;
-      void runCycle();
+      void runCycle(rerunTrigger ?? 'rerun');
     }
   }
 }
 
 /** 送信キューを送る（タブ間ロック付き） */
-export async function pushChanges(): Promise<void> {
-  await withSyncLock(() => pushChangesUnlocked());
+export async function pushChanges(trigger: string = 'manual'): Promise<void> {
+  await withSyncLock(() => pushChangesUnlocked(trigger));
   await useSyncStatus.getState().refreshQueueCounts();
 }
 
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 /** 送信キューを送る（タブ内は直列。呼び出し側がタブ間ロックを持っている前提） */
-function pushChangesUnlocked(): Promise<void> {
-  const run = pushChain.then(pushQueueOnce, pushQueueOnce);
+function pushChangesUnlocked(trigger: string): Promise<void> {
+  const once = () => pushQueueOnce(trigger);
+  const run = pushChain.then(once, once);
   pushChain = run.catch(() => undefined);
   return run;
 }
 
-async function pushQueueOnce(): Promise<void> {
+/**
+ * キューを1回分送る。
+ * - 待ち時間（nextAttemptAt）が明けていない項目は飛ばす
+ * - 作成が送れていない間は、仮 id を参照しうる後ろの項目（作成、仮 id を指す更新）を送らない
+ * - 通信が届かない失敗が出たら打ち切る（残りの項目も今は届かず、失敗を積み増すだけのため）
+ */
+export async function pushQueueOnce(trigger: string = 'manual'): Promise<void> {
+  if (isOffline()) return;
+  setPushTrigger(trigger);
   let queue: SyncQueueItem[];
   try {
     queue = await db.syncQueue.where('retryCount').below(MAX_RETRY).toArray();
@@ -111,13 +133,22 @@ async function pushQueueOnce(): Promise<void> {
   }
   queue.sort((a, b) => ENTITY_ORDER[a.entity] - ENTITY_ORDER[b.entity] || (a.id ?? 0) - (b.id ?? 0));
 
+  let createPending = false;
   for (const snapshot of queue) {
     // 並べた後に、先の項目の送信（付け替え等）で内容が変わっている場合があるので読み直す
     const item = snapshot.id !== undefined ? await db.syncQueue.get(snapshot.id) : undefined;
     if (!item || item.retryCount >= MAX_RETRY) continue;
+    const isEntity = item.entity === 'ticket' || item.entity === 'project';
+    if (isEntity && createPending && mayReferTempId(item)) continue;
+    if (!isDue(item)) {
+      if (isEntity && item.operation === 'create') createPending = true;
+      continue;
+    }
 
-    if (item.entity === 'ticket' || item.entity === 'project') {
-      await pushEntityItem(item);
+    if (isEntity) {
+      const result = await pushEntityItem(item);
+      if (result === 'network') return;
+      if (result === 'retry' && item.operation === 'create') createPending = true;
       continue;
     }
     try {
@@ -128,13 +159,19 @@ async function pushQueueOnce(): Promise<void> {
         await clearDirtyFlag(item.entity, item.entityId);
       }
     } catch (err) {
-      if (item.id) {
-        await db.syncQueue.update(item.id, {
-          retryCount: item.retryCount + 1,
-          lastError: err instanceof Error ? err.message : String(err),
-        });
-      }
+      if ((await recordFailure(item, err)) === 'network') return;
     }
+  }
+}
+
+/** 仮 id（負数）を参照している可能性がある項目か（作成は親・プロジェクトに仮 id を持ちうる） */
+function mayReferTempId(item: SyncQueueItem): boolean {
+  if (item.operation === 'create') return true;
+  try {
+    const p = JSON.parse(item.payload) as { patch?: Record<string, unknown> };
+    return Object.values(p.patch ?? {}).some((v) => typeof v === 'number' && v < 0);
+  } catch {
+    return false;
   }
 }
 
@@ -232,11 +269,11 @@ async function clearDirtyFlag(entity: string, entityId: number | string): Promis
 export function requestPush(): void {
   void useSyncStatus.getState().refreshQueueCounts();
   if (currentUserId === null) return;
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (isOffline()) return;
   void (async () => {
     try {
       await withSyncLock(async () => {
-        await pushChangesUnlocked();
+        await pushChangesUnlocked('edit');
         await pullEntity('tickets');
       });
     } catch (err) {
@@ -261,15 +298,23 @@ export function startSync(userId: number): void {
     })
     .catch(() => undefined);
 
-  void runCycle();
-  syncInterval = setInterval(() => void runCycle(), SYNC_INTERVAL_MS);
+  // 以前のバージョンで通信エラーのまま失敗扱いになった項目を、送信待ちに戻す
+  void reviveTransientFailures()
+    .catch(() => undefined)
+    .then(() => runCycle('start'));
+  syncInterval = setInterval(() => void runCycle('interval'), SYNC_INTERVAL_MS);
 
   if (typeof window === 'undefined') return;
-  focusListenerFn = () => void runCycle();
+  focusListenerFn = () => void runCycle('focus');
   visibilityListenerFn = () => {
-    if (document.visibilityState === 'visible') void runCycle();
+    if (document.visibilityState === 'visible') void runCycle('visible');
   };
-  onlineListenerFn = () => void runCycle();
+  // オンライン復帰は確かな合図なので、待ち時間をリセットしてすぐ送る
+  onlineListenerFn = () => {
+    void wakeQueue()
+      .catch(() => undefined)
+      .then(() => runCycle('online'));
+  };
   window.addEventListener('focus', focusListenerFn);
   document.addEventListener('visibilitychange', visibilityListenerFn);
   window.addEventListener('online', onlineListenerFn);
@@ -296,7 +341,7 @@ export function stopSync(): void {
 /** ログアウト前: 未送信の変更を最大5秒送ってみて、残った件数を返す */
 export async function prepareLogout(): Promise<{ pending: number }> {
   await Promise.race([
-    pushChanges().catch(() => undefined),
+    pushChanges('logout').catch(() => undefined),
     new Promise((resolve) => setTimeout(resolve, 5000)),
   ]);
   const pending = await db.syncQueue.count();
