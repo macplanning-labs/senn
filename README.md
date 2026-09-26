@@ -14,7 +14,7 @@ Run SENN on your own machine or server. Your data stays in your Docker volumes.
 
 ### Start
 
-The startup script generates `.env.oss` with random secrets on first run:
+**Recommended** — the startup script creates `.env.oss` with random secrets on first run, so there is nothing to edit:
 
 ```bash
 git clone https://github.com/macplanning-labs/senn.git
@@ -22,7 +22,7 @@ cd senn
 ./scripts/oss-up.sh
 ```
 
-Or bring it up yourself with the default compose file:
+**Manual** — use the default compose file yourself. Both `DB_PASSWORD` and `JWT_SECRET_KEY` are left **empty** in `.env.example` on purpose, and `docker compose` stops immediately with an error until you fill them in:
 
 ```bash
 git clone https://github.com/macplanning-labs/senn.git
@@ -30,13 +30,13 @@ cd senn
 cp .env.example .env
 ```
 
-Set `DB_PASSWORD` in `.env`, and set `JWT_SECRET_KEY` to a random value — generate one with `openssl rand -base64 48`. Then:
+Then set the two values in `.env` (generate them with the commands below) and start:
 
 ```bash
+openssl rand -hex 24        # → DB_PASSWORD (letters/digits only: it is embedded in a URL)
+openssl rand -base64 48     # → JWT_SECRET_KEY (32+ characters)
 docker compose up --build
 ```
-
-`JWT_SECRET_KEY` is required: the server refuses to start if it is unset, shorter than 32 characters, or left at the template value.
 
 Either way, open **http://localhost:8151**
 
@@ -101,7 +101,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Set `DB_PASSWORD` and `JWT_SECRET_KEY` in `.env` before the first run (`openssl rand -base64 48` for the key).
+Use `./scripts/oss-up.sh` (secrets are generated for you), or set `DB_PASSWORD` and `JWT_SECRET_KEY` in `.env` before the first run — see [Start](#start).
 
 Open http://localhost:8151 in your browser. Database tables are created automatically on first start (`RUST_RUN_MIGRATIONS=true`). No seed users are bundled — create your first account from the in-app registration screen at http://localhost:8151/register, then log in at http://localhost:8151/login.
 

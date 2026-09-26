@@ -40,9 +40,25 @@ SPA 内の UI 複雑度の使い分け:
 
 Rust / Node / PostgreSQL のホストへの個別インストールは不要です。
 
+**おすすめ**: 起動スクリプトが、ランダムな秘密の値入りの `.env.oss` を初回に自動で作ります。編集は不要です。
+
+```bash
+git clone https://github.com/macplanning-labs/senn.git
+cd senn
+./scripts/oss-up.sh
+```
+
+**手動で行う場合**: `.env.example` では `DB_PASSWORD` と `JWT_SECRET_KEY` を**意図的に空**にしてあります。設定するまで、`docker compose` はエラーで即停止します。
+
 ```bash
 cp .env.example .env
-# 初回起動前に DB_PASSWORD と JWT_SECRET_KEY をローカル用の値に書き換える
+```
+
+`.env` に次のコマンドで作った値を設定してから、起動します。
+
+```bash
+openssl rand -hex 24        # → DB_PASSWORD（URLに埋め込まれるため英数字のみ）
+openssl rand -base64 48     # → JWT_SECRET_KEY（32文字以上）
 docker compose up --build
 ```
 

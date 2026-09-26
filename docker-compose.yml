@@ -1,8 +1,12 @@
 # ============================================================
 # docker-compose.yml — SENN OSS ローカル一発起動
 # ============================================================
-# 使い方:
+# 使い方(いちばん簡単):
+#   ./scripts/oss-up.sh          # 秘密を自動生成して起動(.env.oss を作成)
+#
+# 使い方(この compose を直接使う場合):
 #   cp .env.example .env
+#   # .env の DB_PASSWORD と JWT_SECRET_KEY を必ず設定する(空のままだと下記エラーで停止)
 #   docker compose up --build
 #
 # 入口: http://localhost:8151
@@ -19,7 +23,7 @@ services:
     environment:
       POSTGRES_DB: senn
       POSTGRES_USER: senn
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is empty. Run ./scripts/oss-up.sh, or set it in .env (openssl rand -hex 24)}
     volumes:
       - senn_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -35,11 +39,11 @@ services:
     container_name: senn-oss-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://senn:${DB_PASSWORD}@db:5432/senn
+      DATABASE_URL: postgres://senn:${DB_PASSWORD:?DB_PASSWORD is empty. Run ./scripts/oss-up.sh, or set it in .env (openssl rand -hex 24)}@db:5432/senn
       PORT: "8151"
       BASE_URL: ${BASE_URL:-http://localhost:8151}
       COOKIE_SECURE: "false"
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is empty. Run ./scripts/oss-up.sh, or set it in .env (openssl rand -base64 48)}
       RUST_RUN_MIGRATIONS: "true"
       WEBAUTHN_RP_ID: localhost
       WEBAUTHN_RP_ORIGIN: ${BASE_URL:-http://localhost:8151}
