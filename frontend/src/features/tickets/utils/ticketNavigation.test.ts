@@ -7,9 +7,12 @@ import { describe, it, expect } from 'vitest';
 import {
   buildTicketDetailPath,
   buildTicketListPath,
+  buildTicketListPathForContext,
+  buildTicketPathContextFromPathname,
   buildTicketShareUrl,
   buildTicketEditPath,
   detectTicketDetailOrigin,
+  resolveTicketScopeFromPathname,
 } from './ticketNavigation';
 
 describe('buildTicketDetailPath', () => {
@@ -162,6 +165,77 @@ describe('buildTicketEditPath', () => {
 
   it('どこにも属さないときは null', () => {
     expect(buildTicketEditPath('DEMO-000001', {})).toBeNull();
+  });
+});
+
+describe('buildTicketListPathForContext', () => {
+  it('チーム URL から開いた詳細は project 付きチケットでもチーム一覧へ戻る', () => {
+    expect(
+      buildTicketListPathForContext('/team/wip-app-dev/tickets/WIPAPPDEV-000131', {
+        projectKey: 'WAPP',
+        teamSlug: 'wip-app-dev',
+      }),
+    ).toBe('/team/wip-app-dev/tickets');
+  });
+
+  it('プロジェクト URL から開いた詳細はプロジェクト一覧へ戻る', () => {
+    expect(
+      buildTicketListPathForContext('/project/WAPP/tickets/WIPAPPDEV-000131', {
+        projectKey: 'WAPP',
+        teamSlug: 'wip-app-dev',
+      }),
+    ).toBe('/project/WAPP/tickets');
+  });
+});
+
+describe('buildTicketPathContextFromPathname', () => {
+  const ticket = { projectPrefix: 'WAPP', team: { slug: 'wip-app-dev' } };
+
+  it('チーム URL では projectKey を渡さず teamSlug のみ', () => {
+    expect(
+      buildTicketPathContextFromPathname('/team/wip-app-dev/tickets/WIP-1', ticket),
+    ).toEqual({
+      projectKey: null,
+      teamSlug: 'wip-app-dev',
+      ticketProjectPrefix: 'WAPP',
+      ticketTeamSlug: 'wip-app-dev',
+    });
+  });
+
+  it('プロジェクト URL では teamSlug を渡さず projectKey のみ', () => {
+    expect(
+      buildTicketPathContextFromPathname('/project/WAPP/tickets/WIP-1', ticket),
+    ).toEqual({
+      projectKey: 'WAPP',
+      teamSlug: null,
+      ticketProjectPrefix: 'WAPP',
+      ticketTeamSlug: 'wip-app-dev',
+    });
+  });
+
+  it('チーム URL 経由の共有リンクは team パスになる', () => {
+    const ctx = buildTicketPathContextFromPathname('/team/wip-app-dev/tickets/WIP-1', ticket);
+    expect(buildTicketShareUrl('https://senn.example.com', 'WIP-1', ctx)).toBe(
+      'https://senn.example.com/team/wip-app-dev/tickets/WIP-1',
+    );
+  });
+});
+
+describe('resolveTicketScopeFromPathname', () => {
+  it('チーム URL を team と判定する', () => {
+    expect(resolveTicketScopeFromPathname('/team/wip-app-dev/tickets/DEMO-1')).toEqual({
+      kind: 'team',
+      teamSlug: 'wip-app-dev',
+      projectKey: null,
+    });
+  });
+
+  it('プロジェクト URL を project と判定する', () => {
+    expect(resolveTicketScopeFromPathname('/project/WAPP/tickets/DEMO-1')).toEqual({
+      kind: 'project',
+      teamSlug: null,
+      projectKey: 'WAPP',
+    });
   });
 });
 

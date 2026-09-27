@@ -53,7 +53,9 @@ pub struct CyclePatchIn {
     pub project: Option<i32>,
     pub name: Option<String>,
     pub description: Option<String>,
+    #[serde(alias = "startDate")]
     pub start_date: Option<NaiveDate>,
+    #[serde(alias = "endDate")]
     pub end_date: Option<NaiveDate>,
     pub status: Option<String>,
     #[serde(default, alias = "teamId")]

@@ -576,6 +576,17 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     e.currentTarget.value = ''; // フォームをリセット
   };
 
+  // 添付ファイルアップロード（ドラッグ&ドロップ）
+  const handleAttachmentDrop = async (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      await uploadAttachmentFile(file);
+    }
+  };
+
   // コメント入力エリアへの画像ペースト処理
   // 添付ファイル削除
   const handleDeleteAttachment = async (attachmentId: number) => {
@@ -1743,6 +1754,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         {/* アップロード入力 */}
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <label
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { void handleAttachmentDrop(e); }}
             style={{
               flex: 1,
               display: 'flex',
@@ -1757,7 +1770,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               fontSize: '0.8125rem',
             }}
           >
-            {attachmentUploading ? '📤 Uploading...' : '📤 Click to upload file'}
+            {attachmentUploading ? '📤 Uploading...' : '📤 Click to upload file (or drag & drop)'}
             <input
               type="file"
               multiple

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import type { Cycle, VelocityData, CycleProgress, BurndownPoint } from '@/shared/api/types';
+import { applyCycleOptimisticPatch } from '../utils/cycleHelpers';
 
 /** サイクル一覧を取得（project/team両対応） */
 export function useCycles(projectId: number | undefined, teamId: number | undefined = undefined) {
@@ -127,7 +128,9 @@ export function useUpdateCycle(projectId: number | undefined) {
     updater: (currentData, variables) => {
       const cycles = currentData as Cycle[] | undefined;
       if (!cycles) return currentData;
-      return cycles.map((c) => (c.id === variables.id ? { ...c, ...variables } : c));
+      return cycles.map((c) =>
+        c.id === variables.id ? applyCycleOptimisticPatch(c, variables) : c,
+      );
     },
     additionalOptimisticUpdates: (variables) => [
       {
@@ -135,7 +138,7 @@ export function useUpdateCycle(projectId: number | undefined) {
         updater: (currentData) => {
           const cycle = currentData as Cycle | undefined;
           if (!cycle) return currentData;
-          return { ...cycle, ...variables };
+          return applyCycleOptimisticPatch(cycle, variables);
         },
       },
     ],
