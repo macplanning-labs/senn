@@ -249,16 +249,49 @@
   min-width: 48px;
 }
 
+.cycle-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cycle-row__heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+}
+
 .cycle-row__name {
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   font-weight: var(--font-weight-medium);
-  flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .cycle-row__dates {
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.cycle-row__description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.cycle-row__progress,
+.cycle-row__bar,
+.cycle-row__delete {
+  flex-shrink: 0;
 }
 
 .cycle-row__progress {
@@ -352,6 +385,10 @@
   .cycle-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .cycle-row__main {
+    width: 100%;
   }
 
   .cycle-row__progress {

@@ -8,6 +8,7 @@
 
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 import { NotificationDropdown } from '@/features/notifications/components/NotificationDropdown';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useOfflineStatus } from '@/shared/hooks/useOfflineStatus';
@@ -21,20 +22,6 @@ import { isDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { getAccessToken } from '@/shared/api/client';
 import './MainLayout.css';
-
-function LanguageToggle() {
-  const { i18n } = useTranslation();
-  const isJa = i18n.language === 'ja';
-  return (
-    <button
-      className="layout__lang-toggle"
-      onClick={() => void i18n.changeLanguage(isJa ? 'en' : 'ja')}
-      title={isJa ? 'Switch to English' : '日本語に切替'}
-    >
-      {isJa ? '🇯🇵' : '🇺🇸'}
-    </button>
-  );
-}
 
 function ThemeToggle() {
   const { t } = useTranslation();
@@ -174,7 +161,7 @@ export function MainLayout() {
           </button>
           <div className="layout__header-actions">
             <ThemeToggle />
-            <LanguageToggle />
+            <LanguageToggle className="layout__lang-toggle" />
             <NotificationDropdown />
           </div>
         </header>

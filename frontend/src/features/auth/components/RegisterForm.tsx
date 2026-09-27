@@ -14,6 +14,7 @@ import type { AxiosError } from 'axios';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
+import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 
 const registerSchema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -68,6 +69,7 @@ export function RegisterForm() {
 
   return (
     <div className="login" data-testid="register-page">
+      <LanguageToggle className="lang-toggle--floating" />
       <div className="login__card">
         <div className="login__header">
           <h1 className="login__logo">SENN</h1>

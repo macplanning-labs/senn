@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import type { AxiosError } from 'axios';
 import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
+import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 
 export function ForgotPasswordPage() {
   const { t } = useTranslation();
@@ -69,6 +70,7 @@ export function ForgotPasswordPage() {
 
   return (
     <div className="login" data-testid="forgot-password-page">
+      <LanguageToggle className="lang-toggle--floating" />
       <div className="login__card">
         <div className="login__header">
           <h1 className="login__logo">SENN</h1>

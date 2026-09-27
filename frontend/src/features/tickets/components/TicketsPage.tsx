@@ -21,21 +21,8 @@ import { buildTicketDetailPath } from '../utils/ticketNavigation';
 import '@/shared/sync/syncState.css';
 import './TicketsPage.css';
 
-const STATUS_LABELS: Record<string, string> = {
-  backlog: 'Backlog',
-  open: '未対応',
-  in_progress: '対応中',
-  resolved: '解決済み',
-  closed: '完了',
-  canceled: 'キャンセル',
-};
-
-const PRIORITY_LABELS: Record<string, string> = {
-  urgent: '緊急',
-  high: '高',
-  medium: '中',
-  low: '低',
-};
+const STATUS_KEYS = ['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled'] as const;
+const PRIORITY_KEYS = ['urgent', 'high', 'medium', 'low'] as const;
 
 interface TicketViewFilters {
   status: string;
@@ -58,6 +45,8 @@ interface TicketSavedView {
 
 export function TicketsPage() {
   const { t } = useTranslation();
+  const statusLabel = (v: string) => t(`ticket.status.${v}`, { defaultValue: v });
+  const priorityLabel = (v: string) => t(`ticket.priority_label.${v}`, { defaultValue: v });
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { projectList } = useProject();
@@ -115,15 +104,15 @@ export function TicketsPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey });
       setShowPresetMenu(false);
-      addToast({ message: 'ビューを保存しました', type: 'success' });
+      addToast({ message: t('savedView.created'), type: 'success' });
     },
     onError: (error: unknown) => {
       const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } };
       const detail = axiosErr.response?.data?.detail ?? '';
       if (axiosErr.response?.status === 400 && detail.includes('同じ名前')) {
-        addToast({ message: '同じ名前のビューが既にあります', type: 'error' });
+        addToast({ message: t('savedView.nameExists'), type: 'error' });
       } else {
-        addToast({ message: 'ビューの保存に失敗しました', type: 'error' });
+        addToast({ message: t('savedView.createFailed'), type: 'error' });
       }
     },
   });
@@ -134,10 +123,10 @@ export function TicketsPage() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey });
-      addToast({ message: 'ビューを削除しました', type: 'success' });
+      addToast({ message: t('savedView.deleted'), type: 'success' });
     },
     onError: () => {
-      addToast({ message: 'ビューの削除に失敗しました', type: 'error' });
+      addToast({ message: t('savedView.deleteFailed'), type: 'error' });
     },
   });
 
@@ -153,7 +142,7 @@ export function TicketsPage() {
   }, [showPresetMenu]);
 
   const savePreset = () => {
-    const name = prompt('ビュー名を入力してください');
+    const name = prompt(t('savedView.promptName'));
     if (!name?.trim()) return;
     createSavedViewMutation.mutate(name.trim());
   };
@@ -168,7 +157,7 @@ export function TicketsPage() {
   };
 
   const deletePreset = (viewId: number) => {
-    if (!window.confirm('このビューを削除しますか？')) return;
+    if (!window.confirm(t('savedView.deleteConfirm'))) return;
     deleteSavedViewMutation.mutate(viewId);
   };
 
@@ -180,16 +169,16 @@ export function TicketsPage() {
 
       <div className="tickets-page__filter-row">
         <select className="tickets-page__filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} data-testid="tickets-page-status-filter">
-          <option value="">Status</option>
-          {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
+          <option value="">{t('ticketTable.allStatus')}</option>
+          {STATUS_KEYS.map((value) => (
+            <option key={value} value={value}>{statusLabel(value)}</option>
           ))}
         </select>
 
         <select className="tickets-page__filter" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} data-testid="tickets-page-priority-filter">
           <option value="">{t('ticket.priority')}</option>
-          {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
+          {PRIORITY_KEYS.map((value) => (
+            <option key={value} value={value}>{priorityLabel(value)}</option>
           ))}
         </select>
 
@@ -209,7 +198,7 @@ export function TicketsPage() {
 
         <label className="tickets-page__mine-toggle">
           <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} data-testid="tickets-page-mine-checkbox" />
-          自分の担当のみ
+          {t('ticketTable.mineOnly')}
         </label>
 
         <div className="tickets-page__preset-wrapper" ref={presetRef} style={{ position: 'relative' }}>
@@ -217,7 +206,7 @@ export function TicketsPage() {
             type="button"
             className="tickets-page__preset-btn"
             onClick={() => setShowPresetMenu(!showPresetMenu)}
-            title="保存済みビュー"
+            title={t('savedView.title')}
             data-testid="tickets-page-preset-btn"
           >
             ⭐ {savedViewsData.length > 0 && <span className="tickets-page__preset-count">{savedViewsData.length}</span>}
@@ -225,7 +214,7 @@ export function TicketsPage() {
           {showPresetMenu && (
             <div className="tickets-page__preset-menu">
               {savedViewsData.length === 0 ? (
-                <div className="tickets-page__preset-empty">保存済みのビューはありません</div>
+                <div className="tickets-page__preset-empty">{t('savedView.noViews')}</div>
               ) : (
                 savedViewsData.map((view) => (
                   <div key={view.id} className="tickets-page__preset-item">
@@ -249,7 +238,7 @@ export function TicketsPage() {
                 data-testid="tickets-page-save-preset-btn"
                 disabled={createSavedViewMutation.isPending}
               >
-                + 現在の条件をビューとして保存
+                + {t('savedView.save')}
               </button>
             </div>
           )}
@@ -260,7 +249,7 @@ export function TicketsPage() {
         <div className="tickets-page__empty">{t('common.loading')}</div>
       ) : tickets.length === 0 ? (
         <div className="tickets-page__empty" data-testid="tickets-page-empty">
-          <p>該当するチケットがありません</p>
+          <p>{t('ticketTable.noMatch')}</p>
         </div>
       ) : (
         <table className="tickets-page__table">
@@ -305,8 +294,8 @@ export function TicketsPage() {
                       {ticket.title}
                     </Link>
                   </td>
-                  <td className="tickets-page__td">{STATUS_LABELS[ticket.status] ?? ticket.status}</td>
-                  <td className="tickets-page__td">{PRIORITY_LABELS[ticket.priority] ?? ticket.priority}</td>
+                  <td className="tickets-page__td">{statusLabel(ticket.status)}</td>
+                  <td className="tickets-page__td">{priorityLabel(ticket.priority)}</td>
                   <td className="tickets-page__td">{ticket.projectPrefix ?? ticket.team?.name ?? '—'}</td>
                   <td className="tickets-page__td">
                     {ticket.assignees.length > 0

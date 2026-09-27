@@ -404,7 +404,7 @@ function CycleRow({
 
   return (
     <div className="cycle-row" onClick={onNavigate}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0, whiteSpace: 'nowrap' }}>
         <span className="cycle-row__status" style={{ color: statusColors[cycle.status] }}>
           {statusLabels[cycle.status]}
         </span>
@@ -435,24 +435,15 @@ function CycleRow({
           </span>
         )}
       </div>
-      <span className="cycle-row__name">{cycle.name}</span>
-      <span className="cycle-row__dates">{cycle.startDate} — {cycle.endDate}</span>
-      {cycle.description && (
-        <span style={{
-          display: '-webkit-box' as any,
-          color: 'var(--color-text-secondary)',
-          fontSize: 'var(--font-size-sm)',
-          lineHeight: 1.4,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          WebkitLineClamp: 1,
-          WebkitBoxOrient: 'vertical',
-          marginTop: '4px',
-          width: '100%',
-        }}>
-          {cycle.description}
-        </span>
-      )}
+      <div className="cycle-row__main">
+        <div className="cycle-row__heading">
+          <span className="cycle-row__name">{cycle.name}</span>
+          <span className="cycle-row__dates">{cycle.startDate} — {cycle.endDate}</span>
+        </div>
+        {cycle.description && (
+          <span className="cycle-row__description">{cycle.description}</span>
+        )}
+      </div>
       <span className="cycle-row__progress">{pct}%</span>
       <div className="cycle-row__bar">
         <div className="cycle-row__bar-fill" style={{ width: `${pct}%` }} />

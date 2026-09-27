@@ -1,0 +1,27 @@
+/* 言語切替ボタン(ログイン前後で共通) */
+.lang-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: none;
+  border: 1px solid var(--color-border-default);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.lang-toggle:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent-primary);
+}
+
+/* 認証画面(ログイン・新規登録など): 右上に固定して表示する */
+.lang-toggle--floating {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: 10;
+}
