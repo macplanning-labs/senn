@@ -40,29 +40,27 @@ SPA 内の UI 複雑度の使い分け:
 
 Rust / Node / PostgreSQL のホストへの個別インストールは不要です。
 
-**おすすめ**: 起動スクリプトが、ランダムな秘密の値入りの `.env.oss` を初回に自動で作ります。編集は不要です。
+ターミナル（macOS / Linux、Windows は WSL2）で、次の5行を実行します。
 
 ```bash
 git clone https://github.com/macplanning-labs/senn.git
 cd senn
-./scripts/oss-up.sh
-```
-
-**手動で行う場合**: `.env.example` では `DB_PASSWORD` と `JWT_SECRET_KEY` を**意図的に空**にしてあります。設定するまで、`docker compose` はエラーで即停止します。
-
-```bash
 cp .env.example .env
-```
-
-`.env` に次のコマンドで作った値を設定してから、起動します。
-
-```bash
-openssl rand -hex 24        # → DB_PASSWORD（URLに埋め込まれるため英数字のみ）
-openssl rand -base64 48     # → JWT_SECRET_KEY（32文字以上）
+sed -i.bak "s|^DB_PASSWORD=.*|DB_PASSWORD=$(openssl rand -hex 24)|; s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')|" .env && rm .env.bak
 docker compose up --build
 ```
 
+- 3行目で設定ファイル（`.env`）を作ります。
+- 4行目で `DB_PASSWORD` と `JWT_SECRET_KEY` をランダムな値で自動的に書き込みます。`.env.example` では両方を**意図的に空**にしてあり、どちらかが空のままだと `docker compose` は分かりやすいメッセージで即停止します。
+- 5行目で起動します。**初回は10分程度**かかります（イメージをビルドするため）。このターミナルは閉じないでください（閉じると SENN が止まります）。
+
+`sed` や `openssl` が使えない環境（Windows など）では、`.env` をエディタで開き、`DB_PASSWORD=` に英数字のみの文字列（URLに埋め込まれるため）、`JWT_SECRET_KEY=` に32文字以上のランダムな文字列を設定してから、`docker compose up --build` を実行します。
+
 ブラウザで http://localhost:8151 を開きます。初回起動時にテーブルは自動作成されます（`RUST_RUN_MIGRATIONS=true`）。初期シードユーザーは同梱していないため、http://localhost:8151/register の画面上の「新規登録」から最初のアカウントを作成し、http://localhost:8151/login からログインしてください。
+
+初回の使い方: **新規登録**（登録すると自動でログインされます）→ サイドバーの「チーム」の右の **＋** でチームを作成 → **チケットを作成**（チームは選択済み）。
+
+停止は、ターミナルで `Ctrl+C` を**1回**押してから `docker compose down`（データは残ります）。再開は `docker compose up`（`--build` は不要）です。
 
 データベースをリセットしてやり直す場合:
 

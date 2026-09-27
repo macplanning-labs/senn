@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - First-run failure when `.env.example` was copied without editing: `JWT_SECRET_KEY` and `DB_PASSWORD` are now empty in the template, and `docker-compose.yml` stops immediately with an actionable message instead of crash-looping the backend/web containers.
-- README (EN/JA): recommend `./scripts/oss-up.sh` (auto-generated secrets) and document how to generate the two values for the manual route.
+- README (EN/JA): a single onboarding route (`docker compose`) with a one-line `sed` that fills `DB_PASSWORD` / `JWT_SECRET_KEY`, plus first-use, stop, restart and reset instructions.
 
 ## [0.1.0] - 2026-09-16
 
