@@ -14,40 +14,35 @@ Run SENN on your own machine or server. Your data stays in your Docker volumes.
 
 ### Start
 
-**Recommended** — the startup script creates `.env.oss` with random secrets on first run, so there is nothing to edit:
-
-```bash
-git clone https://github.com/macplanning-labs/senn.git
-cd senn
-./scripts/oss-up.sh
-```
-
-**Manual** — use the default compose file yourself. Both `DB_PASSWORD` and `JWT_SECRET_KEY` are left **empty** in `.env.example` on purpose, and `docker compose` stops immediately with an error until you fill them in:
+Run these five lines in a terminal (macOS / Linux, or WSL2 on Windows):
 
 ```bash
 git clone https://github.com/macplanning-labs/senn.git
 cd senn
 cp .env.example .env
-```
-
-Then set the two values in `.env` (generate them with the commands below) and start:
-
-```bash
-openssl rand -hex 24        # → DB_PASSWORD (letters/digits only: it is embedded in a URL)
-openssl rand -base64 48     # → JWT_SECRET_KEY (32+ characters)
+sed -i.bak "s|^DB_PASSWORD=.*|DB_PASSWORD=$(openssl rand -hex 24)|; s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')|" .env && rm .env.bak
 docker compose up --build
 ```
 
-Either way, open **http://localhost:8151**
+- Line 3 creates your config file (`.env`).
+- Line 4 fills in `DB_PASSWORD` and `JWT_SECRET_KEY` with random values. Both are left **empty** in `.env.example` on purpose, and `docker compose` stops right away with a clear message if either is empty.
+- Line 5 starts everything. **The first run takes about 10 minutes** (it builds the images). Keep this terminal open — closing it stops SENN.
+
+No `sed` / `openssl` (e.g. plain Windows)? Open `.env` in an editor and set `DB_PASSWORD=` to letters and digits only (it is embedded in a URL) and `JWT_SECRET_KEY=` to a random string of 32+ characters, then run `docker compose up --build`.
+
+When you see `listening on 0.0.0.0:8151`, open **http://localhost:8151**
 
 ### First use
-1. Sign up (username / email / password ≥ 8)
-2. Create a **Team** at `/teams` (required before tickets)
-3. Create a ticket from the team page
+1. Click **新規登録** (Sign up) and enter username / email / password (8+ characters). You are signed in automatically.
+2. Create a **Team**: click the **＋** next to “チーム” in the sidebar (or **最初のチームを作成**). Teams are required before tickets.
+3. Click **チケットを作成** and enter a title. Your new team is already selected.
 
-Stop: `./scripts/oss-down.sh` (add `--volumes` to wipe data)
+### Stop, restart, reset
+- **Stop**: press `Ctrl+C` **once** in the terminal, then `docker compose down`. Your data is kept.
+- **Start again**: `docker compose up` (no `--build` needed).
+- **Wipe everything** (irreversible): `docker compose down -v`
 
-Details: [`docs/利用ガイド_OSS自己構築.md`](./docs/利用ガイド_OSS自己構築.md)
+Advanced: [`docs/利用ガイド_OSS自己構築.md`](./docs/利用ガイド_OSS自己構築.md)
 
 ---
 
@@ -98,10 +93,11 @@ No local Rust / Node / PostgreSQL install needed. Same as [Getting Started](#get
 
 ```bash
 cp .env.example .env
+# set DB_PASSWORD and JWT_SECRET_KEY (see Start above), then:
 docker compose up --build
 ```
 
-Use `./scripts/oss-up.sh` (secrets are generated for you), or set `DB_PASSWORD` and `JWT_SECRET_KEY` in `.env` before the first run — see [Start](#start).
+`DB_PASSWORD` and `JWT_SECRET_KEY` must be set in `.env` before the first run — the one-line `sed` in [Start](#start) does it for you.
 
 Open http://localhost:8151 in your browser. Database tables are created automatically on first start (`RUST_RUN_MIGRATIONS=true`). No seed users are bundled — create your first account from the in-app registration screen at http://localhost:8151/register, then log in at http://localhost:8151/login.
 
