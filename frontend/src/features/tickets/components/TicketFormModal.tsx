@@ -11,11 +11,13 @@
  * 参照できる（overlayクリックでの閉じる動作も、背景を操作可能にする
  * 都合上あえて実装していない。閉じるのは✕ボタンのみ）。
  */
+import { useTranslation } from 'react-i18next';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { TicketForm } from './TicketForm';
 import './TicketFormModal.css';
 
 export function TicketFormModal() {
+  const { t } = useTranslation();
   const {
     ticketFormModalOpen,
     ticketFormModalProjectKey,
@@ -30,7 +32,7 @@ export function TicketFormModal() {
 
   return (
     <div className="ticket-form-modal__overlay">
-      <div className="ticket-form-modal__dialog" role="dialog" aria-label="チケット作成">
+      <div className="ticket-form-modal__dialog" role="dialog" aria-label={t('ticket.createTicket')}>
         <button
           type="button"
           className="ticket-form-modal__close"

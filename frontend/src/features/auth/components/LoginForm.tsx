@@ -13,6 +13,7 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
+import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -113,6 +114,7 @@ export function LoginForm() {
   if (mfaToken) {
     return (
       <div className="login" data-testid="login-page">
+        <LanguageToggle className="lang-toggle--floating" />
         <div className="login__card">
           <div className="login__header">
             <h1 className="login__logo">SENN</h1>
@@ -163,6 +165,7 @@ export function LoginForm() {
 
   return (
     <div className="login" data-testid="login-page">
+      <LanguageToggle className="lang-toggle--floating" />
       <div className="login__card">
         {/* ロゴ */}
         <div className="login__header">

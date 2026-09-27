@@ -136,15 +136,15 @@ export function ProjectsPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey });
       setShowPresetMenu(false);
-      addToast({ message: 'ビューを保存しました', type: 'success' });
+      addToast({ message: t('savedView.created'), type: 'success' });
     },
     onError: (error: unknown) => {
       const axiosErr = error as { response?: { status?: number; data?: { detail?: string } } };
       const detail = axiosErr.response?.data?.detail ?? '';
       if (axiosErr.response?.status === 400 && detail.includes('同じ名前')) {
-        addToast({ message: '同じ名前のビューが既にあります', type: 'error' });
+        addToast({ message: t('savedView.nameExists'), type: 'error' });
       } else {
-        addToast({ message: 'ビューの保存に失敗しました', type: 'error' });
+        addToast({ message: t('savedView.createFailed'), type: 'error' });
       }
     },
   });
@@ -155,10 +155,10 @@ export function ProjectsPage() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey });
-      addToast({ message: 'ビューを削除しました', type: 'success' });
+      addToast({ message: t('savedView.deleted'), type: 'success' });
     },
     onError: () => {
-      addToast({ message: 'ビューの削除に失敗しました', type: 'error' });
+      addToast({ message: t('savedView.deleteFailed'), type: 'error' });
     },
   });
 
@@ -174,7 +174,7 @@ export function ProjectsPage() {
   }, [showPresetMenu]);
 
   const savePreset = () => {
-    const name = prompt('ビュー名を入力してください');
+    const name = prompt(t('savedView.promptName'));
     if (!name?.trim()) return;
     createSavedViewMutation.mutate(name.trim());
   };
@@ -192,7 +192,7 @@ export function ProjectsPage() {
   };
 
   const deletePreset = (viewId: number) => {
-    if (!window.confirm('このビューを削除しますか？')) return;
+    if (!window.confirm(t('savedView.deleteConfirm'))) return;
     deleteSavedViewMutation.mutate(viewId);
   };
 
@@ -371,7 +371,7 @@ export function ProjectsPage() {
             type="button"
             className="projects-page__preset-btn"
             onClick={() => setShowPresetMenu(!showPresetMenu)}
-            title="保存済みビュー"
+            title={t('savedView.title')}
             data-testid="projects-page-preset-btn"
           >
             ⭐ {savedViewsData.length > 0 && <span className="projects-page__preset-count">{savedViewsData.length}</span>}
@@ -379,7 +379,7 @@ export function ProjectsPage() {
           {showPresetMenu && (
             <div className="projects-page__preset-menu">
               {savedViewsData.length === 0 ? (
-                <div className="projects-page__preset-empty">保存済みのビューはありません</div>
+                <div className="projects-page__preset-empty">{t('savedView.noViews')}</div>
               ) : (
                 savedViewsData.map((view) => (
                   <div key={view.id} className="projects-page__preset-item">
@@ -403,7 +403,7 @@ export function ProjectsPage() {
                 data-testid="projects-page-save-preset-btn"
                 disabled={createSavedViewMutation.isPending}
               >
-                + 現在の条件をビューとして保存
+                + {t('savedView.save')}
               </button>
             </div>
           )}

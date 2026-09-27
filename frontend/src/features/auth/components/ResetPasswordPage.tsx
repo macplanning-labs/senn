@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
+import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 
 export function ResetPasswordPage() {
   const { t } = useTranslation();
@@ -62,6 +63,7 @@ export function ResetPasswordPage() {
   if (!token) {
     return (
       <div className="login" data-testid="reset-password-page">
+        <LanguageToggle className="lang-toggle--floating" />
         <div className="login__card">
           <div className="login__header">
             <h1 className="login__logo">SENN</h1>

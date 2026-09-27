@@ -13,6 +13,8 @@ const resources = {
   en: {
     translation: {
       app: {
+        switchToJapanese: 'Switch to Japanese',
+        switchToEnglish: 'Switch to English',
         name: 'SENN',
         tagline: 'Project management that never lags.',
       },
@@ -327,6 +329,8 @@ const resources = {
         searchTrigger: '⌘K to search...',
       },
       ticketTable: {
+        mineOnly: 'Assigned to me only',
+        noMatch: 'No matching tickets',
         allStatus: 'All Status',
         allPriority: 'All Priority',
         allDueDates: 'All Due Dates',
@@ -429,6 +433,10 @@ const resources = {
         banner: 'Demo mode — no sign-up required. Changes are not saved.',
       },
       ticket: {
+        startDate: 'Start Date',
+        parent: 'Parent Ticket',
+        assignees: 'Assignees',
+        labels: 'Labels',
         create: 'Create Ticket',
         edit: 'Edit Ticket',
         delete: 'Delete Ticket',
@@ -462,6 +470,18 @@ const resources = {
         projectHelp: 'Optional. Only projects your selected team participates in are listed. Choose one to assign members and cycles from that project.',
       },
       common: {
+        action: 'Action',
+        enabled: 'Enabled',
+        disabled: 'Disabled',
+        copy: 'Copy',
+        username: 'Username',
+        firstName: 'First Name',
+        lastName: 'Last Name',
+        email: 'Email',
+        displayName: 'Display Name',
+        alias: 'Nickname (alias)',
+        saving: 'Saving...',
+        deleting: 'Deleting...',
         save: 'Save',
         cancel: 'Cancel',
         delete: 'Delete',
@@ -524,6 +544,7 @@ const resources = {
         scopeProject: 'Project: {{name}}',
       },
       cycle: {
+        completeFailed: 'Failed to complete the cycle',
         newCycle: '+ New Cycle',
         complete: 'Complete',
         completed: 'Completed',
@@ -542,6 +563,32 @@ const resources = {
         scopeRemoved: 'scope removed',
       },
       settings: {
+        language: 'Language',
+        theme: 'Theme',
+        totpMultiFactor: 'Two-Factor Authentication (TOTP)',
+        totpDesc: 'Use an authenticator app like Google Authenticator to add an extra layer of security.',
+        totpEnable: 'Enable TOTP',
+        totpDisable: 'Disable TOTP',
+        totpSetup: 'Set Up Two-Factor Authentication',
+        totpSetupDesc: 'Scan this QR code with your authenticator app:',
+        totpManualEntry: 'Or enter this code manually:',
+        totpEnter6Digit: 'Enter the 6-digit code from your app:',
+        tabProfile: 'Profile',
+        tabNotifications: 'Notifications',
+        tabSecurity: 'Security',
+        tabAi: 'AI',
+        tabShortcuts: 'Shortcuts',
+        profileUpdated: 'Profile updated',
+        accountDeactivated: 'Your account has been deleted',
+        deactivateFailed: 'Failed to delete the account',
+        dangerZone: 'Danger Zone',
+        deleteAccount: 'Delete account',
+        deleteAccountWarning: 'This action cannot be undone. Your account will be soft-deleted and you will no longer be able to log in.',
+        deleteMyAccount: 'Delete my account',
+        confirmDelete: 'Confirm account deletion',
+        deleteWarningFinal: 'Are you sure you want to delete your account? This action cannot be undone.',
+        currentPassword: 'Current password',
+        enterPassword: 'Enter your password',
         noProject: 'No project selected',
         selectProject: 'Select a project',
         emailEnabled: 'Email notifications enabled',
@@ -891,6 +938,8 @@ const resources = {
   ja: {
     translation: {
       app: {
+        switchToJapanese: '日本語に切替',
+        switchToEnglish: '英語に切替',
         name: 'SENN',
         tagline: '止まらないプロジェクト管理。',
       },
@@ -1205,6 +1254,8 @@ const resources = {
         searchTrigger: '⌘K で検索...',
       },
       ticketTable: {
+        mineOnly: '自分の担当のみ',
+        noMatch: '該当するチケットがありません',
         allStatus: 'すべてのステータス',
         allPriority: 'すべての優先度',
         allDueDates: 'すべての期限',
@@ -1307,6 +1358,10 @@ const resources = {
         banner: 'デモモード — 登録不要。変更は保存されません。',
       },
       ticket: {
+        startDate: '開始日',
+        parent: '親チケット',
+        assignees: '担当者',
+        labels: 'ラベル',
         create: 'チケット作成',
         edit: 'チケット編集',
         delete: 'チケット削除',
@@ -1340,6 +1395,18 @@ const resources = {
         projectHelp: '任意です。選んだチームが参加しているプロジェクトだけが候補に出ます。選ぶと、そのプロジェクトのメンバーやサイクルを使えます。',
       },
       common: {
+        action: 'アクション',
+        enabled: '有効',
+        disabled: '無効',
+        copy: 'コピー',
+        username: 'ユーザー名',
+        firstName: '名',
+        lastName: '姓',
+        email: 'メールアドレス',
+        displayName: '表示名',
+        alias: 'ニックネーム（エイリアス）',
+        saving: '保存中...',
+        deleting: '削除中...',
         save: '保存',
         cancel: 'キャンセル',
         delete: '削除',
@@ -1402,6 +1469,7 @@ const resources = {
         scopeProject: 'プロジェクト: {{name}}',
       },
       cycle: {
+        completeFailed: '完了に失敗しました',
         newCycle: '+ 新しいサイクル',
         complete: '完了にする',
         completed: '完了済み',
@@ -1420,6 +1488,32 @@ const resources = {
         scopeRemoved: 'スコープ削減',
       },
       settings: {
+        language: '言語',
+        theme: 'テーマ',
+        totpMultiFactor: '二要素認証（TOTP）',
+        totpDesc: 'Google Authenticator などの認証アプリを使って、アカウントのセキュリティを強化します。',
+        totpEnable: 'TOTP を有効にする',
+        totpDisable: 'TOTP を無効にする',
+        totpSetup: '二要素認証の設定',
+        totpSetupDesc: '認証アプリでこの QR コードをスキャンしてください:',
+        totpManualEntry: 'または、このコードを手入力してください:',
+        totpEnter6Digit: 'アプリに表示される6桁のコードを入力してください:',
+        tabProfile: 'プロフィール',
+        tabNotifications: '通知',
+        tabSecurity: 'セキュリティ',
+        tabAi: 'AI',
+        tabShortcuts: 'ショートカット',
+        profileUpdated: 'プロフィール更新完了',
+        accountDeactivated: 'アカウントを削除しました',
+        deactivateFailed: 'アカウント削除に失敗しました',
+        dangerZone: '危険な操作',
+        deleteAccount: 'アカウントを削除',
+        deleteAccountWarning: 'このアクションは取り消せません。あなたのアカウントは論理削除され、ログインできなくなります。',
+        deleteMyAccount: 'アカウントを削除する',
+        confirmDelete: 'アカウント削除の確認',
+        deleteWarningFinal: '本当にアカウントを削除しますか？このアクションは取り消せません。',
+        currentPassword: '現在のパスワード',
+        enterPassword: 'パスワードを入力してください',
         noProject: 'プロジェクトが選択されていません',
         selectProject: 'プロジェクトを選択してください',
         emailEnabled: 'メール通知を有効にしました',
@@ -1773,7 +1867,23 @@ export function htmlLangFor(lng: string | undefined): 'ja' | 'en' {
   return lng?.startsWith('ja') ? 'ja' : 'en';
 }
 
-const initialLanguage = htmlLangFor(navigator.language);
+// 利用者が選んだ言語を保存するキー。未保存(初回)のときだけ、ブラウザの言語で決める。
+export const LANGUAGE_STORAGE_KEY = 'senn-lang';
+
+export function resolveInitialLanguage(saved: string | null | undefined, navigatorLanguage: string | undefined): 'ja' | 'en' {
+  if (saved === 'ja' || saved === 'en') return saved;
+  return htmlLangFor(navigatorLanguage);
+}
+
+function readSavedLanguage(): string | null {
+  try {
+    return localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  } catch {
+    return null; // プライベートモードなどで localStorage が使えない場合
+  }
+}
+
+const initialLanguage = resolveInitialLanguage(readSavedLanguage(), navigator.language);
 
 i18n.use(initReactI18next).init({
   resources,
@@ -1793,5 +1903,19 @@ function syncHtmlLang(lng: string | undefined): void {
 }
 syncHtmlLang(initialLanguage);
 i18n.on('languageChanged', syncHtmlLang);
+
+/**
+ * 利用者が言語を切り替えたときに使う。表示を切り替え、選んだ言語を保存する。
+ * (保存は切替のときだけ。自動判定した言語を保存すると、あとでブラウザの言語を
+ *  変えても追従しなくなるため)
+ */
+export function changeAppLanguage(lng: 'ja' | 'en'): void {
+  void i18n.changeLanguage(lng);
+  try {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, lng);
+  } catch {
+    // 保存できなくても、表示の切替は有効
+  }
+}
 
 export default i18n;

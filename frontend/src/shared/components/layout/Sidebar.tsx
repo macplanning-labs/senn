@@ -730,7 +730,7 @@ export function Sidebar() {
               type="button"
               className="sidebar__avatar sidebar__avatar--button"
               onClick={() => setUserMenuOpen((v) => !v)}
-              title="個人設定"
+              title={t('nav.personalSettings')}
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
               data-testid="sidebar-user-menu-trigger"
