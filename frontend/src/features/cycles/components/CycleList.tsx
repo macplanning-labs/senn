@@ -15,6 +15,7 @@ import './CycleList.css';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconCycle } from '@/shared/components/layout/Sidebar';
 import { useTranslation } from 'react-i18next';
+import { canCompleteCycle } from '../utils/cycleHelpers';
 
 const statusLabels: Record<string, string> = {
   planned: '計画中',
@@ -131,10 +132,11 @@ export function CycleList() {
 
   const handleComplete = (cycle: Cycle) => {
     if (!project && !team) return;
-    const nextPlanned = plannedCycles[0];
+    const incompleteCount = cycle.ticketCount - cycle.completedCount;
+    const nextPlanned = plannedCycles.find((c) => c.id !== cycle.id);
     completeMutation.mutate({
       cycleId: cycle.id,
-      carryOverTo: nextPlanned?.id,
+      carryOverTo: incompleteCount > 0 ? nextPlanned?.id : undefined,
     });
   };
 
@@ -333,6 +335,7 @@ export function CycleList() {
             <CycleRow
               key={cycle.id}
               cycle={cycle}
+              onComplete={canCompleteCycle(cycle) ? () => handleComplete(cycle) : undefined}
               onNavigate={() => {
                 if (project) {
                   navigate(`/project/${project.prefix}/cycles/${cycle.id}`);
@@ -384,10 +387,12 @@ function CycleRow({
   cycle,
   onNavigate,
   onDelete,
+  onComplete,
 }: {
   cycle: Cycle;
   onNavigate: () => void;
   onDelete?: () => void;
+  onComplete?: () => void;
 }) {
   const { t } = useTranslation();
   const pct = cycle.ticketCount > 0
@@ -452,6 +457,14 @@ function CycleRow({
       <div className="cycle-row__bar">
         <div className="cycle-row__bar-fill" style={{ width: `${pct}%` }} />
       </div>
+      {onComplete && (
+        <button
+          className="cycle-form__btn cycle-form__btn--complete"
+          onClick={e => { e.stopPropagation(); onComplete(); }}
+        >
+          完了にする
+        </button>
+      )}
       {onDelete && (
         <button
           className="cycle-row__delete"

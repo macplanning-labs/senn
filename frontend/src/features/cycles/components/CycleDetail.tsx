@@ -13,10 +13,16 @@ import { TicketTable } from '@/features/tickets/components/TicketTable';
 import { TicketDetailPanel } from '@/features/tickets/components/TicketDetailPanel';
 import { usePanelResize } from '@/shared/hooks/usePanelResize';
 import { useProject } from '@/shared/hooks/useProject';
+import { useTeam } from '@/shared/hooks/useTeam';
 import { useToastStore } from '@/shared/stores/toastStore';
 import './CycleDetail.css';
 import { useTranslation } from 'react-i18next';
 import { BackLink } from '@/shared/components/ui/BackLink';
+import {
+  allTicketsClosed,
+  canCompleteCycle,
+  isValidCycleDateRange,
+} from '../utils/cycleHelpers';
 
 const statusLabels: Record<string, string> = {
   planned: '計画中',
@@ -78,6 +84,7 @@ export function CycleDetail() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentProject } = useProject();
+  const { currentTeam: team } = useTeam();
   const { addToast } = useToastStore();
   const { data: cycle, isLoading: cycleLoading } = useCycle(
     cycleId ? parseInt(cycleId) : undefined
@@ -85,15 +92,17 @@ export function CycleDetail() {
   const { data: progress } = useCycleProgress(
     cycleId ? parseInt(cycleId) : undefined
   );
-  const { data: cycles = [] } = useCycles(currentProject?.id);
+  const projectId = currentProject?.id ?? cycle?.project;
+  const teamId = team?.id ?? cycle?.team?.id;
+  const { data: cycles = [] } = useCycles(projectId, teamId);
   const createMutation = useCreateCycle();
-  const completeMutation = useCompleteCycle(currentProject?.id);
-  const updateCycleMutation = useUpdateCycle(currentProject?.id);
+  const completeMutation = useCompleteCycle(projectId, teamId);
+  const updateCycleMutation = useUpdateCycle(projectId);
   const { width: chartWidth, onResizeStart, isResizing } = usePanelResize('cycle-burndown', 420);
   const { width: panelWidth, onResizeStart: onPanelResizeStart, isResizing: isPanelResizing } = usePanelResize('cycle-ticket-detail', 380);
 
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
-  const [selectedCarryOver, setSelectedCarryOver] = useState<number | 'create' | null>(null);
+  const [selectedCarryOver, setSelectedCarryOver] = useState<number | 'create' | 'none' | null>(null);
   const [isCompleting, setIsCompleting] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [descriptionDraft, setDescriptionDraft] = useState('');
@@ -127,30 +136,46 @@ export function CycleDetail() {
   const today = todayYmd();
   const isOverdue = cycle && cycle.status === 'active' && cycle.endDate < today;
 
-  const plannedCycles = cycles.filter(c => c.status === 'planned' && c.project === currentProject?.id);
+  const plannedCycles = cycles.filter((c) =>
+    c.status === 'planned'
+    && c.id !== cycle?.id
+    && (projectId ? c.project === projectId : c.team?.id === teamId),
+  );
 
   const handleCompleteClick = () => {
-    const firstPlanned = plannedCycles[0];
-    if (firstPlanned) {
-      setSelectedCarryOver(firstPlanned.id);
+    if (!cycle) return;
+    if (allTicketsClosed(cycle)) {
+      setSelectedCarryOver('none');
     } else {
-      setSelectedCarryOver('create');
+      const firstPlanned = plannedCycles[0];
+      if (firstPlanned) {
+        setSelectedCarryOver(firstPlanned.id);
+      } else {
+        setSelectedCarryOver('create');
+      }
     }
     setCompleteDialogOpen(true);
   };
 
   const handleConfirmComplete = async () => {
-    if (!cycle || !currentProject || selectedCarryOver === null) return;
+    if (!cycle || selectedCarryOver === null) return;
+    const createProjectId = currentProject?.id ?? cycle.project;
+    if (selectedCarryOver === 'create' && !createProjectId) {
+      addToast({ message: '次 Cycle を作成するプロジェクトが特定できません', type: 'error' });
+      return;
+    }
     setIsCompleting(true);
 
     try {
       let carryOverTo: number | undefined;
-      if (selectedCarryOver === 'create') {
+      if (selectedCarryOver === 'none') {
+        carryOverTo = undefined;
+      } else if (selectedCarryOver === 'create') {
         const start = addDaysYmd(cycle.endDate, 1);
         const durationDays = diffDaysYmd(cycle.startDate, cycle.endDate);
         const end = addDaysYmd(start, durationDays > 0 ? durationDays : 14);
         const newCycle = await createMutation.mutateAsync({
-          project: currentProject.id,
+          project: createProjectId,
           name: `Cycle ${cycle.number + 1}`,
           start_date: start,
           end_date: end,
@@ -219,7 +244,14 @@ export function CycleDetail() {
             type="date"
             className="cycle-detail__date-input"
             value={cycle.startDate}
-            onChange={(e) => updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, start_date: e.target.value })}
+            onChange={(e) => {
+              const nextStart = e.target.value;
+              if (!isValidCycleDateRange(nextStart, cycle.endDate)) {
+                addToast({ message: '開始日は終了日より前を指定してください', type: 'error' });
+                return;
+              }
+              updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, start_date: nextStart });
+            }}
             data-testid="cycle-start-date-input"
           />
           <span>—</span>
@@ -227,7 +259,14 @@ export function CycleDetail() {
             type="date"
             className="cycle-detail__date-input"
             value={cycle.endDate}
-            onChange={(e) => updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, end_date: e.target.value })}
+            onChange={(e) => {
+              const nextEnd = e.target.value;
+              if (!isValidCycleDateRange(cycle.startDate, nextEnd)) {
+                addToast({ message: '終了日は開始日より後を指定してください', type: 'error' });
+                return;
+              }
+              updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, end_date: nextEnd });
+            }}
             data-testid="cycle-end-date-input"
           />
         </div>
@@ -239,7 +278,7 @@ export function CycleDetail() {
         >
           📊 {chartOpen ? t('cycle.burndownHide') : t('cycle.burndownShow')}
         </button>
-        {cycle.status === 'active' && (
+        {canCompleteCycle(cycle) && (
           <button
             type="button"
             style={{
@@ -345,35 +384,39 @@ export function CycleDetail() {
               {t('cycle.complete')}
             </h2>
             <p style={{ marginBottom: 'var(--space-4)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
-              {cycle.ticketCount - cycle.completedCount} {t('cycle.incompleteCount')} チケットを次の Cycle へ移します。
+              {allTicketsClosed(cycle)
+                ? 'すべてのチケットが完了しています。このサイクルを完了します。'
+                : `${cycle.ticketCount - cycle.completedCount} ${t('cycle.incompleteCount')} チケットを次の Cycle へ移します。`}
             </p>
-            <div style={{ marginBottom: 'var(--space-4)' }}>
-              <label style={{ display: 'block', marginBottom: 'var(--space-2)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-semibold)', fontSize: 'var(--font-size-sm)' }}>
-                持ち越し先の選択:
-              </label>
-              <select
-                value={selectedCarryOver === null ? '' : String(selectedCarryOver)}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setSelectedCarryOver(val === 'create' ? 'create' : val ? parseInt(val) : null);
-                }}
-                style={{
-                  width: '100%', padding: 'var(--space-2) var(--space-3)',
-                  background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-default)',
-                  borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)',
-                  fontSize: 'var(--font-size-sm)',
-                }}
-                disabled={isCompleting}
-              >
-                <option value="">— 選択してください</option>
-                {plannedCycles.map(pc => (
-                  <option key={pc.id} value={pc.id}>
-                    {pc.name}
-                  </option>
-                ))}
-                <option value="create">📝 次 Cycle を作成して移す</option>
-              </select>
-            </div>
+            {!allTicketsClosed(cycle) && (
+              <div style={{ marginBottom: 'var(--space-4)' }}>
+                <label style={{ display: 'block', marginBottom: 'var(--space-2)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-semibold)', fontSize: 'var(--font-size-sm)' }}>
+                  持ち越し先の選択:
+                </label>
+                <select
+                  value={selectedCarryOver === null || selectedCarryOver === 'none' ? '' : String(selectedCarryOver)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedCarryOver(val === 'create' ? 'create' : val ? parseInt(val) : null);
+                  }}
+                  style={{
+                    width: '100%', padding: 'var(--space-2) var(--space-3)',
+                    background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-sm)',
+                  }}
+                  disabled={isCompleting}
+                >
+                  <option value="">— 選択してください</option>
+                  {plannedCycles.map(pc => (
+                    <option key={pc.id} value={pc.id}>
+                      {pc.name}
+                    </option>
+                  ))}
+                  <option value="create">📝 次 Cycle を作成して移す</option>
+                </select>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
               <button
                 onClick={() => setCompleteDialogOpen(false)}
@@ -390,14 +433,14 @@ export function CycleDetail() {
               </button>
               <button
                 onClick={handleConfirmComplete}
-                disabled={isCompleting || selectedCarryOver === null}
+                disabled={isCompleting || (selectedCarryOver === null && !allTicketsClosed(cycle))}
                 style={{
                   flex: 1, padding: 'var(--space-2) var(--space-3)',
                   background: 'var(--color-accent-primary)', color: 'white',
                   border: 'none', borderRadius: 'var(--radius-md)',
-                  cursor: (isCompleting || selectedCarryOver === null) ? 'not-allowed' : 'pointer',
+                  cursor: (isCompleting || (selectedCarryOver === null && !allTicketsClosed(cycle))) ? 'not-allowed' : 'pointer',
                   fontSize: 'var(--font-size-sm)', fontWeight: 'var(--font-weight-semibold)',
-                  opacity: (isCompleting || selectedCarryOver === null) ? 0.6 : 1,
+                  opacity: (isCompleting || (selectedCarryOver === null && !allTicketsClosed(cycle))) ? 0.6 : 1,
                 }}
               >
                 {isCompleting ? '処理中...' : '確認'}

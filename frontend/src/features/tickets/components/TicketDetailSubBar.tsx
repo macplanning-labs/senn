@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useToastStore } from '../../../shared/stores/toastStore';
-import { buildTicketShareUrl } from '../utils/ticketNavigation';
+import { buildTicketPathContextFromPathname, buildTicketShareUrl } from '../utils/ticketNavigation';
 import type { TicketDetailView } from '../types/ticketDetailView';
 
 interface TicketDetailSubBarProps {
@@ -10,17 +11,13 @@ interface TicketDetailSubBarProps {
 
 export function TicketDetailSubBar({ ticket }: TicketDetailSubBarProps) {
   const { t } = useTranslation();
+  const { pathname } = useLocation();
   const { addToast } = useToastStore();
   const [codingTool, setCodingTool] = useState<'Cursor' | 'Claude Code'>(
     () => (localStorage.getItem('senn.codingTool') as 'Cursor' | 'Claude Code') || 'Cursor',
   );
 
-  const shareCtx = {
-    projectKey: ticket.projectPrefix,
-    teamSlug: ticket.team?.slug,
-    ticketProjectPrefix: ticket.projectPrefix,
-    ticketTeamSlug: ticket.team?.slug,
-  };
+  const shareCtx = buildTicketPathContextFromPathname(pathname, ticket);
 
   const handleCopyUrl = () => {
     const url = buildTicketShareUrl(window.location.origin, ticket.ticketKey, shareCtx);

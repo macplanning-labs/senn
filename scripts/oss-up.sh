@@ -31,7 +31,10 @@ if [ ! -f "$ENV_OSS_FILE" ]; then
     cp "$ENV_OSS_EXAMPLE" "$ENV_OSS_FILE"
     
     # Generate random secrets (do NOT echo them)
-    DB_PASSWORD=$(openssl rand -base64 24 | tr -d '\n')
+    # DB_PASSWORD は DATABASE_URL(postgres://user:PASSWORD@host/...) に埋め込まれるため、
+    # URL で意味を持つ文字(特に '/')を含まない hex にする。base64 だと約40%の確率で
+    # '/' を含み、"invalid port number" でバックエンドが起動できなかった。
+    DB_PASSWORD=$(openssl rand -hex 24)
     JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')
     
     # Update the file with random secrets using temp file (safer than sed with special chars)

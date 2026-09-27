@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
 import { localDeleteTickets } from '../../../shared/sync/ticketWrites';
 import {
-  buildTicketListPath,
+  buildTicketListPathForContext,
+  buildTicketPathContextFromPathname,
   buildTicketShareUrl,
   detectTicketDetailOrigin,
+  resolveTicketScopeFromPathname,
 } from '../utils/ticketNavigation';
 import { apiClient } from '../../../shared/api/client';
 import { useToastStore } from '../../../shared/stores/toastStore';
@@ -39,12 +41,7 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
     return () => document.removeEventListener('mousedown', onDoc);
   }, [menuOpen]);
 
-  const shareCtx = {
-    projectKey: ticket.projectPrefix,
-    teamSlug: ticket.team?.slug,
-    ticketProjectPrefix: ticket.projectPrefix,
-    ticketTeamSlug: ticket.team?.slug,
-  };
+  const shareCtx = buildTicketPathContextFromPathname(pathname, ticket);
 
   const watchMutation = useOptimisticMutation<void, { watch: boolean }>({
     mutationFn: async ({ watch }) => {
@@ -66,7 +63,12 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
   const handleDeleteConfirm = async () => {
     try {
       await localDeleteTickets([ticketId]);
-      navigate(buildTicketListPath(ticket.projectPrefix, undefined, ticket.team?.slug));
+      navigate(
+        buildTicketListPathForContext(pathname, {
+          projectKey: ticket.projectPrefix,
+          teamSlug: ticket.team?.slug,
+        }),
+      );
     } catch {
       addToast({ message: t('ticketDetail.deleteError'), type: 'error' });
       setConfirmDelete(false);
@@ -75,15 +77,25 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
 
   const teamSlug = ticket.team?.slug ?? null;
   const projectKey = ticket.projectPrefix ?? null;
-  const scopeLabel = ticket.team?.name || projectKey || t('nav.backTo.tickets');
+  const urlScope = resolveTicketScopeFromPathname(pathname);
+  const listPath = buildTicketListPathForContext(pathname, { projectKey, teamSlug });
+  const scopePath =
+    urlScope.kind === 'team'
+      ? `/team/${urlScope.teamSlug}`
+      : urlScope.kind === 'project'
+        ? `/project/${urlScope.projectKey}`
+        : teamSlug
+          ? `/team/${teamSlug}`
+          : projectKey
+            ? `/project/${projectKey}`
+            : listPath;
+  const scopeLabel =
+    urlScope.kind === 'team'
+      ? ticket.team?.name || urlScope.teamSlug || t('nav.backTo.tickets')
+      : urlScope.kind === 'project'
+        ? ticket.projectName || urlScope.projectKey || t('nav.backTo.tickets')
+        : ticket.team?.name || ticket.projectName || projectKey || t('nav.backTo.tickets');
   const ticketsLabel = t('ticketDetail.tickets');
-  const listPath = buildTicketListPath(projectKey, undefined, teamSlug);
-  // スコープ根: チームならチーム画面、プロジェクトならプロジェクト概要
-  const scopePath = teamSlug
-    ? `/team/${teamSlug}`
-    : projectKey
-      ? `/project/${projectKey}`
-      : listPath;
   const isWatching = ticket.isWatching;
 
   // パンくずは、詳細を開いた入口（自分のチケット・ボード・サイクル・一覧）に合わせる

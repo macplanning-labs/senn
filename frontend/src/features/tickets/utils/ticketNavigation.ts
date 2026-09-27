@@ -20,6 +20,38 @@ export function buildTicketDetailPath(
   return `/tickets/${ticketKey}`;
 }
 
+/** 現在の URL が /team/... または /project/... かを返す（パンくず・戻る用） */
+export function resolveTicketScopeFromPathname(pathname: string): {
+  kind: 'team' | 'project' | 'none';
+  teamSlug: string | null;
+  projectKey: string | null;
+} {
+  const teamSlug = pathname.match(/^\/team\/([^/]+)/)?.[1] ?? null;
+  if (teamSlug) return { kind: 'team', teamSlug, projectKey: null };
+  const projectKey = pathname.match(/^\/project\/([^/]+)/)?.[1] ?? null;
+  if (projectKey) return { kind: 'project', teamSlug: null, projectKey };
+  return { kind: 'none', teamSlug: null, projectKey: null };
+}
+
+/**
+ * 現在の URL 文脈を優先したチケット一覧パス。
+ * チーム一覧から開いた詳細（/team/.../tickets/:id）では project 付きチケットでも
+ * /team/:slug/tickets に戻す。
+ */
+export function buildTicketListPathForContext(
+  pathname: string,
+  ctx: { projectKey?: string | null; teamSlug?: string | null; cycleId?: number },
+): string {
+  const scope = resolveTicketScopeFromPathname(pathname);
+  if (scope.kind === 'team') {
+    return buildTicketListPath(null, ctx.cycleId, scope.teamSlug);
+  }
+  if (scope.kind === 'project') {
+    return buildTicketListPath(scope.projectKey, ctx.cycleId, null);
+  }
+  return buildTicketListPath(ctx.projectKey, ctx.cycleId, ctx.teamSlug);
+}
+
 /** チケット一覧（パネル閉じ）へのパスを生成 */
 export function buildTicketListPath(
   projectKey: string | null | undefined,
@@ -41,11 +73,30 @@ export function buildTicketListPath(
   return `/tickets`;
 }
 
-interface TicketPathContext {
+export interface TicketPathContext {
   projectKey?: string | null;
   teamSlug?: string | null;
   ticketProjectPrefix?: string | null;
   ticketTeamSlug?: string | null;
+}
+
+/** 現在の URL（入ってきた経路）に合わせた navigation 用コンテキスト */
+export function buildTicketPathContextFromPathname(
+  pathname: string,
+  ticket: { projectPrefix?: string | null; team?: { slug?: string } | null },
+): TicketPathContext {
+  const scope = resolveTicketScopeFromPathname(pathname);
+  const fallbacks = {
+    ticketProjectPrefix: ticket.projectPrefix ?? null,
+    ticketTeamSlug: ticket.team?.slug ?? null,
+  };
+  if (scope.kind === 'team') {
+    return { projectKey: null, teamSlug: scope.teamSlug, ...fallbacks };
+  }
+  if (scope.kind === 'project') {
+    return { projectKey: scope.projectKey, teamSlug: null, ...fallbacks };
+  }
+  return { projectKey: null, teamSlug: null, ...fallbacks };
 }
 
 /**
