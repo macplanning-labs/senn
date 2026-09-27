@@ -1,192 +1,207 @@
 # 利用ガイド — SENN OSS 自己構築
 
-SENN を自身の環境でセルフホストする際のガイドです。
+SENN を自分のPC（またはサーバー）で動かすためのガイドです。データはすべて、あなたの環境の Docker ボリュームに保存されます。
 
 ## インストール・起動
 
 ### 必要な環境
 
-- Docker / Docker Desktop / Colima
+- Docker（Docker Desktop、OrbStack、Colima など。**起動しておいてください**）
 - git
-- bash
+- ポート 8151 が空いていること
+- ターミナル（macOS / Linux はターミナル、Windows は WSL2）
 
 ### 起動手順
 
+ターミナルで、次の5行を順に実行します。
+
 ```bash
-# 1. リポジトリをクローン
 git clone https://github.com/macplanning-labs/senn.git
 cd senn
-
-# 2. ワンコマンドで起動
-./scripts/oss-up.sh
+cp .env.example .env
+sed -i.bak "s|^DB_PASSWORD=.*|DB_PASSWORD=$(openssl rand -hex 24)|; s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')|" .env && rm .env.bak
+docker compose up --build
 ```
 
-起動中に自動的に `.env.oss` が生成されます（初回のみ）。
+- 3行目で設定ファイル（`.env`）を作ります。
+- 4行目で、データベースのパスワード（`DB_PASSWORD`）と、ログインの署名に使う鍵（`JWT_SECRET_KEY`）を、ランダムな値で自動的に書き込みます。どちらも `.env.example` では**意図的に空**にしてあり、空のままだと `docker compose` は分かりやすいメッセージで即停止します。
+- 5行目で起動します。**初回は10分程度**かかります（イメージをビルドするため）。このターミナルは**閉じないでください**（閉じると SENN が止まります）。
 
-ブラウザで **http://localhost:8151** にアクセスしてください。
+`sed` や `openssl` が使えない環境（Windows など）では、3行目のあとで `.env` をエディタで開き、`DB_PASSWORD=` に**英数字のみ**の文字列（URL に埋め込まれるため）、`JWT_SECRET_KEY=` に**32文字以上**の文字列を書いて保存し、5行目を実行してください。
+
+ターミナルに `listening on 0.0.0.0:8151` が出たら、ブラウザで **http://localhost:8151** を開きます。
 
 ## 初回セットアップ
 
-### 1. ユーザー登録
+### 1. 新規登録
 
-- **Username**: 任意（日本語可）
-- **Email**: 有効なメールアドレス
-- **Password**: 8文字以上
+ログイン画面の一番下の **新規登録** を押し、次を入力します。
 
-### 2. チーム作成（必須）
+- **ユーザー名**: 任意（日本語可）
+- **メールアドレス**: 有効なメールアドレス
+- **パスワード**: 8文字以上
 
-⚠️ **SENN ではチケットを作成する前にチーム を作成する必要があります。**
+登録が終わると**自動でログイン**され、メイン画面が開きます（もう一度ログインする必要はありません）。
 
-1. 左サイドバーの **Teams** をクリック（見当たらない場合は ⌘K で検索）
-2. **+ New Team** をクリック
-3. チーム名を入力して作成
+### 2. チームを作る（チケットの前に必須）
 
-### 3. チケット作成
+SENN では、チケットを作る前に**チーム**が必要です。
 
-1. チーム詳細ページから **New Ticket** をクリック
-2. チケットのタイトル・説明・優先度などを入力
+1. 左サイドバーの **チーム** の右にある **＋** を押します（メイン画面の「最初のチームを作成」でも同じです）。
+2. **チーム名** を入力して **作成** を押します。
+3. **チーム Prefix** は、チケット番号の先頭になる文字です（例: `SMP` → `SMP-000001`）。空欄なら `TEAM` になります。
+
+### 3. チケットを作る
+
+1. メイン画面の **チケットを作成** を押します。
+2. **タイトル** を入力します。**チーム** の欄には、作ったチームがすでに選ばれています。
+3. **チケット作成** を押します。サイドバーの **チケット** で、作ったチケットを確認できます。
+
+## 停止・再開・削除
+
+### 停止する（データは残ります）
+
+起動に使ったターミナルで `Ctrl + C` を**1回**押し、停止が終わるまで待ちます（2回押すと強制終了になります）。続けて、次を実行します。
+
+```bash
+docker compose down
+```
+
+### もう一度起動する
+
+`senn` フォルダで、次を実行します。2回目からは `--build` が不要で、すぐに起動します。
+
+```bash
+docker compose up
+```
+
+### すべて削除する（アンインストール）
+
+⚠️ **登録したユーザー、チーム、チケットがすべて消え、元に戻せません。** 必要ならバックアップ（後述）を取ってから実行してください。
+
+```bash
+cd senn
+docker compose down -v
+cd ..
+rm -rf senn
+```
+
+`docker compose down -v` でコンテナとデータ（ボリューム）を削除し、最後に `senn` フォルダを削除します。
 
 ## トラブルシューティング
 
+### 起動時に `JWT_SECRET_KEY is empty` / `DB_PASSWORD is empty` と表示される
+
+`.env` にパスワードや鍵が入っていません。「起動手順」の4行目（`sed` の行）を実行してから、もう一度 `docker compose up --build` を実行してください。
+
+### ブラウザが「サーバに接続できません」と表示される
+
+起動中か、途中で止まっています。次で状態を確認してください。
+
+```bash
+docker compose ps
+```
+
+`db`・`backend`・`web` の3つが `Up` なら、数十秒待ってページを再読み込みしてください。そうでなければ、エラーの内容を確認します。
+
+```bash
+docker compose logs backend
+```
+
 ### ポート 8151 がすでに使用されている
 
-別のアプリケーションが使用中です。以下のコマンドで確認できます：
+別のアプリが使っています。次で確認できます。
 
 ```bash
 lsof -i :8151
 ```
 
-もしくは、`docker-compose.oss.yml` を編集して別のポート（例: 8081）に変更してください：
+そのアプリを終了するか、SENN のポートを変えます。`.env` の次の3行を、同じ番号（例: 8081）に書き換えて、`docker compose up -d` を実行してください。
 
-```yaml
-services:
-  web:
-    ports:
-      - "8081:80"  # 8151 から 8081 に変更
 ```
+PORT=8081
+BASE_URL=http://localhost:8081
+WEBAUTHN_RP_ORIGIN=http://localhost:8081
+```
+
+以降は、`http://localhost:8081` で開きます。
 
 ### データベースの接続エラー
 
 ```bash
-docker compose -f docker-compose.oss.yml --env-file .env.oss logs db
+docker compose logs db
 ```
 
-ログを確認してください。
+でログを確認してください。
 
-### ブラウザが「このサイトに接続できません」と表示される
+### ログイン後に真っ白な画面が表示される
 
-- SENN がまだ起動中である可能性があります。数秒待ってから再度アクセスしてください
-- Docker コンテナが起動しているか確認：
-  ```bash
-  docker compose -f docker-compose.oss.yml --env-file .env.oss ps
-  ```
-
-### ログイン後、真っ白な画面が表示される
-
-ブラウザキャッシュをクリアしてみてください（Ctrl+Shift+Delete または Cmd+Shift+Delete）。
+ブラウザのキャッシュをクリアしてみてください（Ctrl+Shift+Delete または Cmd+Shift+Delete）。
 
 ## データ保存場所
 
-すべてのデータは Docker ボリュームに保存されます：
+すべてのデータは Docker ボリュームに保存されます。
 
-- **データベース**: `senn-oss-pgdata` ボリューム
-- **ファイル添付**: `senn-oss-media` ボリューム
+- **データベース**: `senn-oss_senn_pgdata`
+- **添付ファイル**: `senn-oss_senn_media`
 
-これらは自分のマシン上にのみ存在し、当社サーバーと通信しません。
+これらは自分のマシン上にのみ存在し、当社サーバーとは通信しません。
 
 ## データのバックアップ
 
-### ボリュームのバックアップ
+`senn` フォルダで、次を実行します。
 
 ```bash
 # データベースのダンプ
-docker compose -f docker-compose.oss.yml --env-file .env.oss exec db \
-  pg_dump -U senn senn > backup.sql
+docker compose exec db pg_dump -U senn senn > backup.sql
 
-# メディアファイルのバックアップ
-docker run --rm -v senn-oss-media:/data -v $(pwd):/backup \
+# 添付ファイルのバックアップ
+docker run --rm -v senn-oss_senn_media:/data -v $(pwd):/backup \
   alpine tar czf /backup/media-backup.tar.gz /data
 ```
 
-## スクリプトの役割
-
-| スクリプト | 役割 |
-|:---|:---|
-| `scripts/oss-up.sh` | 自己ホスト起動（compose + 疎通確認） |
-| `scripts/oss-down.sh` | 停止（データ保持） |
-| `scripts/oss-down.sh --volumes` | **アンインストール**（コンテナ停止＋ボリューム削除） |
-
-最新コードの取り込みは `git pull` のあと `oss-down.sh` → `oss-up.sh` で再起動する。
-
-## 停止・削除（アンインストール）
-
-
-### 停止（データ保持）
-
-```bash
-./scripts/oss-down.sh
-```
-
-再度 `./scripts/oss-up.sh` で起動できます。
-
-### 完全削除
-
-```bash
-./scripts/oss-down.sh --volumes
-```
-
-⚠️ **注意**: すべてのデータが削除されます。必要に応じてバックアップしてください。
-
 ## 環境変数のカスタマイズ
 
-`.env.oss` ファイルで以下の設定をカスタマイズできます：
+`.env` で、次の設定を変更できます。編集したあとは `docker compose up -d` で反映されます。
 
-| 変数 | デフォルト | 説明 |
+| 変数 | 既定 | 説明 |
 |---|---|---|
-| `DB_PASSWORD` | ランダム生成 | PostgreSQL パスワード |
-| `JWT_SECRET_KEY` | ランダム生成 | JWT署名鍵(必須。32文字以上。未設定・既定値のままでは起動しません) |
-| `POSTGRES_DB` | `senn` | データベース名 |
-| `POSTGRES_USER` | `senn` | データベースユーザー |
-
-編集後は `./scripts/oss-down.sh && ./scripts/oss-up.sh` で再起動してください。
+| `DB_PASSWORD` | （空。設定が必須） | PostgreSQL のパスワード。URL に埋め込まれるため英数字のみ |
+| `JWT_SECRET_KEY` | （空。設定が必須） | ログインの署名鍵。32文字以上 |
+| `PORT` | `8151` | ブラウザで開くポート番号 |
+| `BASE_URL` / `WEBAUTHN_RP_ORIGIN` | `http://localhost:8151` | 開くURL。`PORT` を変えたら、同じ番号に揃える |
 
 ## ネットワーク設定
 
-SENN は `http://localhost:8151` でのみリッスンします。
-
-他のマシンからアクセスする場合は、`docker-compose.oss.yml` で以下を変更してください：
+Docker の既定では、ポート 8151 は**同じネットワークの他のPCからも**接続できます。自分のPCからだけに限定するには、`docker-compose.yml` の `web` の `ports` を次のように変えてください。
 
 ```yaml
 services:
   web:
     ports:
-      - "0.0.0.0:8151:80"  # localhost のみから全インターフェースに変更
+      - "127.0.0.1:${PORT:-8151}:80"
 ```
+
+他のPCから使う場合は、`BASE_URL` と `WEBAUTHN_RP_ORIGIN` を、そのPCから開くURL（`http://<SENN を動かしているPCのIPアドレス>:8151` の形）に合わせてください。
 
 ## よくある質問
 
 ### Q: SENN をアップデートするには？
 
 ```bash
-# 新しいバージョンをフェッチ
 git pull
-
-# 再起動
-./scripts/oss-down.sh
-./scripts/oss-up.sh
+docker compose up -d --build
 ```
 
-新しいマイグレーションが自動的に実行されます。
+新しいマイグレーションは自動的に実行されます。
 
 ### Q: ファイアウォール越しに使用できる？
 
-はい。ルーターやファイアウォール設定で 8151 番ポートを許可し、自分の IP アドレスから接続してください。
-
-ただし、本来オフライン・プライベートな用途を想定しているため、インターネット経由での使用はセキュリティに関する十分な理解が必要です。
+はい。ルーターやファイアウォールで 8151 番ポートを許可し、自分の IP アドレスから接続してください。ただし、本来はオフライン・プライベートな用途を想定しているため、インターネット経由での利用には、セキュリティについての十分な理解が必要です。
 
 ### Q: マルチユーザーで使用できる？
 
-はい。各ユーザーが独立したアカウントを作成して使用できます。チームを使ってアクセス制御することができます。
+はい。各ユーザーが独立したアカウントを作成して使用できます。チームを使ってアクセス制御ができます。
 
 ### Q: 本番環境での使用は？
 
@@ -194,6 +209,6 @@ git pull
 
 ## サポート
 
-問題が発生した場合は、GitHub Issues でお報告ください。
+問題が発生した場合は、GitHub Issues でお知らせください。
 
 https://github.com/macplanning-labs/senn/issues

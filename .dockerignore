@@ -1,4 +1,2 @@
 
 docker/*
-!docker/nginx-oss.conf
-!docker/Dockerfile.oss-web
