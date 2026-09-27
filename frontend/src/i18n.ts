@@ -365,6 +365,7 @@ const resources = {
         focusDescription: 'Focus on description',
       },
       auth: {
+        loginError: 'Invalid username or password',
         login: 'Log in',
         logout: 'Log out',
         register: 'Sign up',
@@ -1242,6 +1243,7 @@ const resources = {
         focusDescription: '説明にフォーカス',
       },
       auth: {
+        loginError: 'ユーザー名またはパスワードが正しくありません',
         login: 'ログイン',
         logout: 'ログアウト',
         register: '新規登録',
