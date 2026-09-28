@@ -179,19 +179,11 @@
 }
 
 .ticket-field-picker__date {
-  padding: 8px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
-.ticket-field-picker__date-input {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border, #333);
-  background: var(--color-bg-primary, #0a0a0a);
-  color: var(--color-text-primary, #e0e0e0);
-}
+
 .ticket-field-picker__done--ghost {
   background: transparent;
   border: 1px solid var(--color-border, #333);

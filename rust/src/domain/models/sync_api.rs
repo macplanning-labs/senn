@@ -21,6 +21,12 @@ pub struct TicketSyncOut {
     pub description: String,
     #[serde(rename = "closedAt")]
     pub closed_at: Option<DateTime<Utc>>,
+    #[serde(rename = "aiPrompt")]
+    pub ai_prompt: Option<String>,
+    #[serde(rename = "aiPromptUpdatedAt")]
+    pub ai_prompt_updated_at: Option<DateTime<Utc>>,
+    #[serde(rename = "aiPromptGenerationMode")]
+    pub ai_prompt_generation_mode: Option<String>,
 }
 
 /// Extended project data for sync (ProjectOut + updatedAt)

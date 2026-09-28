@@ -133,7 +133,7 @@
   grid-template-columns: 1fr 360px;
   gap: 16px;
   padding: 16px;
-  overflow-y: auto;
+  overflow: hidden;
   flex: 1;
   min-height: 0;
   overscroll-behavior: contain;
@@ -141,12 +141,18 @@
 
 .ticket-detail-content {
   min-width: 0;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 100%;
 }
 
 .ticket-detail-sidebar {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  min-height: 0;
+  align-self: stretch;
 }
 
 /* Properties Sidebar */
@@ -197,9 +203,16 @@
 @media (max-width: 1024px) {
   .ticket-detail-main {
     grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .ticket-detail-content {
+    overflow-y: visible;
+    max-height: none;
   }
 
   .ticket-detail-sidebar {
+    overflow-y: visible;
     order: -1;
   }
 }
@@ -264,6 +277,37 @@
 
 .ticket-detail-topbar__dropdown-danger {
   color: #f87171 !important;
+}
+
+.ticket-detail-topbar__dropdown-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border, #333);
+}
+
+.ticket-detail-topbar__dropdown-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.ticket-detail-topbar__dropdown-label {
+  padding: 4px 10px 2px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary, #a0a0a0);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ticket-detail-topbar__dropdown-sub {
+  padding-left: 16px !important;
+}
+
+.ticket-detail-topbar__dropdown-sub:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .ticket-detail-subbar__prompt-group {

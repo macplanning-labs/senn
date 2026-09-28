@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { DateInput } from '@/shared/components/ui/DateInput';
 import { useTeamGuests, useAddTeamGuest, useRemoveTeamGuest } from '../hooks/useTeams';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
@@ -128,13 +129,12 @@ export function TeamGuestsSection({ team }: Props) {
               </option>
             ))}
           </select>
-          <input
-            type="date"
+          <DateInput
             className="team-members__select"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            title="有効期限(任意)"
-            data-testid="guest-end-date-input"
+            value={endDate || null}
+            onChange={(value) => setEndDate(value ?? '')}
+            placeholder="有効期限(任意)"
+            testId="guest-end-date-input"
           />
           <button
             className="team-members__submit-btn"

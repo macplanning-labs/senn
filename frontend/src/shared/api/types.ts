@@ -109,6 +109,7 @@ export interface Project {
   cycleAutoComplete: boolean;
   cycleAutoCreateNext: boolean;
   createdAt: string;
+  aiPromptTemplate?: string | null;
 }
 
 // ============================================================

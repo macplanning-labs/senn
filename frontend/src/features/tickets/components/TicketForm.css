@@ -45,15 +45,6 @@
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-/* ダークモードのdate/calendarアイコン対応 */
-.ticket-form__input[type="date"] {
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] .ticket-form__input[type="date"] {
-  color-scheme: light;
-}
-
 .ticket-form__textarea {
   resize: vertical;
   min-height: 120px;

@@ -58,6 +58,8 @@ pub struct ProjectOut {
     pub child_count: i64,
     #[serde(rename = "roadmapIds")]
     pub roadmap_ids: Vec<i32>,
+    #[serde(rename = "aiPromptTemplate")]
+    pub ai_prompt_template: Option<String>,
 }
 
 fn default_priority() -> String {
@@ -97,6 +99,8 @@ pub struct ProjectPatchIn {
     pub priority: Option<String>,
     #[serde(default, rename = "parentProjectId", deserialize_with = "deserialize_present")]
     pub parent_project_id: Option<Option<i32>>,
+    #[serde(default, rename = "aiPromptTemplate", deserialize_with = "deserialize_present")]
+    pub ai_prompt_template: Option<Option<String>>,
 }
 
 /// GET /projects/ の絞り込みフィルター

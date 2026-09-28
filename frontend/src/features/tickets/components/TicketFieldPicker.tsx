@@ -41,10 +41,6 @@ export interface TicketFieldPickerProps {
   allowEmpty?: boolean;
   emptyLabel?: string;
   title: string;
-  /** date fields: show native date input instead of option list */
-  dateMode?: boolean;
-  dateValue?: string | null;
-  onConfirmDate?: (value: string | null) => void;
 }
 
 const PANEL_WIDTH = 320;
@@ -61,18 +57,18 @@ function filterOptions(options: TicketFieldPickerOption[], query: string): Ticke
   );
 }
 
-function computeAnchorStyle(anchorRect: DOMRect | null): CSSProperties | undefined {
+function computeAnchorStyle(anchorRect: DOMRect | null, panelHeight: number = PANEL_MAX_HEIGHT): CSSProperties | undefined {
   if (!anchorRect) return undefined;
   const left = Math.min(
     Math.max(8, anchorRect.left),
     window.innerWidth - PANEL_WIDTH - 8,
   );
   const topBelow = anchorRect.bottom + 4;
-  const topAbove = anchorRect.top - PANEL_MAX_HEIGHT - 4;
+  const topAbove = anchorRect.top - panelHeight - 4;
   const top =
-    topBelow + PANEL_MAX_HEIGHT > window.innerHeight && topAbove >= 8
+    topBelow + panelHeight > window.innerHeight && topAbove >= 8
       ? topAbove
-      : Math.min(topBelow, window.innerHeight - PANEL_MAX_HEIGHT - 8);
+      : Math.min(topBelow, window.innerHeight - panelHeight - 8);
   return { top, left, width: PANEL_WIDTH };
 }
 
@@ -90,22 +86,17 @@ export function TicketFieldPicker({
   allowEmpty = false,
   emptyLabel = 'Unassigned',
   title,
-  dateMode = false,
-  dateValue = null,
-  onConfirmDate,
 }: TicketFieldPickerProps) {
   const [search, setSearch] = useState('');
   const [pendingIds, setPendingIds] = useState<string[]>(selectedIds);
-  const [pendingDate, setPendingDate] = useState(dateValue ?? '');
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
       setSearch('');
       setPendingIds(selectedIds);
-      setPendingDate(dateValue ?? '');
     }
-  }, [open, selectedIds, dateValue]);
+  }, [open, selectedIds]);
 
   useEffect(() => {
     if (!open) return;
@@ -217,39 +208,7 @@ export function TicketFieldPicker({
       >
         <div className="ticket-field-picker__header">{title}</div>
 
-        {dateMode ? (
-          <div className="ticket-field-picker__date">
-            <input
-              type="date"
-              className="ticket-field-picker__date-input"
-              value={pendingDate}
-              autoFocus
-              onChange={(e) => setPendingDate(e.target.value)}
-            />
-            <div className="ticket-field-picker__footer">
-              <button
-                type="button"
-                className="ticket-field-picker__done ticket-field-picker__done--ghost"
-                onClick={() => {
-                  onConfirmDate?.(null);
-                  onClose();
-                }}
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="ticket-field-picker__done"
-                onClick={() => {
-                  onConfirmDate?.(pendingDate || null);
-                  onClose();
-                }}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        ) : loading ? (
+        {loading ? (
           <div className="ticket-field-picker__loading">Loading…</div>
         ) : (
           <Command label={title} shouldFilter={false}>
@@ -291,7 +250,7 @@ export function TicketFieldPicker({
           </Command>
         )}
 
-        {multi && !loading && !dateMode && (
+        {multi && !loading && (
           <div className="ticket-field-picker__footer">
             <button
               type="button"

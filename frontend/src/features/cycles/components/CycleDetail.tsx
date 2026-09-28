@@ -5,6 +5,7 @@
  * バーンダウンチャートはURL(?panel=chart)で開閉するサイドパネルに格納する。
  */
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { DateInput } from '@/shared/components/ui/DateInput';
 import { useState, useEffect } from 'react';
 import { useCycle, useCycleProgress, useCycles, useCreateCycle, useCompleteCycle, useUpdateCycle } from '../hooks/useCycles';
 import { BurndownChart } from './BurndownChart';
@@ -240,34 +241,34 @@ export function CycleDetail() {
           )}
         </div>
         <div className="cycle-detail__date-inputs">
-          <input
-            type="date"
+          <DateInput
             className="cycle-detail__date-input"
             value={cycle.startDate}
-            onChange={(e) => {
-              const nextStart = e.target.value;
+            allowClear={false}
+            testId="cycle-start-date-input"
+            onChange={(value) => {
+              const nextStart = value ?? '';
               if (!isValidCycleDateRange(nextStart, cycle.endDate)) {
                 addToast({ message: '開始日は終了日より前を指定してください', type: 'error' });
                 return;
               }
               updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, start_date: nextStart });
             }}
-            data-testid="cycle-start-date-input"
           />
           <span>—</span>
-          <input
-            type="date"
+          <DateInput
             className="cycle-detail__date-input"
             value={cycle.endDate}
-            onChange={(e) => {
-              const nextEnd = e.target.value;
+            allowClear={false}
+            testId="cycle-end-date-input"
+            onChange={(value) => {
+              const nextEnd = value ?? '';
               if (!isValidCycleDateRange(cycle.startDate, nextEnd)) {
                 addToast({ message: '終了日は開始日より後を指定してください', type: 'error' });
                 return;
               }
               updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, end_date: nextEnd });
             }}
-            data-testid="cycle-end-date-input"
           />
         </div>
         <button

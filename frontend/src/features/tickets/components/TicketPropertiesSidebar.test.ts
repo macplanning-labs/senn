@@ -68,6 +68,10 @@ vi.mock('@/features/tickets/hooks/useTicketDetailHotkeys', () => ({
   useTicketDetailHotkeys: vi.fn(),
 }));
 
+vi.mock('./TicketRelationsSidebar', () => ({
+  TicketRelationsSidebar: () => null,
+}));
+
 vi.mock('./TicketPropertiesSidebar.css', () => ({}));
 
 import { TicketPropertiesSidebar } from './TicketPropertiesSidebar';

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
 use crate::domain::models::ticket_api::*;
-use crate::domain::services::notification_service;
+use crate::domain::services::{ai_service, notification_service};
 use crate::infrastructure::repositories::{
     membership_repo, project_repo, resource_repo, ticket_repo, user_repo, workflow_status_repo,
 };
@@ -1697,6 +1697,20 @@ pub async fn add_comment(
                 tracing::warn!("mention processing failed: {:?}", e);
                 // メンション処理失敗はコメント投稿自体は成功しているので、エラーを返さない
             }
+
+            // AI プロンプトキャッシュ生成（バックグラウンド）
+            let pool = state.pool.clone();
+            let ai_config = state.ai_config().await;
+            tokio::spawn(async move {
+                if let Err(e) =
+                    ai_service::generate_and_cache_ai_prompt(ticket_id, &pool, &ai_config).await
+                {
+                    tracing::warn!(
+                        ticket_id,
+                        "generate_and_cache_ai_prompt failed: {e:#}"
+                    );
+                }
+            });
 
             (StatusCode::CREATED, Json(comment)).into_response()
         }

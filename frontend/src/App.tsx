@@ -46,7 +46,6 @@ import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsP
 import { WorkloadReportPage } from '@/features/reports/components/WorkloadReportPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
 import { TicketFormModal } from '@/features/tickets/components/TicketFormModal';
-import { GeneratePromptModal } from '@/features/tickets/components/GeneratePromptModal';
 import { ToastContainer } from '@/shared/components/ui/ToastContainer';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { getLastProjectKey } from '@/shared/hooks/useProject';
@@ -291,7 +290,6 @@ export default function App() {
         </Routes>
         <CommandPalette />
         <TicketFormModal />
-        <GeneratePromptModal />
         <ToastContainer />
       </BrowserRouter>
     </QueryClientProvider>

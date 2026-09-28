@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { DateInput } from '@/shared/components/ui/DateInput';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useTranslation } from 'react-i18next';
@@ -276,12 +277,11 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
 
               <div className="settings-form__group">
                 <label className="settings-form__label">期限日</label>
-                <input
+                <DateInput
                   className="settings-form__input"
-                  type="date"
-                  value={formData.due_date}
-                  onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))}
-                  data-testid="milestone-due-input"
+                  value={formData.due_date || null}
+                  onChange={(value) => setFormData(prev => ({ ...prev, due_date: value ?? '' }))}
+                  testId="milestone-due-input"
                 />
               </div>
 

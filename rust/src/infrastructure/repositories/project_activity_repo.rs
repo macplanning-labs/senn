@@ -277,6 +277,7 @@ mod tests {
             parent_project_id: None,
             child_count: 0,
             roadmap_ids: vec![],
+            ai_prompt_template: None,
         }
     }
 

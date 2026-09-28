@@ -24,6 +24,36 @@ vi.mock('../../../shared/sync/ticketMapping', () => ({
   syncStateOf: () => 'synced',
 }));
 
+vi.mock('../hooks/useTicketDependencies', () => ({
+  useTicketDependencies: () => ({ data: [], isLoading: false }),
+}));
+
+vi.mock('../hooks/useTicketBlockedStatus', () => ({
+  useTicketBlockedStatus: () => ({ data: { isBlocked: false, blockers: [] } }),
+}));
+
+vi.mock('../hooks/useTicketRelationActions', () => ({
+  useTicketRelationActions: () => ({
+    handleCreate: vi.fn(),
+    handleDelete: vi.fn(),
+    isCreating: false,
+    isDeleting: false,
+  }),
+}));
+
+vi.mock('@/shared/stores/uiStore', () => ({
+  useUIStore: () => ({ openTicketFormModal: vi.fn() }),
+}));
+
+vi.mock('../components/TicketRelationPickerDialog', () => ({
+  TicketRelationPickerDialog: () => null,
+}));
+
+vi.mock('../components/TicketRelationsSidebar', () => ({
+  TicketRelationsSidebar: () =>
+    createElement('div', { className: 'ticket-relations-sidebar' }, 'RelationsSidebar'),
+}));
+
 vi.mock('../components/TicketDetailTopBar', () => ({
   TicketDetailTopBar: () => 
     createElement('div', { className: 'ticket-detail-topbar' }, 'TopBar'),

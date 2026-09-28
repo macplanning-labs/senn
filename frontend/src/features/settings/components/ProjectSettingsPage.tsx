@@ -70,6 +70,10 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [cycleAutoComplete, setCycleAutoComplete] = useState(currentProject?.cycleAutoComplete ?? true);
   const [cycleAutoCreateNext, setCycleAutoCreateNext] = useState(currentProject?.cycleAutoCreateNext ?? true);
+  const [aiPromptTemplateEdit, setAiPromptTemplateEdit] = useState(false);
+  const [aiPromptTemplateValue, setAiPromptTemplateValue] = useState(
+    currentProject?.aiPromptTemplate?.trim() || t('settings.defaultAiPromptTemplate'),
+  );
 
   const canDeleteProject =
     !!user &&
@@ -104,6 +108,24 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
     },
     onError: () => {
       addToast({ message: 'サイクル設定の更新に失敗しました', type: 'error' });
+    },
+  });
+
+  const updateAiPromptTemplate = useMutation({
+    mutationFn: async (template: string | null) => {
+      const value = template?.trim() ? template.trim() : null;
+      await localUpdateProject(
+        currentProject!.id,
+        { aiPromptTemplate: value },
+        { aiPromptTemplate: value },
+      );
+    },
+    onSuccess: () => {
+      setAiPromptTemplateEdit(false);
+      addToast({ message: t('settings.aiPromptTemplateSaved'), type: 'success' });
+    },
+    onError: () => {
+      addToast({ message: t('settings.aiPromptTemplateSaveFailed'), type: 'error' });
     },
   });
 
@@ -198,6 +220,109 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
                 </div>
               </label>
             </div>
+          </div>
+        </>
+      )}
+
+      {/* AIプロンプト設定 */}
+      {currentProject && (
+        <>
+          <div className="settings-section__header">
+            <h2 className="settings-section__title">{t('settings.aiPromptTemplateTitle')}</h2>
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+              {t('settings.aiPromptTemplateDesc')}
+            </div>
+          </div>
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            {!aiPromptTemplateEdit ? (
+              <div>
+                <div
+                  onClick={() => {
+                    setAiPromptTemplateValue(currentProject?.aiPromptTemplate?.trim() || t('settings.defaultAiPromptTemplate'));
+                    setAiPromptTemplateEdit(true);
+                  }}
+                  style={{
+                    padding: 'var(--space-3)',
+                    background: 'var(--color-bg-elevated)',
+                    border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-sm)',
+                    minHeight: 80,
+                    cursor: 'pointer',
+                    whiteSpace: 'pre-wrap',
+                    wordWrap: 'break-word',
+                    fontFamily: 'monospace',
+                  }}
+                  data-testid="ai-prompt-template-display"
+                >
+                  {(currentProject?.aiPromptTemplate?.trim() || t('settings.defaultAiPromptTemplate')).substring(0, 200)}
+                  {(currentProject?.aiPromptTemplate?.trim() || t('settings.defaultAiPromptTemplate')).length > 200 ? '...' : ''}
+                </div>
+                <button
+                  className="settings-form__btn settings-form__btn--secondary"
+                  onClick={() => setAiPromptTemplateEdit(true)}
+                  style={{ marginTop: 'var(--space-3)' }}
+                >
+                  {t('common.edit')}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <textarea
+                  rows={8}
+                  className="settings-form__textarea"
+                  value={aiPromptTemplateValue}
+                  onChange={(e) => setAiPromptTemplateValue(e.target.value)}
+                  placeholder={t('settings.defaultAiPromptTemplate')}
+                  data-testid="ai-prompt-template-input"
+                  style={{
+                    width: '100%',
+                    minHeight: 200,
+                    padding: 'var(--space-3)',
+                    background: 'var(--color-bg-elevated)',
+                    border: '1px solid var(--color-border-default)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-sm)',
+                    fontFamily: 'monospace',
+                  }}
+                />
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 'var(--space-2)',
+                    marginTop: 'var(--space-3)',
+                  }}
+                >
+                  <button
+                    className="settings-form__btn settings-form__btn--secondary"
+                    onClick={() => setAiPromptTemplateEdit(false)}
+                    disabled={updateAiPromptTemplate.isPending}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button
+                    className="settings-form__btn settings-form__btn--primary"
+                    onClick={() => updateAiPromptTemplate.mutate(aiPromptTemplateValue)}
+                    disabled={updateAiPromptTemplate.isPending}
+                    data-testid="ai-prompt-template-save-btn"
+                  >
+                    {updateAiPromptTemplate.isPending ? t('common.loading') : t('common.save')}
+                  </button>
+                  <button
+                    className="settings-form__btn settings-form__btn--secondary"
+                    onClick={() => {
+                      setAiPromptTemplateValue(t('settings.defaultAiPromptTemplate'));
+                      updateAiPromptTemplate.mutate(null);
+                    }}
+                    disabled={updateAiPromptTemplate.isPending}
+                  >
+                    {t('settings.aiPromptTemplateReset')}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

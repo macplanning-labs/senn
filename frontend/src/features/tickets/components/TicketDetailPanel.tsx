@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react';
+import { DateInput } from '@/shared/components/ui/DateInput';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +25,6 @@ import { syncStateOf } from '@/shared/sync/ticketMapping';
 import type { LocalTicket } from '@/shared/sync/db';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useUIStore } from '@/shared/stores/uiStore';
-import { usePromptGenerationStore } from '@/shared/stores/promptGenerationStore';
 import { useToast } from '@/shared/stores/toastStore';
 import { TimeTracker } from './TimeTracker';
 import { GitActivity } from './GitActivity';
@@ -33,6 +33,7 @@ import { AIAnalysisPanel } from '@/features/ai/components/AIAnalysisPanel';
 import { CloseAnalysisDialog } from '@/features/ai/components/CloseAnalysisDialog';
 import { ReactionBar } from './ReactionBar';
 import { buildTicketShareUrl, buildTicketEditPath } from '../utils/ticketNavigation';
+import { scheduleAiPromptCacheSync } from '../utils/scheduleAiPromptCacheSync';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { createMentionExtension } from '../utils/createMentionExtension';
 import { IconMoreHorizontal } from '@/shared/components/ui/icons';
@@ -69,6 +70,9 @@ interface TicketData {
   linkedWikiPages?: { id: number; title: string; slug: string; category: string }[];
   labels: { id: number; name: string; color: string }[];
   isWatching: boolean;
+  aiPrompt?: string | null;
+  aiPromptUpdatedAt?: string | null;
+  aiPromptGenerationMode?: string | null;
 }
 
 interface LabelOption {
@@ -182,7 +186,6 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const descriptionRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const currentUser = useAuthStore((s) => s.user);
-  const { openAndGenerate, phase } = usePromptGenerationStore();
   const { openTicketFormModal } = useUIStore();
 
   const ticketQueryKey = ['ticket', ticketId];
@@ -370,15 +373,6 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     selector: ({ editor }) => !editor || editor.isEmpty,
   });
 
-  // AI 設定取得（タイムアウトとモデル）
-  const { data: aiSettings } = useQuery<{ ollamaTimeoutSecs: number; ollamaModel: string }>({
-    queryKey: ['settings-ai'],
-    queryFn: async () => {
-      const res = await apiClient.get<{ ollamaTimeoutSecs: number; ollamaModel: string }>('/settings/ai/');
-      return res.data;
-    },
-  });
-
   // ステータス変更ハンドラ — closed/resolved 時にクローズ分析を起動
   const handleStatusChange = (newStatus: string) => {
     void localUpdateTicket(ticketId, { status: newStatus }, { status: newStatus });
@@ -458,6 +452,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         setInlineCommentText('');
         setInlineCommentAnchor(null);
       }
+      scheduleAiPromptCacheSync();
     },
     errorMessage: 'コメントの追加に失敗しました。',
   });
@@ -608,16 +603,20 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     }
   };
 
-  // プロンプト生成 — モーダルを開く
-  const handleGeneratePrompt = () => {
+  // プロンプト — キャッシュをクリップボードにコピー
+  const handleCopyAiPrompt = async () => {
     if (!ticket) return;
-    const timeoutSecs = aiSettings?.ollamaTimeoutSecs ?? 60;
-    const model = aiSettings?.ollamaModel ?? 'unknown';
-    openAndGenerate(
-      { id: ticket.id, ticketKey: ticket.ticketKey, title: ticket.title },
-      timeoutSecs,
-      model
-    );
+    const cached = ticket.aiPrompt?.trim();
+    if (!cached) {
+      toast.info(t('ticketDetail.aiPromptPending'));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(cached);
+      toast.success(t('ticketDetail.aiPromptCopied', { ticketKey: ticket.ticketKey }));
+    } catch {
+      toast.error(t('ticketDetail.aiPromptCopyFailed'));
+    }
   };
 
   // 説明文のテキスト選択を処理
@@ -1087,10 +1086,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           </button>
           <button
             className="detail-panel__edit-btn detail-panel__prompt-btn"
-            onClick={handleGeneratePrompt}
-            disabled={phase === 'generating'}
-            aria-label={t('ai.generatePrompt')}
-            title={t('ai.generatePrompt')}
+            onClick={handleCopyAiPrompt}
+            aria-label={t('ticketDetail.copyAiPrompt')}
+            title={t('ticketDetail.copyAiPrompt')}
             data-testid="generate-prompt-btn"
           >
             📋
@@ -1309,24 +1307,21 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         {/* 開始日 */}
         <div className="detail-panel__field">
           <span className="detail-panel__field-label">Start date</span>
-          <input
-            type="date"
-            className="detail-panel__field-select"
-            value={ticket.startDate ? ticket.startDate.slice(0, 10) : ''}
-            onChange={(e) => handleMutateLocal({ start_date: e.target.value || null }, { startDate: e.target.value || null })}
-            data-testid="start-date-input"
+          <DateInput
+            value={ticket.startDate ? ticket.startDate.slice(0, 10) : null}
+            onChange={(value) => handleMutateLocal({ start_date: value }, { startDate: value })}
+            testId="start-date-input"
           />
         </div>
 
         {/* 期限 */}
         <div className="detail-panel__field">
           <span className="detail-panel__field-label">Due date</span>
-          <input
-            type="date"
-            className={`detail-panel__field-select ${ticket.dueDate && new Date(ticket.dueDate) < new Date() ? 'detail-panel__overdue' : ''}`}
-            value={ticket.dueDate ? ticket.dueDate.slice(0, 10) : ''}
-            onChange={(e) => handleMutateLocal({ due_date: e.target.value || null }, { dueDate: e.target.value || null })}
-            data-testid="due-date-input"
+          <DateInput
+            className={ticket.dueDate && new Date(ticket.dueDate) < new Date() ? 'detail-panel__overdue' : ''}
+            value={ticket.dueDate ? ticket.dueDate.slice(0, 10) : null}
+            onChange={(value) => handleMutateLocal({ due_date: value }, { dueDate: value })}
+            testId="due-date-input"
           />
         </div>
 

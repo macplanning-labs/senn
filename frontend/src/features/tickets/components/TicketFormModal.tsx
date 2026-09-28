@@ -25,6 +25,7 @@ export function TicketFormModal() {
     ticketFormModalInitialDescription,
     ticketFormModalInitialParent,
     ticketFormModalInitialCycleId,
+    ticketFormModalOnCreated,
     closeTicketFormModal,
   } = useUIStore();
 
@@ -47,6 +48,7 @@ export function TicketFormModal() {
           initialDescription={ticketFormModalInitialDescription ?? undefined}
           initialParent={ticketFormModalInitialParent ?? undefined}
           initialCycleId={ticketFormModalInitialCycleId ?? undefined}
+          onCreated={ticketFormModalOnCreated ?? undefined}
           onClose={closeTicketFormModal}
         />
       </div>

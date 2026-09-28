@@ -9,6 +9,8 @@ import type { TicketDetailView } from '../types/ticketDetailView';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { useTicketPropertyMutations } from '../hooks/useTicketPropertyMutations';
 import { useTicketDetailHotkeys, type TicketHotkeyAction } from '../hooks/useTicketDetailHotkeys';
+import type { RelationCreateKind } from '../utils/classifyDependencies';
+import { DateInput } from '@/shared/components/ui/DateInput';
 import {
   TicketFieldPicker,
   type TicketFieldPickerOption,
@@ -41,15 +43,7 @@ interface TicketPropertiesSidebarProps {
   ticketId: string;
   onFocusTitle: () => void;
   onFocusDescription: () => void;
-}
-
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  onOpenRelationPicker?: (kind: RelationCreateKind) => void;
 }
 
 export function TicketPropertiesSidebar({
@@ -57,6 +51,7 @@ export function TicketPropertiesSidebar({
   ticketId,
   onFocusTitle,
   onFocusDescription,
+  onOpenRelationPicker,
 }: TicketPropertiesSidebarProps) {
   const { t } = useTranslation();
   const { addToast } = useToastStore();
@@ -65,10 +60,19 @@ export function TicketPropertiesSidebar({
 
   const [openField, setOpenField] = useState<TicketPickerField | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [dueOpenSignal, setDueOpenSignal] = useState(0);
 
   const openPicker = useCallback((field: TicketPickerField, rect: DOMRect | null) => {
     setOpenField(field);
-    setAnchorRect(rect);
+    let next = rect;
+    if (!next) {
+      const el = document.querySelector(`[data-testid="ticket-property-${field}"]`);
+      if (el) next = el.getBoundingClientRect();
+    }
+    if (!next) {
+      next = new DOMRect(window.innerWidth - 320 - 16, 120, 0, 0);
+    }
+    setAnchorRect(next);
   }, []);
 
   const closePicker = useCallback(() => {
@@ -86,9 +90,25 @@ export function TicketPropertiesSidebar({
         onFocusDescription();
         return;
       }
+      if (action === 'relationRelated') {
+        onOpenRelationPicker?.('related');
+        return;
+      }
+      if (action === 'relationBlockedBy') {
+        onOpenRelationPicker?.('blockedBy');
+        return;
+      }
+      if (action === 'relationBlocking') {
+        onOpenRelationPicker?.('blocking');
+        return;
+      }
+      if (action === 'dueDate') {
+        setDueOpenSignal((n) => n + 1);
+        return;
+      }
       openPicker(action, null);
     },
-    [onFocusTitle, onFocusDescription, openPicker],
+    [onFocusTitle, onFocusDescription, openPicker, onOpenRelationPicker],
   );
 
   useTicketDetailHotkeys({ enabled: true, onAction: onHotkey });
@@ -380,8 +400,6 @@ export function TicketPropertiesSidebar({
     );
   };
 
-  const isDateField = openField === 'dueDate' || openField === 'startDate';
-
   return (
     <>
       <div className="ticket-properties-sidebar">
@@ -412,7 +430,17 @@ export function TicketPropertiesSidebar({
             ticket.storyPoints != null ? String(ticket.storyPoints) : '—',
             true,
           )}
-          {row('dueDate', 'Due Date', formatDate(ticket.dueDate), true)}
+          <div className="ticket-property-item">
+            <span className="ticket-property-label">Due Date</span>
+            <DateInput
+              variant="inline"
+              value={ticket.dueDate}
+              onChange={(value) => mutations.dueDate.mutate(value)}
+              placeholder="—"
+              testId="ticket-property-dueDate"
+              openSignal={dueOpenSignal}
+            />
+          </div>
         </div>
       </div>
 
@@ -420,7 +448,16 @@ export function TicketPropertiesSidebar({
         <h3 className="ticket-properties-sidebar__title">Others</h3>
         <div className="ticket-properties-list">
           {row(null, 'Author', ticket.author?.displayName || ticket.author?.username || '—', false)}
-          {row('startDate', 'Start date', formatDate(ticket.startDate), true)}
+          <div className="ticket-property-item">
+            <span className="ticket-property-label">Start date</span>
+            <DateInput
+              variant="inline"
+              value={ticket.startDate}
+              onChange={(value) => mutations.startDate.mutate(value)}
+              placeholder="—"
+              testId="ticket-property-startDate"
+            />
+          </div>
           {row('category', 'Category', ticket.category?.name || '—', true)}
           {row('milestone', 'Milestone', ticket.milestone?.name || '—', true)}
           {row(null, 'Linked Wiki', wikiLabel || '—', false)}
@@ -440,7 +477,7 @@ export function TicketPropertiesSidebar({
           field={openField}
           open
           onClose={closePicker}
-          placement={openField === 'status' ? 'center' : 'anchor'}
+          placement="anchor"
           anchorRect={anchorRect}
           options={pickerOptions}
           multi={openField === 'assignee' || openField === 'labels' || openField === 'reviewer'}
@@ -457,12 +494,6 @@ export function TicketPropertiesSidebar({
           }
           emptyLabel="Unassigned"
           title={PICKER_FIELD_TITLES[openField]}
-          dateMode={isDateField}
-          dateValue={openField === 'dueDate' ? ticket.dueDate : openField === 'startDate' ? ticket.startDate : null}
-          onConfirmDate={(value) => {
-            if (openField === 'dueDate') mutations.dueDate.mutate(value);
-            if (openField === 'startDate') mutations.startDate.mutate(value);
-          }}
         />
       )}
     </>

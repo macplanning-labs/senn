@@ -133,6 +133,11 @@
   border-radius: var(--radius-md, 8px);
   box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
   font-size: var(--font-size-sm, 13px);
+  cursor: pointer;
+}
+
+.task-node:hover {
+  border-color: var(--color-accent-primary, #6366f1);
 }
 
 .task-node__header {
@@ -241,4 +246,28 @@
   font-size: 11px;
   font-weight: var(--font-weight-medium, 500);
   white-space: nowrap;
+}
+
+/* ── 依存エッジ ── */
+.task-dependency-flow .react-flow__edge.dependency-edge--blocks path {
+  stroke: #64748b;
+}
+
+.task-dependency-flow .react-flow__edge.dependency-edge--related path {
+  stroke: #94a3b8;
+  stroke-dasharray: 6 4;
+}
+
+/* ── 依存関係エッジ ── */
+.dependency-edge--blocks {
+  /* solid stroke uses React Flow defaults */
+}
+
+.task-dependency-flow .react-flow__edge.dependency-edge--related path {
+  stroke-dasharray: 6 4;
+}
+
+.task-dependency-flow .react-flow__edge-text {
+  fill: var(--color-text-secondary, #6b7280);
+  font-size: 11px;
 }

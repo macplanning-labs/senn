@@ -21,12 +21,13 @@ export interface TicketTitleDescriptionEditorHandle {
 interface TicketTitleDescriptionEditorProps {
   ticket: TicketDetailView;
   ticketId: string;
+  isBlocked?: boolean;
 }
 
 export const TicketTitleDescriptionEditor = forwardRef<
   TicketTitleDescriptionEditorHandle,
   TicketTitleDescriptionEditorProps
->(function TicketTitleDescriptionEditor({ ticket, ticketId }, ref) {
+>(function TicketTitleDescriptionEditor({ ticket, ticketId, isBlocked }, ref) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editingTitle, setEditingTitle] = useState(false);
@@ -172,6 +173,11 @@ export const TicketTitleDescriptionEditor = forwardRef<
 
   return (
     <div className="ticket-title-description-editor">
+      {isBlocked && (
+        <div className="ticket-blocked-warning" data-testid="ticket-blocked-warning">
+          {t('ticketDetail.blockedWarning')}
+        </div>
+      )}
       <div className="ticket-title-section">
         {editingTitle ? (
           <input
