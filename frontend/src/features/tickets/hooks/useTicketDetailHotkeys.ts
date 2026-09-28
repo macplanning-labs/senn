@@ -14,7 +14,10 @@ export type TicketHotkeyAction =
   | 'estimate'
   | 'dueDate'
   | 'focusTitle'
-  | 'focusDescription';
+  | 'focusDescription'
+  | 'relationRelated'
+  | 'relationBlockedBy'
+  | 'relationBlocking';
 
 function isInputFocused(): boolean {
   const active = document.activeElement;
@@ -29,6 +32,7 @@ function isInputFocused(): boolean {
 }
 
 function isPickerActive(): boolean {
+  if (document.querySelector('[data-ticket-relation-picker-open]')) return true;
   if (document.querySelector('[data-ticket-field-picker-open]')) return true;
   const active = document.activeElement;
   if (!active) return false;
@@ -46,6 +50,8 @@ export function useTicketDetailHotkeys(opts: {
 
   const gWaitingRef = useRef(false);
   const gTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mWaitingRef = useRef(false);
+  const mTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearGWait = useCallback(() => {
     gWaitingRef.current = false;
@@ -64,6 +70,23 @@ export function useTicketDetailHotkeys(opts: {
     }, G_SEQUENCE_TIMEOUT);
   }, []);
 
+  const clearMWait = useCallback(() => {
+    mWaitingRef.current = false;
+    if (mTimeoutRef.current) {
+      clearTimeout(mTimeoutRef.current);
+      mTimeoutRef.current = null;
+    }
+  }, []);
+
+  const startMWait = useCallback(() => {
+    mWaitingRef.current = true;
+    if (mTimeoutRef.current) clearTimeout(mTimeoutRef.current);
+    mTimeoutRef.current = setTimeout(() => {
+      mWaitingRef.current = false;
+      mTimeoutRef.current = null;
+    }, G_SEQUENCE_TIMEOUT);
+  }, []);
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -72,6 +95,26 @@ export function useTicketDetailHotkeys(opts: {
 
       if (e.key === 'g' || e.key === 'G') {
         startGWait();
+        return;
+      }
+
+      if (e.key === 'm' || e.key === 'M') {
+        startMWait();
+        return;
+      }
+
+      if (mWaitingRef.current) {
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          onActionRef.current('relationRelated');
+        } else if (e.key === 'b' || e.key === 'B') {
+          e.preventDefault();
+          onActionRef.current('relationBlockedBy');
+        } else if (e.key === 'x' || e.key === 'X') {
+          e.preventDefault();
+          onActionRef.current('relationBlocking');
+        }
+        clearMWait();
         return;
       }
 
@@ -124,6 +167,7 @@ export function useTicketDetailHotkeys(opts: {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       clearGWait();
+      clearMWait();
     };
-  }, [enabled, startGWait, clearGWait]);
+  }, [enabled, startGWait, clearGWait, startMWait, clearMWait]);
 }

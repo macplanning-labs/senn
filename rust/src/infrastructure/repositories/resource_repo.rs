@@ -38,6 +38,7 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
         parent_project_id: Option<i32>,
         child_count: i64,
         roadmap_ids: Option<serde_json::Value>,
+        ai_prompt_template: Option<String>,
     }
 
     let mut qb = QueryBuilder::new(
@@ -103,7 +104,8 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
                 WHERE rp.project_id = p.id
               ),
               '[]'::json
-            ) as roadmap_ids
+            ) as roadmap_ids,
+            p.ai_prompt_template
          FROM tickets_project p
          WHERE 1=1"
     );
@@ -168,6 +170,7 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
                 parent_project_id: row.parent_project_id,
                 child_count: row.child_count,
                 roadmap_ids,
+                ai_prompt_template: row.ai_prompt_template,
             }
         })
         .collect();
@@ -204,6 +207,7 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i
         parent_project_id: Option<i32>,
         child_count: i64,
         roadmap_ids: Option<serde_json::Value>,
+        ai_prompt_template: Option<String>,
     }
 
     let row_opt = sqlx::query_as::<_, ProjectRow>(
@@ -266,7 +270,8 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i
                 WHERE rp.project_id = p.id
               ),
               '[]'::json
-            ) as roadmap_ids
+            ) as roadmap_ids,
+            p.ai_prompt_template
          FROM tickets_project p
          WHERE p.id = $1"
     )
@@ -302,6 +307,7 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i
             parent_project_id: row.parent_project_id,
             child_count: row.child_count,
             roadmap_ids,
+            ai_prompt_template: row.ai_prompt_template,
         }
     });
 
@@ -445,6 +451,8 @@ pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &Proj
         && input.cycle_auto_create_next.is_none()
         && input.status.is_none()
         && input.priority.is_none()
+        && input.parent_project_id.is_none()
+        && input.ai_prompt_template.is_none()
     {
         return Ok(false);
     }
@@ -471,6 +479,16 @@ pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &Proj
         separated
             .push("priority = ")
             .push_bind_unseparated(priority);
+    }
+    if let Some(parent_id) = input.parent_project_id {
+        separated
+            .push("parent_project_id = ")
+            .push_bind_unseparated(parent_id);
+    }
+    if let Some(ai_template) = &input.ai_prompt_template {
+        separated
+            .push("ai_prompt_template = ")
+            .push_bind_unseparated(ai_template.clone());
     }
 
     separated.push_unseparated(" WHERE id = ");

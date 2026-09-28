@@ -10,6 +10,7 @@ import { bumpTicketCounter } from '../../../shared/sync/ticketWrites';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { createMentionExtension, renderCommentBodyWithMentions } from '../utils/createMentionExtension';
 import type { Comment, TicketAttachment, TicketDetailView } from '../types/ticketDetailView';
+import { scheduleAiPromptCacheSync } from '../utils/scheduleAiPromptCacheSync';
 import './TicketComments.css';
 
 interface TicketCommentsProps {
@@ -150,6 +151,7 @@ export function TicketComments({
       }
 
       void queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
+      scheduleAiPromptCacheSync();
     },
     errorMessage: t('ticketDetail.errors.commentFailed'),
   });

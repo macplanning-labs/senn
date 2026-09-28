@@ -225,6 +225,12 @@ pub struct TicketDetailOut {
     pub linked_wiki_pages: Vec<LinkedWikiPageOut>,
     #[serde(rename = "isWatching")]
     pub is_watching: bool,
+    #[serde(rename = "aiPrompt")]
+    pub ai_prompt: Option<String>,
+    #[serde(rename = "aiPromptUpdatedAt")]
+    pub ai_prompt_updated_at: Option<DateTime<Utc>>,
+    #[serde(rename = "aiPromptGenerationMode")]
+    pub ai_prompt_generation_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

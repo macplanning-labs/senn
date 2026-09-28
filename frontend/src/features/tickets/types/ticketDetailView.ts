@@ -68,4 +68,7 @@ export interface TicketDetailView {
   comments?: Comment[];
   links?: ReferenceLink[];
   attachments?: TicketAttachment[];
+  aiPrompt?: string | null;
+  aiPromptUpdatedAt?: string | null;
+  aiPromptGenerationMode?: string | null;
 }

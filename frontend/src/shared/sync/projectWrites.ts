@@ -120,6 +120,7 @@ export async function localCreateProject(
     parentProjectId: null,
     childCount: 0,
     roadmapIds: [],
+    aiPromptTemplate: null,
     ...preview,
     _dirty: true,
     _syncedAt: null,

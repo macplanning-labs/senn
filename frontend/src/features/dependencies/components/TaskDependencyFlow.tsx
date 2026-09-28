@@ -2,13 +2,13 @@
  * TaskDependencyFlow.tsx — タスク依存関係フロー可視化
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
-  addEdge,
   useEdgesState,
   useNodesState,
   type Connection,
@@ -21,6 +21,8 @@ import { isAxiosError } from 'axios';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useToast } from '@/shared/stores/toastStore';
+import { buildTicketDetailPath } from '@/features/tickets/utils/ticketNavigation';
+import type { DependencyType, TaskDependency } from '@/shared/api/types';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconDependency } from '@/shared/components/layout/Sidebar';
 import {
@@ -202,10 +204,50 @@ function layoutWithDagre(
   return [...groupNodes, ...taskNodes];
 }
 
+function edgeFromDependency(
+  d: TaskDependency,
+  labelBlocks: string,
+  labelRelated: string,
+): Edge {
+  const isRelated = d.dependencyType === 'relates_to';
+  return {
+    id: String(d.id),
+    source: String(d.fromTask),
+    target: String(d.toTask),
+    label: isRelated ? labelRelated : labelBlocks,
+    className: isRelated ? 'dependency-edge--related' : 'dependency-edge--blocks',
+    style: isRelated
+      ? { stroke: '#94a3b8', strokeDasharray: '6 4' }
+      : { stroke: '#64748b' },
+  };
+}
+
+function edgeFromConnection(
+  connection: Connection,
+  connectType: DependencyType,
+  labelBlocks: string,
+  labelRelated: string,
+): Edge {
+  const isRelated = connectType === 'relates_to';
+  return {
+    id: `${connection.source}-${connection.target}`,
+    source: connection.source,
+    target: connection.target,
+    sourceHandle: connection.sourceHandle,
+    targetHandle: connection.targetHandle,
+    label: isRelated ? labelRelated : labelBlocks,
+    className: isRelated ? 'dependency-edge--related' : 'dependency-edge--blocks',
+    style: isRelated
+      ? { stroke: '#94a3b8', strokeDasharray: '6 4' }
+      : { stroke: '#64748b' },
+  };
+}
+
 export function TaskDependencyFlow() {
   const { t } = useTranslation();
-  const { currentProject } = useProject();
-  const { currentTeam } = useTeam();
+  const navigate = useNavigate();
+  const { projectKey, currentProject } = useProject();
+  const { teamSlug, currentTeam } = useTeam();
   const projectId = currentProject?.id;
   const teamId = currentTeam?.id;
   const toast = useToast();
@@ -217,6 +259,11 @@ export function TaskDependencyFlow() {
 
   const [showIsolated, setShowIsolated] = useState(true);
   const [selectedType, setSelectedType] = useState('all');
+  const [connectType, setConnectType] = useState<DependencyType>('blocks');
+  const [selectedCycle, setSelectedCycle] = useState<string>('all');
+
+  const labelBlocks = t('dependencyGraph.edgeBlocks');
+  const labelRelated = t('dependencyGraph.edgeRelated');
 
   const allNodes: Node<TaskNodeData>[] = useMemo(() => {
     if (!graph) return [];
@@ -230,13 +277,8 @@ export function TaskDependencyFlow() {
 
   const allEdges: Edge[] = useMemo(() => {
     if (!graph) return [];
-    return graph.edges.map((d) => ({
-      id: String(d.id),
-      source: String(d.fromTask),
-      target: String(d.toTask),
-      label: d.dependencyType,
-    }));
-  }, [graph]);
+    return graph.edges.map((d) => edgeFromDependency(d, labelBlocks, labelRelated));
+  }, [graph, labelBlocks, labelRelated]);
 
   // 依存関係(エッジ)を1つも持たないノード = 孤立ノード。判定は種別フィルターの
   // 影響を受けない(データ全体での接続有無で決める)。
@@ -254,13 +296,37 @@ export function TaskDependencyFlow() {
     return Array.from(new Set(graph.nodes.map((n) => n.ticketType))).sort();
   }, [graph]);
 
+  const availableCycles = useMemo(() => {
+    if (!graph) return [];
+    const map = new Map<number, string>();
+    graph.nodes.forEach((n) => {
+      if (n.cycle != null) {
+        map.set(n.cycle, n.cycleName ?? `Cycle ${n.cycle}`);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [graph]);
+
+  const hasUnassignedCycle = useMemo(
+    () => graph?.nodes.some((n) => n.cycle == null) ?? false,
+    [graph],
+  );
+
   const filteredNodes = useMemo(() => {
     return allNodes.filter((n) => {
       const typeMatch = selectedType === 'all' || n.data.ticketType === selectedType;
       const isolationMatch = showIsolated || !isolatedIds.has(n.id);
-      return typeMatch && isolationMatch;
+      const cycleMatch =
+        selectedCycle === 'all'
+          ? true
+          : selectedCycle === 'none'
+            ? n.data.cycle == null
+            : n.data.cycle === Number(selectedCycle);
+      return typeMatch && isolationMatch && cycleMatch;
     });
-  }, [allNodes, selectedType, showIsolated, isolatedIds]);
+  }, [allNodes, selectedType, showIsolated, isolatedIds, selectedCycle]);
 
   const filteredEdges = useMemo(() => {
     const visibleIds = new Set(filteredNodes.map((n) => n.id));
@@ -301,35 +367,68 @@ export function TaskDependencyFlow() {
       const targetNode = graph?.nodes.find((n) => String(n.id) === connection.target);
       if (!sourceNode || !targetNode) return;
 
+      const optimisticEdge = edgeFromConnection(
+        connection,
+        connectType,
+        labelBlocks,
+        labelRelated,
+      );
+
       createDependency.mutate(
-        { fromTicketKey: sourceNode.ticketKey, toTaskId: targetNode.id },
+        { fromTicketKey: sourceNode.ticketKey, toTaskId: targetNode.id, dependencyType: connectType },
         {
-          onSuccess: () => setEdges((eds) => addEdge(connection, eds)),
+          onSuccess: () => {
+            setEdges((eds) => [...eds, optimisticEdge]);
+          },
           onError: (error) => {
             const detail = isAxiosError<{ detail?: string }>(error)
               ? error.response?.data?.detail
               : undefined;
-            toast.error(detail ?? '依存関係の作成に失敗しました');
+            toast.error(detail ?? t('dependencyGraph.createFailed'));
           },
         },
       );
     },
-    [graph, createDependency, setEdges, toast],
+    [graph, createDependency, setEdges, toast, connectType, labelBlocks, labelRelated, t],
   );
 
   const onEdgeClick = useCallback(
     (_event: unknown, edge: Edge) => {
       const dep = graph?.edges.find((d) => String(d.id) === edge.id);
       if (!dep) return;
-      if (!window.confirm(`「${dep.fromTaskKey} → ${dep.toTaskKey}」の依存関係を削除しますか?`)) return;
+      const typeLabel =
+        dep.dependencyType === 'relates_to'
+          ? t('dependencyGraph.connectTypeRelated')
+          : t('dependencyGraph.connectTypeBlocks');
+      if (
+        !window.confirm(
+          t('dependencyGraph.deleteConfirm', {
+            from: dep.fromTaskKey,
+            to: dep.toTaskKey,
+            type: typeLabel,
+          }),
+        )
+      ) {
+        return;
+      }
       deleteDependency.mutate(
         { ticketKey: dep.fromTaskKey, dependencyId: dep.id },
         {
-          onError: () => toast.error('依存関係の削除に失敗しました'),
+          onError: () => toast.error(t('dependencyGraph.deleteFailed')),
         },
       );
     },
-    [graph, deleteDependency, toast],
+    [graph, deleteDependency, toast, t],
+  );
+
+  const onNodeClick = useCallback(
+    (_event: unknown, node: Node) => {
+      if (node.type !== 'task') return;
+      const ticketKey = (node.data as TaskNodeData).ticketKey;
+      if (!ticketKey) return;
+      navigate(buildTicketDetailPath(projectKey, ticketKey, undefined, teamSlug));
+    },
+    [navigate, projectKey, teamSlug],
   );
 
   const onNodeDragStop = useCallback(
@@ -340,15 +439,15 @@ export function TaskDependencyFlow() {
       updateCyclePosition.mutate(
         { cycleId, x: node.position.x, y: node.position.y },
         {
-          onError: () => toast.error('サイクルの位置の保存に失敗しました'),
+          onError: () => toast.error(t('dependencyGraph.cyclePositionFailed')),
         },
       );
     },
-    [updateCyclePosition, toast],
+    [updateCyclePosition, toast, t],
   );
 
   if (isLoading) {
-    return <div className="task-dependency-flow__loading">読み込み中...</div>;
+    return <div className="task-dependency-flow__loading">{t('dependencyGraph.loading')}</div>;
   }
 
   return (
@@ -364,21 +463,50 @@ export function TaskDependencyFlow() {
             checked={showIsolated}
             onChange={(e) => setShowIsolated(e.target.checked)}
           />
-          孤立タスクを表示
+          {t('dependencyGraph.showIsolated')}
         </label>
         <label className="task-dependency-flow__toolbar-item">
-          種別
+          {t('dependencyGraph.ticketType')}
           <select
             className="task-dependency-flow__type-select"
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
           >
-            <option value="all">すべて</option>
+            <option value="all">{t('dependencyGraph.ticketTypeAll')}</option>
             {availableTypes.map((t) => (
               <option key={t} value={t}>
                 {TYPE_LABELS[t] ?? t}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="task-dependency-flow__toolbar-item">
+          {t('dependencyGraph.cycle')}
+          <select
+            className="task-dependency-flow__type-select"
+            value={selectedCycle}
+            onChange={(e) => setSelectedCycle(e.target.value)}
+          >
+            <option value="all">{t('dependencyGraph.cycleAll')}</option>
+            {hasUnassignedCycle && (
+              <option value="none">{t('dependencyGraph.cycleUnassigned')}</option>
+            )}
+            {availableCycles.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="task-dependency-flow__toolbar-item">
+          {t('dependencyGraph.connectType')}
+          <select
+            className="task-dependency-flow__type-select"
+            value={connectType}
+            onChange={(e) => setConnectType(e.target.value as DependencyType)}
+          >
+            <option value="blocks">{t('dependencyGraph.connectTypeBlocks')}</option>
+            <option value="relates_to">{t('dependencyGraph.connectTypeRelated')}</option>
           </select>
         </label>
       </div>
@@ -390,6 +518,7 @@ export function TaskDependencyFlow() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgeClick={onEdgeClick}
+        onNodeClick={onNodeClick}
         onNodeDragStop={onNodeDragStop}
         fitView
       >

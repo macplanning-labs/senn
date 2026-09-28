@@ -70,15 +70,6 @@
   border-color: var(--color-accent);
 }
 
-/* ダークモードのdate/calendarアイコン対応(TicketForm.cssと同じパターン) */
-.cycle-form__input[type="date"] {
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] .cycle-form__input[type="date"] {
-  color-scheme: light;
-}
-
 .cycle-form__dates {
   display: flex;
   align-items: center;

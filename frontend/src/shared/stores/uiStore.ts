@@ -11,6 +11,9 @@ import { persist } from 'zustand/middleware';
 type Theme = 'dark' | 'light';
 type Language = 'en' | 'ja';
 
+export type TicketFormCreatedTicket = { id: number; ticketKey: string };
+export type TicketFormOnCreated = (ticket: TicketFormCreatedTicket) => void | Promise<void>;
+
 interface UIState {
   /** 現在のテーマ */
   theme: Theme;
@@ -32,6 +35,8 @@ interface UIState {
   ticketFormModalInitialParent: number | null;
   /** モーダルでチケット作成時、cycle の初期値（Cycle 詳細からの起票など） */
   ticketFormModalInitialCycleId: number | null;
+  /** モーダルでチケット作成成功時のコールバック（Relations 新規作成など） */
+  ticketFormModalOnCreated: TicketFormOnCreated | null;
 
   // アクション
   setTheme: (theme: Theme) => void;
@@ -46,6 +51,7 @@ interface UIState {
       initialDescription?: string;
       initialParent?: number | null;
       initialCycleId?: number | null;
+      onCreated?: TicketFormOnCreated;
     },
   ) => void;
   closeTicketFormModal: () => void;
@@ -64,6 +70,7 @@ export const useUIStore = create<UIState>()(
       ticketFormModalInitialDescription: null,
       ticketFormModalInitialParent: null,
       ticketFormModalInitialCycleId: null,
+      ticketFormModalOnCreated: null,
 
       setTheme: (theme) => {
         document.documentElement.setAttribute('data-theme', theme);
@@ -86,6 +93,7 @@ export const useUIStore = create<UIState>()(
           ticketFormModalInitialDescription: options?.initialDescription ?? null,
           ticketFormModalInitialParent: options?.initialParent ?? null,
           ticketFormModalInitialCycleId: options?.initialCycleId ?? null,
+          ticketFormModalOnCreated: options?.onCreated ?? null,
         }),
       closeTicketFormModal: () =>
         set({
@@ -95,6 +103,7 @@ export const useUIStore = create<UIState>()(
           ticketFormModalInitialDescription: null,
           ticketFormModalInitialParent: null,
           ticketFormModalInitialCycleId: null,
+          ticketFormModalOnCreated: null,
         }),
     }),
     {

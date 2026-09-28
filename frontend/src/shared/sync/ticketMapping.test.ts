@@ -103,6 +103,21 @@ describe('ticketMapping', () => {
       expect(result._dirty).toBe(true);
       expect(result._syncError).toBe('Failed');
     });
+
+    it('aiPrompt 系フィールドをマッピングする', () => {
+      const dto = {
+        id: 1,
+        ticketKey: 'ABC-1',
+        aiPrompt: '# cached prompt',
+        aiPromptUpdatedAt: '2026-09-28T10:00:00Z',
+        aiPromptGenerationMode: 'hybrid',
+      };
+      const result = toLocalTicket(dto);
+
+      expect(result.aiPrompt).toBe('# cached prompt');
+      expect(result.aiPromptUpdatedAt).toBe('2026-09-28T10:00:00Z');
+      expect(result.aiPromptGenerationMode).toBe('hybrid');
+    });
   });
 
   describe('toLocalProject', () => {
@@ -131,6 +146,18 @@ describe('ticketMapping', () => {
       expect(result.status).toBe('active');
       expect(result._dirty).toBe(false);
       expect(result._syncedAt).toBeDefined();
+    });
+
+    it('aiPromptTemplate をマッピングする', () => {
+      const dto = {
+        id: 5,
+        name: 'Project ABC',
+        prefix: 'ABC',
+        aiPromptTemplate: 'custom rules',
+      };
+      const result = toLocalProject(dto);
+
+      expect(result.aiPromptTemplate).toBe('custom rules');
     });
   });
 });

@@ -177,15 +177,6 @@
   border-color: var(--color-accent-primary);
 }
 
-/* ダークモードのdate/calendarアイコン対応(TicketForm.cssと同じパターン) */
-.detail-panel__field-select[type="date"] {
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] .detail-panel__field-select[type="date"] {
-  color-scheme: light;
-}
-
 .detail-panel__assignee,
 .detail-panel__reviewer {
   display: flex;

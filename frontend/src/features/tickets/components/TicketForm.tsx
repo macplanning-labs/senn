@@ -23,7 +23,8 @@ import { useCycle } from '@/features/cycles/hooks/useCycles';
 import { buildTicketShareUrl } from '../utils/ticketNavigation';
 import { projectsForTeam } from '../utils/projectChoice';
 import { useStatusOptions } from '../hooks/useStatusOptions';
-import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
+import { fetchTicketUserOptions } from '../utils/ticketUserOptions';
+import { DateInput, toLocalIsoDate } from '@/shared/components/ui/DateInput';
 import './TicketForm.css';
 
 // Zodバリデーションスキーマ
@@ -104,6 +105,8 @@ interface TicketFormProps {
   initialParent?: number | null;
   /** 新規作成時、cycle の初期値（Cycle 詳細からの起票） */
   initialCycleId?: number | null;
+  /** 新規作成成功時（Relations 用など）。指定時はサーバー直 POST し id/key を返す */
+  onCreated?: (ticket: { id: number; ticketKey: string }) => void | Promise<void>;
 }
 
 export function TicketForm({
@@ -113,6 +116,7 @@ export function TicketForm({
   initialDescription,
   initialParent,
   initialCycleId,
+  onCreated,
 }: TicketFormProps = {}) {
   const { t } = useTranslation();
   const { ticketId } = useParams<{ ticketId: string }>();
@@ -153,17 +157,40 @@ export function TicketForm({
   const cycleTeamId = currentTeam?.id
     ?? (initialCycle?.team ? initialCycle.team.id : undefined);
 
+  // フォームデータ初期化
+  const [formData, setFormData] = useState<TicketFormData>(() => ({
+    title: '',
+    description: initialDescription ?? '',
+    status: 'open',
+    priority: 'medium',
+    ticket_type: 'issue',
+    due_date: null,
+    start_date: toLocalIsoDate(new Date()),
+    story_points: null,
+  }));
+  const [teamId, setTeamId] = useState<string>('');
+
+  const assigneeProjectId = activeProject?.id ?? null;
+  const assigneeTeamId = teamId ? Number(teamId) : (currentTeam?.id ?? null);
   const { data: users } = useQuery<UserOption[]>({
-    queryKey: ['users', activeProject?.id ?? null, cycleTeamId ?? null],
-    queryFn: () =>
-      fetchTicketUserOptions(apiClient, {
-        projectId: activeProject?.id ?? null,
-        teamId: cycleTeamId ?? null,
-      }),
-    enabled: ticketUserOptionsEnabled({
-      projectId: activeProject?.id ?? null,
-      teamId: cycleTeamId ?? null,
-    }),
+    queryKey: ['users', 'ticket-form', assigneeProjectId, assigneeTeamId],
+    queryFn: async () => {
+      if (assigneeProjectId != null) {
+        const projectUsers = await fetchTicketUserOptions(apiClient, {
+          projectId: assigneeProjectId,
+          teamId: null,
+        });
+        if (projectUsers.length > 0) return projectUsers;
+      }
+      if (assigneeTeamId != null) {
+        return fetchTicketUserOptions(apiClient, {
+          projectId: null,
+          teamId: assigneeTeamId,
+        });
+      }
+      return [];
+    },
+    enabled: assigneeProjectId != null || assigneeTeamId != null,
   });
 
   // マイルストーン一覧取得
@@ -216,16 +243,6 @@ export function TicketForm({
     },
   });
 
-  const [formData, setFormData] = useState<TicketFormData>(() => ({
-    title: '',
-    description: initialDescription ?? '',
-    status: 'open',
-    priority: 'medium',
-    ticket_type: 'issue',
-    due_date: null,
-    start_date: new Date().toISOString().slice(0, 10),
-    story_points: null,
-  }));
   const [linkCopied, setLinkCopied] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
   const [milestoneId, setMilestoneId] = useState<string>('');
@@ -237,7 +254,6 @@ export function TicketForm({
     () => (initialParent != null ? String(initialParent) : ''),
   );
   const [categoryId, setCategoryId] = useState<string>('');
-  const [teamId, setTeamId] = useState<string>('');
   // ステータスの選択肢（ワークフロー設定の名前で、一覧・詳細と同じ表示）
   const statusProjectId = isEditing ? (existingTicket?.project ?? null) : (activeProject?.id ?? null);
   const { options: statusChoices } = useStatusOptions(statusProjectId, teamId ? Number(teamId) : null);
@@ -331,7 +347,7 @@ export function TicketForm({
   }
 
   const mutation = useMutation({
-    mutationFn: async (data: TicketFormData) => {
+    mutationFn: async (data: TicketFormData): Promise<{ id: number; ticketKey: string } | void> => {
       const payload = {
         ...data,
         assignees: assigneeIds,
@@ -347,6 +363,7 @@ export function TicketForm({
       };
 
       let targetTicketKey: string;
+      let createdTicket: { id: number; ticketKey: string } | undefined;
       if (isEditing) {
         // 編集: localUpdateTicket を使用
         const rowPatch: Partial<LocalTicket> = {
@@ -373,10 +390,11 @@ export function TicketForm({
         targetTicketKey = ticketId as string;
       } else {
         // 新規作成
-        // 添付がある場合はサーバー直（仮キーでは添付APIが使えない）
-        if (pendingImages.length > 0) {
+        // 添付がある場合、または onCreated（Relations 連携）時はサーバー直 POST
+        if (pendingImages.length > 0 || onCreated) {
           const res = await apiClient.post<{ id: number; ticketKey: string }>('/tickets/', payload);
           targetTicketKey = res.data.ticketKey;
+          createdTicket = { id: res.data.id, ticketKey: res.data.ticketKey };
         } else {
           // 添付がない場合は localCreateTicket を使用
           const preview: Partial<LocalTicket> = {
@@ -418,8 +436,9 @@ export function TicketForm({
           description: `${payload.description}\n\n${imagesMarkdown}`,
         });
       }
+      return createdTicket;
     },
-    onSuccess: () => {
+    onSuccess: async (createdTicket) => {
       // サーバー直で書いた分（画像付き）も端末内 DB にすぐ取り込む
       if (pendingImages.length > 0) void runCycle();
       pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
@@ -429,6 +448,12 @@ export function TicketForm({
       }
       if (isEditing) {
         void queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
+      }
+      if (onCreated && createdTicket) {
+        void runCycle();
+        await onCreated(createdTicket);
+        onClose?.();
+        return;
       }
       if (onClose) {
         onClose();
@@ -688,13 +713,11 @@ export function TicketForm({
             <label htmlFor="start_date" className="ticket-form__label">
               {t('ticket.startDate', 'Start Date')}
             </label>
-            <input
+            <DateInput
               id="start_date"
-              type="date"
-              className="ticket-form__input"
-              value={formData.start_date ?? ''}
-              onChange={(e) => updateField('start_date', e.target.value || null)}
-              data-testid="ticket-start-date-input"
+              value={formData.start_date}
+              onChange={(value) => updateField('start_date', value)}
+              testId="ticket-start-date-input"
             />
             {fieldError('start_date')}
           </div>
@@ -703,13 +726,11 @@ export function TicketForm({
             <label htmlFor="due_date" className="ticket-form__label">
               {t('ticket.dueDate')}
             </label>
-            <input
+            <DateInput
               id="due_date"
-              type="date"
-              className="ticket-form__input"
-              value={formData.due_date ?? ''}
-              onChange={(e) => updateField('due_date', e.target.value || null)}
-              data-testid="ticket-due-date-input"
+              value={formData.due_date}
+              onChange={(value) => updateField('due_date', value)}
+              testId="ticket-due-date-input"
             />
             {fieldError('due_date')}
           </div>
@@ -763,7 +784,7 @@ export function TicketForm({
               ))}
               {users && users.length === 0 && (
                 <span className="ticket-form__label-empty">
-                  プロジェクトにメンバーがいません。設定画面でメンバーを追加してください。
+                  {t('ticket.noAssignableMembers', 'No members available.')}
                 </span>
               )}
             </div>

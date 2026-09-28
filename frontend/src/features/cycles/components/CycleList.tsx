@@ -5,6 +5,7 @@
  * 計画中・完了済みはコンパクトリスト。
  */
 import { useState } from 'react';
+import { DateInput } from '@/shared/components/ui/DateInput';
 import { useNavigate } from 'react-router-dom';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
@@ -179,22 +180,22 @@ export function CycleList() {
             rows={3}
           />
           <div className="cycle-form__dates">
-            <input
-              type="date"
+            <DateInput
               className="cycle-form__input"
-              value={formStart}
-              onChange={e => {
-                setFormStart(e.target.value);
+              value={formStart || null}
+              allowClear={false}
+              onChange={(value) => {
+                setFormStart(value ?? '');
                 setError('');
               }}
             />
             <span className="cycle-form__separator">→</span>
-            <input
-              type="date"
+            <DateInput
               className="cycle-form__input"
-              value={formEnd}
-              onChange={e => {
-                setFormEnd(e.target.value);
+              value={formEnd || null}
+              allowClear={false}
+              onChange={(value) => {
+                setFormEnd(value ?? '');
                 setError('');
               }}
             />

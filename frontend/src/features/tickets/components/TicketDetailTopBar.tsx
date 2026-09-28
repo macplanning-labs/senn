@@ -15,12 +15,20 @@ import { useToastStore } from '../../../shared/stores/toastStore';
 import type { TicketDetailView } from '../types/ticketDetailView';
 import { IconMoreHorizontal } from '../../../shared/components/ui/icons';
 
+export type RelationMenuAction =
+  | 'createExisting'
+  | 'createNew'
+  | 'markBlocking'
+  | 'markBlockedBy'
+  | 'markRelated';
+
 interface TicketDetailTopBarProps {
   ticket: TicketDetailView;
   ticketId: string;
+  onRelationMenuAction?: (action: RelationMenuAction) => void;
 }
 
-export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps) {
+export function TicketDetailTopBar({ ticket, ticketId, onRelationMenuAction }: TicketDetailTopBarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -133,6 +141,13 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
     setMenuOpen(false);
   };
 
+  const canCreateRelationTicket = !!(ticket.projectPrefix || ticket.team?.slug);
+
+  const runRelationAction = (action: RelationMenuAction) => {
+    onRelationMenuAction?.(action);
+    setMenuOpen(false);
+  };
+
   return (
     <div className="ticket-detail-topbar">
       <div className="ticket-detail-topbar__breadcrumb-wrapper">
@@ -192,6 +207,68 @@ export function TicketDetailTopBar({ ticket, ticketId }: TicketDetailTopBarProps
               <button type="button" role="menuitem" onClick={copyId}>
                 {t('ticketDetail.copyId')}
               </button>
+              {onRelationMenuAction && (
+                <>
+                  <div className="ticket-detail-topbar__dropdown-sep" role="separator" />
+                  <div className="ticket-detail-topbar__dropdown-group">
+                    <div className="ticket-detail-topbar__dropdown-label" role="presentation">
+                      {t('ticketDetail.relationMenuCreate')}
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="ticket-detail-topbar__dropdown-sub"
+                      onClick={() => runRelationAction('createExisting')}
+                      data-testid="ticket-detail-relation-create-existing"
+                    >
+                      {t('ticketDetail.relationSelectExisting')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="ticket-detail-topbar__dropdown-sub"
+                      onClick={() => runRelationAction('createNew')}
+                      disabled={!canCreateRelationTicket}
+                      data-testid="ticket-detail-relation-create-new"
+                    >
+                      {t('ticketDetail.relationCreateNew')}
+                    </button>
+                  </div>
+                  <div className="ticket-detail-topbar__dropdown-group">
+                    <div className="ticket-detail-topbar__dropdown-label" role="presentation">
+                      {t('ticketDetail.relationMenuMark')}
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="ticket-detail-topbar__dropdown-sub"
+                      onClick={() => runRelationAction('markBlocking')}
+                      data-testid="ticket-detail-relation-mark-blocking"
+                    >
+                      {t('ticketDetail.markBlocking')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="ticket-detail-topbar__dropdown-sub"
+                      onClick={() => runRelationAction('markBlockedBy')}
+                      data-testid="ticket-detail-relation-mark-blocked-by"
+                    >
+                      {t('ticketDetail.markBlockedBy')}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="ticket-detail-topbar__dropdown-sub"
+                      onClick={() => runRelationAction('markRelated')}
+                      data-testid="ticket-detail-relation-mark-related"
+                    >
+                      {t('ticketDetail.markRelated')}
+                    </button>
+                  </div>
+                </>
+              )}
+              <div className="ticket-detail-topbar__dropdown-sep" role="separator" />
               {!confirmDelete ? (
                 <button
                   type="button"

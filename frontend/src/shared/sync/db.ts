@@ -69,6 +69,9 @@ export interface TicketSyncDto {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+  aiPrompt: string | null;
+  aiPromptUpdatedAt: string | null;
+  aiPromptGenerationMode: string | null;
 }
 
 /** GET /api/v1/sync/projects/ の changes の1件（= 一覧 API の Project ＋ updatedAt） */
@@ -92,6 +95,7 @@ export interface ProjectSyncDto {
   parentProjectId: number | null;
   childCount: number;
   roadmapIds: number[];
+  aiPromptTemplate: string | null;
 }
 
 export interface SyncAccess {

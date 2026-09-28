@@ -1117,7 +1117,8 @@ pub async fn api_find_by_key(
             (SELECT COUNT(*) FROM tickets_comment WHERE ticket_id = t.id) as comment_count,
             (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
             COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
-            proj.name as detail_project_name, proj.prefix as detail_project_prefix
+            proj.name as detail_project_name, proj.prefix as detail_project_prefix,
+            t.ai_prompt, t.ai_prompt_updated_at, t.ai_prompt_generation_mode
          FROM tickets_ticket t
          LEFT JOIN accounts_user au ON t.author_id = au.id
          LEFT JOIN tickets_category cat ON t.category_id = cat.id
@@ -1489,6 +1490,9 @@ pub async fn api_find_by_key(
         linked_rules,
         linked_wiki_pages,
         is_watching,
+        ai_prompt: row.get(50),
+        ai_prompt_updated_at: row.get(51),
+        ai_prompt_generation_mode: row.get(52),
     }))
 }
 
@@ -3687,13 +3691,16 @@ pub async fn find_dependency_graph_for_team(
         DependencyGraphCycleOut, DependencyGraphNodeOut, DependencyGraphOut,
     };
 
-    // ノード: チーム内の全チケット
+    // ノード: チーム内の全チケット（Project↔Team N:M: 参加プロジェクトのチケットも含む）
     let ticket_rows = sqlx::query(
         "SELECT t.id::int4, t.ticket_key, t.title, t.status, t.ticket_type, t.story_points,
                 t.cycle_id::int4, tc.name AS cycle_name
          FROM tickets_ticket t
          LEFT JOIN t_cycle tc ON t.cycle_id = tc.id
          WHERE t.team_id = $1
+            OR t.project_id IN (
+                SELECT project_id FROM tickets_project_teams WHERE team_id = $1
+            )
          ORDER BY t.id",
     )
     .bind(team_id)
@@ -3747,9 +3754,15 @@ pub async fn find_dependency_graph_for_team(
         })
         .collect();
 
-    // エッジ: 両方のチケットが同じチームに属する依存関係
+    // エッジ: 両端がチーム所属または参加プロジェクト内（Project↔Team N:M）
     let edges_query = format!(
-        "{DEPENDENCY_SELECT} WHERE ft.team_id = $1 AND tt.team_id = $1 ORDER BY d.created_at DESC"
+        "{DEPENDENCY_SELECT} WHERE (
+            ft.team_id = $1
+            OR ft.project_id IN (SELECT project_id FROM tickets_project_teams WHERE team_id = $1)
+         ) AND (
+            tt.team_id = $1
+            OR tt.project_id IN (SELECT project_id FROM tickets_project_teams WHERE team_id = $1)
+         ) ORDER BY d.created_at DESC"
     );
     let edge_rows = sqlx::query(&edges_query)
         .bind(team_id)
@@ -3757,11 +3770,14 @@ pub async fn find_dependency_graph_for_team(
         .await?;
     let edges = edge_rows.iter().map(row_to_dependency).collect();
 
-    // Cycle位置: チームに属する全Cycleの保存済み座標
+    // Cycle位置: チーム所属＋参加プロジェクトのCycle（Project↔Team N:M）
     let cycle_rows = sqlx::query(
         "SELECT id::int4, graph_position_x, graph_position_y
          FROM t_cycle
          WHERE team_id = $1
+            OR project_id IN (
+                SELECT project_id FROM tickets_project_teams WHERE team_id = $1
+            )
          ORDER BY id",
     )
     .bind(team_id)
@@ -4066,6 +4082,41 @@ mod tests {
             .expect("Cycle not found");
         assert_eq!(cycle_entry.graph_position_x, Some(100.5));
         assert_eq!(cycle_entry.graph_position_y, Some(200.75));
+    }
+
+    /// find_dependency_graph_for_team が参加プロジェクト経由で
+    /// team_id 未設定のチケットをノードに含めることを確認する。
+    #[tokio::test]
+    async fn find_dependency_graph_for_team_includes_project_participating_tickets() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let author = test_support::create_test_user(&pool, "tdgraph-author").await;
+        let project = test_support::create_test_project(&pool, "TDG", author).await;
+        let team_id = test_support::create_test_team(&pool, "tdgraph-team").await;
+
+        sqlx::query(
+            "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1, $2, NOW())",
+        )
+        .bind(project)
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .expect("failed to link project to team");
+
+        let ticket_id =
+            test_support::create_test_ticket(&pool, project, "TDG-T", author).await;
+        let ticket_key: String = sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_one(&pool)
+            .await
+            .expect("failed to fetch ticket_key");
+
+        let graph = find_dependency_graph_for_team(&pool, team_id)
+            .await
+            .expect("find_dependency_graph_for_team failed");
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.nodes[0].ticket_key, ticket_key);
     }
 
     /// team_id 列追加後も一覧の集計列（コメント数など）を正しい位置から読むこと。

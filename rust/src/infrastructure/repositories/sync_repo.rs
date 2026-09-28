@@ -150,6 +150,9 @@ pub async fn sync_tickets(
         ",
     t.description AS sync_description,
     t.closed_at AS sync_closed_at,
+    t.ai_prompt AS sync_ai_prompt,
+    t.ai_prompt_updated_at AS sync_ai_prompt_updated_at,
+    t.ai_prompt_generation_mode AS sync_ai_prompt_generation_mode,
     t.sync_changed_at AS sync_changed_at,
     t.id::int8 AS sync_id
  FROM tickets_ticket t
@@ -170,7 +173,7 @@ pub async fn sync_tickets(
 
     let mut last_change = change_pos;
     let mut deleted = Vec::new();
-    let mut extras: HashMap<i32, (String, Option<DateTime<Utc>>)> = HashMap::new();
+    let mut extras: HashMap<i32, (String, Option<DateTime<Utc>>, Option<String>, Option<DateTime<Utc>>, Option<String>)> = HashMap::new();
     let mut visible_rows = Vec::with_capacity(rows.len());
     for row in rows {
         let id: i32 = row.get(0);
@@ -178,7 +181,13 @@ pub async fn sync_tickets(
         let team_id: Option<i32> = row.get(37);
         last_change = Pos { at: row.get("sync_changed_at"), id: row.get("sync_id") };
         if access_allows(&access, team_id, project_id) {
-            extras.insert(id, (row.get("sync_description"), row.get("sync_closed_at")));
+            extras.insert(id, (
+                row.get("sync_description"),
+                row.get("sync_closed_at"),
+                row.get("sync_ai_prompt"),
+                row.get("sync_ai_prompt_updated_at"),
+                row.get("sync_ai_prompt_generation_mode"),
+            ));
             visible_rows.push(row);
         } else {
             // 見られなくなった（チームを移された等）。キーは漏らさない
@@ -189,8 +198,16 @@ pub async fn sync_tickets(
         .await?
         .into_iter()
         .map(|base| {
-            let (description, closed_at) = extras.remove(&base.id).unwrap_or_default();
-            TicketSyncOut { base, description, closed_at }
+            let (description, closed_at, ai_prompt, ai_prompt_updated_at, ai_prompt_generation_mode) =
+                extras.remove(&base.id).unwrap_or_default();
+            TicketSyncOut {
+                base,
+                description,
+                closed_at,
+                ai_prompt,
+                ai_prompt_updated_at,
+                ai_prompt_generation_mode,
+            }
         })
         .collect();
 
@@ -314,6 +331,7 @@ pub async fn sync_projects(
               (SELECT json_agg(rp.roadmap_id::int4 ORDER BY rp.roadmap_id) FROM roadmap_projects rp WHERE rp.project_id = p.id),
               '[]'::json
             ) AS roadmap_ids,
+            p.ai_prompt_template,
             p.sync_changed_at,
             p.id::int8 AS sync_id
          FROM tickets_project p
@@ -362,6 +380,7 @@ pub async fn sync_projects(
                 parent_project_id: row.get("parent_project_id"),
                 child_count: row.get("child_count"),
                 roadmap_ids,
+                ai_prompt_template: row.get("ai_prompt_template"),
             },
             updated_at: row.get("updated_at"),
         });

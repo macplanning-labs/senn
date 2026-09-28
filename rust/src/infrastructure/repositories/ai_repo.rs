@@ -5,6 +5,8 @@
 use sqlx::{PgPool, Row};
 use serde_json::{json, Value};
 
+use super::ticket_link_repo;
+
 pub struct TicketForAi {
     pub id: i32,
     pub ticket_key: String,
@@ -173,4 +175,48 @@ pub async fn find_tasks_json_for_sprint_health(
             })
         })
         .collect())
+}
+
+pub async fn get_project_ai_prompt_template(pool: &PgPool, project_id: i32) -> anyhow::Result<Option<String>> {
+    let template: Option<String> = sqlx::query_scalar("SELECT ai_prompt_template FROM tickets_project WHERE id = $1")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(template)
+}
+
+pub async fn build_links_text(pool: &PgPool, ticket_id: i32) -> anyhow::Result<String> {
+    let links = ticket_link_repo::find_by_ticket(pool, ticket_id).await?;
+
+    if links.is_empty() {
+        return Ok("（参照リンクなし）".to_string());
+    }
+
+    let mut lines = Vec::with_capacity(links.len());
+    for link in links {
+        let display = link
+            .title
+            .as_deref()
+            .filter(|t| !t.is_empty())
+            .unwrap_or(&link.url);
+        lines.push(format!("- [{display}]({})", link.url));
+    }
+    Ok(lines.join("\n"))
+}
+
+pub async fn save_ticket_ai_prompt(
+    pool: &PgPool,
+    ticket_id: i32,
+    ai_prompt: &str,
+    generation_mode: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE tickets_ticket SET ai_prompt = $1, ai_prompt_updated_at = NOW(), ai_prompt_generation_mode = $2 WHERE id = $3"
+    )
+    .bind(ai_prompt)
+    .bind(generation_mode)
+    .bind(ticket_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }

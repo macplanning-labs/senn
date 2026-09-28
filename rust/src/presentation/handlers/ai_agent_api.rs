@@ -16,6 +16,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::domain::models::cycle_api::CycleWriteIn;
+use crate::domain::services::ai_service;
 use crate::domain::models::resource_api::ProjectWriteIn;
 use crate::domain::models::ticket_api::{TicketPatchIn, TicketWriteIn};
 use crate::infrastructure::repositories::{
@@ -1086,7 +1087,21 @@ pub async fn add_comment(
     )
     .await
     {
-        Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
+        Ok(comment) => {
+            let pool = state.pool.clone();
+            let ai_config = state.ai_config().await;
+            tokio::spawn(async move {
+                if let Err(e) =
+                    ai_service::generate_and_cache_ai_prompt(ticket_id, &pool, &ai_config).await
+                {
+                    tracing::warn!(
+                        ticket_id,
+                        "generate_and_cache_ai_prompt failed: {e:#}"
+                    );
+                }
+            });
+            (StatusCode::CREATED, Json(comment)).into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (

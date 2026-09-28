@@ -7,6 +7,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import './InlineEdit.css';
+import { DateInput } from './DateInput';
 
 interface InlineEditTextProps {
   type: 'text';
@@ -89,6 +90,17 @@ export function InlineEdit(props: InlineEditProps) {
     [handleSave, handleCancel],
   );
 
+  if (type === 'date') {
+    return (
+      <DateInput
+        value={value || null}
+        onChange={(next) => { void onSave(next ?? ''); }}
+        className={className}
+        disabled={saving}
+      />
+    );
+  }
+
   // セレクトの場合はクリックで即編集
   if (type === 'select' && 'options' in props) {
     return (
@@ -133,7 +145,7 @@ export function InlineEdit(props: InlineEditProps) {
     <input
       ref={inputRef as React.Ref<HTMLInputElement>}
       className={`inline-edit inline-edit--editing ${className}`}
-      type={type === 'date' ? 'date' : 'text'}
+      type="text"
       value={editValue}
       onChange={(e) => setEditValue(e.target.value)}
       onKeyDown={handleKeyDown}
