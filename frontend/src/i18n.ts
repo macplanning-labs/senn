@@ -487,6 +487,9 @@ const resources = {
         project: 'Project',
         projectNone: '— None (team only)',
         projectHelp: 'Optional. Only projects your selected team participates in are listed. Choose one to assign members and cycles from that project.',
+        mention: {
+          unknownUser: 'user',
+        },
       },
       common: {
         action: 'Action',
@@ -1485,6 +1488,9 @@ Implementation runs in the terminal with Haiku — create the implementation pla
         project: 'プロジェクト',
         projectNone: '— なし(チームのみ)',
         projectHelp: '任意です。選んだチームが参加しているプロジェクトだけが候補に出ます。選ぶと、そのプロジェクトのメンバーやサイクルを使えます。',
+        mention: {
+          unknownUser: 'ユーザー',
+        },
       },
       common: {
         action: 'アクション',

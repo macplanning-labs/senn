@@ -722,7 +722,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           parts.push(text.substring(lastFlush, i));
         }
         parts.push(
-          <span key={`mention-${i}`} style={{ color: '#f97316', fontWeight: 500 }}>
+          <span key={`mention-${i}`} className="detail-panel__mention">
             {`@${matchedUser?.displayName || matchedUser?.alias || matchedUser?.username || 'ユーザー'}`}
           </span>
         );
@@ -739,7 +739,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             parts.push(text.substring(lastFlush, i));
           }
           parts.push(
-            <span key={`mention-${i}`} style={{ color: '#f97316', fontWeight: 500 }}>
+            <span key={`mention-${i}`} className="detail-panel__mention">
               {`@${matchedUser?.displayName || matchedUser?.username || matchedToken}`}
             </span>
           );

@@ -8,10 +8,19 @@ import { apiClient } from '../../../shared/api/client';
 import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
 import { bumpTicketCounter } from '../../../shared/sync/ticketWrites';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
-import { createMentionExtension, renderCommentBodyWithMentions } from '../utils/createMentionExtension';
+import { createMentionExtension, renderCommentBodyWithMentions, commentBodyToEditorDoc } from '../utils/createMentionExtension';
 import type { Comment, TicketAttachment, TicketDetailView } from '../types/ticketDetailView';
 import { scheduleAiPromptCacheSync } from '../utils/scheduleAiPromptCacheSync';
+import { MentionUserCard } from './MentionUserCard';
 import './TicketComments.css';
+import './MentionUserCard.css';
+
+
+function mentionBadgeFromTarget(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const el = target.closest('.mention-node, .ticket-comment-mention');
+  return el instanceof HTMLElement ? el : null;
+}
 
 interface TicketCommentsProps {
   ticketId: string;
@@ -75,15 +84,25 @@ export function TicketComments({
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
-  const [editingText, setEditingText] = useState('');
   const [replyingToRootId, setReplyingToRootId] = useState<number | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [hoveredMentionId, setHoveredMentionId] = useState<number | null>(null);
+  const [mentionFallbackName, setMentionFallbackName] = useState('');
+  const [mentionCardPos, setMentionCardPos] = useState<{ top: number; left: number } | null>(null);
+  const commentsRootRef = useRef<HTMLDivElement>(null);
+  const showCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [comments, setComments] = useState(initialComments);
 
   useEffect(() => {
     setComments(initialComments);
   }, [initialComments]);
+
+  useEffect(() => () => {
+    if (showCardTimerRef.current) clearTimeout(showCardTimerRef.current);
+    if (hideCardTimerRef.current) clearTimeout(hideCardTimerRef.current);
+  }, []);
 
   const [attachments, setAttachments] = useState<TicketAttachment[]>(initialAttachments ?? []);
 
@@ -171,7 +190,7 @@ export function TicketComments({
     },
     onSuccessCallback: () => {
       setEditingCommentId(null);
-      setEditingText('');
+      editEditor?.commands.clearContent();
     },
     errorMessage: t('ticketDetail.errors.commentEditFailed'),
   });
@@ -241,6 +260,31 @@ export function TicketComments({
     ],
     editorProps: {
       attributes: { 'data-testid': 'ticket-reply-input' },
+    },
+    content: '',
+  });
+
+  const editEditor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: false,
+        bulletList: false,
+        orderedList: false,
+        blockquote: false,
+        codeBlock: false,
+        horizontalRule: false,
+        bold: false,
+        italic: false,
+        strike: false,
+        code: false,
+      }),
+      TiptapPlaceholder.configure({
+        placeholder: t('ticketDetail.addCommentPlaceholder'),
+      }),
+      createMentionExtension(userOptionsRef),
+    ],
+    editorProps: {
+      attributes: { 'data-testid': 'ticket-edit-input' },
     },
     content: '',
   });
@@ -333,7 +377,46 @@ export function TicketComments({
   };
 
   return (
-    <div className="ticket-comments" data-testid="ticket-comments">
+    <div
+      ref={commentsRootRef}
+      className="ticket-comments"
+      data-testid="ticket-comments"
+      onMouseOver={(e) => {
+        const badge = mentionBadgeFromTarget(e.target);
+        if (!badge) return;
+        const mentionId = badge.getAttribute('data-mention-id');
+        if (!mentionId) return;
+        if (hideCardTimerRef.current) clearTimeout(hideCardTimerRef.current);
+        if (showCardTimerRef.current) clearTimeout(showCardTimerRef.current);
+        const fallbackName = (badge.textContent || '').replace(/^@/, '').trim();
+        showCardTimerRef.current = setTimeout(() => {
+          const root = commentsRootRef.current;
+          if (!root || !badge.isConnected) return;
+          const rect = badge.getBoundingClientRect();
+          const containerRect = root.getBoundingClientRect();
+          let top = rect.bottom - containerRect.top + 4;
+          let left = rect.left - containerRect.left;
+          const maxLeft = root.clientWidth - 208;
+          if (left > maxLeft) left = Math.max(8, maxLeft);
+          if (left < 8) left = 8;
+          if (window.innerHeight - rect.bottom < 120) {
+            top = Math.max(8, rect.top - containerRect.top - 120);
+          }
+          setMentionFallbackName(fallbackName);
+          setMentionCardPos({ top, left });
+          setHoveredMentionId(Number(mentionId));
+        }, 300);
+      }}
+      onMouseOut={(e) => {
+        if (!mentionBadgeFromTarget(e.target)) return;
+        if (showCardTimerRef.current) clearTimeout(showCardTimerRef.current);
+        if (hideCardTimerRef.current) clearTimeout(hideCardTimerRef.current);
+        hideCardTimerRef.current = setTimeout(() => {
+          setHoveredMentionId(null);
+          setMentionCardPos(null);
+        }, 200);
+      }}
+    >
       <h4 className="ticket-comments__title">
         {t('ticketDetail.comments')}
         <span className="ticket-comments__count">{comments.length}</span>
@@ -365,17 +448,15 @@ export function TicketComments({
                     </p>
                   ) : editingCommentId === rootComment.id ? (
                     <div className="ticket-comment-item__edit-form">
-                      <textarea
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        className="ticket-comment-item__edit-textarea"
-                        rows={4}
-                      />
+                      <EditorContent editor={editEditor} className="ticket-comments__input" />
                       <div className="ticket-comment-item__edit-actions">
                         <button
                           type="button"
                           className="ticket-comment-item__edit-save"
-                          onClick={() => editCommentMutation.mutate({ commentId: rootComment.id, body: editingText })}
+                          onClick={() => {
+                            const body = editEditor?.getText({ blockSeparator: '\n' }).trim();
+                            if (body) editCommentMutation.mutate({ commentId: rootComment.id, body });
+                          }}
                           disabled={editCommentMutation.isPending}
                         >
                           {t('ticketDetail.saveEdit')}
@@ -385,7 +466,7 @@ export function TicketComments({
                           className="ticket-comment-item__edit-cancel"
                           onClick={() => {
                             setEditingCommentId(null);
-                            setEditingText('');
+                            editEditor?.commands.clearContent();
                           }}
                           disabled={editCommentMutation.isPending}
                         >
@@ -439,7 +520,7 @@ export function TicketComments({
                           className="ticket-comment-item__action-btn"
                           onClick={() => {
                             setEditingCommentId(rootComment.id);
-                            setEditingText(rootComment.body);
+                            editEditor?.commands.setContent(commentBodyToEditorDoc(rootComment.body));
                           }}
                         >
                           {t('ticketDetail.editComment')}
@@ -492,17 +573,15 @@ export function TicketComments({
                         </p>
                       ) : editingCommentId === reply.id ? (
                         <div className="ticket-comment-item__edit-form">
-                          <textarea
-                            value={editingText}
-                            onChange={(e) => setEditingText(e.target.value)}
-                            className="ticket-comment-item__edit-textarea"
-                            rows={4}
-                          />
+                          <EditorContent editor={editEditor} className="ticket-comments__input" />
                           <div className="ticket-comment-item__edit-actions">
                             <button
                               type="button"
                               className="ticket-comment-item__edit-save"
-                              onClick={() => editCommentMutation.mutate({ commentId: reply.id, body: editingText })}
+                              onClick={() => {
+                                const body = editEditor?.getText({ blockSeparator: '\n' }).trim();
+                                if (body) editCommentMutation.mutate({ commentId: reply.id, body });
+                              }}
                               disabled={editCommentMutation.isPending}
                             >
                               {t('ticketDetail.saveEdit')}
@@ -512,7 +591,7 @@ export function TicketComments({
                               className="ticket-comment-item__edit-cancel"
                               onClick={() => {
                                 setEditingCommentId(null);
-                                setEditingText('');
+                                editEditor?.commands.clearContent();
                               }}
                               disabled={editCommentMutation.isPending}
                             >
@@ -566,7 +645,7 @@ export function TicketComments({
                               className="ticket-comment-item__action-btn"
                               onClick={() => {
                                 setEditingCommentId(reply.id);
-                                setEditingText(reply.body);
+                                editEditor?.commands.setContent(commentBodyToEditorDoc(reply.body));
                               }}
                             >
                               {t('ticketDetail.editComment')}
@@ -696,6 +775,32 @@ export function TicketComments({
           </button>
         </div>
       </div>
+      {hoveredMentionId !== null && mentionCardPos && (
+        <div
+          style={{
+            position: 'absolute',
+            top: `${mentionCardPos.top}px`,
+            left: `${mentionCardPos.left}px`,
+            zIndex: 1000,
+          }}
+          onMouseEnter={() => {
+            if (hideCardTimerRef.current) clearTimeout(hideCardTimerRef.current);
+          }}
+          onMouseLeave={() => {
+            if (hideCardTimerRef.current) clearTimeout(hideCardTimerRef.current);
+            hideCardTimerRef.current = setTimeout(() => {
+              setHoveredMentionId(null);
+              setMentionCardPos(null);
+            }, 200);
+          }}
+        >
+          <MentionUserCard
+            userId={hoveredMentionId}
+            userOptions={userOptions}
+            fallbackName={mentionFallbackName}
+          />
+        </div>
+      )}
     </div>
   );
 }
