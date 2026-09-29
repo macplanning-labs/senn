@@ -33,9 +33,9 @@ No `sed` / `openssl` (e.g. plain Windows)? Open `.env` in an editor and set `DB_
 When you see `listening on 0.0.0.0:8151`, open **http://localhost:8151**
 
 ### First use
-1. Click **新規登録** (Sign up) and enter username / email / password (8+ characters). You are signed in automatically.
-2. Create a **Team**: click the **＋** next to “チーム” in the sidebar (or **最初のチームを作成**). Teams are required before tickets.
-3. Click **チケットを作成** and enter a title. Your new team is already selected.
+1. Click **Sign up** and enter username / email / password (8+ characters). You are signed in automatically.
+2. Create a **Team**: click the **+** next to **Teams** in the sidebar (or **Create your first team**). Teams are required before tickets.
+3. Click **Create a ticket** and enter a title. Your new team is already selected.
 
 ### Stop, restart, reset
 - **Stop**: press `Ctrl+C` **once** in the terminal, then `docker compose down`. Your data is kept.
@@ -63,7 +63,7 @@ By default, `docker compose up` downloads pre-built images from `ghcr.io/macplan
    ```
    This changes where `docker compose` downloads the images from.
 
-Advanced: [`docs/利用ガイド_OSS自己構築.md`](./docs/利用ガイド_OSS自己構築.md)
+Advanced (Japanese): [`docs/利用ガイド_OSS自己構築.md`](./docs/利用ガイド_OSS自己構築.md)
 
 ---
 
