@@ -420,9 +420,10 @@ mod tests {
         // テスト用プロジェクトを作成（t_projects テーブル用）
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_project_wf1', 'WF1', '', 'active', NOW(), 0)
+             VALUES ('test_project_wf1', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("WF1{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -454,9 +455,10 @@ mod tests {
         // テスト用プロジェクトを作成
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_project_wf2', 'WF2', '', 'active', NOW(), 0)
+             VALUES ('test_project_wf2', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("WF2{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -478,9 +480,10 @@ mod tests {
         // テスト用プロジェクトを作成
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_project_wf3', 'WF3', '', 'active', NOW(), 0)
+             VALUES ('test_project_wf3', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("WF3{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -522,18 +525,20 @@ mod tests {
         // 2つのテスト用プロジェクトを作成
         let project_id_1: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_project_wf4a', 'WF4A', '', 'active', NOW(), 0)
+             VALUES ('test_project_wf4a', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("WF4A{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project 1");
 
         let project_id_2: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_project_wf4b', 'WF4B', '', 'active', NOW(), 0)
+             VALUES ('test_project_wf4b', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("WF4B{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project 2");
@@ -570,9 +575,10 @@ mod tests {
 
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_pr_review_1', 'PR1', '', 'active', NOW(), 0)
+             VALUES ('test_pr_review_1', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("PR1{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -603,9 +609,10 @@ mod tests {
 
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_pr_review_2', 'PR2', '', 'active', NOW(), 0)
+             VALUES ('test_pr_review_2', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("PR2{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -636,9 +643,10 @@ mod tests {
 
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_pr_review_3', 'PR3', '', 'active', NOW(), 0)
+             VALUES ('test_pr_review_3', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("PR3{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -669,9 +677,10 @@ mod tests {
 
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_pr_review_4', 'PR4', '', 'active', NOW(), 0)
+             VALUES ('test_pr_review_4', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("PR4{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -702,9 +711,10 @@ mod tests {
 
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_pr_review_5', 'PR5', '', 'active', NOW(), 0)
+             VALUES ('test_pr_review_5', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("PR5{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");
@@ -746,9 +756,10 @@ mod tests {
 
         let project_id: i32 = sqlx::query_scalar(
             "INSERT INTO tickets_project (name, prefix, description, status, created_at, grace_period_days)
-             VALUES ('test_pr_review_6', 'PR6', '', 'active', NOW(), 0)
+             VALUES ('test_pr_review_6', $1, '', 'active', NOW(), 0)
              RETURNING id::int4"
         )
+        .bind(format!("PR6{}", test_support::unique_suffix()))
         .fetch_one(&pool)
         .await
         .expect("Failed to create test project");

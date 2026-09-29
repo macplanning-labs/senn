@@ -55,7 +55,6 @@ describe('戻る操作の統一(ガード)', () => {
     'プロジェクト詳細': '/src/features/projects/components/ProjectLayout.tsx',
     'ロードマップ一覧': '/src/features/projects/components/RoadmapsList.tsx',
     'ロードマップ詳細': '/src/features/projects/components/RoadmapDetail.tsx',
-    'チケット詳細': '/src/features/tickets/components/TicketDetail.tsx',
     'サイクル詳細': '/src/features/cycles/components/CycleDetail.tsx',
   };
 

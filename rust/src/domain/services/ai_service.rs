@@ -655,14 +655,6 @@ bulk-read-guardを利用してください
 GHAは利用不可のため、ローカルCI 手動デプロイを利用してください
 実装はターミナルを起動してHaikuで実装するので、実装計画と詳細設計書、タスクリスト、Haikuへ渡すプロンプトを作成してください。"#;
 
-fn resolve_ai_prompt_template(db_value: Option<&str>) -> String {
-    db_value
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| DEFAULT_AI_PROMPT_TEMPLATE.to_string())
-}
-
 enum PromptContentMode {
     Hybrid {
         description_summary: String,
@@ -701,7 +693,6 @@ fn build_cached_ai_prompt_template(
     status: &str,
     content: PromptContentMode,
     links_text: &str,
-    custom_rules: &str,
 ) -> String {
     let mission = r#"### {mission_num}. ミッション
 上記の説明・コメント・状況サマリを読んだうえで作業してください。
@@ -752,9 +743,6 @@ fn build_cached_ai_prompt_template(
 
 {mission}
 
-### 6. 制約・ルール（プロジェクト設定）
-{custom_rules}
-
 {common_constraints}
 
 それでは、まずは状況の確認から開始してください。
@@ -767,8 +755,7 @@ fn build_cached_ai_prompt_template(
                 links_text = links_text,
                 situation_summary = situation_summary,
                 mission = mission.replace("{mission_num}", "5"),
-                custom_rules = custom_rules,
-                common_constraints = common_constraints.replace("{constraints_num}", "7"),
+                common_constraints = common_constraints.replace("{constraints_num}", "6"),
             )
         }
         PromptContentMode::FullTextFallback {
@@ -803,9 +790,6 @@ fn build_cached_ai_prompt_template(
 
 {mission}
 
-### 6. 制約・ルール（プロジェクト設定）
-{custom_rules}
-
 {common_constraints}
 
 それでは、まずは状況の確認から開始してください。
@@ -819,8 +803,7 @@ fn build_cached_ai_prompt_template(
                 links_text = links_text,
                 situation_summary = situation_summary,
                 mission = mission.replace("{mission_num}", "5"),
-                custom_rules = custom_rules,
-                common_constraints = common_constraints.replace("{constraints_num}", "7"),
+                common_constraints = common_constraints.replace("{constraints_num}", "6"),
             )
         }
     }
@@ -1168,11 +1151,6 @@ async fn generate_and_cache_ai_prompt_inner(
     let team_rules_text =
         ai_repo::build_associated_rules_text(pool, ticket_id, ticket.team_id).await?;
     let links_text = ai_repo::build_links_text(pool, ticket_id).await?;
-    let ai_prompt_template = resolve_ai_prompt_template(
-        ai_repo::get_project_ai_prompt_template(pool, ticket.project_id)
-            .await?
-            .as_deref(),
-    );
 
     let (content, generation_mode) = match generate_content_and_situation_summary(
         config,
@@ -1242,7 +1220,6 @@ async fn generate_and_cache_ai_prompt_inner(
         &ticket.status,
         content,
         &links_text,
-        &ai_prompt_template,
     );
 
     ai_repo::save_ticket_ai_prompt(pool, ticket_id, &prompt_text, &generation_mode).await?;
@@ -1253,24 +1230,6 @@ async fn generate_and_cache_ai_prompt_inner(
 #[cfg(test)]
 mod ai_prompt_cache_tests {
     use super::*;
-
-    #[test]
-    fn resolve_ai_prompt_template_uses_default_for_none_and_empty() {
-        assert_eq!(
-            resolve_ai_prompt_template(None),
-            DEFAULT_AI_PROMPT_TEMPLATE.to_string()
-        );
-        assert_eq!(resolve_ai_prompt_template(Some("")), DEFAULT_AI_PROMPT_TEMPLATE);
-        assert_eq!(resolve_ai_prompt_template(Some("  ")), DEFAULT_AI_PROMPT_TEMPLATE);
-    }
-
-    #[test]
-    fn resolve_ai_prompt_template_trims_custom() {
-        assert_eq!(
-            resolve_ai_prompt_template(Some("  custom rules  ")),
-            "custom rules"
-        );
-    }
 
     #[test]
     fn extract_markdown_section_parses_headings() {

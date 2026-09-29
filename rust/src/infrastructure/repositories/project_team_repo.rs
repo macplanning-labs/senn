@@ -102,6 +102,30 @@ pub async fn can_manage(pool: &PgPool, project_id: i32, user_id: i32, is_staff: 
     Ok(allowed)
 }
 
+/// プロジェクトの設定（名前・接頭辞・説明・優先度・状態・サイクル自動化）を変更できるか。
+/// 管理権限（can_manage）を持つ人、または参加チームの正規メンバー（チーム全体メンバー。
+/// scoped_project_id が NULL の行）。Project ゲスト（scoped_project_id 付き）は不可。
+pub async fn can_edit(pool: &PgPool, project_id: i32, user_id: i32, is_staff: bool) -> anyhow::Result<bool> {
+    if can_manage(pool, project_id, user_id, is_staff).await? {
+        return Ok(true);
+    }
+    let member: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM tickets_project_teams pt
+            JOIN t_team_membership tm ON tm.team_id = pt.team_id
+            WHERE pt.project_id = $1
+              AND tm.user_id = $2
+              AND tm.scoped_project_id IS NULL
+         )",
+    )
+    .bind(project_id as i64)
+    .bind(user_id as i64)
+    .fetch_one(pool)
+    .await?;
+    Ok(member)
+}
+
 /// ユーザーがそのチームに(プロジェクト限定ではなく)所属しているか。
 pub async fn user_in_team(pool: &PgPool, user_id: i32, team_id: i32) -> anyhow::Result<bool> {
     let found: bool = sqlx::query_scalar(
@@ -318,5 +342,111 @@ mod tests {
         assert!(!out.can_manage);
         assert!(out.addable_teams.is_empty());
         assert!(out.teams.iter().all(|t| !t.removable));
+    }
+
+    #[tokio::test]
+    async fn can_edit_e1_staff_can_edit() {
+        // E1: staff
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e1o").await;
+        let project = test_support::create_test_project(&pool, "E1", owner).await;
+
+        // Staff ユーザーを作成
+        let suffix = test_support::unique_suffix();
+        let staff_user = sqlx::query_scalar::<_, i32>(
+            "INSERT INTO accounts_user (password, is_superuser, username, first_name, last_name, email, is_staff, is_active, date_joined, display_name, must_change_password, email_notifications_enabled) VALUES ('!', false, $1, '', '', $1 || '@test.local', true, true, NOW(), $1, false, false) RETURNING id::int4"
+        )
+        .bind(format!("e1staff-{}", suffix))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert!(can_edit(&pool, project, staff_user, true).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn can_edit_e2_project_owner_can_edit() {
+        // E2: プロジェクトのオーナー
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e2o").await;
+        let project = test_support::create_test_project(&pool, "E2", owner).await;
+        sqlx::query("UPDATE tickets_project SET owner_id = $2 WHERE id = $1")
+            .bind(project as i64).bind(owner as i64).execute(&pool).await.unwrap();
+
+        assert!(can_edit(&pool, project, owner, false).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn can_edit_e3_team_admin_can_edit() {
+        // E3: 参加チームの管理者（role='admin'）
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e3o").await;
+        let admin = test_support::create_test_user(&pool, "e3a").await;
+        let project = test_support::create_test_project(&pool, "E3", owner).await;
+        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
+            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        set_role(&pool, team, admin, "admin").await;
+
+        assert!(can_edit(&pool, project, admin, false).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn can_edit_e4_team_regular_member_can_edit() {
+        // E4: 参加チームの一般メンバー（scoped_project_id が NULL）
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e4o").await;
+        let member = test_support::create_test_user(&pool, "e4m").await;
+        let project = test_support::create_test_project(&pool, "E4", owner).await;
+        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
+            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        set_role(&pool, team, member, "member").await;
+
+        assert!(can_edit(&pool, project, member, false).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn can_edit_e5_non_member_cannot_edit() {
+        // E5: 参加していないチームの人
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e5o").await;
+        let outsider = test_support::create_test_user(&pool, "e5x").await;
+        let project = test_support::create_test_project(&pool, "E5", owner).await;
+
+        assert!(!can_edit(&pool, project, outsider, false).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn can_edit_e6_project_guest_cannot_edit() {
+        // E6: Project ゲスト（scoped_project_id がこのプロジェクト）
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e6o").await;
+        let guest = test_support::create_test_user(&pool, "e6g").await;
+        let project = test_support::create_test_project(&pool, "E6", owner).await;
+        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
+            .bind(project as i64).fetch_one(&pool).await.unwrap();
+
+        // Project ゲストを追加（scoped_project_id付き）
+        let tomorrow = chrono::Local::now().naive_local().date().succ_opt().unwrap();
+        sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, joined_at, end_date) VALUES ($1, $2, 'member', $3, NOW(), $4)")
+            .bind(team as i64)
+            .bind(guest as i64)
+            .bind(project as i64)
+            .bind(tomorrow)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(!can_edit(&pool, project, guest, false).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn can_edit_e7_unaffiliated_non_staff_cannot_edit() {
+        // E7: チームもオーナーもないプロジェクトの、staff でない人
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "e7o").await;
+        let unaffiliated = test_support::create_test_user(&pool, "e7u").await;
+        let project = test_support::create_test_project(&pool, "E7", owner).await;
+
+        assert!(!can_edit(&pool, project, unaffiliated, false).await.unwrap());
     }
 }

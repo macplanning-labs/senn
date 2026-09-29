@@ -15,6 +15,7 @@ import { useToast } from '@/shared/stores/toastStore';
 import { SecuritySettings } from './SecuritySettings';
 import { AiSettings } from './AiSettings';
 import { NotificationSettings } from './NotificationSettings';
+import { AiPromptTemplateSettings } from './AiPromptTemplateSettings';
 import './SettingsPage.css';
 
 const LANGUAGES = [
@@ -383,7 +384,12 @@ export function SettingsPage() {
 
         {activeTab === 'security' && <SecuritySettings />}
 
-        {activeTab === 'ai' && <AiSettings />}
+        {activeTab === 'ai' && (
+          <>
+            <AiSettings />
+            <AiPromptTemplateSettings />
+          </>
+        )}
 
         {activeTab === 'shortcuts' && (
           <>

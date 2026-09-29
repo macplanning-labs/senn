@@ -411,3 +411,42 @@
 .ticket-comments__attachment-delete:hover {
   color: var(--color-error, #ef4444);
 }
+
+/* メンションユーザーカードのポジショニング */
+.ticket-comments {
+  position: relative;
+}
+
+/* メンション バッジ（入力中と投稿後） */
+.ticket-comments .mention-node {
+  background: rgba(96, 165, 250, 0.22);
+  color: #dbeafe;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin: 0 1px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.ticket-comments .mention-node:hover {
+  background: rgba(96, 165, 250, 0.40);
+  cursor: pointer;
+}
+
+.ticket-comment-mention {
+  background: rgba(96, 165, 250, 0.22);
+  color: #dbeafe;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin: 0 1px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: inline-block;
+}
+
+.ticket-comment-mention:hover {
+  background: rgba(96, 165, 250, 0.40);
+  cursor: pointer;
+}

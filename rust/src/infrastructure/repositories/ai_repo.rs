@@ -14,7 +14,8 @@ pub struct TicketForAi {
     pub description: String,
     pub status: String,
     pub story_points: Option<i16>,
-    pub project_id: i32,
+    /// プロジェクト未所属のチケットでは None
+    pub project_id: Option<i32>,
     pub project_prefix: String,
     pub team_id: Option<i32>,
 }
@@ -22,7 +23,7 @@ pub struct TicketForAi {
 pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Option<TicketForAi>> {
     let row = sqlx::query(
         "SELECT t.id::int4, t.ticket_key, t.title, t.description, t.status, t.story_points,
-            t.project_id::int4, p.prefix, t.team_id::int4
+            t.project_id::int4, COALESCE(p.prefix, '') AS prefix, t.team_id::int4
          FROM tickets_ticket t
          LEFT JOIN tickets_project p ON t.project_id = p.id
          WHERE t.id = $1"
@@ -177,14 +178,6 @@ pub async fn find_tasks_json_for_sprint_health(
         .collect())
 }
 
-pub async fn get_project_ai_prompt_template(pool: &PgPool, project_id: i32) -> anyhow::Result<Option<String>> {
-    let template: Option<String> = sqlx::query_scalar("SELECT ai_prompt_template FROM tickets_project WHERE id = $1")
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
-    Ok(template)
-}
-
 pub async fn build_links_text(pool: &PgPool, ticket_id: i32) -> anyhow::Result<String> {
     let links = ticket_link_repo::find_by_ticket(pool, ticket_id).await?;
 
@@ -219,4 +212,34 @@ pub async fn save_ticket_ai_prompt(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// チケットの生成済み AI プロンプトを取得する
+pub async fn get_ticket_ai_prompt(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Option<String>> {
+    // ai_prompt は未生成だと NULL。要素型を Option<String> にしないとデコードエラーになる
+    let ai_prompt: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT ai_prompt FROM tickets_ticket WHERE id = $1"
+    )
+    .bind(ticket_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(ai_prompt.flatten())
+}
+
+#[cfg(test)]
+mod null_column_tests {
+    use super::*;
+    use crate::test_support;
+
+    /// 未生成(NULL)のチケットでも、キャッシュ取得がエラーにならず None を返す
+    #[tokio::test]
+    async fn get_ticket_ai_prompt_handles_null_and_saved() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user_id = test_support::create_test_user(&pool, "ai_null").await;
+        let project_id = test_support::create_test_project(&pool, "AINULL", user_id).await;
+        let ticket_id = test_support::create_test_ticket(&pool, project_id, "AINULL", user_id).await;
+        assert_eq!(get_ticket_ai_prompt(&pool, ticket_id).await.unwrap(), None);
+        save_ticket_ai_prompt(&pool, ticket_id, "cached", "hybrid").await.unwrap();
+        assert_eq!(get_ticket_ai_prompt(&pool, ticket_id).await.unwrap(), Some("cached".to_string()));
+    }
 }

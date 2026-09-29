@@ -17,23 +17,73 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// REQUIRE_TEST_DB の値が「必須」を意味するか判定する純関数
+///
+/// None / Some("") / Some("0") / Some("false")（大文字小文字問わず）→ false
+/// それ以外 → true
+pub(crate) fn require_db_flag(value: Option<&str>) -> bool {
+    match value {
+        None | Some("") => false,
+        Some(s) => {
+            let lower = s.to_lowercase();
+            lower != "0" && lower != "false"
+        }
+    }
+}
+
+// DB初期化はプロセスごとに1回だけ行い、完了するまで他のテストを待たせる
+// (フラグだけを立てて先へ進むと、初期化の途中で他のテストが DB を使い始めて失敗する)。
+static DB_BOOTSTRAP: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
 /// テスト用DBへの接続プールを取得する。
 ///
 /// `TEST_DATABASE_URL` を優先し、無ければ `DATABASE_URL` を使う。
-/// どちらも未設定、または接続に失敗した場合は `None` を返す
-/// (テストをpanicさせず、呼び出し側で早期returnしてスキップできるようにする。
-/// テストDBが用意されていない環境でも `cargo test` 全体は壊さない)。
+///
+/// DBが使えない場合(未設定、または接続に失敗):
+/// - `REQUIRE_TEST_DB` が設定されていて、値が空文字・0・false以外なら panic(スキップさせない)
+/// - そうでなければ None を返す。**DBを使うテストは何も検証せず成功扱いになる**ので、警告を必ず出す
+///
+/// DBが使える場合:
+/// - 空のDB(accounts_user テーブルがない)なら sqlx::migrate!() で初期化する
+/// - スキーマがあるDBには何もしない(開発用DBのマイグレーション状態を変えない)
 pub async fn test_pool() -> Option<PgPool> {
     let url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .ok()?;
-    match PgPool::connect(&url).await {
-        Ok(pool) => Some(pool),
-        Err(e) => {
-            eprintln!("[test_support] テストDBへの接続に失敗したためスキップします: {e:?}");
-            None
-        }
+        .ok();
+
+    let unavailable = match url {
+        None => "TEST_DATABASE_URL も DATABASE_URL も設定されていません".to_string(),
+        Some(url) => match PgPool::connect(&url).await {
+            Ok(pool) => {
+                DB_BOOTSTRAP
+                    .get_or_init(|| async {
+                        let has_schema: bool = sqlx::query_scalar(
+                            "SELECT to_regclass('public.accounts_user') IS NOT NULL",
+                        )
+                        .fetch_one(&pool)
+                        .await
+                        .expect("[test_support] テスト用DBのスキーマ確認に失敗しました");
+                        if !has_schema {
+                            sqlx::migrate!()
+                                .run(&pool)
+                                .await
+                                .expect("[test_support] 空のテスト用DBの初期化(マイグレーション)に失敗しました");
+                        }
+                    })
+                    .await;
+                return Some(pool);
+            }
+            Err(e) => format!("テスト用DBに接続できません: {e}"),
+        },
+    };
+
+    if require_db_flag(std::env::var("REQUIRE_TEST_DB").ok().as_deref()) {
+        panic!("[test_support] REQUIRE_TEST_DB が設定されていますが、テスト用DBを使えません({unavailable})");
     }
+    eprintln!(
+        "[test_support] ⚠ テスト用DBが使えないため、DBを使うテストをスキップします(成功扱いになります): {unavailable}"
+    );
+    None
 }
 
 /// テスト実行ごとに一意な短い接尾辞を生成する(UNIQUE制約回避用)。
@@ -161,4 +211,28 @@ pub async fn create_test_ticket(pool: &PgPool, project_id: i32, key_prefix: &str
     .fetch_one(pool)
     .await
     .expect("テストチケット作成に失敗")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn require_db_flag_parses_correctly() {
+        // false と判定される値
+        assert!(!require_db_flag(None));
+        assert!(!require_db_flag(Some("")));
+        assert!(!require_db_flag(Some("0")));
+        assert!(!require_db_flag(Some("false")));
+        assert!(!require_db_flag(Some("FALSE")));
+        assert!(!require_db_flag(Some("False")));
+
+        // true と判定される値
+        assert!(require_db_flag(Some("1")));
+        assert!(require_db_flag(Some("true")));
+        assert!(require_db_flag(Some("TRUE")));
+        assert!(require_db_flag(Some("True")));
+        assert!(require_db_flag(Some("yes")));
+        assert!(require_db_flag(Some("any other value")));
+    }
 }

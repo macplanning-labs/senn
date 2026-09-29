@@ -7,27 +7,20 @@
 
 import { db, MAX_RETRY, type LocalProject, type SyncQueueItem } from './db';
 import { requestPush } from './pushRequester';
-
-/** POST /projects/ の本文（サーバー ProjectWriteIn と同じ） */
-export interface ProjectCreateBody {
-  name: string;
-  prefix: string;
-  description?: string;
-  priority?: string;
-  teamIds: number[];
-}
-
-function uuid(): string {
-  const c = globalThis.crypto as Crypto | undefined;
-  if (c?.randomUUID) return c.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
-    const r = (Math.random() * 16) | 0;
-    return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
-}
+import { toLocalProject } from './ticketMapping';
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/** サーバー直で作成・取得したプロジェクトを端末内 DB へ書き込む（未送信の変更がある行は上書きしない） */
+export async function writeThroughProject(dto: Record<string, unknown>): Promise<void> {
+  const row = toLocalProject(dto);
+  await db.transaction('rw', db.projects, async () => {
+    const existing = await db.projects.get(row.id);
+    if (existing?._dirty) return;
+    await db.projects.put({ ...row, _dirty: false, _syncedAt: new Date().toISOString(), _syncError: null });
+  });
 }
 
 /**
@@ -93,82 +86,3 @@ export async function localUpdateProject(
   if (touched) requestPush();
 }
 
-/** プロジェクトを作成する（仮 id は負数。送信が通ったら push 側で本 id に付け替える） */
-export async function localCreateProject(
-  body: ProjectCreateBody,
-  preview: Partial<LocalProject> = {},
-): Promise<{ tempId: number }> {
-  const tempId = -(Date.now() * 1000 + Math.floor(Math.random() * 1000));
-  const t = now();
-  const row: LocalProject = {
-    id: tempId,
-    name: body.name,
-    prefix: body.prefix,
-    description: body.description ?? '',
-    status: 'in_progress',
-    priority: body.priority ?? 'medium',
-    targetEndDate: null,
-    ticketCount: 0,
-    memberCount: 0,
-    isMember: true,
-    teams: [],
-    ownerId: null,
-    createdAt: t,
-    updatedAt: t,
-    cycleAutoComplete: false,
-    cycleAutoCreateNext: false,
-    parentProjectId: null,
-    childCount: 0,
-    roadmapIds: [],
-    aiPromptTemplate: null,
-    ...preview,
-    _dirty: true,
-    _syncedAt: null,
-    _pendingCreate: true,
-    _syncError: null,
-  };
-  row.id = tempId;
-  await db.transaction('rw', [db.projects, db.syncQueue], async () => {
-    await db.projects.put(row);
-    await db.syncQueue.add({
-      entity: 'project',
-      entityId: tempId,
-      operation: 'create',
-      payload: JSON.stringify({ body }),
-      createdAt: t,
-      retryCount: 0,
-      idempotencyKey: uuid(),
-    });
-  });
-  requestPush();
-  return { tempId };
-}
-
-/** プロジェクトを削除する */
-export async function localDeleteProject(projectId: number): Promise<void> {
-  let queued = false;
-  await db.transaction('rw', [db.projects, db.syncQueue], async () => {
-    const row = await db.projects.get(projectId);
-    if (!row) return;
-    queued = true;
-    if (row._pendingCreate) {
-      await db.projects.put({ ...row, _deleted: true });
-      return;
-    }
-    await db.syncQueue
-      .where('entityId')
-      .equals(projectId)
-      .and((q) => q.entity === 'project' && q.operation === 'update')
-      .delete();
-    await db.projects.put({ ...row, _deleted: true, _dirty: true });
-    await db.syncQueue.add({
-      entity: 'project',
-      entityId: projectId,
-      operation: 'delete',
-      payload: JSON.stringify({ key: projectId }),
-      createdAt: now(),
-      retryCount: 0,
-    });
-  });
-  if (queued) requestPush();
-}
