@@ -22,7 +22,7 @@ pub struct SearchQuery {
 /// GET /api/v1/search/?q=<query>&limit=10
 pub async fn search(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    Extension(auth): Extension<AuthUser>,
     Query(params): Query<SearchQuery>,
 ) -> impl IntoResponse {
     let query = params.q.unwrap_or_default().trim().to_string();
@@ -32,7 +32,7 @@ pub async fn search(
         return (StatusCode::OK, Json(serde_json::json!({"results": []}))).into_response();
     }
 
-    match search_repo::global_search(&state.pool, &query, limit).await {
+    match search_repo::global_search(&state.pool, auth.user_id, &query, limit).await {
         Ok(results) => (StatusCode::OK, Json(serde_json::json!({"results": results}))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);

@@ -416,3 +416,339 @@ pub async fn unlink_ticket(pool: &PgPool, page_id: i32, ticket_id: i32) -> anyho
         .await?;
     Ok(())
 }
+
+/// ページの所属と作成者（権限判定用）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WikiScope {
+    pub project: Option<i32>,
+    pub team: Option<i32>,
+    pub author_id: i32,
+}
+
+/// ページの所属と作成者を取る。ページが無ければ None。
+pub async fn find_scope(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiScope>> {
+    let row = sqlx::query(
+        "SELECT project_id::int4, team_id::int4, author_id::int4 FROM wiki_page WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| WikiScope {
+        project: r.get("project_id"),
+        team: r.get("team_id"),
+        author_id: r.get("author_id"),
+    }))
+}
+
+/// この所属のページに書き込めるか。
+/// - staff: 常に可
+/// - プロジェクトあり: `project_team_repo::can_edit`
+/// - チームあり: そのチームの正規メンバー（scoped_project_id が NULL の行）
+/// - 両方あり: 両方を満たす必要がある
+/// - どちらもなし: 可（共有ページ。削除だけは呼び出し側で別に制限する）
+pub async fn can_write_scope(
+    pool: &PgPool,
+    user_id: i32,
+    project: Option<i32>,
+    team: Option<i32>,
+) -> anyhow::Result<bool> {
+    let is_staff: bool = sqlx::query_scalar("SELECT is_staff FROM accounts_user WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or(false);
+    if is_staff {
+        return Ok(true);
+    }
+    if let Some(p) = project {
+        if !crate::infrastructure::repositories::project_team_repo::can_edit(pool, p, user_id, false).await? {
+            return Ok(false);
+        }
+    }
+    if let Some(t) = team {
+        let member: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM t_team_membership
+                WHERE team_id = $1 AND user_id = $2 AND scoped_project_id IS NULL
+             )",
+        )
+        .bind(t as i64)
+        .bind(user_id as i64)
+        .fetch_one(pool)
+        .await?;
+        if !member {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support;
+
+    async fn set_role(pool: &PgPool, team_id: i32, user_id: i32, role: &str) {
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, $3, NOW())",
+        )
+        .bind(team_id as i64)
+        .bind(user_id as i64)
+        .bind(role)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn set_guest_role(pool: &PgPool, team_id: i32, user_id: i32, scoped_project_id: i32) {
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, joined_at) VALUES ($1, $2, 'member', $3, NOW())",
+        )
+        .bind(team_id as i64)
+        .bind(user_id as i64)
+        .bind(scoped_project_id as i64)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn create_wiki_page(
+        pool: &PgPool,
+        project: Option<i32>,
+        team: Option<i32>,
+        author_id: i32,
+    ) -> i32 {
+        let suffix = test_support::unique_suffix();
+        let title = format!("wiki_{}", suffix);
+        let slug = format!("wiki-{}", suffix);
+        sqlx::query_scalar::<_, i32>(
+            "INSERT INTO wiki_page (project_id, team_id, title, slug, category, content, author_id, last_editor_id, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, 'general', 'content', $5, $5, NOW(), NOW())
+             RETURNING id::int4"
+        )
+        .bind(project.map(|p| p as i64))
+        .bind(team.map(|t| t as i64))
+        .bind(&title)
+        .bind(&slug)
+        .bind(author_id as i64)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn create_staff_user(pool: &PgPool, prefix: &str) -> i32 {
+        let user_id = test_support::create_test_user(pool, prefix).await;
+        sqlx::query("UPDATE accounts_user SET is_staff = true WHERE id = $1")
+            .bind(user_id as i64)
+            .execute(pool)
+            .await
+            .unwrap();
+        user_id
+    }
+
+    #[tokio::test]
+    async fn w1_staff_can_write_any_scope() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w1o").await;
+        let staff = create_staff_user(&pool, "w1s").await;
+        let project = test_support::create_test_project(&pool, "W1", owner).await;
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // staff can write to any scope
+        assert!(can_write_scope(&pool, staff, Some(project), None).await.unwrap());
+        assert!(can_write_scope(&pool, staff, None, Some(team)).await.unwrap());
+        assert!(can_write_scope(&pool, staff, Some(project), Some(team)).await.unwrap());
+        assert!(can_write_scope(&pool, staff, None, None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w2_project_team_member_can_write_project_scope() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w2o").await;
+        let member = test_support::create_test_user(&pool, "w2m").await;
+        let project = test_support::create_test_project(&pool, "W2", owner).await;
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        set_role(&pool, team, member, "member").await;
+
+        assert!(can_write_scope(&pool, member, Some(project), None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w3_non_member_cannot_write_project_scope() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w3o").await;
+        let outsider = test_support::create_test_user(&pool, "w3x").await;
+        let project = test_support::create_test_project(&pool, "W3", owner).await;
+
+        assert!(!can_write_scope(&pool, outsider, Some(project), None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w4_team_member_can_write_team_scope() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let member = test_support::create_test_user(&pool, "w4m").await;
+        let team = test_support::create_test_team(&pool, "W4").await;
+        set_role(&pool, team, member, "member").await;
+
+        assert!(can_write_scope(&pool, member, None, Some(team)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w5_non_member_cannot_write_team_scope() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let non_member = test_support::create_test_user(&pool, "w5n").await;
+        let team = test_support::create_test_team(&pool, "W5").await;
+
+        assert!(!can_write_scope(&pool, non_member, None, Some(team)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w6_project_guest_cannot_write_project_scope() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w6o").await;
+        let guest = test_support::create_test_user(&pool, "w6g").await;
+        let project = test_support::create_test_project(&pool, "W6", owner).await;
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        set_guest_role(&pool, team, guest, project).await;
+
+        assert!(!can_write_scope(&pool, guest, Some(project), None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w12_project_guest_cannot_write_team_scope() {
+        // チーム所属のページには、そのチームのプロジェクトゲスト（scoped_project_id 付き）は書けない
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w12o").await;
+        let guest = test_support::create_test_user(&pool, "w12g").await;
+        let project = test_support::create_test_project(&pool, "W12", owner).await;
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        set_guest_role(&pool, team, guest, project).await;
+
+        assert!(!can_write_scope(&pool, guest, None, Some(team)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w7_both_scope_requires_project_permission() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w7o").await;
+        let outsider = test_support::create_test_user(&pool, "w7x").await;
+        let project = test_support::create_test_project(&pool, "W7", owner).await;
+        let team = test_support::create_test_team(&pool, "W7T").await;
+        set_role(&pool, team, outsider, "member").await;
+
+        // outsider is team member but not project member
+        assert!(!can_write_scope(&pool, outsider, Some(project), Some(team)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w8_both_scope_requires_team_permission() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w8o").await;
+        let member = test_support::create_test_user(&pool, "w8m").await;
+        let project = test_support::create_test_project(&pool, "W8", owner).await;
+        let project_team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let other_team = test_support::create_test_team(&pool, "W8O").await;
+        set_role(&pool, project_team, member, "member").await;
+
+        // member is project member but not team member (on other_team)
+        assert!(!can_write_scope(&pool, member, Some(project), Some(other_team)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w9_both_scope_requires_both_permissions() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "w9o").await;
+        let member = test_support::create_test_user(&pool, "w9m").await;
+        let project = test_support::create_test_project(&pool, "W9", owner).await;
+        let project_team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let team = test_support::create_test_team(&pool, "W9T").await;
+        set_role(&pool, project_team, member, "member").await;
+        set_role(&pool, team, member, "member").await;
+
+        assert!(can_write_scope(&pool, member, Some(project), Some(team)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w10_shared_page_allows_non_staff() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let user = test_support::create_test_user(&pool, "w10").await;
+
+        // shared page (no project, no team)
+        assert!(can_write_scope(&pool, user, None, None).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn w11_find_scope_returns_scope_or_none() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let author = test_support::create_test_user(&pool, "w11").await;
+        let owner = test_support::create_test_user(&pool, "w11o").await;
+        let project = test_support::create_test_project(&pool, "W11", owner).await;
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // create pages with different scopes
+        let project_page = create_wiki_page(&pool, Some(project), None, author).await;
+        let team_page = create_wiki_page(&pool, None, Some(team), author).await;
+        let shared_page = create_wiki_page(&pool, None, None, author).await;
+
+        // verify find_scope
+        let scope = find_scope(&pool, project_page).await.unwrap().unwrap();
+        assert_eq!(scope.project, Some(project));
+        assert_eq!(scope.team, None);
+        assert_eq!(scope.author_id, author);
+
+        let scope = find_scope(&pool, team_page).await.unwrap().unwrap();
+        assert_eq!(scope.project, None);
+        assert_eq!(scope.team, Some(team));
+        assert_eq!(scope.author_id, author);
+
+        let scope = find_scope(&pool, shared_page).await.unwrap().unwrap();
+        assert_eq!(scope.project, None);
+        assert_eq!(scope.team, None);
+        assert_eq!(scope.author_id, author);
+
+        // nonexistent page returns None
+        assert!(find_scope(&pool, i32::MAX).await.unwrap().is_none());
+    }
+}
