@@ -1490,9 +1490,9 @@ pub async fn api_find_by_key(
         linked_rules,
         linked_wiki_pages,
         is_watching,
-        ai_prompt: row.get(50),
-        ai_prompt_updated_at: row.get(51),
-        ai_prompt_generation_mode: row.get(52),
+        ai_prompt: row.get(49),
+        ai_prompt_updated_at: row.get(50),
+        ai_prompt_generation_mode: row.get(51),
     }))
 }
 
@@ -3977,12 +3977,28 @@ mod tests {
                 .await
                 .unwrap();
 
+        sqlx::query(
+            "UPDATE tickets_ticket
+             SET ai_prompt = 'cached-prompt',
+                 ai_prompt_updated_at = NOW(),
+                 ai_prompt_generation_mode = 'hybrid'
+             WHERE id = $1",
+        )
+        .bind(ticket_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let detail = api_find_by_key(&pool, &ticket_key, None, "ai_agent").await.unwrap();
         assert!(detail.is_some());
         let detail = detail.unwrap();
         assert_eq!(detail.base.project, Some(project));
         assert_eq!(detail.base.project_name, Some(expected_name));
         assert_eq!(detail.base.project_prefix, Some(expected_prefix));
+        // 列番号が 1 つずれると extras が 502 になり、保存済みコメントが画面に出ない
+        assert_eq!(detail.ai_prompt.as_deref(), Some("cached-prompt"));
+        assert!(detail.ai_prompt_updated_at.is_some());
+        assert_eq!(detail.ai_prompt_generation_mode.as_deref(), Some("hybrid"));
     }
 
     /// find_all がステータス・プロジェクトIDフィルタで正しく絞り込めることを確認する
