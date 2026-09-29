@@ -4,7 +4,7 @@ export interface Comment {
   author: { id: number; username: string; displayName: string };
   /**
    * AIエージェント経由(人ごとキー認証成功時)の実際の実行者。
-   * 設定されている場合、投稿者表示は author ではなくこちらを主表示にする(WIPAPPDEV-000100)。
+   * 設定されている場合、投稿者表示は author ではなくこちらを主表示にする(DEMO-000100)。
    */
   actingUser?: { id: number; username: string; displayName: string } | null;
   createdAt: string;

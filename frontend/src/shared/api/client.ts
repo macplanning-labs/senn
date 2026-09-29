@@ -189,7 +189,7 @@ apiClient.interceptors.response.use(
         // バックエンドはリフレッシュのたびにリフレッシュトークンをローテーションし
         // (古いものはブラックリスト登録)、新しいペアを返す。ここで新しいrefreshを
         // 保存し損ねると、次回以降のリフレッシュが「無効化済みトークン」で401になり続ける
-        // (WIPAPPDEV-000047)。
+        // (DEMO-000047)。
         const { data } = await axios.post<{ access: string; refresh: string }>(
           `${API_BASE_URL}/api/v1/auth/token/refresh/`,
           { refresh: refreshToken },

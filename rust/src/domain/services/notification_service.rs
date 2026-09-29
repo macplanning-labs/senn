@@ -193,7 +193,7 @@ pub async fn notify_cycle_auto_completed(
              FROM t_team_membership m
              WHERE m.team_id = $1::int4
                AND (m.scoped_project_id IS NULL OR m.scoped_project_id = $2::int4)
-             ORDER BY m.user_id ASC
+             ORDER BY 1 ASC
              LIMIT 100"
         )
         .bind(tid)
@@ -499,5 +499,63 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(count, 1, "期限超過通知は1日1回のみ作成されるはず");
+    }
+
+    /// DEMO-000151 の回帰テスト。
+    /// notify_cycle_auto_completed の SQL が実際に実行でき(以前は SELECT DISTINCT と
+    /// ORDER BY の不一致で常に失敗していた)、チーム全体メンバーと「このプロジェクトに
+    /// 限定されたゲスト」には通知が作られ、「別プロジェクトに限定されたゲスト」と
+    /// チーム外のユーザーには作られないことを確認する。
+    #[tokio::test]
+    async fn notify_cycle_auto_completed_creates_notifications_for_eligible_members() {
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "cyc-owner").await;
+        let member = test_support::create_test_user(&pool, "cyc-member").await;
+        let guest_this = test_support::create_test_user(&pool, "cyc-guest-this").await;
+        let guest_other = test_support::create_test_user(&pool, "cyc-guest-other").await;
+        let outsider = test_support::create_test_user(&pool, "cyc-outsider").await;
+        let team = test_support::create_test_team(&pool, "cyc-team").await;
+        let project = test_support::create_test_project(&pool, "CYN", owner).await;
+        let other_project = test_support::create_test_project(&pool, "CYO", owner).await;
+
+        for user in [owner, member] {
+            sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())")
+                .bind(team as i64)
+                .bind(user as i64)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        for (user, scoped) in [(guest_this, project), (guest_other, other_project)] {
+            sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, joined_at) VALUES ($1, $2, 'member', $3, NOW())")
+                .bind(team as i64)
+                .bind(user as i64)
+                .bind(scoped as i64)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        notify_cycle_auto_completed(&pool, Some(project), Some(team), 0, "テストサイクル", 3, None)
+            .await
+            .expect("通知の作成でエラーになってはいけない");
+
+        let count_for = |user: i32| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM notifications_notification WHERE user_id = $1 AND category = 'cycle_auto_completed'"
+                )
+                .bind(user)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        assert_eq!(count_for(owner).await, 1, "チーム全体メンバーに通知が作られるはず");
+        assert_eq!(count_for(member).await, 1, "チーム全体メンバーに通知が作られるはず");
+        assert_eq!(count_for(guest_this).await, 1, "このプロジェクトに限定されたゲストにも通知が作られるはず");
+        assert_eq!(count_for(guest_other).await, 0, "別プロジェクトに限定されたゲストには作られないはず");
+        assert_eq!(count_for(outsider).await, 0, "チーム外のユーザーには作られないはず");
     }
 }

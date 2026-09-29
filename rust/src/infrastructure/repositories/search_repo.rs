@@ -341,7 +341,7 @@ mod tests {
         // Project ゲストを作成（scoped_project_id付き）
         let suffix = test_support::unique_suffix();
         let guest = test_support::create_test_user(&pool, "s6g").await;
-        let tomorrow = chrono::Local::now().naive_local().date().succ_opt().unwrap();
+        let tomorrow = crate::test_support::db_today().succ_opt().unwrap();
         sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, joined_at, end_date) VALUES ($1, $2, 'member', $3, NOW(), $4)")
             .bind(team as i64)
             .bind(guest as i64)
@@ -391,7 +391,7 @@ mod tests {
         // Project ゲストを作成（期限切れ）
         let suffix = test_support::unique_suffix();
         let guest = test_support::create_test_user(&pool, "s7g").await;
-        let yesterday = chrono::Local::now().naive_local().date().pred_opt().unwrap();
+        let yesterday = crate::test_support::db_today().pred_opt().unwrap();
         sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, joined_at, end_date) VALUES ($1, $2, 'member', $3, NOW(), $4)")
             .bind(team as i64)
             .bind(guest as i64)

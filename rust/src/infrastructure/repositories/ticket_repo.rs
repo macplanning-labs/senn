@@ -3955,7 +3955,7 @@ mod tests {
     }
 
     /// api_find_by_key（チケット詳細JSON API）が project の name/prefix を
-    /// 数値IDではなく実際の名称で返すことを確認する（WIPAPPDEV-000095の再発防止）。
+    /// 数値IDではなく実際の名称で返すことを確認する（DEMO-000095の再発防止）。
     #[tokio::test]
     async fn api_find_by_key_includes_project_name_and_prefix() {
         let Some(pool) = test_support::test_pool().await else {
@@ -4047,7 +4047,7 @@ mod tests {
         let project = test_support::create_test_project(&pool, "DG", author).await;
 
         // テスト用のCycleを作成
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         use crate::domain::models::cycle_api::CycleWriteIn;
         use crate::infrastructure::repositories::cycle_repo::{
             create_cycle, update_cycle_graph_position,

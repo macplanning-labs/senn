@@ -1469,10 +1469,11 @@ mod tests {
         // T0: 同一プロジェクトに既にactiveなサイクルがある場合、start_dateが過ぎたplannedが
         // あっても自動アクティブ化をスキップする(「進行中は常に1件」をスケジューラ側で担保)。
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "actA").await;
         let project_id = test_support::create_test_project(&pool, "ACTA", user_id).await;
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
 
         create_cycle(
             &pool,
@@ -1527,10 +1528,11 @@ mod tests {
         // T0b: activeが無いプロジェクトでplannedが複数同時にstart_date超過している場合、
         // 1回の呼び出しで複数同時にactiveにしてしまわず、最も早いstart_dateの1件のみactive化する。
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "actB").await;
         let project_id = test_support::create_test_project(&pool, "ACTB", user_id).await;
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
 
         let older_id = create_cycle(
             &pool,
@@ -1568,34 +1570,44 @@ mod tests {
             .await
             .expect("auto_activate_due_cycles failed");
 
-        // auto_activate_due_cyclesは全プロジェクトを対象に動く関数のため、共有DBに残る
-        // 他テストの残骸行も一緒に返り得る。このテストのproject_idに絞って検証する。
-        let activated_ids_in_this_project: Vec<i32> = activated
-            .iter()
-            .filter(|(_, pid, _)| *pid == Some(project_id))
-            .map(|(id, _, _)| *id)
-            .collect();
+        // auto_activate_due_cyclesは全プロジェクトを対象に動く関数で、テストは並列に走る。
+        // 別のテストの呼び出しが先にこのプロジェクトのサイクルを有効化すると、この呼び出しの
+        // 戻り値は空になる。誰が有効化したかに依存しないよう、戻り値ではなく実行後の状態で検証する。
+        assert!(
+            !activated
+                .iter()
+                .any(|(id, _, _)| *id == newer_id),
+            "start_dateが遅いサイクルはactive化されてはならない"
+        );
+
+        let older_cycle = find_cycle_by_id(&pool, older_id)
+            .await
+            .expect("Failed to fetch cycle")
+            .expect("Older cycle not found");
         assert_eq!(
-            activated_ids_in_this_project,
-            vec![older_id],
-            "start_dateが最も早いサイクルのみが1件active化されるべき"
+            older_cycle.status, "active",
+            "start_dateが最も早いサイクルがactive化されるべき"
         );
 
         let newer_cycle = find_cycle_by_id(&pool, newer_id)
             .await
             .expect("Failed to fetch cycle")
             .expect("Newer cycle not found");
-        assert_eq!(newer_cycle.status, "planned");
+        assert_eq!(
+            newer_cycle.status, "planned",
+            "同一プロジェクトでactiveは1件だけ(遅い方はplannedのまま)"
+        );
     }
 
     #[tokio::test]
     async fn test_resolve_carry_over_target_with_planned() {
         // T1: planned あり → 先頭 planned へ持ち越し
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc").await;
         let project_id = test_support::create_test_project(&pool, "CYC", user_id).await;
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         let active_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
@@ -1644,6 +1656,7 @@ mod tests {
     async fn test_resolve_carry_over_target_create_next() {
         // T2: planned なし・create_next=true → 新 Cycle 作成
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc2").await;
         let project_id = test_support::create_test_project(&pool, "CY2", user_id).await;
 
@@ -1653,7 +1666,7 @@ mod tests {
             .await
             .expect("Failed to set cycle_auto_create_next");
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         let active_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
@@ -1696,6 +1709,7 @@ mod tests {
     async fn test_resolve_carry_over_target_no_create() {
         // T3: planned なし・create_next=false → CompleteWithoutCarry
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc3").await;
         let project_id = test_support::create_test_project(&pool, "CY3", user_id).await;
 
@@ -1705,7 +1719,7 @@ mod tests {
             .await
             .expect("Failed to set cycle_auto_create_next");
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         let active_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
@@ -1738,6 +1752,7 @@ mod tests {
     async fn test_auto_complete_overdue_cycles_disabled() {
         // T4: auto_complete=false → 当該プロジェクトの期限超過は完了しない
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc4").await;
         let project_id = test_support::create_test_project(&pool, "CY4", user_id).await;
 
@@ -1747,7 +1762,7 @@ mod tests {
             .await
             .expect("Failed to set cycle_auto_complete");
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         let overdue_cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
@@ -1781,10 +1796,11 @@ mod tests {
     async fn test_auto_complete_overdue_cycles_already_completed() {
         // T5: 既に completed → 当該 cycle はログに出ない
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc5").await;
         let project_id = test_support::create_test_project(&pool, "CY5", user_id).await;
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         let cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
@@ -1811,10 +1827,11 @@ mod tests {
     #[tokio::test]
     async fn test_update_cycle_graph_position() {
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cgp").await;
         let project_id = test_support::create_test_project(&pool, "CGP", user_id).await;
 
-        let today = chrono::Local::now().naive_local().date();
+        let today = crate::test_support::db_today();
         let cycle_id = create_cycle(
             &pool,
             &CycleWriteIn {
@@ -1846,6 +1863,7 @@ mod tests {
     async fn test_update_cycle_keeps_team_id_when_explicit() {
         // PUT ハンドラが teamId 省略時に既存 team_id を埋めたあとの update_cycle 経路
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "put_team").await;
         let team_id = test_support::create_test_team(&pool, "PUTTEAM").await;
         let today = chrono::Utc::now().date_naive();
@@ -1890,6 +1908,7 @@ mod tests {
     #[tokio::test]
     async fn test_create_cycle_requires_team_or_project() {
         let Some(pool) = test_support::test_pool().await else { return; };
+        let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc_req").await;
         let today = chrono::Utc::now().date_naive();
         let err = create_cycle(

@@ -1,5 +1,5 @@
 /**
- * AdminAiPersonalKeysSection.tsx — 人ごとのAIエージェント用APIキー管理 (WIPAPPDEV-000100)
+ * AdminAiPersonalKeysSection.tsx — 人ごとのAIエージェント用APIキー管理 (DEMO-000100)
  *
  * 全社共有の1本のキーとは別に、staffが特定ユーザー向けにAPIキーを発行できる。
  * 発行されたキーで認証されたAIエージェント経由の操作は、「実際に誰が行ったか」が

@@ -500,13 +500,13 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
           });
           setSelectedIds(new Set());
           setSelectAllInProject(false);
-          addToast({ message: '選択したチケットを削除しました', type: 'success' });
+          addToast({ message: t('ticketTable.bulkDeleteSuccess'), type: 'success' });
           // サーバー側の削除確認後、同期を実行
           void runCycle();
         } catch (error: unknown) {
           const axiosErr = error as { response?: { data?: { detail?: string } } };
           addToast({
-            message: axiosErr.response?.data?.detail ?? '一括削除に失敗しました',
+            message: axiosErr.response?.data?.detail ?? t('ticketTable.bulkDeleteFailed'),
             type: 'error',
           });
         }
@@ -516,11 +516,11 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
           await localDeleteTickets(Array.from(selectedIds));
           setSelectedIds(new Set());
           setSelectAllInProject(false);
-          addToast({ message: '選択したチケットを削除しました', type: 'success' });
+          addToast({ message: t('ticketTable.bulkDeleteSuccess'), type: 'success' });
         } catch (error: unknown) {
           const axiosErr = error as { response?: { data?: { detail?: string } } };
           addToast({
-            message: axiosErr.response?.data?.detail ?? '一括削除に失敗しました',
+            message: axiosErr.response?.data?.detail ?? t('ticketTable.bulkDeleteFailed'),
             type: 'error',
           });
         }
@@ -533,8 +533,8 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
     const count = selectAllInProject ? totalCount : selectedIds.size;
     if (count === 0) return;
     const message = selectAllInProject
-      ? `プロジェクト内の全${count}件のチケットを削除します。この操作は取り消せません。`
-      : `選択した${count}件のチケットを削除します。この操作は取り消せません。`;
+      ? t('ticketTable.bulkDeleteConfirmAll', { count })
+      : t('ticketTable.bulkDeleteConfirmSelected', { count });
     if (!window.confirm(message)) return;
     bulkDeleteMutation.mutate();
   };
@@ -614,7 +614,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
         className="ticket-table__import-btn"
         onClick={() => setMarkdownImportOpen(true)}
         data-testid="markdown-import-btn"
-        title="Markdownからインポート"
+        title={t('ticketTable.importFromMarkdown')}
       >
         📄 MD
       </button>
@@ -736,7 +736,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
       {selectedIds.size > 0 && (
         <div className="ticket-table__bulk-bar" data-testid="bulk-actions">
           <span className="ticket-table__bulk-count">
-            {selectAllInProject ? `全${totalCount}件` : `${selectedIds.size}件`}選択中
+            {selectAllInProject ? t('ticketTable.selectedCountAll', { count: totalCount }) : t('ticketTable.selectedCount', { count: selectedIds.size })}
           </span>
           {isProjectOwner && totalCount > tickets.length && !selectAllInProject && selectedIds.size === tickets.length && (
             <button
@@ -745,7 +745,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
               onClick={() => void selectAllTicketsInProject()}
               data-testid="select-all-in-project-btn"
             >
-              プロジェクト内の全{totalCount}件を選択
+              {t('ticketTable.selectAllInProject', { count: totalCount })}
             </button>
           )}
           <select
@@ -759,7 +759,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
             }}
             data-testid="bulk-status-select"
           >
-            <option value="">ステータス変更...</option>
+            <option value="">{t('ticketTable.bulkStatusPlaceholder')}</option>
             {statusOptions.map((s) => (
               <option key={s} value={s}>{statusLabel(s)}</option>
             ))}
@@ -772,14 +772,14 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
               disabled={bulkDeleteMutation.isPending}
               data-testid="bulk-delete-btn"
             >
-              {bulkDeleteMutation.isPending ? '削除中...' : '削除'}
+              {bulkDeleteMutation.isPending ? t('common.deleting') : t('common.delete')}
             </button>
           )}
           <button
             className="ticket-table__bulk-clear"
             onClick={() => { setSelectedIds(new Set()); setSelectAllInProject(false); }}
           >
-            選択解除
+            {t('ticketTable.clearSelection')}
           </button>
         </div>
       )}
@@ -942,7 +942,7 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                           <span>{ticket.assignees[0].displayName || ticket.assignees[0].username}</span>
                         )}
                         {ticket.assignees.length > 1 && (
-                          <span>{ticket.assignees.length}人</span>
+                          <span>{t('ticketTable.assigneeCount', { count: ticket.assignees.length })}</span>
                         )}
                       </span>
                     ) : (

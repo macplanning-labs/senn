@@ -318,7 +318,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         code: false,
       }),
       TiptapPlaceholder.configure({
-        placeholder: 'Add a comment... (@username でメンションできます)',
+        placeholder: t('ticketDetail.commentPlaceholder'),
       }),
       createMentionExtension(userOptionsRef),
     ],
@@ -367,7 +367,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         code: false,
       }),
       TiptapPlaceholder.configure({
-        placeholder: '返信を入力... (@username でメンションできます)',
+        placeholder: t('ticketDetail.replyPlaceholder'),
       }),
       createMentionExtension(userOptionsRef),
     ],
@@ -463,7 +463,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       }
       scheduleAiPromptCacheSync();
     },
-    errorMessage: 'コメントの追加に失敗しました。',
+    errorMessage: t('ticketDetail.commentFailed'),
   });
 
   // 経過メモ編集(投稿者本人のみ)
@@ -486,7 +486,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       setEditingCommentId(null);
       setEditingCommentText('');
     },
-    errorMessage: '経過メモの編集に失敗しました。',
+    errorMessage: t('ticketDetail.commentEditFailed'),
   });
 
   // コメント削除(投稿者本人のみ)
@@ -508,7 +508,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     onSuccessCallback: () => {
       setOpenMenuCommentId(null);
     },
-    errorMessage: 'コメントの削除に失敗しました。',
+    errorMessage: t('ticketDetail.commentDeleteFailed'),
   });
 
   // チケット全体のウォッチトグル
@@ -526,7 +526,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       if (!data) return currentData;
       return { ...data, isWatching: watch };
     },
-    errorMessage: 'ウォッチ設定の変更に失敗しました。',
+    errorMessage: t('ticketDetail.watchError'),
   });
 
   const startEditingComment = (comment: CommentData) => {
@@ -562,8 +562,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         };
       });
     } catch (error) {
-      console.error('ファイルアップロード失敗:', error);
-      alert('ファイルのアップロードに失敗しました。');
+      console.error('File upload failed:', error);
+      alert(t('ticketDetail.fileUploadFailed'));
     } finally {
       setAttachmentUploading(false);
     }
@@ -594,7 +594,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   // コメント入力エリアへの画像ペースト処理
   // 添付ファイル削除
   const handleDeleteAttachment = async (attachmentId: number) => {
-    if (!window.confirm('このファイルを削除しますか？')) return;
+    if (!window.confirm(t('ticketDetail.deleteFileConfirm'))) return;
 
     try {
       // DELETE /api/v1/tickets/{ticket_id}/attachments/{attachment_id}/
@@ -607,8 +607,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         queryClient.setQueryData(ticketQueryKey, updatedTicket);
       }
     } catch (error) {
-      console.error('ファイル削除失敗:', error);
-      alert('ファイルの削除に失敗しました。');
+      console.error('File deletion failed:', error);
+      alert(t('ticketDetail.fileDeleteFailed'));
     }
   };
 
@@ -756,7 +756,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         }
         parts.push(
           <span key={`mention-${i}`} className="detail-panel__mention">
-            {`@${matchedUser?.displayName || matchedUser?.alias || matchedUser?.username || 'ユーザー'}`}
+            {`@${matchedUser?.displayName || matchedUser?.alias || matchedUser?.username || t('ticket.mention.unknownUser')}`}
           </span>
         );
         i = bracketMatch.end;
@@ -811,8 +811,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       setNewLinkUrl('');
       setNewLinkTitle('');
     } catch (error) {
-      console.error('参照リンクの追加に失敗:', error);
-      alert('参照リンクの追加に失敗しました。');
+      console.error('Failed to add reference link:', error);
+      alert(t('ticketDetail.errors.linkFailed'));
     } finally {
       setLinkAdding(false);
     }
@@ -820,7 +820,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
   // 参照リンク削除
   const handleDeleteLink = async (linkId: number) => {
-    if (!window.confirm('この参照リンクを削除しますか？')) return;
+    if (!window.confirm(t('ticketDetail.confirmDeleteLink'))) return;
 
     try {
       await apiClient.delete(`/tickets/${ticket?.id}/links/${linkId}/`);
@@ -832,8 +832,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         queryClient.setQueryData(ticketQueryKey, updatedTicket);
       }
     } catch (error) {
-      console.error('参照リンク削除失敗:', error);
-      alert('参照リンクの削除に失敗しました。');
+      console.error('Reference link deletion failed:', error);
+      alert(t('ticketDetail.errors.linkFailed'));
     }
   };
 
@@ -841,15 +841,15 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const handleDeleteTicket = async () => {
     if (!ticket) return;
     const warning = ticket.childCount > 0
-      ? `このチケットには子チケットが${ticket.childCount}件あります。削除すると子チケットもすべて削除されます。本当に削除しますか？`
-      : 'このチケットを削除しますか？この操作は取り消せません。';
+      ? t('ticketDetail.deleteTicketConfirmWithChildren', { count: ticket.childCount })
+      : t('ticketDetail.deleteTicketConfirm');
     if (!window.confirm(warning)) return;
     try {
       await localDeleteTickets([ticketId]);
       onClose();
     } catch (error) {
-      console.error('チケット削除失敗:', error);
-      alert('チケットの削除に失敗しました。');
+      console.error('Ticket deletion failed:', error);
+      alert(t('ticketDetail.deleteError'));
     }
   };
 
@@ -904,7 +904,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           </span>
           <span className="detail-panel__comment-time">
             {timeAgo(comment.createdAt)}
-            {comment.updatedAt && ' (編集済み)'}
+            {comment.updatedAt && t('ticketDetail.commentEdited')}
           </span>
           {!isEditing && !comment.isDeleted && comment.id > 0 && (
             <div className="detail-panel__comment-menu-wrapper">
@@ -912,8 +912,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 type="button"
                 className="detail-panel__comment-menu-trigger"
                 onClick={() => setOpenMenuCommentId(openMenuCommentId === comment.id ? null : comment.id)}
-                aria-label="コメントメニュー"
-                title="メニュー"
+                aria-label={t('ticketDetail.commentMenu')}
+                title={t('ticketDetail.menuLabel')}
               >
                 <IconMoreHorizontal />
               </button>
@@ -928,7 +928,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                         setOpenMenuCommentId(null);
                       }}
                     >
-                      編集
+                      {t('common.edit')}
                     </button>
                   )}
                   {isOwnComment && (
@@ -936,13 +936,13 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                       type="button"
                       className="detail-panel__comment-menu-item detail-panel__comment-menu-item--danger"
                       onClick={() => {
-                        if (window.confirm('このコメントを削除しますか？')) {
+                        if (window.confirm(t('ticketDetail.confirmDeleteComment'))) {
                           deleteCommentMutation.mutate(comment.id);
                         }
                         setOpenMenuCommentId(null);
                       }}
                     >
-                      削除
+                      {t('ticketDetail.deleteComment')}
                     </button>
                   )}
                   <button
@@ -951,11 +951,11 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                     onClick={() => {
                       const url = buildTicketShareUrl(window.location.origin, ticket.ticketKey, shareCtx, `comment-${comment.id}`);
                       void navigator.clipboard.writeText(url);
-                      toast.success('コメントへのリンクをコピーしました');
+                      toast.success(t('ticketDetail.commentLinkCopied'));
                       setOpenMenuCommentId(null);
                     }}
                   >
-                    リンクをコピー
+                    {t('ticketDetail.copyCommentLink')}
                   </button>
                   {!comment.isDeleted && (
                     <button
@@ -966,7 +966,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                         setOpenMenuCommentId(null);
                       }}
                     >
-                      このコメントから新規チケット作成
+                      {t('ticketDetail.createTicketFromComment')}
                     </button>
                   )}
                   {!comment.isDeleted && (
@@ -981,7 +981,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                         setOpenMenuCommentId(null);
                       }}
                     >
-                      このコメントからサブチケット作成
+                      {t('ticketDetail.createSubTicketFromComment')}
                     </button>
                   )}
                 </div>
@@ -1006,7 +1006,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 onClick={cancelEditingComment}
                 disabled={editCommentMutation.isPending}
               >
-                キャンセル
+                {t('ticketDetail.cancelEdit')}
               </button>
               <button
                 type="button"
@@ -1015,13 +1015,13 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 disabled={!editingCommentText.trim() || editCommentMutation.isPending}
                 data-testid="comment-edit-save"
               >
-                {editCommentMutation.isPending ? '...' : '保存'}
+                {editCommentMutation.isPending ? '...' : t('common.save')}
               </button>
             </div>
           </div>
         ) : comment.isDeleted ? (
           <div className="detail-panel__comment-body">
-            <p className="detail-panel__comment-deleted">このコメントは削除されました</p>
+            <p className="detail-panel__comment-deleted">{t('ticketDetail.commentDeleted')}</p>
           </div>
         ) : (
           <div className="detail-panel__comment-body">
@@ -1102,7 +1102,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               setTimeout(() => setLinkCopied(false), 1500);
             }}
             aria-label="Copy ticket link"
-            title={linkCopied ? 'コピーしました' : 'リンクをコピー'}
+            title={linkCopied ? t('common.copied', { label: '' }).trim() : t('ticketDetail.copyUrl')}
             data-testid="copy-link-btn"
           >
             {linkCopied ? '✅' : '🔗'}
@@ -1111,8 +1111,8 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             className="detail-panel__edit-btn"
             onClick={() => watchMutation.mutate({ watch: !ticket.isWatching })}
             disabled={watchMutation.isPending}
-            aria-label={ticket.isWatching ? 'Unwatch ticket' : 'Watch ticket'}
-            title={ticket.isWatching ? 'ウォッチ解除' : 'ウォッチする'}
+            aria-label={ticket.isWatching ? t('ticketDetail.unwatchTitle') : t('ticketDetail.watchTitle')}
+            title={ticket.isWatching ? t('ticketDetail.unwatchTitle') : t('ticketDetail.watchTitle')}
             data-testid="watch-ticket-btn"
           >
             {ticket.isWatching ? '🔔' : '🔕'}
@@ -1133,7 +1133,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               if (editPath) navigate(editPath);
             }}
             aria-label="Edit ticket"
-            title="編集"
+            title={t('common.edit')}
           >
             ✏️
           </button>
@@ -1141,7 +1141,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             className="detail-panel__edit-btn detail-panel__edit-btn--danger"
             onClick={() => void handleDeleteTicket()}
             aria-label="Delete ticket"
-            title="削除"
+            title={t('common.delete')}
             data-testid="delete-ticket-btn"
           >
             🗑️
@@ -1233,7 +1233,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 >
                   {userOptions.length === 0 ? (
                     <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.6, padding: '4px' }}>
-                      メンバーがいません
+                      {t('ticketDetail.noAssignees')}
                     </div>
                   ) : (
                     userOptions.map((opt) => {
@@ -1301,7 +1301,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 >
                   {userOptions.length === 0 ? (
                     <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.6, padding: '4px' }}>
-                      メンバーがいません
+                      {t('ticketDetail.noReviewers')}
                     </div>
                   ) : (
                     userOptions.map((opt) => {
@@ -1379,7 +1379,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                   </span>
                 ))
               ) : (
-                <span className="detail-panel__unassigned">+ ラベルを追加</span>
+                <span className="detail-panel__unassigned">{t('ticketDetail.addLabel')}</span>
               )}
             </div>
             {labelPickerOpen && (
@@ -1399,7 +1399,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 >
                   {labelOptions.length === 0 ? (
                     <div style={{ fontSize: 'var(--font-size-sm)', opacity: 0.6, padding: '4px' }}>
-                      ラベルがありません
+                      {t('ticketDetail.noLabels')}
                     </div>
                   ) : (
                     labelOptions.map((opt) => {
@@ -1452,11 +1452,11 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               data-testid="story-points-input"
             >
               <option value="">—</option>
-              <option value="1">1 — 瞬殺 / No-brainer</option>
-              <option value="2">2 — 普通 / Straightforward</option>
-              <option value="3">3 — ちょい重 / Moderate</option>
-              <option value="5">5 — 時の運 / Risky</option>
-              <option value="8">8 — 泥沼 / Here be dragons 🐉</option>
+              <option value="1">{t('ticketDetail.storyPoint1')}</option>
+              <option value="2">{t('ticketDetail.storyPoint2')}</option>
+              <option value="3">{t('ticketDetail.storyPoint3')}</option>
+              <option value="5">{t('ticketDetail.storyPoint5')}</option>
+              <option value="8">{t('ticketDetail.storyPoint8')}</option>
             </select>
             <button
               type="button"
@@ -1558,7 +1558,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                 fontSize: '12px',
               }}
             >
-              コメントを追加
+              {t('ticketDetail.addCommentInline')}
             </button>
           )}
         {/* インラインコメントミニフォーム（説明文がある場合のみ） */}
@@ -1580,7 +1580,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               <textarea
                 value={inlineCommentText}
                 onChange={(e) => setInlineCommentText(e.target.value)}
-                placeholder="コメントを入力..."
+                placeholder={t('ticketDetail.inlineCommentPlaceholder')}
                 style={{
                   width: '100%',
                   minHeight: '80px',
@@ -1608,7 +1608,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                     fontSize: '12px',
                   }}
                 >
-                  キャンセル
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={() => {
@@ -1631,7 +1631,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                     opacity: commentMutation.isPending || !inlineCommentText.trim() ? 0.6 : 1,
                   }}
                 >
-                  {commentMutation.isPending ? '...' : 'コメント'}
+                  {commentMutation.isPending ? '...' : t('ticketDetail.postComment')}
                 </button>
               </div>
             </div>
@@ -1641,7 +1641,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       {/* 経過メモ */}
       <div className="detail-panel__comments">
         <h3 className="detail-panel__section-title">
-          経過メモ ({ticket.comments?.length ?? 0})
+          {t('ticketDetail.commentsHeading', { count: ticket.comments?.length ?? 0 })}
         </h3>
 
         {topLevelComments.map((comment) => (
@@ -1663,7 +1663,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                       }}
                       disabled={commentMutation.isPending}
                     >
-                      キャンセル
+                      {t('common.cancel')}
                     </button>
                     <button
                       type="button"
@@ -1675,7 +1675,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                       }}
                       disabled={replyEditorIsEmpty || commentMutation.isPending}
                     >
-                      {commentMutation.isPending ? '...' : '返信'}
+                      {commentMutation.isPending ? '...' : t('ticketDetail.replyComment')}
                     </button>
                   </div>
                 </div>
@@ -1688,7 +1688,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
                     replyEditor?.commands.clearContent();
                   }}
                 >
-                  返信
+                  {t('ticketDetail.replyComment')}
                 </button>
               )}
             </div>
@@ -1893,7 +1893,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           />
           <input
             type="text"
-            placeholder="タイトル(任意)"
+            placeholder={t('ticketDetail.linkTitlePlaceholder')}
             value={newLinkTitle}
             onChange={(e) => setNewLinkTitle(e.target.value)}
             disabled={linkAdding}
@@ -1919,7 +1919,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
               whiteSpace: 'nowrap',
             }}
           >
-            {linkAdding ? '追加中...' : '追加'}
+            {linkAdding ? t('ticketDetail.addingLabel') : t('common.add')}
           </button>
         </div>
       </div>
@@ -1941,7 +1941,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
       {ticket.linkedWikiPages && ticket.linkedWikiPages.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
           <h4 style={{ fontSize: '0.8125rem', fontWeight: 600, margin: '0 0 0.5rem', opacity: 0.7 }}>
-            📖 紐付きWiki ({ticket.linkedWikiPages.length})
+            {t('ticketDetail.linkedWikiHeading', { count: ticket.linkedWikiPages.length })}
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
             {ticket.linkedWikiPages.map((wp: { id: number; title: string; slug: string; category: string }) => (

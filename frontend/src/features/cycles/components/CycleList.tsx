@@ -18,10 +18,13 @@ import { IconCycle } from '@/shared/components/layout/Sidebar';
 import { useTranslation } from 'react-i18next';
 import { canCompleteCycle } from '../utils/cycleHelpers';
 
-const statusLabels: Record<string, string> = {
-  planned: '計画中',
-  active: '進行中',
-  completed: '完了',
+const getStatusLabel = (status: string, t: (key: string) => string): string => {
+  const labels: Record<string, string> = {
+    planned: t('cycle.status.planned'),
+    active: t('cycle.status.active'),
+    completed: t('cycle.status.completed'),
+  };
+  return labels[status] || status;
 };
 
 const statusColors: Record<string, string> = {
@@ -89,11 +92,11 @@ export function CycleList() {
 
   const handleCreate = () => {
     if (!formName || !formStart || !formEnd) {
-      setError('サイクル名・開始日・終了日は必須です');
+      setError(t('cycle.nameRequired'));
       return;
     }
     if (!project && !team) {
-      setError('プロジェクトまたはチームを指定してください');
+      setError(t('cycle.targetRequired'));
       return;
     }
     createMutation.mutate({
@@ -123,9 +126,9 @@ export function CycleList() {
             .map(msg => typeof msg === 'string' ? msg : '')
             .filter(Boolean)
             .join(', ');
-          setError(messages || 'サイクルの作成に失敗しました');
+          setError(messages || t('cycle.createFailed'));
         } else {
-          setError('サイクルの作成に失敗しました');
+          setError(t('cycle.createFailed'));
         }
       },
     });
@@ -165,7 +168,7 @@ export function CycleList() {
         <div className="cycle-form">
           <input
             className="cycle-form__input"
-            placeholder="サイクル名（例: Sprint 14）"
+            placeholder={t('cycle.namePlaceholder')}
             value={formName}
             onChange={e => {
               setFormName(e.target.value);
@@ -174,7 +177,7 @@ export function CycleList() {
           />
           <textarea
             className="cycle-form__textarea"
-            placeholder="説明（任意・このサイクルのゴールや注力ドメインなど）"
+            placeholder={t('cycle.descPlaceholder')}
             value={formDescription}
             onChange={e => setFormDescription(e.target.value)}
             rows={3}
@@ -202,7 +205,7 @@ export function CycleList() {
           </div>
           <div className="cycle-form__team">
             <label htmlFor="cycle-team-select" style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
-              Team（任意）
+              {t('cycle.teamOptional')}
             </label>
             <select
               id="cycle-team-select"
@@ -210,7 +213,7 @@ export function CycleList() {
               value={formTeamId ?? ''}
               onChange={e => setFormTeamId(e.target.value ? parseInt(e.target.value) : null)}
             >
-              <option value="">— 未選択 —</option>
+              <option value="">{t('cycle.noSelection')}</option>
               {(project?.teams ?? []).map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -219,13 +222,13 @@ export function CycleList() {
           {error && <div className="cycle-form__error">{error}</div>}
           <div className="cycle-form__actions">
             <button className="cycle-form__btn cycle-form__btn--primary" onClick={handleCreate} disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Creating...' : '作成'}
+              {createMutation.isPending ? t('common.loading') : t('common.create')}
             </button>
             <button className="cycle-form__btn" onClick={() => {
               setShowForm(false);
               setError('');
             }}>
-              キャンセル
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -241,7 +244,7 @@ export function CycleList() {
             value={filterTeamId ?? ''}
             onChange={e => setFilterTeamId(e.target.value ? parseInt(e.target.value) : null)}
           >
-            <option value="">すべてのTeam</option>
+            <option value="">{t('cycle.allTeams')}</option>
             {Array.from(teamSet.values()).map(team => (
               <option key={team!.id} value={team!.id}>{team!.name}</option>
             ))}
@@ -261,7 +264,7 @@ export function CycleList() {
           <div className="cycle-active__header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <span className="cycle-active__badge" style={{ background: statusColors.active }}>
-                {statusLabels.active}
+                {getStatusLabel('active', t)}
               </span>
               {isActiveCycleOverdue && (
                 <span style={{
@@ -300,7 +303,7 @@ export function CycleList() {
           <div className="cycle-active__stats">
             <div className="cycle-active__stat">
               <span className="cycle-active__stat-value">{activeCycle.completedCount}</span>
-              <span className="cycle-active__stat-label">/ {activeCycle.ticketCount} 完了</span>
+              <span className="cycle-active__stat-label">{t('cycle.completedOf', { total: activeCycle.ticketCount })}</span>
             </div>
             <div className="cycle-active__stat">
               <span className="cycle-active__stat-value">{activeCycle.completedPoints}</span>
@@ -322,7 +325,7 @@ export function CycleList() {
               className="cycle-form__btn cycle-form__btn--complete"
               onClick={() => handleComplete(activeCycle)}
             >
-              完了にする
+              {t('cycle.markComplete')}
             </button>
           </div>
         </div>
@@ -331,7 +334,7 @@ export function CycleList() {
       {/* 計画中 */}
       {filteredPlanned.length > 0 && (
         <div className="cycle-section">
-          <h3 className="cycle-section__title">計画中</h3>
+          <h3 className="cycle-section__title">{t('cycle.plannedSection')}</h3>
           {filteredPlanned.map(cycle => (
             <CycleRow
               key={cycle.id}
@@ -376,7 +379,7 @@ export function CycleList() {
       {cycles.length === 0 && !showForm && (
         <div className="cycle-empty">
           <p>{t('cycle.noCycles')}</p>
-          <p>「{t('cycle.newCycle')}」をクリックして最初のスプリントを作成しましょう。</p>
+          <p>{t('cycle.emptyHint', { button: t('cycle.newCycle') })}</p>
         </div>
       )}
     </div>
@@ -407,7 +410,7 @@ function CycleRow({
     <div className="cycle-row" onClick={onNavigate}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0, whiteSpace: 'nowrap' }}>
         <span className="cycle-row__status" style={{ color: statusColors[cycle.status] }}>
-          {statusLabels[cycle.status]}
+          {getStatusLabel(cycle.status, t)}
         </span>
         {cycle.team && (
           <span style={{
@@ -454,14 +457,14 @@ function CycleRow({
           className="cycle-form__btn cycle-form__btn--complete"
           onClick={e => { e.stopPropagation(); onComplete(); }}
         >
-          完了にする
+          {t('cycle.markComplete')}
         </button>
       )}
       {onDelete && (
         <button
           className="cycle-row__delete"
           onClick={e => { e.stopPropagation(); onDelete(); }}
-          title="削除"
+          title={t('common.delete')}
         >
           🗑
         </button>

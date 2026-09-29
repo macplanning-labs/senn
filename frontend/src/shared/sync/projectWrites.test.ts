@@ -1,5 +1,5 @@
 /**
- * projectWrites.test.ts — プロジェクトの書き込み（WIPAPPDEV-000147 / 詳細設計 §3・§9）
+ * projectWrites.test.ts — プロジェクトの書き込み（DEMO-000147 / 詳細設計 §3・§9）
  */
 
 import 'fake-indexeddb/auto';
@@ -56,7 +56,7 @@ function localProject(id: number, over: Partial<LocalProject> = {}): LocalProjec
   };
 }
 
-describe('プロジェクトの書き込み（WIPAPPDEV-000147）', () => {
+describe('プロジェクトの書き込み（DEMO-000147）', () => {
   beforeEach(() => {
     openUserDb(9001);
   });
