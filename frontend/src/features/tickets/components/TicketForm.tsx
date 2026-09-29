@@ -5,7 +5,7 @@
  * 開発標準書: Layer 1（フロントバリデーション）準拠。
  */
 
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,7 @@ import { apiClient } from '@/shared/api/client';
 import { localCreateTicket, localUpdateTicket } from '@/shared/sync/ticketWrites';
 import { runCycle } from '@/shared/sync/syncEngine';
 import type { LocalTicket } from '@/shared/sync/db';
+import { useTicketList } from '@/shared/sync/repos/ticketRepo';
 import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '@/shared/utils/ticketQueryInvalidation';
 import { useProject } from '@/shared/hooks/useProject';
 import { useTeam } from '@/shared/hooks/useTeam';
@@ -233,15 +234,19 @@ export function TicketForm({
   });
 
   // 親チケット候補取得（同一プロジェクトの親チケットのみ）
-  const { data: parentTickets } = useQuery<{ results: ParentTicketOption[] }>({
-    queryKey: ['parent-tickets', activeProject?.id],
-    queryFn: async () => {
-      const params: Record<string, string> = { parent__isnull: 'true' };
-      if (activeProject?.id) params.project = String(activeProject.id);
-      const res = await apiClient.get<{ results: ParentTicketOption[] }>('/tickets/', { params });
-      return res.data;
-    },
+  const { tickets: parentCandidateRows } = useTicketList({
+    parent__isnull: 'true',
+    ...(activeProject?.id ? { project: activeProject.id } : {}),
+    ordering: '-updated_at',
   });
+  const parentTickets = useMemo(
+    () => ({
+      results: parentCandidateRows
+        .filter((r) => !r._pendingCreate && r.ticketKey !== ticketId)
+        .map((r): ParentTicketOption => ({ id: r.id, ticketKey: r.ticketKey, title: r.title })),
+    }),
+    [parentCandidateRows, ticketId],
+  );
 
   const [linkCopied, setLinkCopied] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<number[]>([]);

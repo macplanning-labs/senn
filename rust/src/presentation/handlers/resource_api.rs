@@ -29,6 +29,54 @@ use crate::domain::models::resource_api::*;
 use crate::domain::models::holiday::Holiday;
 
 // =============================================================================
+// 権限確認
+// =============================================================================
+
+const NO_PROJECT_EDIT_PERMISSION: &str = "このプロジェクトを変更する権限がありません";
+
+/// PUT / PATCH の権限確認。ハンドラの最初に呼ぶ。権限がなければ返すべき応答を Err で返す。
+pub(crate) async fn authorize_project_edit(
+    pool: &sqlx::PgPool,
+    user_id: i32,
+    project_id: i32,
+) -> Result<(), axum::response::Response> {
+    let caller = match user_repo::find_by_id(pool, user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse { detail: "ユーザーが見つかりません".to_string() }),
+            )
+                .into_response());
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response());
+        }
+    };
+    match project_team_repo::can_edit(pool, project_id, user_id, caller.is_staff).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse { detail: NO_PROJECT_EDIT_PERMISSION.to_string() }),
+        )
+            .into_response()),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+            )
+                .into_response())
+        }
+    }
+}
+
+// =============================================================================
 // リクエスト構造体
 // =============================================================================
 
@@ -627,6 +675,9 @@ pub async fn project_update(
     Path(id): Path<i32>,
     Json(body): Json<ProjectWriteIn>,
 ) -> impl IntoResponse {
+    if let Err(resp) = authorize_project_edit(&state.pool, auth.user_id, id).await {
+        return resp;
+    }
     // Activity 用に変更前の状態を取っておく(取得できなくても更新自体は続ける)
     let old = resource_repo::find_project_by_id(&state.pool, id, None).await.ok().flatten();
     match resource_repo::update_project(&state.pool, id, &body).await {
@@ -675,6 +726,9 @@ pub async fn project_patch(
     Path(id): Path<i32>,
     Json(body): Json<ProjectPatchIn>,
 ) -> impl IntoResponse {
+    if let Err(resp) = authorize_project_edit(&state.pool, auth.user_id, id).await {
+        return resp;
+    }
     const ALLOWED_PROJECT_STATUSES: [&str; 4] = ["planned", "in_progress", "paused", "completed"];
     if let Some(ref status) = body.status {
         if !ALLOWED_PROJECT_STATUSES.contains(&status.as_str()) {
@@ -1463,6 +1517,73 @@ pub async fn holiday_delete(
         Err(e) => {
             tracing::error!("[祝日/削除] 処理=祝日削除 結果=失敗 影響=削除が実行されていない holiday_id={} | {}", id, e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "祝日の削除に失敗しました".to_string() })).into_response()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::authorize_project_edit;
+    use crate::test_support;
+    use axum::http::StatusCode;
+
+    async fn set_role(pool: &sqlx::PgPool, team_id: i32, user_id: i32, role: &str) {
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, $3, NOW())",
+        )
+        .bind(team_id as i64)
+        .bind(user_id as i64)
+        .bind(role)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn authorize_a1_non_member_returns_403() {
+        // A1: 参加していないチームの人
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "a1o").await;
+        let outsider = test_support::create_test_user(&pool, "a1x").await;
+        let project = test_support::create_test_project(&pool, "A1", owner).await;
+
+        let result = authorize_project_edit(&pool, outsider, project).await;
+        assert!(result.is_err(), "権限なしは Err を返すべき");
+        // レスポンスの status が 403 か確認
+        if let Err(response) = result {
+            let status_code = response.status();
+            assert_eq!(status_code, StatusCode::FORBIDDEN, "403 Forbidden が返されるべき");
+        }
+    }
+
+    #[tokio::test]
+    async fn authorize_a2_team_member_returns_ok() {
+        // A2: 参加チームの一般メンバー
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "a2o").await;
+        let member = test_support::create_test_user(&pool, "a2m").await;
+        let project = test_support::create_test_project(&pool, "A2", owner).await;
+        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
+            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        set_role(&pool, team, member, "member").await;
+
+        let result = authorize_project_edit(&pool, member, project).await;
+        assert!(result.is_ok(), "参加チームメンバーは Ok を返すべき");
+    }
+
+    #[tokio::test]
+    async fn authorize_a3_nonexistent_user_returns_401() {
+        // A3: 存在しない利用者ID
+        let Some(pool) = test_support::test_pool().await else { return; };
+        let owner = test_support::create_test_user(&pool, "a3o").await;
+        let project = test_support::create_test_project(&pool, "A3", owner).await;
+
+        let nonexistent_user_id = i32::MAX;
+        let result = authorize_project_edit(&pool, nonexistent_user_id, project).await;
+        assert!(result.is_err(), "存在しないユーザーは Err を返すべき");
+        if let Err(response) = result {
+            let status_code = response.status();
+            assert_eq!(status_code, StatusCode::UNAUTHORIZED, "401 Unauthorized が返されるべき");
         }
     }
 }

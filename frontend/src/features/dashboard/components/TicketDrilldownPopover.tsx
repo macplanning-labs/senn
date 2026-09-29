@@ -8,11 +8,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { apiClient } from '@/shared/api/client';
+import { useProjects } from '@/shared/sync/repos/projectRepo';
+import { useTicketList } from '@/shared/sync/repos/ticketRepo';
 import { localDateStr } from '@/shared/utils/localDateStr';
-import type { Project } from '@/shared/hooks/useProject';
 import './TicketDrilldownPopover.css';
 
 export type DrilldownFilter =
@@ -25,7 +24,7 @@ interface DrilldownTicket {
   title: string;
   priority: string;
   dueDate: string | null;
-  project: number;
+  project: number | null;
 }
 
 interface TicketDrilldownPopoverProps {
@@ -86,29 +85,37 @@ export function TicketDrilldownPopover({ anchorEl, filter, label, onClose }: Tic
     };
   }, [anchorEl, onClose]);
 
-  // プロジェクトID→prefix/name解決。useProject.ts と同じ queryKey で既存キャッシュを再利用する。
-  const { data: projectsData } = useQuery<{ results: Project[] }>({
-    queryKey: ['projects'],
-    queryFn: async () => (await apiClient.get<{ results: Project[] }>('/projects/')).data,
-    staleTime: 1000 * 60 * 10,
-  });
-  const projectById = new Map((projectsData?.results ?? []).map((p) => [p.id, p]));
+  // プロジェクト一覧を取得
+  const { projects } = useProjects();
+  const projectById = new Map(projects.map((p) => [p.id, p]));
 
-  const { data, isLoading } = useQuery<{ count: number; results: DrilldownTicket[] }>({
-    queryKey: ['tickets-drilldown', filter],
-    queryFn: async () => (await apiClient.get('/tickets/', { params: buildParams(filter) })).data,
-  });
+  // チケット一覧を取得
+  const { tickets: rows, isLoading } = useTicketList(buildParams(filter));
 
-  const tickets = data?.results ?? [];
-  const groups = new Map<number, DrilldownTicket[]>();
+  // DrilldownTicket 形式に変換
+  const tickets: DrilldownTicket[] = rows.map((r) => ({
+    id: r.id,
+    ticketKey: r.ticketKey,
+    title: r.title,
+    priority: r.priority,
+    dueDate: r.dueDate,
+    project: r.projectId,
+  }));
+
+  const groups = new Map<number | null, DrilldownTicket[]>();
   for (const ticket of tickets) {
     const list = groups.get(ticket.project) ?? [];
     list.push(ticket);
     groups.set(ticket.project, list);
   }
-  const sortedProjectIds = [...groups.keys()].sort((a, b) =>
-    (projectById.get(a)?.prefix ?? '').localeCompare(projectById.get(b)?.prefix ?? ''),
-  );
+  const sortedProjectIds = [...groups.keys()].sort((a, b) => {
+    const aPrefix = a !== null ? projectById.get(a)?.prefix ?? '' : '';
+    const bPrefix = b !== null ? projectById.get(b)?.prefix ?? '' : '';
+    if (aPrefix === '' && bPrefix === '') return 0;
+    if (aPrefix === '') return 1; // null は最後
+    if (bPrefix === '') return -1;
+    return aPrefix.localeCompare(bPrefix);
+  });
 
   if (!position) return null;
 
@@ -125,9 +132,9 @@ export function TicketDrilldownPopover({ anchorEl, filter, label, onClose }: Tic
     >
       <div className="drilldown-popover__head">
         <span className="drilldown-popover__title">{label}</span>
-        {data && (
+        {!isLoading && tickets.length > 0 && (
           <span className="drilldown-popover__count">
-            {t('dashboard.showingOf', { shown: tickets.length, total: data.count })}
+            {t('dashboard.showingOf', { shown: tickets.length, total: tickets.length })}
           </span>
         )}
       </div>
@@ -137,13 +144,13 @@ export function TicketDrilldownPopover({ anchorEl, filter, label, onClose }: Tic
       )}
       <div className="drilldown-popover__body">
         {sortedProjectIds.map((projectId) => {
-          const project = projectById.get(projectId);
+          const project = projectId !== null ? projectById.get(projectId) : undefined;
           const projectTickets = groups.get(projectId) ?? [];
           return (
-            <div key={projectId}>
+            <div key={projectId ?? 'null'}>
               {sortedProjectIds.length > 1 && (
                 <div className="drilldown-popover__group-label">
-                  {project ? `${project.name}（${project.prefix}）` : `#${projectId}`}
+                  {project ? `${project.name}（${project.prefix}）` : t('dashboard.noProjectGroup')}
                 </div>
               )}
               {projectTickets.map((ticket) => (

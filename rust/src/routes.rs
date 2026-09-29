@@ -212,6 +212,11 @@ pub fn create_router(state: AppState) -> Router {
                 .patch(auth_api::update_notification_preference),
         )
         .route(
+            "/api/v1/auth/me/ai-prompt-templates/",
+            get(auth_api::get_ai_prompt_templates)
+                .put(auth_api::update_ai_prompt_templates),
+        )
+        .route(
             "/api/v1/auth/me/deactivate/",
             post(auth_api::deactivate_my_account),
         )
@@ -260,6 +265,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/tickets/{ticket_key}/watch/",
             axum::routing::post(tickets_api::watch_ticket).delete(tickets_api::unwatch_ticket),
+        )
+        .route(
+            "/api/v1/tickets/{ticket_key}/ai-prompt/",
+            axum::routing::post(tickets_api::generate_ticket_ai_prompt),
         )
         .route(
             "/api/v1/tickets/{ticket_key}/change-logs/",

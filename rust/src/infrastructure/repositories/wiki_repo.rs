@@ -14,26 +14,29 @@ use crate::domain::models::wiki::{WikiPage, WikiRevision};
 pub async fn find_by_project(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<WikiPage>> {
     let rows = if let Some(pid) = project_id {
         sqlx::query_as::<_, WikiPage>(
-            "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+            "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                     w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                     au.display_name as author_name,
                     ed.display_name as last_editor_name,
-                    p.name as project_name
+                    p.name as project_name,
+                    t.name as team_name
              FROM wiki_page w
              LEFT JOIN accounts_user au ON w.author_id = au.id
              LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
              LEFT JOIN tickets_project p ON w.project_id = p.id
+             LEFT JOIN m_team t ON w.team_id = t.id
              WHERE w.project_id = $1
              ORDER BY w.category, w.title"
         ).bind(pid).fetch_all(pool).await?
     } else {
         // 共有Wiki（project_id IS NULL）
         sqlx::query_as::<_, WikiPage>(
-            "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+            "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                     w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                     au.display_name as author_name,
                     ed.display_name as last_editor_name,
-                    NULL as project_name
+                    NULL as project_name,
+                    NULL as team_name
              FROM wiki_page w
              LEFT JOIN accounts_user au ON w.author_id = au.id
              LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
@@ -47,24 +50,27 @@ pub async fn find_by_project(pool: &PgPool, project_id: Option<i32>) -> anyhow::
 pub async fn find_by_slug(pool: &PgPool, project_id: Option<i32>, slug: &str) -> anyhow::Result<Option<WikiPage>> {
     let row = if let Some(pid) = project_id {
         sqlx::query_as::<_, WikiPage>(
-            "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+            "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                     w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                     au.display_name as author_name,
                     ed.display_name as last_editor_name,
-                    p.name as project_name
+                    p.name as project_name,
+                    t.name as team_name
              FROM wiki_page w
              LEFT JOIN accounts_user au ON w.author_id = au.id
              LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
              LEFT JOIN tickets_project p ON w.project_id = p.id
+             LEFT JOIN m_team t ON w.team_id = t.id
              WHERE w.project_id = $1 AND w.slug = $2"
         ).bind(pid).bind(slug).fetch_optional(pool).await?
     } else {
         sqlx::query_as::<_, WikiPage>(
-            "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+            "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                     w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                     au.display_name as author_name,
                     ed.display_name as last_editor_name,
-                    NULL as project_name
+                    NULL as project_name,
+                    NULL as team_name
              FROM wiki_page w
              LEFT JOIN accounts_user au ON w.author_id = au.id
              LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
@@ -145,41 +151,46 @@ pub async fn find_by_project_with_category(
     let rows = match (project_id, category) {
         (Some(pid), Some(cat)) => {
             sqlx::query_as::<_, WikiPage>(
-                "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+                "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                         w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                         au.display_name as author_name,
                         ed.display_name as last_editor_name,
-                        p.name as project_name
+                        p.name as project_name,
+                        t.name as team_name
                  FROM wiki_page w
                  LEFT JOIN accounts_user au ON w.author_id = au.id
                  LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
                  LEFT JOIN tickets_project p ON w.project_id = p.id
+                 LEFT JOIN m_team t ON w.team_id = t.id
                  WHERE w.project_id = $1 AND w.category = $2
                  ORDER BY w.category, w.title"
             ).bind(pid).bind(cat).fetch_all(pool).await?
         }
         (Some(pid), None) => {
             sqlx::query_as::<_, WikiPage>(
-                "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+                "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                         w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                         au.display_name as author_name,
                         ed.display_name as last_editor_name,
-                        p.name as project_name
+                        p.name as project_name,
+                        t.name as team_name
                  FROM wiki_page w
                  LEFT JOIN accounts_user au ON w.author_id = au.id
                  LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
                  LEFT JOIN tickets_project p ON w.project_id = p.id
+                 LEFT JOIN m_team t ON w.team_id = t.id
                  WHERE w.project_id = $1
                  ORDER BY w.category, w.title"
             ).bind(pid).fetch_all(pool).await?
         }
         (None, Some(cat)) => {
             sqlx::query_as::<_, WikiPage>(
-                "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+                "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                         w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                         au.display_name as author_name,
                         ed.display_name as last_editor_name,
-                        NULL as project_name
+                        NULL as project_name,
+                        NULL as team_name
                  FROM wiki_page w
                  LEFT JOIN accounts_user au ON w.author_id = au.id
                  LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id
@@ -189,11 +200,12 @@ pub async fn find_by_project_with_category(
         }
         (None, None) => {
             sqlx::query_as::<_, WikiPage>(
-                "SELECT w.id::int4, w.project_id::int4, w.title, w.slug, w.category, w.content,
+                "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
                         w.author_id::int4, w.last_editor_id::int4, w.created_at, w.updated_at,
                         au.display_name as author_name,
                         ed.display_name as last_editor_name,
-                        NULL as project_name
+                        NULL as project_name,
+                        NULL as team_name
                  FROM wiki_page w
                  LEFT JOIN accounts_user au ON w.author_id = au.id
                  LEFT JOIN accounts_user ed ON w.last_editor_id = ed.id

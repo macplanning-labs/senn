@@ -33,6 +33,7 @@ pub mod ticket_link_repo;
 pub mod ticket_repo;
 pub mod time_entry_repo;
 pub mod triage_repo;
+pub mod user_ai_prompt_template_repo;
 pub mod user_repo;
 pub mod wiki_api_repo;
 pub mod wiki_attachment_repo;

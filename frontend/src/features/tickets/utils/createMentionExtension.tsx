@@ -33,6 +33,17 @@ export function createMentionExtension(userOptionsRef: MutableRefObject<MentionC
     renderText({ node }) {
       return `@[${node.attrs.label ?? node.attrs.id}:${node.attrs.id}]`;
     },
+    renderHTML({ node, HTMLAttributes }) {
+      return [
+        'span',
+        {
+          ...HTMLAttributes,
+          class: 'mention-node',
+          'data-mention-id': node.attrs.id,
+        },
+        `@${node.attrs.label ?? node.attrs.id}`,
+      ];
+    },
   }).configure({
     HTMLAttributes: { class: 'mention-node' },
     suggestion: {
@@ -90,6 +101,61 @@ export function createMentionExtension(userOptionsRef: MutableRefObject<MentionC
 /** TipTapのMention拡張が出力する `@[表示名:ID]` 形式を検出する正規表現（表示用） */
 export const MENTION_BRACKET_REGEX = /@\[[^:\]]*:(\d+)\]/g;
 
+type MentionInline =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; attrs: { id: string; label: string } };
+
+/**
+ * 投稿済みコメント本文 `@[表示名:ID]` をエディタドキュメントに変換する。
+ * テキストとメンションは段落の中に置く。文書の直下に置くと TipTap が不正とみなし、編集欄が空になる。
+ */
+export function commentBodyToEditorDoc(body: string) {
+  const text = body.replace(/＠/g, '@');
+  const paragraphs: MentionInline[][] = [[]];
+  const regex = /@\[([^:\]]*):(\d+)\]/g;
+  let cursor = 0;
+
+  const currentParagraph = (): MentionInline[] => {
+    const last = paragraphs[paragraphs.length - 1];
+    if (last) return last;
+    const created: MentionInline[] = [];
+    paragraphs.push(created);
+    return created;
+  };
+
+  const pushText = (chunk: string) => {
+    const lines = chunk.split('\n');
+    lines.forEach((line, idx) => {
+      if (idx > 0) paragraphs.push([]);
+      if (line.length > 0) {
+        currentParagraph().push({ type: 'text', text: line });
+      }
+    });
+  };
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    pushText(text.slice(cursor, match.index));
+    const label = match[1];
+    const id = match[2];
+    if (label !== undefined && id !== undefined) {
+      currentParagraph().push({
+        type: 'mention',
+        attrs: { id, label },
+      });
+    }
+    cursor = match.index + match[0].length;
+  }
+  pushText(text.slice(cursor));
+
+  return {
+    type: 'doc' as const,
+    content: paragraphs.map((content) => (
+      content.length > 0 ? { type: 'paragraph' as const, content } : { type: 'paragraph' as const }
+    )),
+  };
+}
+
 /**
  * コメント本文中の `@[表示名:ID]` を、IDから引き直した最新の表示名でハイライト表示する。
  * 投稿後にユーザーが表示名を変更していても常に最新の表示名で表示できる。
@@ -121,7 +187,7 @@ export function renderCommentBodyWithMentions(
     }
     const user = userById.get(match.userId);
     parts.push(
-      <span key={`mention-${idx}`} style={{ color: '#f97316', fontWeight: 500 }}>
+      <span key={`mention-${idx}`} className="ticket-comment-mention" data-mention-id={match.userId}>
         {`@${user?.displayName || user?.alias || user?.username || 'ユーザー'}`}
       </span>,
     );

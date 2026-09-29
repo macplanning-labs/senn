@@ -2884,3 +2884,90 @@ pub async fn bulk_delete(
 
     (StatusCode::OK, Json(BulkDeleteOut { deleted })).into_response()
 }
+
+/// AI プロンプト生成エンドポイント POST /api/v1/tickets/{ticket_key}/ai-prompt/
+///
+/// プロンプトがまだ生成されていないチケットに対して、その場で生成してキャッシュする。
+/// 権限チェックは detail と同等：チケット閲覧可能なユーザーなら呼び出せる。
+pub async fn generate_ticket_ai_prompt(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Path(ticket_key): Path<String>,
+) -> impl IntoResponse {
+    #[derive(Serialize)]
+    struct AiPromptResponse {
+        #[serde(rename = "aiPrompt")]
+        ai_prompt: Option<String>,
+    }
+
+    // ticket_key から ticket_id を解決
+    let ticket_id_opt: Option<i32> =
+        match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(&ticket_key)
+            .fetch_optional(&state.pool)
+            .await
+        {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::error!("ticket lookup failed: {:?}", e);
+                None
+            }
+        };
+
+    let ticket_id = match ticket_id_opt {
+        Some(id) => id,
+        None => {
+            tracing::warn!("Ticket not found: {}", ticket_key);
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // 権限チェック（detail と同等）
+    match membership_repo::check_ticket_access(&state.pool, ticket_id, auth.user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Access check failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    // AI プロンプト生成（await で同期的に実行）
+    let pool = state.pool.clone();
+    let ai_config = state.ai_config().await;
+    if let Err(e) = ai_service::generate_and_cache_ai_prompt(ticket_id, &pool, &ai_config).await {
+        tracing::warn!(ticket_id, "generate_and_cache_ai_prompt failed: {e:#}");
+        // エラーは返さない。失敗時も aiPrompt: null で返す。
+    }
+
+    // DB から ai_prompt を読み込む
+    let ai_prompt = match crate::infrastructure::repositories::ai_repo::get_ticket_ai_prompt(&pool, ticket_id).await {
+        Ok(prompt) => prompt,
+        Err(e) => {
+            tracing::warn!(ticket_id, "get_ticket_ai_prompt failed: {e:#}");
+            None
+        }
+    };
+
+    (StatusCode::OK, Json(AiPromptResponse { ai_prompt })).into_response()
+}

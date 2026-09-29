@@ -33,6 +33,9 @@ import { AIAnalysisPanel } from '@/features/ai/components/AIAnalysisPanel';
 import { CloseAnalysisDialog } from '@/features/ai/components/CloseAnalysisDialog';
 import { ReactionBar } from './ReactionBar';
 import { buildTicketShareUrl, buildTicketEditPath } from '../utils/ticketNavigation';
+import { buildCopyPrompt } from '../utils/buildCopyPrompt';
+import { generateAndCopyAiPrompt } from '../utils/generateAndCopyAiPrompt';
+import { useAiPromptTemplates } from '@/features/settings/hooks/useAiPromptTemplates';
 import { scheduleAiPromptCacheSync } from '../utils/scheduleAiPromptCacheSync';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { createMentionExtension } from '../utils/createMentionExtension';
@@ -193,6 +196,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   // チケット詳細取得（端末内DBから）
   const { data: ticket, isLoading } = useTicketDetail(ticketId) as { data: TicketData | undefined; isLoading: boolean };
 
+  // 個人設定のAIプロンプトテンプレート取得
+  const { templates: userTemplates } = useAiPromptTemplates();
+
   const { options: statusChoices } = useStatusOptions(ticket?.project, ticket?.team?.id);
 
   // プロジェクト／Team で使えるラベル一覧(ピッカー表示用)
@@ -235,6 +241,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   useEffect(() => {
     userOptionsRef.current = userOptions;
   }, [userOptions]);
+
+  // AI プロンプト生成中フラグ
+  const isGeneratingRef = useRef(false);
 
   // チケット切り替え時、前のチケットで開いていたインラインコメントUIの
   // 状態（position: fixedのフローティングボタン等）を持ち越さないようリセットする
@@ -606,17 +615,41 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   // プロンプト — キャッシュをクリップボードにコピー
   const handleCopyAiPrompt = async () => {
     if (!ticket) return;
+
+    const defaults = {
+      common: t('settings.defaultAiPromptTemplate'),
+      cursor: t('settings.defaultAiPromptTemplateCursor'),
+      claude: t('settings.defaultAiPromptTemplateClaude'),
+    };
+
     const cached = ticket.aiPrompt?.trim();
-    if (!cached) {
-      toast.info(t('ticketDetail.aiPromptPending'));
+    if (cached) {
+      try {
+        // 個人設定のおまじないと結合
+        const codingTool = (localStorage.getItem('senn.codingTool') as 'Cursor' | 'Claude Code') || 'Cursor';
+        const finalPrompt = buildCopyPrompt(cached, codingTool, userTemplates, defaults);
+        await navigator.clipboard.writeText(finalPrompt);
+        toast.success(t('ticketDetail.aiPromptCopied', { ticketKey: ticket.ticketKey }));
+      } catch {
+        toast.error(t('ticketDetail.aiPromptCopyFailed'));
+      }
       return;
     }
-    try {
-      await navigator.clipboard.writeText(cached);
-      toast.success(t('ticketDetail.aiPromptCopied', { ticketKey: ticket.ticketKey }));
-    } catch {
-      toast.error(t('ticketDetail.aiPromptCopyFailed'));
-    }
+
+    // プロンプトが未生成の場合、その場で生成
+    const codingTool = (localStorage.getItem('senn.codingTool') as 'Cursor' | 'Claude Code') || 'Cursor';
+
+    if (!isGeneratingRef.current) toast.info(t('ticketDetail.aiPromptGenerating'));
+    const result = await generateAndCopyAiPrompt(
+      ticket.ticketKey,
+      isGeneratingRef,
+      codingTool,
+      userTemplates,
+      defaults,
+      t,
+    );
+
+    toast[result.toast.type as 'success' | 'info' | 'error'](result.toast.message);
   };
 
   // 説明文のテキスト選択を処理
@@ -722,7 +755,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           parts.push(text.substring(lastFlush, i));
         }
         parts.push(
-          <span key={`mention-${i}`} style={{ color: '#f97316', fontWeight: 500 }}>
+          <span key={`mention-${i}`} className="detail-panel__mention">
             {`@${matchedUser?.displayName || matchedUser?.alias || matchedUser?.username || 'ユーザー'}`}
           </span>
         );
@@ -739,7 +772,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
             parts.push(text.substring(lastFlush, i));
           }
           parts.push(
-            <span key={`mention-${i}`} style={{ color: '#f97316', fontWeight: 500 }}>
+            <span key={`mention-${i}`} className="detail-panel__mention">
               {`@${matchedUser?.displayName || matchedUser?.username || matchedToken}`}
             </span>
           );

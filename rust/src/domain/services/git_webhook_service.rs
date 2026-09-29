@@ -370,8 +370,8 @@ mod tests {
         // テスト用ワークフローステータスを作成：completed と started
         sqlx::query(
             r#"
-            INSERT INTO t_workflow_status (project_id, slug, category, label, position)
-            VALUES ($1, 'completed', 'completed', 'Completed', 100)
+            INSERT INTO t_workflow_status (project_id, slug, category, name, color, position, is_default)
+            VALUES ($1, 'completed', 'completed', 'Completed', '#10b981', 100, false)
             "#,
         )
         .bind(project_id)
@@ -381,8 +381,8 @@ mod tests {
 
         sqlx::query(
             r#"
-            INSERT INTO t_workflow_status (project_id, slug, category, label, position)
-            VALUES ($1, 'started', 'started', 'Started', 10)
+            INSERT INTO t_workflow_status (project_id, slug, category, name, color, position, is_default)
+            VALUES ($1, 'started', 'started', 'Started', '#3b82f6', 10, false)
             "#,
         )
         .bind(project_id)
@@ -437,8 +437,8 @@ mod tests {
         // テスト用ワークフローステータスを作成：cancelled と started
         sqlx::query(
             r#"
-            INSERT INTO t_workflow_status (project_id, slug, category, label, position)
-            VALUES ($1, 'cancelled', 'cancelled', 'Cancelled', 100)
+            INSERT INTO t_workflow_status (project_id, slug, category, name, color, position, is_default)
+            VALUES ($1, 'cancelled', 'cancelled', 'Cancelled', '#ef4444', 100, false)
             "#,
         )
         .bind(project_id)
@@ -448,8 +448,8 @@ mod tests {
 
         sqlx::query(
             r#"
-            INSERT INTO t_workflow_status (project_id, slug, category, label, position)
-            VALUES ($1, 'started', 'started', 'Started', 10)
+            INSERT INTO t_workflow_status (project_id, slug, category, name, color, position, is_default)
+            VALUES ($1, 'started', 'started', 'Started', '#3b82f6', 10, false)
             "#,
         )
         .bind(project_id)
@@ -504,8 +504,8 @@ mod tests {
         // テスト用ワークフローステータスを作成
         sqlx::query(
             r#"
-            INSERT INTO t_workflow_status (project_id, slug, category, label, position)
-            VALUES ($1, 'started', 'started', 'Started', 10)
+            INSERT INTO t_workflow_status (project_id, slug, category, name, color, position, is_default)
+            VALUES ($1, 'started', 'started', 'Started', '#3b82f6', 10, false)
             "#,
         )
         .bind(project_id)

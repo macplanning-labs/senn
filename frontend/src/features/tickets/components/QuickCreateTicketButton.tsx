@@ -6,7 +6,11 @@
  */
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { apiClient } from '@/shared/api/client';
+import { ensureTicketLocal } from '@/shared/sync/repos/ticketRepo';
+import { useProjectById } from '@/shared/sync/repos/projectRepo';
+import { buildTicketDetailPath } from '../utils/ticketNavigation';
 
 interface Props {
   defaultTitle?: string;
@@ -37,6 +41,7 @@ export function QuickCreateTicketButton({
   const [title, setTitle] = useState(defaultTitle);
   const [created, setCreated] = useState<CreatedTicket | null>(null);
   const queryClient = useQueryClient();
+  const project = useProjectById(projectId);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -57,12 +62,14 @@ export function QuickCreateTicketButton({
         });
       }
 
+      // 3. 端末内 DB へ書き込む
+      await ensureTicketLocal(ticket.ticketKey);
+
       return ticket;
     },
     onSuccess: (ticket) => {
       setCreated(ticket);
       setShowForm(false);
-      void queryClient.invalidateQueries({ queryKey: ['tickets'] });
       void queryClient.invalidateQueries({ queryKey: ['wiki'] });
       onCreated?.(ticket.id);
     },
@@ -76,12 +83,12 @@ export function QuickCreateTicketButton({
         background: 'rgba(45, 164, 78, 0.15)', color: 'var(--color-success, #2da44e)',
         fontSize: '0.8125rem',
       }}>
-        ✅ <a
-          href={`/project/${created.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${created.ticketKey}`}
+        ✅ <Link
+          to={buildTicketDetailPath(project?.prefix ?? null, created.ticketKey)}
           style={{ color: 'inherit', textDecoration: 'underline' }}
         >
           {created.ticketKey}
-        </a> を起票しました
+        </Link> を起票しました
       </div>
     );
   }

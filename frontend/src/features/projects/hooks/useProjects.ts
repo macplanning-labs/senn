@@ -1,12 +1,12 @@
 /**
  * useProjects.ts — プロジェクト作成 Mutation Hook
  *
- * プロジェクト作成は localCreateProject() を使用すること（§6.4）。
- * このフックは後方互換性のためのみ。
+ * サーバー直（入力エラーをその場で出すため）。成功後に端末内 DB へ書き込む。
  */
 
 import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
+import { writeThroughProject } from '@/shared/sync/projectWrites';
 import type { Project } from '@/shared/hooks/useProject';
 
 export interface ProjectCreateData {
@@ -17,13 +17,13 @@ export interface ProjectCreateData {
   teamIds: number[];
 }
 
-/** プロジェクト作成（非推奨：localCreateProject() を使用してください） */
+/** プロジェクト作成 */
 export function useCreateProject() {
   return useMutation({
     mutationFn: async (data: ProjectCreateData) => {
       const res = await apiClient.post<Project>('/projects/', data);
+      await writeThroughProject(res.data as unknown as Record<string, unknown>);
       return res.data;
     },
-    // invalidateQueries は不要（端末内 DB が自動更新される）
   });
 }

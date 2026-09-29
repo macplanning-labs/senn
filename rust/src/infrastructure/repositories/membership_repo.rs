@@ -96,7 +96,7 @@ mod tests {
     async fn get_project_team(pool: &sqlx::PgPool, project_id: i32) -> i32 {
         // Get the first participating team
         sqlx::query_scalar::<_, i32>(
-            "SELECT team_id FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id LIMIT 1"
         )
         .bind(project_id)
         .fetch_one(pool)

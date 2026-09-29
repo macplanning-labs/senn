@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use chrono::DateTime;
 use crate::presentation::state::AppState;
 use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo, notification_preference_repo};
+use crate::infrastructure::repositories::{user_repo, jwt_blacklist_repo, notification_preference_repo, user_ai_prompt_template_repo};
 use crate::domain::services::auth_service;
 use crate::domain::services::jwt_service;
 use crate::domain::models::user::User;
@@ -961,6 +961,93 @@ pub async fn update_notification_preference(
     }
 
     build_preference_list_response(&state, auth.user_id).await.into_response()
+}
+
+// =============================================================================
+// AI プロンプトテンプレート（おまじない）
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct AiPromptTemplatesOut {
+    pub common: Option<String>,
+    pub cursor: Option<String>,
+    pub claude: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AiPromptTemplatesUpdateIn {
+    pub common: Option<String>,
+    pub cursor: Option<String>,
+    pub claude: Option<String>,
+}
+
+/// GET /api/v1/auth/me/ai-prompt-templates/ — ユーザーの AI プロンプトテンプレート一覧
+pub async fn get_ai_prompt_templates(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+) -> impl IntoResponse {
+    match user_ai_prompt_template_repo::get_by_user(&state.pool, auth.user_id).await {
+        Ok(row) => {
+            (StatusCode::OK, Json(AiPromptTemplatesOut {
+                common: row.common_template,
+                cursor: row.cursor_template,
+                claude: row.claude_template,
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response()
+        }
+    }
+}
+
+/// PUT /api/v1/auth/me/ai-prompt-templates/ — AI プロンプトテンプレートを更新
+pub async fn update_ai_prompt_templates(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthUser>,
+    Json(body): Json<AiPromptTemplatesUpdateIn>,
+) -> impl IntoResponse {
+    const MAX_TEMPLATE_LEN: usize = 20000;
+
+    // 各フィールドの長さをチェック
+    if let Some(ref t) = body.common {
+        if t.chars().count() > MAX_TEMPLATE_LEN {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "commonテンプレートは20000文字以内である必要があります"}))).into_response();
+        }
+    }
+    if let Some(ref t) = body.cursor {
+        if t.chars().count() > MAX_TEMPLATE_LEN {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "cursorテンプレートは20000文字以内である必要があります"}))).into_response();
+        }
+    }
+    if let Some(ref t) = body.claude {
+        if t.chars().count() > MAX_TEMPLATE_LEN {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"detail": "claudeテンプレートは20000文字以内である必要があります"}))).into_response();
+        }
+    }
+
+    match user_ai_prompt_template_repo::upsert(&state.pool, auth.user_id, body.common, body.cursor, body.claude).await {
+        Ok(_) => {
+            // 更新後の値を返す
+            match user_ai_prompt_template_repo::get_by_user(&state.pool, auth.user_id).await {
+                Ok(row) => {
+                    (StatusCode::OK, Json(AiPromptTemplatesOut {
+                        common: row.common_template,
+                        cursor: row.cursor_template,
+                        claude: row.claude_template,
+                    })).into_response()
+                }
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response()
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"detail": "サーバーエラーが発生しました"}))).into_response()
+        }
+    }
 }
 
 /// 本人がアカウントを無効化する（論理削除）

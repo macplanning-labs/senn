@@ -311,7 +311,7 @@ pub struct ApiTicketFilter {
 /// L2②: チケットのアクセス可否をチームメンバーシップの1系統に統一(t_team_membership)。
 /// scoped_project_id IS NULL の行はチーム全体メンバーとして無条件許可、
 /// scoped_project_id が t.project_id と一致する行はProjectゲストとしてend_date/grace_period_daysで期限判定する。
-fn push_ticket_access_sql(query: &mut String, param_count: &mut usize) {
+pub(crate) fn push_ticket_access_sql(query: &mut String, param_count: &mut usize) {
     query.push_str(&format!(
         " AND (
                 (SELECT is_staff FROM accounts_user WHERE id = ${}) OR
@@ -1490,9 +1490,9 @@ pub async fn api_find_by_key(
         linked_rules,
         linked_wiki_pages,
         is_watching,
-        ai_prompt: row.get(50),
-        ai_prompt_updated_at: row.get(51),
-        ai_prompt_generation_mode: row.get(52),
+        ai_prompt: row.get(49),
+        ai_prompt_updated_at: row.get(50),
+        ai_prompt_generation_mode: row.get(51),
     }))
 }
 
@@ -3977,12 +3977,28 @@ mod tests {
                 .await
                 .unwrap();
 
+        sqlx::query(
+            "UPDATE tickets_ticket
+             SET ai_prompt = 'cached-prompt',
+                 ai_prompt_updated_at = NOW(),
+                 ai_prompt_generation_mode = 'hybrid'
+             WHERE id = $1",
+        )
+        .bind(ticket_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let detail = api_find_by_key(&pool, &ticket_key, None, "ai_agent").await.unwrap();
         assert!(detail.is_some());
         let detail = detail.unwrap();
         assert_eq!(detail.base.project, Some(project));
         assert_eq!(detail.base.project_name, Some(expected_name));
         assert_eq!(detail.base.project_prefix, Some(expected_prefix));
+        // 列番号が 1 つずれると extras が 502 になり、保存済みコメントが画面に出ない
+        assert_eq!(detail.ai_prompt.as_deref(), Some("cached-prompt"));
+        assert!(detail.ai_prompt_updated_at.is_some());
+        assert_eq!(detail.ai_prompt_generation_mode.as_deref(), Some("hybrid"));
     }
 
     /// find_all がステータス・プロジェクトIDフィルタで正しく絞り込めることを確認する
@@ -4128,6 +4144,16 @@ mod tests {
         };
         let author = test_support::create_test_user(&pool, "list-team-author").await;
         let project = test_support::create_test_project(&pool, "LTEAM", author).await;
+
+        // 最初のチーム（create_test_project で追加されたもの）を取得
+        let first_team_id: i32 = sqlx::query_scalar(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id LIMIT 1"
+        )
+        .bind(project)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
         let ticket_no_team =
             test_support::create_test_ticket(&pool, project, "LTEAM-N", author).await;
         let ticket_with_team =
@@ -4141,6 +4167,16 @@ mod tests {
         .bind(format!("テストチーム-{}", test_support::unique_suffix()))
         .bind(format!("team-{}", test_support::unique_suffix()))
         .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // チームをプロジェクトに参加させる（DB トリガーが要求）
+        sqlx::query(
+            "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1, $2, NOW())"
+        )
+        .bind(project)
+        .bind(team_id)
+        .execute(&pool)
         .await
         .unwrap();
 
@@ -4163,7 +4199,8 @@ mod tests {
             .iter()
             .find(|t| t.id == ticket_no_team)
             .expect("ticket without team");
-        assert!(no_team.team.is_none());
+        // create_test_ticket はプロジェクトの最初の参加チームを付ける(プロジェクト付きのチケットは必ずチームを持つ)
+        assert_eq!(no_team.team.as_ref().map(|t| t.id), Some(first_team_id));
         assert_eq!(no_team.comment_count, 0);
         assert_eq!(no_team.child_count, 0);
         assert_eq!(no_team.total_time_spent, 0);
