@@ -4,7 +4,8 @@
 # 使い方:
 #   cp .env.example .env
 #   # .env の DB_PASSWORD と JWT_SECRET_KEY を必ず設定する(README の Start の sed 1行で自動入力できる。空のままだとエラーで停止)
-#   docker compose up --build
+#   docker compose up               （ビルド済みイメージを取得して起動）
+#   docker compose up --build       （ソースからビルドして起動）
 #
 # 入口: http://localhost:8151
 # 秘密は .env のみ（本ファイルに平文で埋め込まない）
@@ -30,6 +31,7 @@ services:
       retries: 10
 
   backend:
+    image: ${SENN_IMAGE_REGISTRY:-ghcr.io/macplanning-labs}/senn-backend:${SENN_IMAGE_TAG:-latest}
     build:
       context: ./rust
       dockerfile: Dockerfile
@@ -54,6 +56,7 @@ services:
         condition: service_healthy
 
   web:
+    image: ${SENN_IMAGE_REGISTRY:-ghcr.io/macplanning-labs}/senn-web:${SENN_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile.frontend
