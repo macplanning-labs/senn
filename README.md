@@ -21,14 +21,14 @@ git clone https://github.com/macplanning-labs/senn.git
 cd senn
 cp .env.example .env
 sed -i.bak "s|^DB_PASSWORD=.*|DB_PASSWORD=$(openssl rand -hex 24)|; s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')|" .env && rm .env.bak
-docker compose up --build
+docker compose up
 ```
 
 - Line 3 creates your config file (`.env`).
 - Line 4 fills in `DB_PASSWORD` and `JWT_SECRET_KEY` with random values. Both are left **empty** in `.env.example` on purpose, and `docker compose` stops right away with a clear message if either is empty.
-- Line 5 starts everything. **The first run takes about 10 minutes** (it builds the images). Keep this terminal open — closing it stops SENN.
+- Line 5 starts everything. **The first run takes a few minutes to download images** (depending on your connection). Keep this terminal open — closing it stops SENN.
 
-No `sed` / `openssl` (e.g. plain Windows)? Open `.env` in an editor and set `DB_PASSWORD=` to letters and digits only (it is embedded in a URL) and `JWT_SECRET_KEY=` to a random string of 32+ characters, then run `docker compose up --build`.
+No `sed` / `openssl` (e.g. plain Windows)? Open `.env` in an editor and set `DB_PASSWORD=` to letters and digits only (it is embedded in a URL) and `JWT_SECRET_KEY=` to a random string of 32+ characters, then run `docker compose up`.
 
 When you see `listening on 0.0.0.0:8151`, open **http://localhost:8151**
 
@@ -41,6 +41,27 @@ When you see `listening on 0.0.0.0:8151`, open **http://localhost:8151**
 - **Stop**: press `Ctrl+C` **once** in the terminal, then `docker compose down`. Your data is kept.
 - **Start again**: `docker compose up` (no `--build` needed).
 - **Wipe everything** (irreversible): `docker compose down -v`
+
+### For those who want to build from source
+
+To build the Docker images yourself instead of downloading pre-built ones:
+
+```bash
+docker compose up --build
+```
+
+This builds both backend and frontend images from the source code in this repository. Building takes 10–15 minutes the first time, depending on your CPU and network. The source code is publicly available on GitHub.
+
+### When downloads are slow
+
+By default, `docker compose up` downloads pre-built images from `ghcr.io/macplanning-labs`. If downloads are slow or unavailable, you have two options:
+
+1. **Build from source**: Use `docker compose up --build` instead.
+2. **Use a different registry**: Add `SENN_IMAGE_REGISTRY` to `.env`, pointing to your organization's registry or a mirror. For example:
+   ```text
+   SENN_IMAGE_REGISTRY=registry.example.com/macplanning-labs
+   ```
+   This changes where `docker compose` downloads the images from.
 
 Advanced: [`docs/利用ガイド_OSS自己構築.md`](./docs/利用ガイド_OSS自己構築.md)
 
@@ -94,7 +115,7 @@ No local Rust / Node / PostgreSQL install needed. Same as [Getting Started](#get
 ```bash
 cp .env.example .env
 # set DB_PASSWORD and JWT_SECRET_KEY (see Start above), then:
-docker compose up --build
+docker compose up
 ```
 
 `DB_PASSWORD` and `JWT_SECRET_KEY` must be set in `.env` before the first run — the one-line `sed` in [Start](#start) does it for you.
@@ -105,7 +126,7 @@ To reset the database and start clean:
 
 ```bash
 docker compose down -v
-docker compose up --build
+docker compose up
 ```
 
 ### Manual setup (without Docker)

@@ -5,7 +5,7 @@
 # nginxが / をSPA静的配信、/api /auth /static /media /health 等をbackendへプロキシする
 # ============================================================
 
-FROM node:20-bookworm-slim AS builder
+FROM --platform=$BUILDPLATFORM node:20-bookworm-slim AS builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
