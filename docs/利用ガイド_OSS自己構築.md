@@ -20,12 +20,12 @@ git clone https://github.com/macplanning-labs/senn.git
 cd senn
 cp .env.example .env
 sed -i.bak "s|^DB_PASSWORD=.*|DB_PASSWORD=$(openssl rand -hex 24)|; s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(openssl rand -base64 48 | tr -d '\n')|" .env && rm .env.bak
-docker compose up --build
+docker compose up
 ```
 
 - 3行目で設定ファイル（`.env`）を作ります。
 - 4行目で、データベースのパスワード（`DB_PASSWORD`）と、ログインの署名に使う鍵（`JWT_SECRET_KEY`）を、ランダムな値で自動的に書き込みます。どちらも `.env.example` では**意図的に空**にしてあり、空のままだと `docker compose` は分かりやすいメッセージで即停止します。
-- 5行目で起動します。**初回は10分程度**かかります（イメージをビルドするため）。このターミナルは**閉じないでください**（閉じると SENN が止まります）。
+- 5行目で起動します。**初回はイメージのダウンロードに数分かかります**（回線による）。このターミナルは**閉じないでください**（閉じると SENN が止まります）。
 
 `sed` や `openssl` が使えない環境（Windows など）では、3行目のあとで `.env` をエディタで開き、`DB_PASSWORD=` に**英数字のみ**の文字列（URL に埋め込まれるため）、`JWT_SECRET_KEY=` に**32文字以上**の文字列を書いて保存し、5行目を実行してください。
 
@@ -92,7 +92,7 @@ rm -rf senn
 
 ### 起動時に `JWT_SECRET_KEY is empty` / `DB_PASSWORD is empty` と表示される
 
-`.env` にパスワードや鍵が入っていません。「起動手順」の4行目（`sed` の行）を実行してから、もう一度 `docker compose up --build` を実行してください。
+`.env` にパスワードや鍵が入っていません。「起動手順」の4行目（`sed` の行）を実行してから、もう一度 `docker compose up` を実行してください。
 
 ### ブラウザが「サーバに接続できません」と表示される
 
@@ -184,13 +184,35 @@ services:
 
 他のPCから使う場合は、`BASE_URL` と `WEBAUTHN_RP_ORIGIN` を、そのPCから開くURL（`http://<SENN を動かしているPCのIPアドレス>:8151` の形）に合わせてください。
 
+## ソースからビルドしたい方
+
+SENN のソースコードはすべて公開されています。ビルド済みイメージを使わず、手元のソースから自分でビルドして起動したい場合は、`--build` を付けます。
+
+```bash
+docker compose up --build
+```
+
+初回は 10〜15 分ほどかかります（Rust のコンパイルなどを手元で行うため）。ソースを改造して動かしたい方も、この方法を使ってください。
+
+## ダウンロードが遅いとき
+
+- ビルド済みイメージの合計は数百MBあります。回線が遅いと時間がかかりますが、途中で止めずに待ってください（2回目以降は、すでに取得した分は再取得されません）。
+- 取得元を変えたい場合（組織内のミラーなど）は、`.env` に次の行を追加します。`ghcr.io/macplanning-labs` が既定の取得元です。
+
+```text
+SENN_IMAGE_REGISTRY=registry.example.com/macplanning-labs
+```
+
+- ビルド済みイメージを取得できない環境（接続が制限されている場合など）では、上の「ソースからビルドしたい方」の方法で、手元でビルドできます。
+
 ## よくある質問
 
 ### Q: SENN をアップデートするには？
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 新しいマイグレーションは自動的に実行されます。
