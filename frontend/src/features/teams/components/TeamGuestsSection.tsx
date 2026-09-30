@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DateInput } from '@/shared/components/ui/DateInput';
 import { useTeamGuests, useAddTeamGuest, useRemoveTeamGuest } from '../hooks/useTeams';
 import { useQuery } from '@tanstack/react-query';
@@ -18,12 +19,13 @@ interface Props {
   team: Team;
 }
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '無期限';
+function formatDate(dateStr: string | null, noExpiryLabel: string): string {
+  if (!dateStr) return noExpiryLabel;
   return dateStr.replace(/-/g, '/');
 }
 
 export function TeamGuestsSection({ team }: Props) {
+  const { t } = useTranslation();
   const { data: guests, isLoading } = useTeamGuests(team.id);
   const addGuest = useAddTeamGuest();
   const removeGuest = useRemoveTeamGuest();
@@ -64,22 +66,22 @@ export function TeamGuestsSection({ team }: Props) {
         projectId: Number(selectedProjectId),
         endDate: endDate || null,
       });
-      addToast({ message: 'Projectゲストを追加しました', type: 'success' });
+      addToast({ message: t('team.guestAdded'), type: 'success' });
       setShowAddForm(false);
       resetForm();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
-      addToast({ message: axiosErr.response?.data?.detail || 'ゲストの追加に失敗しました', type: 'error' });
+      addToast({ message: axiosErr.response?.data?.detail || t('team.guestAddFailed'), type: 'error' });
     }
   };
 
   const handleRemove = async (membershipId: number, name: string, projectPrefix: string) => {
-    if (!confirm(`「${name}」を ${projectPrefix} のゲストから外しますか？`)) return;
+    if (!confirm(t('team.removeGuestConfirm', { name, project: projectPrefix }))) return;
     try {
       await removeGuest.mutateAsync({ teamId: team.id, membershipId });
-      addToast({ message: 'ゲストを解除しました', type: 'success' });
+      addToast({ message: t('team.guestRemoved'), type: 'success' });
     } catch {
-      addToast({ message: 'ゲストの解除に失敗しました', type: 'error' });
+      addToast({ message: t('team.guestRemoveFailed'), type: 'error' });
     }
   };
 
@@ -87,18 +89,18 @@ export function TeamGuestsSection({ team }: Props) {
     <div className="team-members" style={{ marginTop: 'var(--space-6)' }}>
       <div className="team-members__header">
         <h2 className="team-members__title">
-          🔑 {team.name} の Project ゲスト
+          {t('team.projectGuestsHeading', { team: team.name })}
         </h2>
         <button
           className="team-members__add-btn"
           onClick={() => setShowAddForm(!showAddForm)}
           data-testid="add-guest-btn"
         >
-          {showAddForm ? 'キャンセル' : '+ ゲスト追加'}
+          {showAddForm ? t('common.cancel') : t('team.addGuest')}
         </button>
       </div>
       <p className="team-members__hint" style={{ marginBottom: '1rem', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
-        チームに所属しない外部パートナー等を、特定のProjectだけに限定して参加させます。有効期限（任意）を過ぎるとアクセスできなくなります。
+        {t('team.guestsIntro')}
       </p>
 
       {showAddForm && (
@@ -109,7 +111,7 @@ export function TeamGuestsSection({ team }: Props) {
             onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : '')}
             data-testid="guest-user-select"
           >
-            <option value="">ユーザーを選択</option>
+            <option value="">{t('team.selectUser')}</option>
             {availableUsers.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.displayName || u.username}
@@ -122,7 +124,7 @@ export function TeamGuestsSection({ team }: Props) {
             onChange={(e) => setSelectedProjectId(e.target.value ? Number(e.target.value) : '')}
             data-testid="guest-project-select"
           >
-            <option value="">限定するProjectを選択</option>
+            <option value="">{t('team.selectProjectLimit')}</option>
             {teamProjects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.prefix} — {p.name}
@@ -133,7 +135,7 @@ export function TeamGuestsSection({ team }: Props) {
             className="team-members__select"
             value={endDate || null}
             onChange={(value) => setEndDate(value ?? '')}
-            placeholder="有効期限(任意)"
+            placeholder={t('team.expiryPlaceholder')}
             testId="guest-end-date-input"
           />
           <button
@@ -142,13 +144,13 @@ export function TeamGuestsSection({ team }: Props) {
             disabled={!selectedUserId || !selectedProjectId || addGuest.isPending}
             data-testid="submit-add-guest"
           >
-            追加
+            {t('common.add')}
           </button>
         </div>
       )}
 
       {isLoading ? (
-        <div className="team-members__loading">読み込み中...</div>
+        <div className="team-members__loading">{t('common.loading')}</div>
       ) : guests && guests.length > 0 ? (
         <div className="team-members__list">
           {guests.map((guest) => (
@@ -162,9 +164,9 @@ export function TeamGuestsSection({ team }: Props) {
                   {guest.user.displayName || guest.user.username}
                 </span>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-                  {guest.projectPrefix} 限定 ・ 期限: {formatDate(guest.endDate)}
-                  {!guest.isActive && ' (期限切れ)'}
-                  {guest.isActive && guest.isInGracePeriod && ' (猶予期間中)'}
+                  {t('team.guestScope', { project: guest.projectPrefix, date: formatDate(guest.endDate, t('team.noExpiry')) })}
+                  {!guest.isActive && t('team.expired')}
+                  {guest.isActive && guest.isInGracePeriod && t('team.inGracePeriod')}
                 </span>
               </div>
               <button
@@ -174,7 +176,7 @@ export function TeamGuestsSection({ team }: Props) {
                   guest.user.displayName || guest.user.username,
                   guest.projectPrefix,
                 )}
-                title="解除"
+                title={t('team.removeGuestTitle')}
                 data-testid={`remove-guest-${guest.id}`}
               >
                 ✕
@@ -184,7 +186,7 @@ export function TeamGuestsSection({ team }: Props) {
         </div>
       ) : (
         <div className="team-members__empty">
-          Projectゲストはいません。
+          {t('team.noGuests')}
         </div>
       )}
     </div>

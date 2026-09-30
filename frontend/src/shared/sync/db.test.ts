@@ -1,5 +1,5 @@
 /**
- * db.test.ts — 端末内 DB のユーザー分離（WIPAPPDEV-000113 / 詳細設計 §3.2・T8）
+ * db.test.ts — 端末内 DB のユーザー分離（DEMO-000113 / 詳細設計 §3.2・T8）
  */
 
 import 'fake-indexeddb/auto';
@@ -37,7 +37,7 @@ async function waitFor(cond: () => Promise<boolean>, timeoutMs = 2000): Promise<
   }
 }
 
-describe('ユーザー別 DB（WIPAPPDEV-000113）', () => {
+describe('ユーザー別 DB（DEMO-000113）', () => {
   afterEach(async () => {
     await deleteCurrentUserDb();
     for (const name of ['senn-local-1', 'senn-local-2', 'WipLocalDB']) {

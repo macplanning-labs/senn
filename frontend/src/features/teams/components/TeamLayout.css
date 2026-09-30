@@ -90,7 +90,7 @@
   box-sizing: border-box;
 }
 
-/* チケット詳細フルページ: scroll 所有者を .ticket-detail-main に統一（WIPAPPDEV-000136） */
+/* チケット詳細フルページ: scroll 所有者を .ticket-detail-main に統一（DEMO-000136） */
 .team-layout__content:has(.ticket-detail-page) {
   overflow: hidden;
   display: flex;

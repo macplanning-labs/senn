@@ -432,7 +432,7 @@ pub async fn me(
 /// 5. ログアウト
 ///
 /// ボディ省略(Content-Type無し)のリクエストは`Json<LogoutRequest>`だと415で弾かれてしまうため、
-/// `Option<Json<_>>`で受けボディが無ければリフレッシュトークンの無効化をスキップする(WIPAPPDEV-000046)。
+/// `Option<Json<_>>`で受けボディが無ければリフレッシュトークンの無効化をスキップする(DEMO-000046)。
 pub async fn logout(
     State(state): State<AppState>,
     Extension(_auth_user): Extension<AuthUser>,

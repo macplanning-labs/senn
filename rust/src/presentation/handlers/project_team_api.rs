@@ -4,7 +4,7 @@
 ///   追加・除外(POST/DELETE)は resource_api にあり、権限と条件のチェックは
 ///   このモジュールの `authorize_*` を使う。
 ///
-/// 設計: WIPAPPDEV-000069 第1段階(docs/詳細設計書_プロジェクト詳細タブ.md)
+/// 設計: DEMO-000069 第1段階(docs/詳細設計書_プロジェクト詳細タブ.md)
 
 use axum::{
     extract::{Path, State},

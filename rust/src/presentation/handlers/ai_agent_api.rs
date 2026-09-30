@@ -36,7 +36,7 @@ pub struct AiAuthResult {
     pub user_id: i32,
     /// 人ごとキーで認証できた場合のみ Some。実際にキーを保有していた人間のアカウントID。
     /// クライアント(AIエージェント)側からは指定不可で、キーのハッシュ照合結果からのみ導出される
-    /// (なりすまし防止。WIPAPPDEV-000100)。
+    /// (なりすまし防止。DEMO-000100)。
     pub acting_user_id: Option<i32>,
 }
 

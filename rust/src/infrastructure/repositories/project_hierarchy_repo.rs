@@ -1,6 +1,6 @@
 /// infrastructure/repositories/project_hierarchy_repo.rs — プロジェクトの親子関係・関連・ロードマップ
 ///
-/// 設計（WIPAPPDEV-000066 Phase 3）:
+/// 設計（DEMO-000066 Phase 3）:
 /// - 親子: 自己参照カラム親_project_id。循環は DB トリガーが防止（最終防衛線）。
 ///        API 層は先に検査して、分かりやすい理由を 400/404/409 で返す。
 /// - 関連: 対称。project_id < related_project_id に正規化して 1 行だけ持つ。

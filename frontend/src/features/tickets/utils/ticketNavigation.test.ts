@@ -171,7 +171,7 @@ describe('buildTicketEditPath', () => {
 describe('buildTicketListPathForContext', () => {
   it('チーム URL から開いた詳細は project 付きチケットでもチーム一覧へ戻る', () => {
     expect(
-      buildTicketListPathForContext('/team/wip-app-dev/tickets/WIPAPPDEV-000131', {
+      buildTicketListPathForContext('/team/wip-app-dev/tickets/DEMO-000131', {
         projectKey: 'WAPP',
         teamSlug: 'wip-app-dev',
       }),
@@ -180,7 +180,7 @@ describe('buildTicketListPathForContext', () => {
 
   it('プロジェクト URL から開いた詳細はプロジェクト一覧へ戻る', () => {
     expect(
-      buildTicketListPathForContext('/project/WAPP/tickets/WIPAPPDEV-000131', {
+      buildTicketListPathForContext('/project/WAPP/tickets/DEMO-000131', {
         projectKey: 'WAPP',
         teamSlug: 'wip-app-dev',
       }),

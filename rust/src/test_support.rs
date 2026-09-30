@@ -86,6 +86,23 @@ pub async fn test_pool() -> Option<PgPool> {
     None
 }
 
+/// DB のセッションと同じ暦の「今日」(UTC)を返す。
+///
+/// sqlx は接続のたびにセッションのタイムゾーンを UTC に設定するため、SQL の `CURRENT_DATE` / `NOW()::date`
+/// は UTC の日付になる。テストが `chrono::Local`(日本時間)で日付を作ると、日本時間の0時〜9時に
+/// DB と日付が1日ずれて、日付を使う判定(期限・有効化など)のテストが落ちる。DB と比較する日付は、これで作る。
+pub fn db_today() -> chrono::NaiveDate {
+    chrono::Utc::now().date_naive()
+}
+
+/// サイクルのテストを直列にするためのロック。
+///
+/// `auto_activate_due_cycles` / `auto_complete_overdue_cycles` は**全プロジェクト**のサイクルを対象に動く。
+/// これらを呼ぶテストと、対象になりうる(期限が過ぎた)サイクルを作るテストが並列に走ると、
+/// 互いのサイクルを先に有効化・完了してしまい、戻り値の不一致や、番号の重複
+/// (`unique_cycle_number_per_project`)で間欠的に失敗する。cycle_repo のテストは、これを取ってから始める。
+pub static CYCLE_GLOBAL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// テスト実行ごとに一意な短い接尾辞を生成する(UNIQUE制約回避用)。
 pub fn unique_suffix() -> String {
     Uuid::new_v4().simple().to_string()[..8].to_string()

@@ -25,10 +25,13 @@ import {
   isValidCycleDateRange,
 } from '../utils/cycleHelpers';
 
-const statusLabels: Record<string, string> = {
-  planned: '計画中',
-  active: '進行中',
-  completed: '完了',
+const getStatusLabel = (status: string, t: (key: string) => string): string => {
+  const labels: Record<string, string> = {
+    planned: t('cycle.status.planned'),
+    active: t('cycle.status.active'),
+    completed: t('cycle.status.completed'),
+  };
+  return labels[status] || status;
 };
 
 /** YYYY-MM-DD をローカル日付として日数加算（UTC 解釈のズレを避ける） */
@@ -78,7 +81,7 @@ export function CycleDetail() {
     ticketId?: string;
   }>();
   // Projectスコープ(/project/:projectKey/cycles/:cycleId)とTeamスコープ(/team/:teamSlug/cycles/:cycleId)の
-  // どちらでマウントされたかでURLの組み立て先を切り替える(WIPAPPDEV-000045)
+  // どちらでマウントされたかでURLの組み立て先を切り替える(DEMO-000045)
   const cyclesListPath = projectKey ? `/project/${projectKey}/cycles` : `/team/${teamSlug}/cycles`;
   const cycleDetailPath = (id: string) =>
     projectKey ? `/project/${projectKey}/cycles/${id}` : `/team/${teamSlug}/cycles/${id}`;
@@ -162,7 +165,7 @@ export function CycleDetail() {
     if (!cycle || selectedCarryOver === null) return;
     const createProjectId = currentProject?.id ?? cycle.project;
     if (selectedCarryOver === 'create' && !createProjectId) {
-      addToast({ message: '次 Cycle を作成するプロジェクトが特定できません', type: 'error' });
+      addToast({ message: t('cycle.projectNotFound'), type: 'error' });
       return;
     }
     setIsCompleting(true);
@@ -195,7 +198,7 @@ export function CycleDetail() {
       addToast({ message: t('cycle.complete'), type: 'success' });
       setTimeout(() => navigate(-1), 500);
     } catch {
-      addToast({ message: t('cycle.completeFailed', '完了に失敗しました'), type: 'error' });
+      addToast({ message: t('cycle.completeFailed'), type: 'error' });
     } finally {
       setIsCompleting(false);
     }
@@ -225,7 +228,7 @@ export function CycleDetail() {
           data-testid="cycle-name-input"
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <span className="cycle-detail__badge">{statusLabels[cycle.status]}</span>
+          <span className="cycle-detail__badge">{getStatusLabel(cycle.status, t)}</span>
           {isOverdue && (
             <span style={{
               display: 'inline-block',
@@ -249,7 +252,7 @@ export function CycleDetail() {
             onChange={(value) => {
               const nextStart = value ?? '';
               if (!isValidCycleDateRange(nextStart, cycle.endDate)) {
-                addToast({ message: '開始日は終了日より前を指定してください', type: 'error' });
+                addToast({ message: t('cycle.startBeforeEnd'), type: 'error' });
                 return;
               }
               updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, start_date: nextStart });
@@ -264,7 +267,7 @@ export function CycleDetail() {
             onChange={(value) => {
               const nextEnd = value ?? '';
               if (!isValidCycleDateRange(cycle.startDate, nextEnd)) {
-                addToast({ message: '終了日は開始日より後を指定してください', type: 'error' });
+                addToast({ message: t('cycle.endAfterStart'), type: 'error' });
                 return;
               }
               updateCycleMutation.mutate({ id: cycle.id, project: cycle.project, end_date: nextEnd });
@@ -303,7 +306,7 @@ export function CycleDetail() {
       <div className="cycle-detail__description">
         <textarea
           className="cycle-detail__description-input"
-          placeholder="このサイクルのゴールや注力ドメインを記載..."
+          placeholder={t('cycle.descPlaceholderDetail')}
           value={descriptionDraft}
           onChange={(e) => setDescriptionDraft(e.target.value)}
           onBlur={() => {
@@ -386,13 +389,13 @@ export function CycleDetail() {
             </h2>
             <p style={{ marginBottom: 'var(--space-4)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>
               {allTicketsClosed(cycle)
-                ? 'すべてのチケットが完了しています。このサイクルを完了します。'
-                : `${cycle.ticketCount - cycle.completedCount} ${t('cycle.incompleteCount')} チケットを次の Cycle へ移します。`}
+                ? t('cycle.allCompleteConfirm')
+                : t('cycle.moveIncomplete', { count: cycle.ticketCount - cycle.completedCount })}
             </p>
             {!allTicketsClosed(cycle) && (
               <div style={{ marginBottom: 'var(--space-4)' }}>
                 <label style={{ display: 'block', marginBottom: 'var(--space-2)', color: 'var(--color-text-primary)', fontWeight: 'var(--font-weight-semibold)', fontSize: 'var(--font-size-sm)' }}>
-                  持ち越し先の選択:
+                  {t('cycle.carryOverLabel')}
                 </label>
                 <select
                   value={selectedCarryOver === null || selectedCarryOver === 'none' ? '' : String(selectedCarryOver)}
@@ -408,13 +411,13 @@ export function CycleDetail() {
                   }}
                   disabled={isCompleting}
                 >
-                  <option value="">— 選択してください</option>
+                  <option value="">— {t('common.selectPlaceholder')} —</option>
                   {plannedCycles.map(pc => (
                     <option key={pc.id} value={pc.id}>
                       {pc.name}
                     </option>
                   ))}
-                  <option value="create">📝 次 Cycle を作成して移す</option>
+                  <option value="create">{t('cycle.createAndMove')}</option>
                 </select>
               </div>
             )}
@@ -430,7 +433,7 @@ export function CycleDetail() {
                   opacity: isCompleting ? 0.6 : 1,
                 }}
               >
-                キャンセル
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleConfirmComplete}
@@ -444,7 +447,7 @@ export function CycleDetail() {
                   opacity: (isCompleting || (selectedCarryOver === null && !allTicketsClosed(cycle))) ? 0.6 : 1,
                 }}
               >
-                {isCompleting ? '処理中...' : '確認'}
+                {isCompleting ? t('cycle.processing') : t('cycle.confirmComplete')}
               </button>
             </div>
           </div>

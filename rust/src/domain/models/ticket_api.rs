@@ -150,7 +150,7 @@ pub struct CommentOut {
     pub author: UserSummaryOut,
     /// AIエージェント経由(人ごとキー認証成功時)の実際の実行者。
     /// フロントはこれが Some の場合、投稿者表示を author ではなくこちらを主表示にする
-    /// (WIPAPPDEV-000100)。人間の通常投稿・共有キー経由の投稿では None。
+    /// (DEMO-000100)。人間の通常投稿・共有キー経由の投稿では None。
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "actingUser")]
     pub acting_user: Option<UserSummaryOut>,

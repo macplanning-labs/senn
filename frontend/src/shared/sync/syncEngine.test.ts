@@ -44,24 +44,43 @@ describe('syncEngine', () => {
 
   it('実行中に呼ばれても並列にならず、終わってからもう1回だけ回る', async () => {
     startSync(nextUserId());
-    await vi.waitFor(() => expect(useSyncStatus.getState().syncing).toBe(false));
+    // startSync 直後は syncing=false のままなので、それでは「開始サイクルの終了」を待てない。
+    // 開始サイクル（非同期に始まる）が終わると lastSyncAt が入る。これを待ってから測り始める
+    await vi.waitFor(() => expect(useSyncStatus.getState().lastSyncAt).not.toBeNull(), { timeout: 5000 });
+    await vi.waitFor(() => expect(useSyncStatus.getState().syncing).toBe(false), { timeout: 5000 });
     get.mockClear();
 
+    // 1回目の取得を止めておき、「1回目が実行中」の状態を確実に作る（時間待ちに頼らない）
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let inFlight = 0;
     let maxInFlight = 0;
     get.mockImplementation(async () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((r) => setTimeout(r, 5));
+      await gate; // 解放後は、待たずに通る
       inFlight--;
       return page([]);
     });
-    await Promise.all([runCycle(), runCycle(), runCycle()]);
-    await vi.waitFor(() => expect(useSyncStatus.getState().syncing).toBe(false));
+
+    const first = runCycle();
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1), { timeout: 5000 });
+    // 実行中に、さらに2回呼ぶ。並列には走らず、「もう1回」の予約になるだけ
+    await Promise.all([runCycle(), runCycle()]);
+    expect(get).toHaveBeenCalledTimes(1);
+
+    release();
+    await first; // 1回目が終わった時点で、予約された「もう1回」が始まっている
+
+    // 「もう1回」が終わるのを、取得の回数で待つ（1回目 projects + tickets、もう1回 projects + tickets）
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(4), { timeout: 5000 });
+    await vi.waitFor(() => expect(useSyncStatus.getState().syncing).toBe(false), { timeout: 5000 });
+    // 3回目が走らないこと（予約は1回に畳まれる）。多少待って、回数が増えていないことを確かめる
     await new Promise((r) => setTimeout(r, 50));
 
     expect(maxInFlight).toBe(1);
-    // 1回目（projects + tickets）＋ もう1回（projects + tickets）
     expect(get).toHaveBeenCalledTimes(4);
-  });
+  }, 15000);
 });

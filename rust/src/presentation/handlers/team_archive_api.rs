@@ -4,7 +4,7 @@
 /// - POST /api/v1/teams/{id}/archive/    アーカイブ(閲覧専用にする)
 /// - POST /api/v1/teams/{id}/unarchive/  復元
 ///
-/// 権限: システム管理者 / そのチームの管理者。設計: WIPAPPDEV-000069 第2段階。
+/// 権限: システム管理者 / そのチームの管理者。設計: DEMO-000069 第2段階。
 
 use axum::{
     extract::{Path, State},

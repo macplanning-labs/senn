@@ -48,12 +48,12 @@ export function TeamMembersSection({ team }: Props) {
         userId: Number(selectedUserId),
         role: selectedRole,
       });
-      addToast({ message: 'メンバーを追加しました', type: 'success' });
+      addToast({ message: t('team.memberAdded'), type: 'success' });
       setShowAddForm(false);
       setSelectedUserId('');
       setSelectedRole('member');
     } catch {
-      addToast({ message: 'メンバーの追加に失敗しました', type: 'error' });
+      addToast({ message: t('team.memberAddFailed'), type: 'error' });
     }
   };
 
@@ -63,7 +63,7 @@ export function TeamMembersSection({ team }: Props) {
       await removeMember.mutateAsync({ teamId: team.id, userId });
       addToast({ message: t('team.memberRemoved', { name }), type: 'success' });
     } catch {
-      addToast({ message: 'メンバーの削除に失敗しました', type: 'error' });
+      addToast({ message: t('team.memberRemoveFailed'), type: 'error' });
     }
   };
 
@@ -72,18 +72,18 @@ export function TeamMembersSection({ team }: Props) {
       <div className="team-members__header">
         <h2 className="team-members__title">
           <span style={{ color: team.color }}>{team.icon}</span>
-          {' '}{team.name} のメンバー
+          {' '}{t('team.membersHeading', { team: team.name })}
         </h2>
         <button
           className="team-members__add-btn"
           onClick={() => setShowAddForm(!showAddForm)}
           data-testid="add-member-btn"
         >
-          {showAddForm ? 'キャンセル' : '+ メンバー追加'}
+          {showAddForm ? t('common.cancel') : t('team.addMember')}
         </button>
       </div>
       <p className="team-members__hint" style={{ marginBottom: '1rem', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
-        Role は管理者（admin）とメンバーのみ。所属 Team が主な権限の入口です。
+        {t('team.roleHint')}
       </p>
 
       {/* メンバー追加フォーム */}
@@ -108,8 +108,8 @@ export function TeamMembersSection({ team }: Props) {
             onChange={(e) => setSelectedRole(e.target.value as TeamRole)}
             data-testid="member-role-select"
           >
-            <option value="member">メンバー</option>
-            <option value="admin">管理者</option>
+            <option value="member">{t('team.roleMember')}</option>
+            <option value="admin">{t('team.roleAdmin')}</option>
           </select>
           <button
             className="team-members__submit-btn"
@@ -117,7 +117,7 @@ export function TeamMembersSection({ team }: Props) {
             disabled={!selectedUserId || addMember.isPending}
             data-testid="submit-add-member"
           >
-            追加
+            {t('common.add')}
           </button>
         </div>
       )}
@@ -138,7 +138,7 @@ export function TeamMembersSection({ team }: Props) {
                   {membership.user.displayName || membership.user.username}
                 </span>
                 <span className={`team-member-item__role team-member-item__role--${membership.role}`}>
-                  {membership.role === 'admin' ? '管理者' : 'メンバー'}
+                  {membership.role === 'admin' ? t('team.roleAdmin') : t('team.roleMember')}
                 </span>
               </div>
               <button
@@ -147,7 +147,7 @@ export function TeamMembersSection({ team }: Props) {
                   membership.user.id,
                   membership.user.displayName || membership.user.username,
                 )}
-                title="削除"
+                title={t('team.removeMemberTitle')}
                 data-testid={`remove-member-${membership.user.id}`}
               >
                 ✕
@@ -157,7 +157,7 @@ export function TeamMembersSection({ team }: Props) {
         </div>
       ) : (
         <div className="team-members__empty">
-          メンバーがいません。「メンバー追加」から追加してください。
+          {t('team.noMembersHint')}
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
 /**
- * devConsistencyCheck.ts — 開発用: 端末内 DB とサーバーの一覧 API の差を出す（WIPAPPDEV-000118）
+ * devConsistencyCheck.ts — 開発用: 端末内 DB とサーバーの一覧 API の差を出す（DEMO-000118）
  *
  * 開発ビルドでは、ブラウザのコンソールで `await window.__sennSyncCheck()` と打つと、
  * 端末内のチケットと GET /tickets/（全ページ）の結果を比べ、差をコンソールに表で出す。

@@ -1,6 +1,6 @@
 /// infrastructure/repositories/project_team_repo.rs — プロジェクトの担当(参加)チームの変更に関する権限・利用状況
 ///
-/// 設計(WIPAPPDEV-000069 第1段階):
+/// 設計(DEMO-000069 第1段階):
 /// - 変更できる人: システム管理者 / プロジェクトのオーナー / 参加チームの管理者(role='admin')
 /// - 追加できるチーム: 自分が所属しているチーム(システム管理者は全チーム)
 ///   (追加すると、そのチームのメンバーがプロジェクトにアクセスできるようになるため)
@@ -426,7 +426,7 @@ mod tests {
             .bind(project as i64).fetch_one(&pool).await.unwrap();
 
         // Project ゲストを追加（scoped_project_id付き）
-        let tomorrow = chrono::Local::now().naive_local().date().succ_opt().unwrap();
+        let tomorrow = crate::test_support::db_today().succ_opt().unwrap();
         sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, scoped_project_id, joined_at, end_date) VALUES ($1, $2, 'member', $3, NOW(), $4)")
             .bind(team as i64)
             .bind(guest as i64)

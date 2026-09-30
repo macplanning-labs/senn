@@ -257,7 +257,7 @@ function createDb(name: string) {
     syncQueue: '++id, entity, entityId, operation, createdAt, retryCount',
   });
 
-  // v4: customEmojis + pendingEmojiBlobs（WIPAPPDEV-000087 で出荷済み。履歴定義は消さない）
+  // v4: customEmojis + pendingEmojiBlobs（DEMO-000087 で出荷済み。履歴定義は消さない）
   instance.version(4).stores({
     tickets: 'id, ticketKey, status, priority, projectId, assigneeId, updatedAt, _dirty',
     projects: 'id, prefix, updatedAt, _dirty',
@@ -268,7 +268,7 @@ function createDb(name: string) {
     syncQueue: '++id, entity, entityId, operation, createdAt, retryCount',
   });
 
-  // v5: pendingBlobs へ寄せ、旧 pending 表を廃止（WIPAPPDEV-000091）
+  // v5: pendingBlobs へ寄せ、旧 pending 表を廃止（DEMO-000091）
   instance.version(5)
     .stores({
       tickets: 'id, ticketKey, status, priority, projectId, assigneeId, updatedAt, _dirty',
