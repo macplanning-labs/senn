@@ -24,7 +24,7 @@ vi.mock('../hooks/useInvitations', () => ({
   useRevokeInvitation: () => mutation,
 }));
 
-import { InvitePanel } from './InvitePanel';
+import { InvitePanel, projectsOfTeam } from './InvitePanel';
 
 const render = (teamId: number | null) => renderToStaticMarkup(createElement(InvitePanel, { teamId }));
 
@@ -33,13 +33,26 @@ describe('InvitePanel', () => {
     pending = [];
   });
 
-  it('チームの招待: 種別(Full Member / Guest)を選べ、Guest の範囲はこのチームのプロジェクトだけ', () => {
+  it('チームの招待: 種別(Full Member / Guest)を選べ、既定は Full Member(招待した人はチームに入る)', () => {
     const html = render(7);
     expect(html).toContain('invite-role-full');
     expect(html).toContain('invite-role-guest');
-    expect(html).toContain('営業案件');
-    expect(html).not.toContain('他チームの案件');
+    // 既定で選ばれているのは Full Member。Guest の範囲の選択は、Guest を選ぶまで出さない
+    const radio = (id: string) => html.match(new RegExp(`<input[^>]*data-testid="${id}"[^>]*>`))?.[0] ?? '';
+    expect(radio('invite-role-full')).toContain('checked=""');
+    expect(radio('invite-role-guest')).not.toContain('checked');
+    expect(html).not.toContain('invite-project');
     expect(html).toContain('invite.hintTeam');
+  });
+
+  it('Guest の範囲の候補は、このチームが参加しているプロジェクトだけ', () => {
+    const projects = [
+      { id: 1, name: '営業案件', teams: [{ id: 7 }] },
+      { id: 2, name: '他チームの案件', teams: [{ id: 8 }] },
+      { id: 3, name: 'チーム無し', teams: null },
+    ];
+    expect(projectsOfTeam(projects, 7).map((p) => p.name)).toEqual(['営業案件']);
+    expect(projectsOfTeam(projects, null)).toEqual([]);
   });
 
   it('管理画面(チーム無し): 種別・範囲は出さない(Full Member の招待だけ)', () => {

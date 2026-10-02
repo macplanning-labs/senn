@@ -23,6 +23,11 @@ interface Props {
   teamId: number | null;
 }
 
+/** Guest をプロジェクト単位で招待するときの候補: このチームが参加しているプロジェクトだけ */
+export function projectsOfTeam<P extends { teams?: { id: number }[] | null }>(projects: P[], teamId: number | null): P[] {
+  return teamId === null ? [] : projects.filter((p) => (p.teams ?? []).some((tm) => tm.id === teamId));
+}
+
 function errorDetail(err: unknown): string | undefined {
   return (err as AxiosError<{ detail?: string }>)?.response?.data?.detail;
 }
@@ -36,23 +41,25 @@ export function InvitePanel({ teamId }: Props) {
   const { projects } = useProjects();
 
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<InviteRole>(teamId === null ? 'full_member' : 'guest');
+  // 既定は Full Member(招待した人はチームに入る)。Guest は、見るだけにしたいときに選ぶ
+  const [role, setRole] = useState<InviteRole>('full_member');
   const [projectId, setProjectId] = useState('');
   const [endDate, setEndDate] = useState('');
   const [manualUrl, setManualUrl] = useState<string | null>(null);
+  // 手で渡すリンクが、どの招待(宛先)のものか。その招待を取り消したら、リンクも消す
+  const [manualEmail, setManualEmail] = useState<string | null>(null);
 
   // Guest のプロジェクト単位の招待は、このチームが参加しているプロジェクトだけ
-  const teamProjects = useMemo(
-    () => (teamId === null ? [] : projects.filter((p) => (p.teams ?? []).some((tm) => tm.id === teamId))),
-    [projects, teamId],
-  );
+  const teamProjects = useMemo(() => projectsOfTeam(projects, teamId), [projects, teamId]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setManualUrl(null);
+    setManualEmail(null);
+    const invitedEmail = email.trim();
     create.mutate(
       {
-        email: email.trim(),
+        email: invitedEmail,
         role,
         ...(teamId !== null ? { teamId } : {}),
         ...(role === 'guest' && projectId ? { scopedProjectId: Number(projectId) } : {}),
@@ -67,6 +74,7 @@ export function InvitePanel({ teamId }: Props) {
             addToast({ message: t('invite.sent'), type: 'success' });
           } else if (res.inviteUrl) {
             setManualUrl(`${window.location.origin}${res.inviteUrl}`);
+            setManualEmail(invitedEmail);
             addToast({ message: t('invite.createdNoMail'), type: 'info' });
           } else {
             addToast({ message: t('invite.createdNoMailProd'), type: 'info' });
@@ -179,7 +187,14 @@ export function InvitePanel({ teamId }: Props) {
                 disabled={revoke.isPending}
                 onClick={() =>
                   revoke.mutate(inv.id, {
-                    onSuccess: () => addToast({ message: t('invite.revoked'), type: 'success' }),
+                    onSuccess: () => {
+                      // 取り消した招待のリンクを表示し続けない(使えないリンクを渡してしまわないように)
+                      if (manualEmail !== null && manualEmail.toLowerCase() === inv.email.toLowerCase()) {
+                        setManualUrl(null);
+                        setManualEmail(null);
+                      }
+                      addToast({ message: t('invite.revoked'), type: 'success' });
+                    },
                     onError: (err) => addToast({ message: errorDetail(err) ?? t('invite.failed'), type: 'error' }),
                   })
                 }
