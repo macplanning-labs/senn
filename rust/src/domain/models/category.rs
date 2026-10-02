@@ -2,7 +2,6 @@
 ///
 /// 2階層構造: level=1 がフェーズ、level=2 がカテゴリー。
 /// CheckConstraint: level=1 → parent_id=NULL, level=2 → parent_id=NOT NULL
-
 use serde::{Deserialize, Serialize};
 
 /// カテゴリー（フェーズまたはカテゴリー）

@@ -120,8 +120,7 @@ impl AppConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
-            media_dir: std::env::var("MEDIA_DIR")
-                .unwrap_or_else(|_| "media".to_string()),
+            media_dir: std::env::var("MEDIA_DIR").unwrap_or_else(|_| "media".to_string()),
             max_upload_size: std::env::var("MAX_UPLOAD_SIZE")
                 .unwrap_or_else(|_| "10485760".to_string())
                 .parse()
@@ -172,12 +171,23 @@ impl AppConfig {
             wip_ai_api_user: std::env::var("SENN_AI_API_USER")
                 .or_else(|_| std::env::var("WIP_AI_API_USER"))
                 .unwrap_or_else(|_| "ai_agent".to_string()),
-            ollama_url: std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            ollama_model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string()),
-            ollama_timeout_secs: std::env::var("OLLAMA_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(60),
-            openai_api_key: std::env::var("OPENAI_API_KEY").ok().filter(|s| !s.is_empty()),
-            openai_model: std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
-            openai_timeout_secs: std::env::var("OPENAI_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(30),
+            ollama_url: std::env::var("OLLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+            ollama_model: std::env::var("OLLAMA_MODEL")
+                .unwrap_or_else(|_| "qwen2.5:3b".to_string()),
+            ollama_timeout_secs: std::env::var("OLLAMA_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(60),
+            openai_api_key: std::env::var("OPENAI_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            openai_model: std::env::var("OPENAI_MODEL")
+                .unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+            openai_timeout_secs: std::env::var("OPENAI_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30),
             app_channel: std::env::var("SENN_APP_CHANNEL")
                 .or_else(|_| std::env::var("WIP_APP_CHANNEL"))
                 .unwrap_or_else(|_| "internal".to_string()),

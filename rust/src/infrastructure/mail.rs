@@ -2,7 +2,6 @@
 ///
 /// 送信時に system_settings の sys.mail.mode を参照して振り分ける。
 /// Gmail API モードはサービスアカウント JSON（env）を継続利用する。
-
 use crate::config::AppConfig;
 use crate::infrastructure::encrypted_settings::decrypt_value;
 use crate::infrastructure::repositories::system_settings_repo;
@@ -53,9 +52,7 @@ impl MailSender {
 
     pub async fn send(&self, to: &str, subject: &str, body: &str) -> anyhow::Result<()> {
         let settings = system_settings_repo::load_mail_settings(&self.pool).await?;
-        let from_email = self
-            .resolve_from_email(settings.sender.as_deref())
-            .await;
+        let from_email = self.resolve_from_email(settings.sender.as_deref()).await;
 
         if settings.mode == system_settings_repo::MAIL_MODE_SMTP {
             return self
@@ -86,10 +83,7 @@ impl MailSender {
             .filter(|h| !h.is_empty())
             .ok_or_else(|| anyhow::anyhow!("SMTPホストが設定されていません"))?;
         let port = settings.smtp_port.unwrap_or(587);
-        let encryption = settings
-            .smtp_encryption
-            .as_deref()
-            .unwrap_or("starttls");
+        let encryption = settings.smtp_encryption.as_deref().unwrap_or("starttls");
         let password_blob = settings
             .smtp_password_encrypted
             .as_deref()

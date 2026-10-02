@@ -1,23 +1,22 @@
 /// presentation/handlers/reaction_api.rs — チケットリアクション & カスタム絵文字 API
-
 use axum::{
     extract::{Multipart, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Extension, Json,
+    Json,
 };
 use serde::Serialize;
 use std::path::PathBuf;
 use tokio::fs;
 use uuid::Uuid;
 
+use crate::domain::access::Viewer;
+use crate::domain::models::project::Project;
 use crate::domain::models::reaction::{CustomEmojiOut, ReactionIn, ReactionOut, ReactionRow};
 use crate::domain::models::ticket::Ticket;
 use crate::domain::models::ticket_api::UserSummaryOut;
-use crate::domain::models::project::Project;
 use crate::infrastructure::repositories::{
-    membership_repo, project_repo, project_team_repo, reaction_repo, team_repo, ticket_repo,
-    user_repo,
+    project_repo, project_team_repo, reaction_repo, team_repo, ticket_repo, user_repo,
 };
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::presentation::state::AppState;
@@ -32,12 +31,21 @@ pub struct ErrorResponse {
 }
 
 fn err(status: StatusCode, detail: &str) -> Response {
-    (status, Json(ErrorResponse { detail: detail.to_string() })).into_response()
+    (
+        status,
+        Json(ErrorResponse {
+            detail: detail.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 fn server_err(e: impl std::fmt::Debug) -> Response {
     tracing::error!("Reaction API error: {:?}", e);
-    err(StatusCode::INTERNAL_SERVER_ERROR, "サーバーエラーが発生しました")
+    err(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "サーバーエラーが発生しました",
+    )
 }
 
 // =============================================================================
@@ -48,18 +56,6 @@ async fn caller_is_staff(state: &AppState, user_id: i32) -> bool {
     match user_repo::find_by_id(&state.pool, user_id).await {
         Ok(Some(u)) => u.is_staff,
         _ => false,
-    }
-}
-
-async fn deny_unless_ticket_access(
-    state: &AppState,
-    ticket_id: i32,
-    user_id: i32,
-) -> Option<Response> {
-    match membership_repo::check_ticket_access(&state.pool, ticket_id, user_id).await {
-        Ok(true) => None,
-        Ok(false) => Some(err(StatusCode::NOT_FOUND, "見つかりません")),
-        Err(e) => Some(server_err(e)),
     }
 }
 
@@ -76,6 +72,34 @@ async fn deny_unless_project_access(
         Ok(false) => Some(err(StatusCode::NOT_FOUND, "見つかりません")),
         Err(e) => Some(server_err(e)),
     }
+}
+
+/// カスタム絵文字の認可(D-3)。今の判定は `deny_unless_project_access`(所属の確認)。
+/// 新しい判定は、プロジェクトへの `action`(一覧 = Read、登録 = Write)
+async fn authorize_emoji_project(
+    state: &AppState,
+    viewer: &Viewer,
+    project_id: i32,
+    action: crate::domain::access::Action,
+    route: &'static str,
+) -> Result<AuthUser, Response> {
+    let auth = AuthUser {
+        user_id: viewer.require_user_id()?,
+    };
+    let legacy = match deny_unless_project_access(state, project_id, auth.user_id).await {
+        None => Ok(()),
+        Some(resp) => Err(resp),
+    };
+    crate::presentation::extractors::authorize::gate_project(
+        &state.pool,
+        viewer,
+        project_id,
+        action,
+        legacy,
+        route,
+    )
+    .await?;
+    Ok(auth)
 }
 
 // =============================================================================
@@ -98,7 +122,9 @@ fn media_url(image_path: &str) -> String {
 }
 
 fn is_allowed_unicode(s: &str) -> bool {
-    const ALLOWED: &[&str] = &["👍", "👀", "👏", "❤️", "✅", "🙇", "🙏", "🔥", "🎉", "😇", "🤔"];
+    const ALLOWED: &[&str] = &[
+        "👍", "👀", "👏", "❤️", "✅", "🙇", "🙏", "🔥", "🎉", "😇", "🤔",
+    ];
     ALLOWED.contains(&s) || s == "❤"
 }
 
@@ -111,9 +137,7 @@ fn normalize_unicode(s: &str) -> String {
 }
 
 fn valid_slug(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 32
-        && s.chars().all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_'))
+    !s.is_empty() && s.len() <= 32 && s.chars().all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_'))
 }
 
 fn ext_from_mime(mime: &str) -> Option<&'static str> {
@@ -193,7 +217,7 @@ fn user_summary(uid: i32, username: String, email: String, display_name: String)
 /// GET /api/v1/tickets/{ticket_key}/reactions/
 pub async fn list_reactions(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> Response {
     let ticket = match resolve_ticket(&state, &ticket_key).await {
@@ -202,7 +226,15 @@ pub async fn list_reactions(
         Err(e) => return server_err(e),
     };
 
-    if let Some(resp) = deny_unless_ticket_access(&state, ticket.id, auth.user_id).await {
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket.id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/reactions/",
+    )
+    .await
+    {
         return resp;
     }
 
@@ -223,17 +255,31 @@ pub async fn list_reactions(
 /// POST /api/v1/tickets/{ticket_key}/reactions/
 pub async fn add_reaction(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     Json(payload): Json<ReactionIn>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let ticket = match resolve_ticket(&state, &ticket_key).await {
         Ok(Some(t)) => t,
         Ok(None) => return err(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_err(e),
     };
 
-    if let Some(resp) = deny_unless_ticket_access(&state, ticket.id, auth.user_id).await {
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket.id,
+        crate::domain::access::Action::Write,
+        "POST /api/v1/tickets/{ticket_key}/reactions/",
+    )
+    .await
+    {
         return resp;
     }
 
@@ -305,8 +351,7 @@ pub async fn add_reaction(
             {
                 Ok(Some((row, uid, username, email, display_name))) => {
                     let reaction =
-                        reaction_row_to_out(&state, row, uid, username, email, display_name)
-                            .await;
+                        reaction_row_to_out(&state, row, uid, username, email, display_name).await;
                     (StatusCode::OK, Json(reaction)).into_response()
                 }
                 Ok(None) => err(
@@ -323,16 +368,30 @@ pub async fn add_reaction(
 /// DELETE /api/v1/tickets/{ticket_key}/reactions/{id}/
 pub async fn delete_reaction(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((ticket_key, reaction_id)): Path<(String, i64)>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let ticket = match resolve_ticket(&state, &ticket_key).await {
         Ok(Some(t)) => t,
         Ok(None) => return err(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_err(e),
     };
 
-    if let Some(resp) = deny_unless_ticket_access(&state, ticket.id, auth.user_id).await {
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket.id,
+        crate::domain::access::Action::Write,
+        "DELETE /api/v1/tickets/{ticket_key}/reactions/{id}/",
+    )
+    .await
+    {
         return resp;
     }
 
@@ -363,7 +422,7 @@ pub async fn delete_reaction(
 /// GET /api/v1/projects/{prefix}/custom-emojis/
 pub async fn list_custom_emojis(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(prefix): Path<String>,
 ) -> Response {
     let project = match resolve_project(&state, &prefix).await {
@@ -372,7 +431,15 @@ pub async fn list_custom_emojis(
         Err(e) => return server_err(e),
     };
 
-    if let Some(resp) = deny_unless_project_access(&state, project.id, auth.user_id).await {
+    if let Err(resp) = authorize_emoji_project(
+        &state,
+        &viewer,
+        project.id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/projects/{prefix}/custom-emojis/",
+    )
+    .await
+    {
         return resp;
     }
 
@@ -399,7 +466,7 @@ pub async fn list_custom_emojis(
 /// POST /api/v1/projects/{prefix}/custom-emojis/
 pub async fn upload_custom_emoji(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(prefix): Path<String>,
     mut multipart: Multipart,
 ) -> Response {
@@ -409,9 +476,18 @@ pub async fn upload_custom_emoji(
         Err(e) => return server_err(e),
     };
 
-    if let Some(resp) = deny_unless_project_access(&state, project.id, auth.user_id).await {
-        return resp;
-    }
+    let auth = match authorize_emoji_project(
+        &state,
+        &viewer,
+        project.id,
+        crate::domain::access::Action::Write,
+        "POST /api/v1/projects/{prefix}/custom-emojis/",
+    )
+    .await
+    {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
 
     let mut slug = String::new();
     let mut name = String::new();
@@ -472,7 +548,10 @@ pub async fn upload_custom_emoji(
     }
 
     if file_bytes.len() > state.config.max_upload_size {
-        return err(StatusCode::PAYLOAD_TOO_LARGE, "File size exceeds maximum allowed");
+        return err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "File size exceeds maximum allowed",
+        );
     }
 
     if !valid_slug(&slug) {
@@ -565,18 +644,28 @@ pub async fn upload_custom_emoji(
 /// DELETE /api/v1/projects/{prefix}/custom-emojis/{id}/
 pub async fn delete_custom_emoji(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((prefix, emoji_id)): Path<(String, i64)>,
 ) -> Response {
+    const ROUTE: &str = "DELETE /api/v1/projects/{prefix}/custom-emojis/{id}/";
     let project = match resolve_project(&state, &prefix).await {
         Ok(Some(p)) => p,
         Ok(None) => return err(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_err(e),
     };
 
-    if let Some(resp) = deny_unless_project_access(&state, project.id, auth.user_id).await {
-        return resp;
-    }
+    let auth = match authorize_emoji_project(
+        &state,
+        &viewer,
+        project.id,
+        crate::domain::access::Action::Read,
+        ROUTE,
+    )
+    .await
+    {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
 
     let staff = caller_is_staff(&state, auth.user_id).await;
 
@@ -586,20 +675,40 @@ pub async fn delete_custom_emoji(
                 return err(StatusCode::NOT_FOUND, "見つかりません");
             }
 
-            let can_manage = match project_team_repo::can_manage(
+            let can_manage =
+                match project_team_repo::can_manage(&state.pool, project.id, auth.user_id, staff)
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => return server_err(e),
+                };
+
+            let is_uploader = row.uploaded_by == auth.user_id as i64;
+            let legacy = if is_uploader || staff || can_manage {
+                Ok(())
+            } else {
+                Err(err(
+                    StatusCode::FORBIDDEN,
+                    "Only the uploader can delete this emoji",
+                ))
+            };
+            // 新しい判定(D-3): 登録者はプロジェクトが見えること、それ以外はプロジェクトの設定を管理できること
+            let action = if is_uploader {
+                crate::domain::access::Action::Read
+            } else {
+                crate::domain::access::Action::ManageSettings
+            };
+            if let Err(resp) = crate::presentation::extractors::authorize::gate_project(
                 &state.pool,
+                &viewer,
                 project.id,
-                auth.user_id,
-                staff,
+                action,
+                legacy,
+                ROUTE,
             )
             .await
             {
-                Ok(v) => v,
-                Err(e) => return server_err(e),
-            };
-
-            if row.uploaded_by != auth.user_id as i64 && !staff && !can_manage {
-                return err(StatusCode::FORBIDDEN, "Only the uploader can delete this emoji");
+                return resp;
             }
 
             let media_dir = PathBuf::from(&state.config.media_dir);

@@ -1,7 +1,7 @@
 /**
  * appChannel — ビルドチャネル（customer / internal）
  *
- * 正本: docs/方針_ビルドチャネル_customerとinternal.md
+ * 正本: docs/design/方針_ビルドチャネル_customerとinternal.md
  * 未設定は internal（自社向け既定。デモ入口を誤って出さない）。
  */
 

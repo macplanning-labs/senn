@@ -1,11 +1,10 @@
+use crate::domain::models::cycle_api::{CycleOut, CycleWriteIn};
 /// infrastructure/repositories/cycle_repo.rs — サイクル永続化（API用）
 ///
 /// Django /api/v1/cycles/* の実スキーマ (t_cycle) に対応。
 /// bigint列は全て ::int4 キャスト。
 /// チケット関連の集計（ticketCount, completedCount, totalPoints, completedPoints）を含む。
-
 use sqlx::{PgPool, Row};
-use crate::domain::models::cycle_api::{CycleOut, CycleWriteIn};
 
 /// サイクル一覧（フィルタ対応: project, team, status）。
 /// ページネーション無し。
@@ -137,7 +136,7 @@ pub async fn find_all_cycles(
             let user_row = sqlx::query(
                 "SELECT id::int4, username, email,
                     COALESCE(display_name, '') as display_name
-                 FROM accounts_user WHERE id = $1::int4"
+                 FROM accounts_user WHERE id = $1::int4",
             )
             .bind(uid)
             .fetch_optional(pool)
@@ -154,16 +153,15 @@ pub async fn find_all_cycles(
         };
 
         // チケット関連の集計
-        let ticket_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4"
-        )
-        .bind(cycle_id)
-        .fetch_one(pool)
-        .await?;
+        let ticket_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4")
+                .bind(cycle_id)
+                .fetch_one(pool)
+                .await?;
 
         let completed_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM tickets_ticket
-             WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')"
+             WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')",
         )
         .bind(cycle_id)
         .fetch_one(pool)
@@ -171,7 +169,7 @@ pub async fn find_all_cycles(
 
         let total_points: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket
-             WHERE cycle_id = $1::int4"
+             WHERE cycle_id = $1::int4",
         )
         .bind(cycle_id)
         .fetch_one(pool)
@@ -179,7 +177,7 @@ pub async fn find_all_cycles(
 
         let completed_points: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket
-             WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')"
+             WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')",
         )
         .bind(cycle_id)
         .fetch_one(pool)
@@ -247,7 +245,7 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
                 let user_row = sqlx::query(
                     "SELECT id::int4, username, email,
                         COALESCE(display_name, '') as display_name
-                     FROM accounts_user WHERE id = $1::int4"
+                     FROM accounts_user WHERE id = $1::int4",
                 )
                 .bind(uid)
                 .fetch_optional(pool)
@@ -264,16 +262,15 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
             };
 
             // チケット関連の集計
-            let ticket_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4"
-            )
-            .bind(cycle_id)
-            .fetch_one(pool)
-            .await?;
+            let ticket_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4")
+                    .bind(cycle_id)
+                    .fetch_one(pool)
+                    .await?;
 
             let completed_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM tickets_ticket
-                 WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')"
+                 WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')",
             )
             .bind(cycle_id)
             .fetch_one(pool)
@@ -281,7 +278,7 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
 
             let total_points: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket
-                 WHERE cycle_id = $1::int4"
+                 WHERE cycle_id = $1::int4",
             )
             .bind(cycle_id)
             .fetch_one(pool)
@@ -289,7 +286,7 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
 
             let completed_points: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket
-                 WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')"
+                 WHERE cycle_id = $1::int4 AND status IN ('closed', 'resolved')",
             )
             .bind(cycle_id)
             .fetch_one(pool)
@@ -329,9 +326,12 @@ pub async fn find_cycle_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<C
 }
 
 /// Project 付き Cycle の番号（既存 UNIQUE (project_id, number) と揃える）。
-pub async fn get_next_cycle_number_by_project(pool: &PgPool, project_id: i32) -> anyhow::Result<i32> {
+pub async fn get_next_cycle_number_by_project(
+    pool: &PgPool,
+    project_id: i32,
+) -> anyhow::Result<i32> {
     let max_number: Option<i32> = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(number), 0) FROM t_cycle WHERE project_id = $1::int4"
+        "SELECT COALESCE(MAX(number), 0) FROM t_cycle WHERE project_id = $1::int4",
     )
     .bind(project_id)
     .fetch_one(pool)
@@ -390,7 +390,7 @@ pub async fn create_cycle(
             "SELECT EXISTS(
                 SELECT 1 FROM tickets_project_teams
                 WHERE project_id = $1 AND team_id = $2
-            )"
+            )",
         )
         .bind(project_id)
         .bind(team_id)
@@ -442,10 +442,11 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
     }
 
     // 既存ステータスを取得
-    let old_status: Option<String> = sqlx::query_scalar("SELECT status FROM t_cycle WHERE id = $1::int4")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let old_status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM t_cycle WHERE id = $1::int4")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
 
     let old_status = match old_status {
         Some(s) => s,
@@ -459,7 +460,7 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
             "UPDATE t_cycle SET
                 project_id = $1::int4, name = $2, description = $3, status = $4,
                 start_date = $5, end_date = $6, team_id = $7::int4, activated_at = NOW()
-             WHERE id = $8::int4"
+             WHERE id = $8::int4",
         )
         .bind(input.project)
         .bind(&input.name)
@@ -477,7 +478,7 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
             "UPDATE t_cycle SET
                 project_id = $1::int4, name = $2, description = $3, status = $4,
                 start_date = $5, end_date = $6, team_id = $7::int4, completed_at = NOW()
-             WHERE id = $8::int4"
+             WHERE id = $8::int4",
         )
         .bind(input.project)
         .bind(&input.name)
@@ -495,7 +496,7 @@ pub async fn update_cycle(pool: &PgPool, id: i32, input: &CycleWriteIn) -> anyho
             "UPDATE t_cycle SET
                 project_id = $1::int4, name = $2, description = $3, status = $4,
                 start_date = $5, end_date = $6, team_id = $7::int4
-             WHERE id = $8::int4"
+             WHERE id = $8::int4",
         )
         .bind(input.project)
         .bind(&input.name)
@@ -520,7 +521,7 @@ pub async fn update_cycle_graph_position(
     y: f64,
 ) -> anyhow::Result<bool> {
     let result = sqlx::query(
-        "UPDATE t_cycle SET graph_position_x = $1, graph_position_y = $2 WHERE id = $3"
+        "UPDATE t_cycle SET graph_position_x = $1, graph_position_y = $2 WHERE id = $3",
     )
     .bind(x)
     .bind(y)
@@ -537,7 +538,9 @@ pub async fn delete_cycle(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     // tickets_ticket.cycle は on_delete=SET_NULL
     sqlx::query("UPDATE tickets_ticket SET cycle_id = NULL WHERE cycle_id = $1::int4")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let result = sqlx::query("DELETE FROM t_cycle WHERE id = $1::int4")
         .bind(id)
@@ -591,7 +594,7 @@ async fn compute_scope_added_removed(
            COALESCE(SUM(CASE WHEN fc.old_value = $1 AND t.cycle_id IS DISTINCT FROM $4::int4
                               THEN t.story_points ELSE 0 END), 0)::int8 AS scope_removed
          FROM first_change fc
-         JOIN tickets_ticket t ON t.id = fc.ticket_id"
+         JOIN tickets_ticket t ON t.id = fc.ticket_id",
     )
     .bind(cycle_id.to_string())
     .bind(since)
@@ -604,7 +607,10 @@ async fn compute_scope_added_removed(
 }
 
 /// サイクル進捗集計。存在しないサイクルはNoneを返す。
-pub async fn get_cycle_progress(pool: &PgPool, cycle_id: i32) -> anyhow::Result<Option<CycleProgressOut>> {
+pub async fn get_cycle_progress(
+    pool: &PgPool,
+    cycle_id: i32,
+) -> anyhow::Result<Option<CycleProgressOut>> {
     let cycle_row = sqlx::query("SELECT activated_at, start_date FROM t_cycle WHERE id = $1::int4")
         .bind(cycle_id)
         .fetch_optional(pool)
@@ -619,7 +625,10 @@ pub async fn get_cycle_progress(pool: &PgPool, cycle_id: i32) -> anyhow::Result<
     let start_date: chrono::NaiveDate = cycle_row.get("start_date");
     let since = activated_at.unwrap_or_else(|| {
         chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-            chrono::NaiveDateTime::new(start_date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+            chrono::NaiveDateTime::new(
+                start_date,
+                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            ),
             chrono::Utc,
         )
     });
@@ -657,7 +666,7 @@ pub async fn get_cycle_progress(pool: &PgPool, cycle_id: i32) -> anyhow::Result<
          FROM h_task_point_history ph
          JOIN tickets_ticket t ON t.id = ph.ticket_id
          WHERE t.cycle_id = $1::int4
-           AND ph.changed_at > $2"
+           AND ph.changed_at > $2",
     )
     .bind(cycle_id)
     .bind(since)
@@ -682,11 +691,15 @@ pub async fn get_cycle_progress(pool: &PgPool, cycle_id: i32) -> anyhow::Result<
 }
 
 /// 直近limit件の完了サイクルのベロシティデータ(古い順)。
-pub async fn get_velocity_data(pool: &PgPool, project_id: i32, limit: i64) -> anyhow::Result<Vec<VelocityEntryOut>> {
+pub async fn get_velocity_data(
+    pool: &PgPool,
+    project_id: i32,
+    limit: i64,
+) -> anyhow::Result<Vec<VelocityEntryOut>> {
     let cycles = sqlx::query(
         "SELECT id::int4, number, name, activated_at, completed_at, start_date FROM t_cycle
          WHERE project_id = $1::int4 AND status = 'completed'
-         ORDER BY number DESC LIMIT $2"
+         ORDER BY number DESC LIMIT $2",
     )
     .bind(project_id)
     .bind(limit)
@@ -704,7 +717,10 @@ pub async fn get_velocity_data(pool: &PgPool, project_id: i32, limit: i64) -> an
 
         let since = activated_at.unwrap_or_else(|| {
             chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                chrono::NaiveDateTime::new(start_date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+                chrono::NaiveDateTime::new(
+                    start_date,
+                    chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                ),
                 chrono::Utc,
             )
         });
@@ -730,7 +746,7 @@ pub async fn get_velocity_data(pool: &PgPool, project_id: i32, limit: i64) -> an
              FROM h_task_point_history ph
              JOIN tickets_ticket t ON t.id = ph.ticket_id
              WHERE t.cycle_id = $1::int4
-               AND ph.changed_at > $2 AND ph.changed_at <= $3"
+               AND ph.changed_at > $2 AND ph.changed_at <= $3",
         )
         .bind(cycle_id)
         .bind(since)
@@ -768,10 +784,11 @@ pub async fn complete_cycle(
 ) -> anyhow::Result<CompleteCycleResult> {
     let mut tx = pool.begin().await?;
 
-    let status: Option<String> = sqlx::query_scalar("SELECT status FROM t_cycle WHERE id = $1::int4")
-        .bind(cycle_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM t_cycle WHERE id = $1::int4")
+            .bind(cycle_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let status = match status {
         Some(s) => s,
@@ -785,7 +802,7 @@ pub async fn complete_cycle(
     let carried_over: i64 = if let Some(target) = carry_over_to {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM tickets_ticket
-             WHERE cycle_id = $1::int4 AND status NOT IN ('closed','resolved','canceled')"
+             WHERE cycle_id = $1::int4 AND status NOT IN ('closed','resolved','canceled')",
         )
         .bind(cycle_id)
         .fetch_one(&mut *tx)
@@ -793,7 +810,7 @@ pub async fn complete_cycle(
 
         sqlx::query(
             "UPDATE tickets_ticket SET cycle_id = $1::int4
-             WHERE cycle_id = $2::int4 AND status NOT IN ('closed','resolved','canceled')"
+             WHERE cycle_id = $2::int4 AND status NOT IN ('closed','resolved','canceled')",
         )
         .bind(target)
         .bind(cycle_id)
@@ -805,10 +822,12 @@ pub async fn complete_cycle(
         0
     };
 
-    sqlx::query("UPDATE t_cycle SET status = 'completed', completed_at = NOW() WHERE id = $1::int4")
-        .bind(cycle_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE t_cycle SET status = 'completed', completed_at = NOW() WHERE id = $1::int4",
+    )
+    .bind(cycle_id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -819,11 +838,15 @@ pub async fn complete_cycle(
 }
 
 /// バーンダウンチャート用の日次データ。存在しないサイクルはNoneを返す。
-pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<Option<Vec<BurndownPointOut>>> {
-    let cycle_row = sqlx::query("SELECT start_date, end_date, activated_at FROM t_cycle WHERE id = $1::int4")
-        .bind(cycle_id)
-        .fetch_optional(pool)
-        .await?;
+pub async fn get_burndown_data(
+    pool: &PgPool,
+    cycle_id: i32,
+) -> anyhow::Result<Option<Vec<BurndownPointOut>>> {
+    let cycle_row =
+        sqlx::query("SELECT start_date, end_date, activated_at FROM t_cycle WHERE id = $1::int4")
+            .bind(cycle_id)
+            .fetch_optional(pool)
+            .await?;
 
     let cycle_row = match cycle_row {
         Some(r) => r,
@@ -834,19 +857,18 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
     let end_date: chrono::NaiveDate = cycle_row.get("end_date");
     let activated_at: Option<chrono::DateTime<chrono::Utc>> = cycle_row.get("activated_at");
 
-    let ticket_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4"
-    )
-    .bind(cycle_id)
-    .fetch_one(pool)
-    .await?;
+    let ticket_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE cycle_id = $1::int4")
+            .bind(cycle_id)
+            .fetch_one(pool)
+            .await?;
 
     if ticket_count == 0 {
         return Ok(Some(vec![]));
     }
 
     let total_points: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket WHERE cycle_id = $1::int4"
+        "SELECT COALESCE(SUM(story_points), 0) FROM tickets_ticket WHERE cycle_id = $1::int4",
     )
     .bind(cycle_id)
     .fetch_one(pool)
@@ -859,7 +881,10 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
 
     let since = activated_at.unwrap_or_else(|| {
         chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-            chrono::NaiveDateTime::new(start_date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()),
+            chrono::NaiveDateTime::new(
+                start_date,
+                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            ),
             chrono::Utc,
         )
     });
@@ -873,7 +898,7 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
          FROM h_task_point_history ph
          JOIN tickets_ticket t ON t.id = ph.ticket_id
          WHERE t.cycle_id = $1::int4
-           AND ph.changed_at > $2"
+           AND ph.changed_at > $2",
     )
     .bind(cycle_id)
     .bind(since)
@@ -891,7 +916,7 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
          WHERE t.cycle_id = $1::int4
            AND h.new_status IN ('closed', 'resolved')
            AND h.changed_at::date >= $2 AND h.changed_at::date <= $3
-         ORDER BY h.ticket_id, h.changed_at ASC"
+         ORDER BY h.ticket_id, h.changed_at ASC",
     )
     .bind(cycle_id)
     .bind(start_date)
@@ -899,7 +924,8 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
     .fetch_all(pool)
     .await?;
 
-    let mut completion_by_date: std::collections::HashMap<chrono::NaiveDate, i64> = std::collections::HashMap::new();
+    let mut completion_by_date: std::collections::HashMap<chrono::NaiveDate, i64> =
+        std::collections::HashMap::new();
     for row in completion_rows {
         let changed_at: chrono::DateTime<chrono::Utc> = row.get("changed_at");
         let points: Option<i16> = row.get("story_points");
@@ -939,7 +965,8 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
     .fetch_all(pool)
     .await?;
 
-    let mut scope_change_by_date: std::collections::HashMap<chrono::NaiveDate, i64> = std::collections::HashMap::new();
+    let mut scope_change_by_date: std::collections::HashMap<chrono::NaiveDate, i64> =
+        std::collections::HashMap::new();
     for row in scope_change_rows {
         let date: chrono::NaiveDate = row.get("changed_date");
         let net_change: i64 = row.get("net_change");
@@ -983,7 +1010,9 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
 
         let total_scope = initial_points + cumulative_scope_change;
         let ideal = if initial_points > 0 {
-            ((initial_points as f64) * (1.0 - (day_offset as f64 / duration_days as f64)) * 10.0).round() / 10.0
+            ((initial_points as f64) * (1.0 - (day_offset as f64 / duration_days as f64)) * 10.0)
+                .round()
+                / 10.0
         } else {
             0.0
         };
@@ -1005,7 +1034,9 @@ pub async fn get_burndown_data(pool: &PgPool, cycle_id: i32) -> anyhow::Result<O
 
 /// 期限に基づいてplannedサイクルを自動的にactiveに遷移させ、アクティブ化されたサイクル情報を返す。
 /// 戻り値: (cycle_id, project_id, name)。Team-only は project_id = None。
-pub async fn auto_activate_due_cycles(pool: &PgPool) -> anyhow::Result<Vec<(i32, Option<i32>, String)>> {
+pub async fn auto_activate_due_cycles(
+    pool: &PgPool,
+) -> anyhow::Result<Vec<(i32, Option<i32>, String)>> {
     // 同一プロジェクトで既にactiveなサイクルがある間は、次のplannedサイクルの
     // 自動アクティブ化をスキップする(「進行中は常に1件」という前提をスケジューラ側で担保する)。
     let activated_project = sqlx::query(
@@ -1024,7 +1055,7 @@ pub async fn auto_activate_due_cycles(pool: &PgPool) -> anyhow::Result<Vec<(i32,
          SET status = 'active', activated_at = NOW()
          FROM candidates
          WHERE t_cycle.id = candidates.id
-         RETURNING t_cycle.id::int4, t_cycle.project_id::int4, t_cycle.name"
+         RETURNING t_cycle.id::int4, t_cycle.project_id::int4, t_cycle.name",
     )
     .fetch_all(pool)
     .await?;
@@ -1048,7 +1079,7 @@ pub async fn auto_activate_due_cycles(pool: &PgPool) -> anyhow::Result<Vec<(i32,
          SET status = 'active', activated_at = NOW()
          FROM candidates
          WHERE t_cycle.id = candidates.id
-         RETURNING t_cycle.id::int4, t_cycle.name"
+         RETURNING t_cycle.id::int4, t_cycle.name",
     )
     .fetch_all(pool)
     .await?;
@@ -1084,25 +1115,23 @@ async fn resolve_cycle_actor_user_id(
     team_id: Option<i32>,
 ) -> anyhow::Result<Option<i32>> {
     if let Some(uid) = created_by_id {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM accounts_user WHERE id = $1::int4)"
-        )
-        .bind(uid)
-        .fetch_one(pool)
-        .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts_user WHERE id = $1::int4)")
+                .bind(uid)
+                .fetch_one(pool)
+                .await?;
         if exists {
             return Ok(Some(uid));
         }
     }
 
     if let Some(pid) = project_id {
-        let owner_id: Option<i32> = sqlx::query_scalar(
-            "SELECT owner_id::int4 FROM tickets_project WHERE id = $1::int4"
-        )
-        .bind(pid)
-        .fetch_optional(pool)
-        .await?
-        .flatten();
+        let owner_id: Option<i32> =
+            sqlx::query_scalar("SELECT owner_id::int4 FROM tickets_project WHERE id = $1::int4")
+                .bind(pid)
+                .fetch_optional(pool)
+                .await?
+                .flatten();
         if owner_id.is_some() {
             return Ok(owner_id);
         }
@@ -1114,7 +1143,7 @@ async fn resolve_cycle_actor_user_id(
              JOIN accounts_user u ON u.id = m.user_id
              WHERE m.scoped_project_id = $1::int4
              ORDER BY u.is_staff DESC, m.user_id ASC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(pid)
         .fetch_optional(pool)
@@ -1132,7 +1161,7 @@ async fn resolve_cycle_actor_user_id(
              JOIN accounts_user u ON u.id = m.user_id
              WHERE m.team_id = $1::int4 AND m.scoped_project_id IS NULL
              ORDER BY u.is_staff DESC, m.user_id ASC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(tid)
         .fetch_optional(pool)
@@ -1159,7 +1188,7 @@ pub async fn resolve_carry_over_target(
             "SELECT id::int4 FROM t_cycle
              WHERE project_id = $1::int4 AND status = 'planned'
              ORDER BY start_date ASC, id ASC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(pid)
         .fetch_optional(pool)
@@ -1170,7 +1199,7 @@ pub async fn resolve_carry_over_target(
         }
 
         let auto_create_next: bool = sqlx::query_scalar(
-            "SELECT cycle_auto_create_next FROM tickets_project WHERE id = $1::int4"
+            "SELECT cycle_auto_create_next FROM tickets_project WHERE id = $1::int4",
         )
         .bind(pid)
         .fetch_one(pool)
@@ -1229,7 +1258,9 @@ pub async fn resolve_carry_over_target(
     let tid = match team_id {
         Some(id) => id,
         None => {
-            tracing::error!("[Cycle 自動完了] project_id=None team_id=None 結果=持ち越し先不明→スキップ");
+            tracing::error!(
+                "[Cycle 自動完了] project_id=None team_id=None 結果=持ち越し先不明→スキップ"
+            );
             return Ok(CarryOverResolve::AbortAutoComplete);
         }
     };
@@ -1238,7 +1269,7 @@ pub async fn resolve_carry_over_target(
         "SELECT id::int4 FROM t_cycle
          WHERE team_id = $1::int4 AND project_id IS NULL AND status = 'planned'
          ORDER BY start_date ASC, id ASC
-         LIMIT 1"
+         LIMIT 1",
     )
     .bind(tid)
     .fetch_optional(pool)
@@ -1353,7 +1384,7 @@ pub async fn auto_complete_overdue_cycles(
                 let user_row = sqlx::query(
                     "SELECT id::int4, username, email,
                             COALESCE(display_name, '') as display_name
-                     FROM accounts_user WHERE id = $1::int4"
+                     FROM accounts_user WHERE id = $1::int4",
                 )
                 .bind(uid)
                 .fetch_optional(pool)
@@ -1384,7 +1415,9 @@ pub async fn auto_complete_overdue_cycles(
             continue;
         }
 
-        let target_id = match resolve_carry_over_target(pool, project_id, team_id, &completed_cycle).await {
+        let target_id = match resolve_carry_over_target(pool, project_id, team_id, &completed_cycle)
+            .await
+        {
             Ok(CarryOverResolve::CarryTo(id)) => Some(id),
             Ok(CarryOverResolve::CompleteWithoutCarry) => None,
             Ok(CarryOverResolve::AbortAutoComplete) => {
@@ -1410,18 +1443,24 @@ pub async fn auto_complete_overdue_cycles(
                     cycle_id, project_id, team_id, out.carried_over, target_id
                 );
 
-                if let Err(e) = crate::domain::services::notification_service::notify_cycle_auto_completed(
-                    pool,
-                    project_id,
-                    team_id,
-                    cycle_id,
-                    &name,
-                    out.carried_over,
-                    target_id,
-                ).await {
+                if let Err(e) =
+                    crate::domain::services::notification_service::notify_cycle_auto_completed(
+                        pool,
+                        project_id,
+                        team_id,
+                        cycle_id,
+                        &name,
+                        out.carried_over,
+                        target_id,
+                    )
+                    .await
+                {
                     tracing::error!(
                         "[Cycle自動完了通知] 作成失敗 cycle_id={} project_id={:?} team_id={:?}: {}",
-                        cycle_id, project_id, team_id, e
+                        cycle_id,
+                        project_id,
+                        team_id,
+                        e
                     );
                 }
 
@@ -1436,13 +1475,15 @@ pub async fn auto_complete_overdue_cycles(
             Ok(CompleteCycleResult::AlreadyCompleted) => {
                 tracing::debug!(
                     "cycle auto-complete skipped: id={} project_id={:?} 理由=already_completed",
-                    cycle_id, project_id
+                    cycle_id,
+                    project_id
                 );
             }
             Ok(CompleteCycleResult::NotFound) => {
                 tracing::debug!(
                     "cycle auto-complete skipped: id={} project_id={:?} 理由=not_found",
-                    cycle_id, project_id
+                    cycle_id,
+                    project_id
                 );
             }
             Err(e) => {
@@ -1461,14 +1502,16 @@ pub async fn auto_complete_overdue_cycles(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
     use crate::test_support;
+    use chrono::Duration;
 
     #[tokio::test]
     async fn test_auto_activate_skips_when_project_already_has_active_cycle() {
         // T0: 同一プロジェクトに既にactiveなサイクルがある場合、start_dateが過ぎたplannedが
         // あっても自動アクティブ化をスキップする(「進行中は常に1件」をスケジューラ側で担保)。
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "actA").await;
         let project_id = test_support::create_test_project(&pool, "ACTA", user_id).await;
@@ -1527,7 +1570,9 @@ mod tests {
     async fn test_auto_activate_picks_earliest_candidate_per_project() {
         // T0b: activeが無いプロジェクトでplannedが複数同時にstart_date超過している場合、
         // 1回の呼び出しで複数同時にactiveにしてしまわず、最も早いstart_dateの1件のみactive化する。
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "actB").await;
         let project_id = test_support::create_test_project(&pool, "ACTB", user_id).await;
@@ -1574,9 +1619,7 @@ mod tests {
         // 別のテストの呼び出しが先にこのプロジェクトのサイクルを有効化すると、この呼び出しの
         // 戻り値は空になる。誰が有効化したかに依存しないよう、戻り値ではなく実行後の状態で検証する。
         assert!(
-            !activated
-                .iter()
-                .any(|(id, _, _)| *id == newer_id),
+            !activated.iter().any(|(id, _, _)| *id == newer_id),
             "start_dateが遅いサイクルはactive化されてはならない"
         );
 
@@ -1602,7 +1645,9 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_carry_over_target_with_planned() {
         // T1: planned あり → 先頭 planned へ持ち越し
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc").await;
         let project_id = test_support::create_test_project(&pool, "CYC", user_id).await;
@@ -1655,7 +1700,9 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_carry_over_target_create_next() {
         // T2: planned なし・create_next=true → 新 Cycle 作成
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc2").await;
         let project_id = test_support::create_test_project(&pool, "CY2", user_id).await;
@@ -1708,7 +1755,9 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_carry_over_target_no_create() {
         // T3: planned なし・create_next=false → CompleteWithoutCarry
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc3").await;
         let project_id = test_support::create_test_project(&pool, "CY3", user_id).await;
@@ -1751,7 +1800,9 @@ mod tests {
     #[tokio::test]
     async fn test_auto_complete_overdue_cycles_disabled() {
         // T4: auto_complete=false → 当該プロジェクトの期限超過は完了しない
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc4").await;
         let project_id = test_support::create_test_project(&pool, "CY4", user_id).await;
@@ -1795,7 +1846,9 @@ mod tests {
     #[tokio::test]
     async fn test_auto_complete_overdue_cycles_already_completed() {
         // T5: 既に completed → 当該 cycle はログに出ない
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc5").await;
         let project_id = test_support::create_test_project(&pool, "CY5", user_id).await;
@@ -1826,7 +1879,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_cycle_graph_position() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cgp").await;
         let project_id = test_support::create_test_project(&pool, "CGP", user_id).await;
@@ -1862,7 +1917,9 @@ mod tests {
     #[tokio::test]
     async fn test_update_cycle_keeps_team_id_when_explicit() {
         // PUT ハンドラが teamId 省略時に既存 team_id を埋めたあとの update_cycle 経路
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "put_team").await;
         let team_id = test_support::create_test_team(&pool, "PUTTEAM").await;
@@ -1900,14 +1957,19 @@ mod tests {
         .expect("update_cycle");
         assert!(ok);
 
-        let cycle = find_cycle_by_id(&pool, cycle_id).await.expect("find").expect("exists");
+        let cycle = find_cycle_by_id(&pool, cycle_id)
+            .await
+            .expect("find")
+            .expect("exists");
         assert_eq!(cycle.team.as_ref().map(|t| t.id), Some(team_id));
         assert_eq!(cycle.name, "PUT team preserve renamed");
     }
 
     #[tokio::test]
     async fn test_create_cycle_requires_team_or_project() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let _cycle_guard = test_support::CYCLE_GLOBAL_LOCK.lock().await;
         let user_id = test_support::create_test_user(&pool, "cyc_req").await;
         let today = chrono::Utc::now().date_naive();

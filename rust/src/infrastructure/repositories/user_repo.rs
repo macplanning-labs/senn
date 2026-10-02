@@ -1,16 +1,17 @@
+use crate::domain::models::user::{TotpDevice, User, WebAuthnCredential};
 /// infrastructure/repositories/user_repo.rs — ユーザー永続化
 ///
 /// Djangoの実スキーマ(accounts_user, mfa_totp_device, mfa_webauthn_credential)を
 /// そのままクエリする。idはDB上bigintだが、アプリ全体でi32を使っているため
 /// int4にキャストして取得する(このツールの想定ユーザー数ではi32で十分)。
-
 use sqlx::PgPool;
-use crate::domain::models::user::{User, TotpDevice, WebAuthnCredential};
 use webauthn_rs::prelude::Passkey;
 
-const USER_COLUMNS: &str = "id::int4 AS id, username, password AS password_hash, display_name, alias, email,
+/// `User` を組み立てる SELECT / RETURNING の列。`User` に列を足したら、ここだけを直す(他で列を並べない)
+pub(crate) const USER_COLUMNS: &str =
+    "id::int4 AS id, username, password AS password_hash, display_name, alias, email,
         first_name, last_name,
-        is_active, is_staff, must_change_password, email_notifications_enabled";
+        is_active, is_staff, is_system_admin, is_guest, must_change_password, email_notifications_enabled";
 
 pub async fn find_all(pool: &PgPool) -> anyhow::Result<Vec<User>> {
     let sql = format!(
@@ -54,13 +55,19 @@ pub async fn find_project_members(pool: &PgPool, project_id: i32) -> anyhow::Res
 
 pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<User>> {
     let sql = format!("SELECT {USER_COLUMNS} FROM accounts_user WHERE id=$1");
-    let row = sqlx::query_as::<_, User>(&sql).bind(id).fetch_optional(pool).await?;
+    let row = sqlx::query_as::<_, User>(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
     Ok(row)
 }
 
 pub async fn find_by_username(pool: &PgPool, username: &str) -> anyhow::Result<Option<User>> {
     let sql = format!("SELECT {USER_COLUMNS} FROM accounts_user WHERE username=$1");
-    let row = sqlx::query_as::<_, User>(&sql).bind(username).fetch_optional(pool).await?;
+    let row = sqlx::query_as::<_, User>(&sql)
+        .bind(username)
+        .fetch_optional(pool)
+        .await?;
     Ok(row)
 }
 
@@ -80,7 +87,10 @@ pub async fn find_active_by_email(pool: &PgPool, email: &str) -> anyhow::Result<
 }
 
 /// 表示名で有効ユーザーを検索する（完全一致、トリム後）。
-pub async fn find_active_by_display_name(pool: &PgPool, display_name: &str) -> anyhow::Result<Vec<User>> {
+pub async fn find_active_by_display_name(
+    pool: &PgPool,
+    display_name: &str,
+) -> anyhow::Result<Vec<User>> {
     let trimmed = display_name.trim();
     let sql = format!(
         "SELECT {USER_COLUMNS} FROM accounts_user
@@ -96,14 +106,33 @@ pub async fn find_active_by_display_name(pool: &PgPool, display_name: &str) -> a
 
 pub async fn update_password(pool: &PgPool, id: i32, password_hash: &str) -> anyhow::Result<()> {
     sqlx::query("UPDATE accounts_user SET password=$2, must_change_password=false WHERE id=$1")
-        .bind(id).bind(password_hash).execute(pool).await?;
+        .bind(id)
+        .bind(password_hash)
+        .execute(pool)
+        .await?;
     Ok(())
+}
+
+/// ユーザーが有効か(存在しなければ None)。認証(jwt_auth)とリアルタイムの接続で共用する。
+///
+/// 同じ SQL を別の場所で書くと、片方が i32・片方が i64 で `id`(bigint)に渡すことがある。
+/// sqlx は接続ごとに SQL の文字列で準備済みの文を使い回すため、先に i64 で準備された文に
+/// i32(4 バイト)を渡すと「insufficient data left in message」で失敗する(DEMO-000164)。
+/// ここだけで、列の型(bigint)に合わせて i64 で渡す。
+pub async fn is_active(pool: &PgPool, id: i32) -> Result<Option<bool>, sqlx::Error> {
+    sqlx::query_scalar("SELECT is_active FROM accounts_user WHERE id = $1")
+        .bind(i64::from(id))
+        .fetch_optional(pool)
+        .await
 }
 
 /// ユーザーの有効/無効を切り替える(Django Admin代替、is_staffのみ呼び出し可能)。
 pub async fn set_active(pool: &PgPool, id: i32, is_active: bool) -> anyhow::Result<()> {
     sqlx::query("UPDATE accounts_user SET is_active=$2 WHERE id=$1")
-        .bind(id).bind(is_active).execute(pool).await?;
+        .bind(id)
+        .bind(is_active)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -173,7 +202,11 @@ pub async fn update_username(pool: &PgPool, id: i32, username: &str) -> anyhow::
 }
 
 /// メール通知マスターON/OFFを更新する。
-pub async fn update_email_notifications_enabled(pool: &PgPool, id: i32, enabled: bool) -> anyhow::Result<User> {
+pub async fn update_email_notifications_enabled(
+    pool: &PgPool,
+    id: i32,
+    enabled: bool,
+) -> anyhow::Result<User> {
     let sql = format!(
         "UPDATE accounts_user SET email_notifications_enabled=$2 WHERE id=$1
          RETURNING {USER_COLUMNS}"
@@ -217,11 +250,15 @@ pub async fn create_user(
 
 // --- TOTP ---
 
-const TOTP_COLUMNS: &str = "id::int4 AS id, user_id::int4 AS user_id, secret, confirmed, created_at";
+const TOTP_COLUMNS: &str =
+    "id::int4 AS id, user_id::int4 AS user_id, secret, confirmed, created_at";
 
 pub async fn find_totp(pool: &PgPool, user_id: i32) -> anyhow::Result<Option<TotpDevice>> {
     let sql = format!("SELECT {TOTP_COLUMNS} FROM mfa_totp_device WHERE user_id=$1");
-    let row = sqlx::query_as::<_, TotpDevice>(&sql).bind(user_id).fetch_optional(pool).await?;
+    let row = sqlx::query_as::<_, TotpDevice>(&sql)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
     Ok(row)
 }
 
@@ -235,13 +272,17 @@ pub async fn save_totp(pool: &PgPool, user_id: i32, secret: &str) -> anyhow::Res
 
 pub async fn confirm_totp(pool: &PgPool, user_id: i32) -> anyhow::Result<()> {
     sqlx::query("UPDATE mfa_totp_device SET confirmed=true WHERE user_id=$1")
-        .bind(user_id).execute(pool).await?;
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 pub async fn delete_totp(pool: &PgPool, user_id: i32) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM mfa_totp_device WHERE user_id=$1")
-        .bind(user_id).execute(pool).await?;
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -250,17 +291,26 @@ pub async fn delete_totp(pool: &PgPool, user_id: i32) -> anyhow::Result<()> {
 const WEBAUTHN_COLUMNS: &str =
     "id::int4 AS id, user_id::int4 AS user_id, credential_id, public_key, sign_count, name, created_at";
 
-pub async fn find_webauthn_credentials(pool: &PgPool, user_id: i32) -> anyhow::Result<Vec<WebAuthnCredential>> {
+pub async fn find_webauthn_credentials(
+    pool: &PgPool,
+    user_id: i32,
+) -> anyhow::Result<Vec<WebAuthnCredential>> {
     let sql = format!(
         "SELECT {WEBAUTHN_COLUMNS} FROM mfa_webauthn_credential WHERE user_id=$1 ORDER BY created_at"
     );
-    let rows = sqlx::query_as::<_, WebAuthnCredential>(&sql).bind(user_id).fetch_all(pool).await?;
+    let rows = sqlx::query_as::<_, WebAuthnCredential>(&sql)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
 pub async fn save_webauthn_credential(
-    pool: &PgPool, user_id: i32, credential_id: &[u8],
-    public_key: &[u8], name: &str,
+    pool: &PgPool,
+    user_id: i32,
+    credential_id: &[u8],
+    public_key: &[u8],
+    name: &str,
 ) -> anyhow::Result<()> {
     // sign_countはNOT NULL制約があるため、初期値0を明示的に指定する必要がある
     // (省略するとDB側の"null value in column sign_count"エラーで保存自体が失敗する)。
@@ -273,8 +323,12 @@ pub async fn save_webauthn_credential(
 }
 
 pub async fn save_webauthn_credential_with_json(
-    pool: &PgPool, user_id: i32, credential_id: &[u8],
-    public_key: &[u8], passkey_json: &str, name: &str,
+    pool: &PgPool,
+    user_id: i32,
+    credential_id: &[u8],
+    public_key: &[u8],
+    passkey_json: &str,
+    name: &str,
 ) -> anyhow::Result<()> {
     // sign_countはNOT NULL制約があるため、初期値0を明示的に指定する必要がある
     // (省略するとDB側の"null value in column sign_count"エラーで保存自体が失敗する)。
@@ -288,13 +342,17 @@ pub async fn save_webauthn_credential_with_json(
 
 pub async fn delete_webauthn_credential(pool: &PgPool, id: i32) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM mfa_webauthn_credential WHERE id=$1")
-        .bind(id).execute(pool).await?;
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 /// 外部API(X-API-Key認証)用: 最初に見つかったstaffユーザーを返す(フォールバック用)。
 pub async fn find_first_staff_user(pool: &PgPool) -> anyhow::Result<Option<User>> {
-    let sql = format!("SELECT {USER_COLUMNS} FROM accounts_user WHERE is_staff = true ORDER BY id LIMIT 1");
+    let sql = format!(
+        "SELECT {USER_COLUMNS} FROM accounts_user WHERE is_staff = true ORDER BY id LIMIT 1"
+    );
     let user = sqlx::query_as::<_, User>(&sql).fetch_optional(pool).await?;
     Ok(user)
 }
@@ -307,16 +365,24 @@ pub async fn find_passkeys_by_user(pool: &PgPool, user_id: i32) -> anyhow::Resul
         "SELECT passkey_json FROM mfa_webauthn_credential WHERE user_id = $1 AND passkey_json IS NOT NULL"
     ).bind(user_id).fetch_all(pool).await?;
 
-    Ok(rows.into_iter()
+    Ok(rows
+        .into_iter()
         .filter_map(|(json,)| serde_json::from_str(&json).ok())
         .collect())
 }
 
 /// 認証(ログイン)成功後、リプレイ攻撃防止のためsign_countを反映した
 /// passkey_jsonで更新する(credential_idで対象行を特定)。
-pub async fn update_webauthn_passkey_json(pool: &PgPool, credential_id: &[u8], passkey_json: &str) -> anyhow::Result<()> {
+pub async fn update_webauthn_passkey_json(
+    pool: &PgPool,
+    credential_id: &[u8],
+    passkey_json: &str,
+) -> anyhow::Result<()> {
     sqlx::query("UPDATE mfa_webauthn_credential SET passkey_json = $2 WHERE credential_id = $1")
-        .bind(credential_id).bind(passkey_json).execute(pool).await?;
+        .bind(credential_id)
+        .bind(passkey_json)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -324,6 +390,30 @@ pub async fn update_webauthn_passkey_json(pool: &PgPool, credential_id: &[u8], p
 mod tests {
     use super::*;
     use crate::test_support::{create_test_user, test_pool, unique_suffix};
+
+    /// DEMO-000164: 認証とリアルタイムが、同じ接続で続けて有効性を確かめても失敗しないこと。
+    /// 以前は、認証が i64・リアルタイムが i32 で同じ SQL を実行しており、同じ接続で
+    /// 準備済みの文が使い回されると「insufficient data left in message」になった。
+    #[tokio::test]
+    async fn is_active_works_when_prepared_statement_is_reused() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let user = create_test_user(&pool, &format!("act{}", unique_suffix())).await;
+        // 接続を 1 本に絞り、準備済みの文が必ず使い回される状態にする
+        let url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap();
+        let one = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            assert_eq!(super::is_active(&one, user).await.unwrap(), Some(true));
+        }
+        assert_eq!(super::is_active(&one, i32::MAX).await.unwrap(), None);
+    }
 
     #[tokio::test]
     async fn find_active_by_display_name_returns_single_match() {

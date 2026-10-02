@@ -1,10 +1,9 @@
+use argon2::password_hash::rand_core::OsRng;
+use argon2::password_hash::SaltString;
 /// domain/services/auth_service.rs — 認証ビジネスロジック
 ///
 /// パスワード検証（Argon2）、TOTP 検証、Django パスワードハッシュ移行。
-
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::SaltString;
 use sqlx::PgPool;
 
 use crate::infrastructure::repositories::user_repo;
@@ -42,7 +41,10 @@ pub async fn verify_password(
             // Argon2 に再ハッシュして更新
             let new_hash = hash_password(password)?;
             user_repo::update_password(pool, user_id, &new_hash).await?;
-            tracing::info!("🔄 ユーザー {} のパスワードを Argon2 に移行しました", user_id);
+            tracing::info!(
+                "🔄 ユーザー {} のパスワードを Argon2 に移行しました",
+                user_id
+            );
         }
         return Ok(valid);
     }
@@ -53,8 +55,8 @@ pub async fn verify_password(
     // (2026-08-14以降の新規ハッシュはプレフィックスなしで保存されるため、
     // その場合はunwrap_or(stored_hash)でそのまま使われる)。
     let phc_str = stored_hash.strip_prefix("argon2").unwrap_or(stored_hash);
-    let parsed_hash = PasswordHash::new(phc_str)
-        .map_err(|e| anyhow::anyhow!("ハッシュ解析エラー: {}", e))?;
+    let parsed_hash =
+        PasswordHash::new(phc_str).map_err(|e| anyhow::anyhow!("ハッシュ解析エラー: {}", e))?;
     let result = Argon2::default().verify_password(password.as_bytes(), &parsed_hash);
     Ok(result.is_ok())
 }
@@ -68,7 +70,8 @@ fn verify_django_pbkdf2(password: &str, stored: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
 
-    let iterations: u32 = parts[1].parse()
+    let iterations: u32 = parts[1]
+        .parse()
         .map_err(|_| anyhow::anyhow!("PBKDF2 iterations parse error"))?;
     let salt = parts[2];
     let expected_hash = parts[3];
@@ -86,10 +89,8 @@ fn verify_django_pbkdf2(password: &str, stored: &str) -> anyhow::Result<bool> {
     )
     .map_err(|e| anyhow::anyhow!("PBKDF2 error: {}", e))?;
 
-    let computed_hash = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &derived_key,
-    );
+    let computed_hash =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &derived_key);
 
     Ok(computed_hash == expected_hash)
 }
@@ -102,9 +103,10 @@ fn verify_django_pbkdf2(password: &str, stored: &str) -> anyhow::Result<bool> {
 /// 扱ってしまいBase32デコードされず、pyotp側と異なる鍵で検証することになり必ず失敗する
 /// ため、Secret::Encodedで正しくBase32デコードする。
 pub fn verify_totp(secret: &str, code: &str) -> anyhow::Result<bool> {
-    use totp_rs::{Algorithm, TOTP, Secret};
+    use totp_rs::{Algorithm, Secret, TOTP};
 
-    let secret_bytes = Secret::Encoded(secret.to_string()).to_bytes()
+    let secret_bytes = Secret::Encoded(secret.to_string())
+        .to_bytes()
         .map_err(|e| anyhow::anyhow!("TOTP secret error: {}", e))?;
 
     let totp = TOTP::new(
@@ -115,14 +117,15 @@ pub fn verify_totp(secret: &str, code: &str) -> anyhow::Result<bool> {
         secret_bytes,
         Some("WIP".to_string()),
         String::new(),
-    ).map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
+    )
+    .map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
 
     Ok(totp.check_current(code).unwrap_or(false))
 }
 
 /// TOTP セットアップ（QR コード URL 生成）
 pub fn generate_totp_setup(username: &str) -> anyhow::Result<(String, String)> {
-    use totp_rs::{Algorithm, TOTP, Secret};
+    use totp_rs::{Algorithm, Secret, TOTP};
 
     // ランダムシークレット生成
     let mut secret_bytes = vec![0u8; 20];
@@ -140,7 +143,8 @@ pub fn generate_totp_setup(username: &str) -> anyhow::Result<(String, String)> {
         secret_bytes,
         Some("WIP".to_string()),
         username.to_string(),
-    ).map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
+    )
+    .map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
 
     let uri = totp.get_url();
 

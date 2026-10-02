@@ -35,6 +35,7 @@ export function ProjectTeamsSection({ projectId }: Props) {
   }
 
   const { canManage, teams, addableTeams } = data;
+  const hiddenTeamCount = data.hiddenTeamCount ?? 0;
 
   return (
     <section className="project-teams" data-testid="project-teams">
@@ -100,6 +101,11 @@ export function ProjectTeamsSection({ projectId }: Props) {
           </li>
         ))}
       </ul>
+      {hiddenTeamCount > 0 && (
+        <p className="project-teams__hint" data-testid="project-teams-hidden">
+          🔒 {t('projectTeams.hiddenTeams', { count: hiddenTeamCount })}
+        </p>
+      )}
 
       {canManage ? (
         <div className="project-teams__add" data-testid="project-teams-add">

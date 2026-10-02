@@ -1,90 +1,37 @@
 /// infrastructure/repositories/time_entry_repo.rs — Time Entry 永続化
 ///
 /// t_time_entry テーブルの CRUD 操作。
-
 use sqlx::{PgPool, Row};
 
-use crate::domain::models::time_entry_api::*;
 use crate::domain::models::ticket_api::UserSummaryOut;
+use crate::domain::models::time_entry_api::*;
 
 pub async fn find_all_time_entries(
     pool: &PgPool,
     page: i64,
     ticket: Option<i32>,
     user: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<Vec<TimeEntryOut>> {
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
 
-    let rows = if ticket.is_some() && user.is_some() {
-        sqlx::query(
-            "SELECT
-                t.id::int4, t.ticket_id::int4, t.description, t.start_time, t.end_time,
-                t.duration_minutes, t.created_at,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM t_time_entry t
-             JOIN accounts_user u ON t.user_id = u.id
-             WHERE t.ticket_id = $1 AND t.user_id = $2
-             ORDER BY t.created_at DESC
-             LIMIT $3 OFFSET $4"
-        )
-        .bind(ticket.unwrap() as i64)
-        .bind(user.unwrap() as i64)
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if let Some(ticket_id) = ticket {
-        sqlx::query(
-            "SELECT
-                t.id::int4, t.ticket_id::int4, t.description, t.start_time, t.end_time,
-                t.duration_minutes, t.created_at,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM t_time_entry t
-             JOIN accounts_user u ON t.user_id = u.id
-             WHERE t.ticket_id = $1
-             ORDER BY t.created_at DESC
-             LIMIT $2 OFFSET $3"
-        )
-        .bind(ticket_id as i64)
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if let Some(user_id) = user {
-        sqlx::query(
-            "SELECT
-                t.id::int4, t.ticket_id::int4, t.description, t.start_time, t.end_time,
-                t.duration_minutes, t.created_at,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM t_time_entry t
-             JOIN accounts_user u ON t.user_id = u.id
-             WHERE t.user_id = $1
-             ORDER BY t.created_at DESC
-             LIMIT $2 OFFSET $3"
-        )
-        .bind(user_id as i64)
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query(
-            "SELECT
-                t.id::int4, t.ticket_id::int4, t.description, t.start_time, t.end_time,
-                t.duration_minutes, t.created_at,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM t_time_entry t
-             JOIN accounts_user u ON t.user_id = u.id
-             ORDER BY t.created_at DESC
-             LIMIT $1 OFFSET $2"
-        )
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    };
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT
+            t.id::int4, t.ticket_id::int4, t.description, t.start_time, t.end_time,
+            t.duration_minutes, t.created_at,
+            u.id::int4 as user_id, u.username, u.email, u.display_name
+         FROM t_time_entry t
+         JOIN accounts_user u ON t.user_id = u.id
+         WHERE ",
+    );
+    push_list_filters(&mut qb, ticket, user, scope);
+    qb.push(" ORDER BY t.created_at DESC LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
+    let rows = qb.build().fetch_all(pool).await?;
 
     let entries = rows
         .into_iter()
@@ -108,42 +55,41 @@ pub async fn find_all_time_entries(
     Ok(entries)
 }
 
+/// 一覧・件数で共通の WHERE 句(時間記録の別名 `t`)。`scope` があれば、親のチケットが見える物だけ
+/// (アクセス制御の再設計 D-5。`on` のときだけ渡される)
+fn push_list_filters(
+    qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    ticket: Option<i32>,
+    user: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
+) {
+    qb.push("TRUE");
+    if let Some(ticket) = ticket {
+        qb.push(" AND t.ticket_id = ").push_bind(ticket as i64);
+    }
+    if let Some(user) = user {
+        qb.push(" AND t.user_id = ").push_bind(user as i64);
+    }
+    if let Some(scope) = scope {
+        qb.push(" AND EXISTS (SELECT 1 FROM tickets_ticket tk WHERE tk.id = t.ticket_id AND ");
+        crate::infrastructure::access::scope_sql::push_ticket_visible(qb, "tk", scope);
+        qb.push(")");
+    }
+}
+
 pub async fn count_time_entries(
     pool: &PgPool,
     ticket: Option<i32>,
     user: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<i64> {
-    let count: i64 = if ticket.is_some() && user.is_some() {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = $1 AND user_id = $2"
-        )
-        .bind(ticket.unwrap() as i64)
-        .bind(user.unwrap() as i64)
-        .fetch_one(pool)
-        .await?
-    } else if let Some(ticket_id) = ticket {
-        sqlx::query_scalar("SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = $1")
-            .bind(ticket_id as i64)
-            .fetch_one(pool)
-            .await?
-    } else if let Some(user_id) = user {
-        sqlx::query_scalar("SELECT COUNT(*) FROM t_time_entry WHERE user_id = $1")
-            .bind(user_id as i64)
-            .fetch_one(pool)
-            .await?
-    } else {
-        sqlx::query_scalar("SELECT COUNT(*) FROM t_time_entry")
-            .fetch_one(pool)
-            .await?
-    };
-
+    let mut qb = sqlx::QueryBuilder::new("SELECT COUNT(*) FROM t_time_entry t WHERE ");
+    push_list_filters(&mut qb, ticket, user, scope);
+    let count: i64 = qb.build_query_scalar().fetch_one(pool).await?;
     Ok(count)
 }
 
-pub async fn find_time_entry_by_id(
-    pool: &PgPool,
-    id: i32,
-) -> anyhow::Result<Option<TimeEntryOut>> {
+pub async fn find_time_entry_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<TimeEntryOut>> {
     let row_opt = sqlx::query(
         "SELECT
             t.id::int4, t.ticket_id::int4, t.description, t.start_time, t.end_time,
@@ -151,7 +97,7 @@ pub async fn find_time_entry_by_id(
             u.id::int4 as user_id, u.username, u.email, u.display_name
          FROM t_time_entry t
          JOIN accounts_user u ON t.user_id = u.id
-         WHERE t.id = $1"
+         WHERE t.id = $1",
     )
     .bind(id as i64)
     .fetch_optional(pool)
@@ -221,7 +167,7 @@ pub async fn get_today_time_entries(
             COALESCE(SUM(duration_minutes), 0)::int4 as total_minutes,
             COUNT(*)::int4 as entry_count
          FROM t_time_entry
-         WHERE user_id = $1 AND DATE(created_at) = CURRENT_DATE"
+         WHERE user_id = $1 AND DATE(created_at) = CURRENT_DATE",
     )
     .bind(user_id as i64)
     .fetch_one(pool)

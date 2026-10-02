@@ -3,7 +3,6 @@
 /// projects/categories/milestones/labels の4リソース。
 /// Category/Milestone/Label/TeamSummaryはticket_api.rsで定義済みの型と
 /// フィールド構成が完全に一致するため、そちらを再利用する(重複定義しない)。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +43,9 @@ pub struct ProjectOut {
     #[serde(rename = "isMember")]
     pub is_member: bool,
     pub teams: Vec<ProjectTeamOut>,
+    /// 参加チームのうち、閲覧者に見えないため `teams` から除いた数(アクセス制御の再設計 §8)
+    #[serde(rename = "hiddenTeamCount")]
+    pub hidden_team_count: i64,
     #[serde(rename = "ownerId")]
     pub owner_id: Option<i32>,
     #[serde(rename = "createdAt")]
@@ -59,7 +61,10 @@ pub struct ProjectOut {
     #[serde(rename = "roadmapIds")]
     pub roadmap_ids: Vec<i32>,
     #[serde(rename = "aiPromptTemplate")]
-    #[deprecated(since = "v2.0", note = "Use /api/v1/auth/me/ai-prompt-templates/ instead")]
+    #[deprecated(
+        since = "v2.0",
+        note = "Use /api/v1/auth/me/ai-prompt-templates/ instead"
+    )]
     pub ai_prompt_template: Option<String>,
 }
 
@@ -98,10 +103,21 @@ pub struct ProjectPatchIn {
     pub status: Option<String>,
     #[serde(default)]
     pub priority: Option<String>,
-    #[serde(default, rename = "parentProjectId", deserialize_with = "deserialize_present")]
+    #[serde(
+        default,
+        rename = "parentProjectId",
+        deserialize_with = "deserialize_present"
+    )]
     pub parent_project_id: Option<Option<i32>>,
-    #[serde(default, rename = "aiPromptTemplate", deserialize_with = "deserialize_present")]
-    #[deprecated(since = "v2.0", note = "Use /api/v1/auth/me/ai-prompt-templates/ instead")]
+    #[serde(
+        default,
+        rename = "aiPromptTemplate",
+        deserialize_with = "deserialize_present"
+    )]
+    #[deprecated(
+        since = "v2.0",
+        note = "Use /api/v1/auth/me/ai-prompt-templates/ instead"
+    )]
     pub ai_prompt_template: Option<Option<String>>,
 }
 

@@ -4,15 +4,18 @@
 
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { SystemMailSettings } from './SystemMailSettings';
 import { AdminAiSection } from './AdminAiSection';
 import { AdminBackupSection } from './AdminBackupSection';
+import { AdminAccessSection } from './AdminAccessSection';
 import './AdminPage.css';
 
-type AdminSection = 'system' | 'ai' | 'backup';
+type AdminSection = 'system' | 'ai' | 'access' | 'backup';
 
 export function AdminPage() {
+  const { t } = useTranslation();
   const { user, isLoading } = useAuthStore();
   const [section, setSection] = useState<AdminSection>('system');
 
@@ -24,47 +27,56 @@ export function AdminPage() {
     );
   }
 
-  if (!user?.isStaff) {
+  if (!user?.isSystemAdmin) {
     return <Navigate to="/my-issues" replace />;
   }
 
   return (
     <div className="admin" data-testid="admin-page">
       <header className="admin__header">
-        <h1 className="admin__title">🏢 システム管理</h1>
+        <h1 className="admin__title">🏢 {t('admin.pageTitle')}</h1>
         <p className="admin__subtitle">
-          インスタンス全体の設定（個人設定 /settings とは別 URL）
+          {t('admin.pageSubtitle')}
         </p>
       </header>
 
       <div className="admin__layout">
-        <nav className="admin__nav" aria-label="システム管理メニュー">
+        <nav className="admin__nav" aria-label={t('admin.navAriaLabel')}>
           <button
             type="button"
             className={`admin__nav-btn ${section === 'system' ? 'admin__nav-btn--active' : ''}`}
             onClick={() => setSection('system')}
           >
-            全体システム設定
+            {t('admin.systemSettingsTitle')}
           </button>
           <button
             type="button"
             className={`admin__nav-btn ${section === 'ai' ? 'admin__nav-btn--active' : ''}`}
             onClick={() => setSection('ai')}
           >
-            AI 設定
+            {t('admin.navAiSettings')}
+          </button>
+          <button
+            type="button"
+            className={`admin__nav-btn ${section === 'access' ? 'admin__nav-btn--active' : ''}`}
+            onClick={() => setSection('access')}
+            data-testid="admin-nav-access"
+          >
+            {t('teamAccess.adminSection')}
           </button>
           <button
             type="button"
             className={`admin__nav-btn ${section === 'backup' ? 'admin__nav-btn--active' : ''}`}
             onClick={() => setSection('backup')}
           >
-            バックアップ
+            {t('admin.backupTitle')}
           </button>
         </nav>
 
         <div className="admin__content">
           {section === 'system' && <SystemMailSettings />}
           {section === 'ai' && <AdminAiSection />}
+          {section === 'access' && <AdminAccessSection />}
           {section === 'backup' && <AdminBackupSection />}
         </div>
       </div>

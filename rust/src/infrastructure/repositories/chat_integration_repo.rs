@@ -1,7 +1,6 @@
 /// infrastructure/repositories/chat_integration_repo.rs — チャット通知連携永続化
 ///
 /// t_chat_integration の CRUD + イベント発火時の送信先解決。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::chat_integration_api::*;
@@ -53,7 +52,9 @@ fn validate_provider_fields(
     }
     match provider {
         "chatwork" => {
-            if api_token.as_deref().unwrap_or("").is_empty() || room_id.as_deref().unwrap_or("").is_empty() {
+            if api_token.as_deref().unwrap_or("").is_empty()
+                || room_id.as_deref().unwrap_or("").is_empty()
+            {
                 anyhow::bail!("chatwork requires api_token and room_id");
             }
         }
@@ -91,11 +92,20 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<ChatInt
     Ok(row.map(|r| row_to_integration(&r)))
 }
 
-pub async fn create(pool: &PgPool, input: &ChatIntegrationWriteIn, created_by: i32) -> anyhow::Result<i32> {
+pub async fn create(
+    pool: &PgPool,
+    input: &ChatIntegrationWriteIn,
+    created_by: i32,
+) -> anyhow::Result<i32> {
     if !scope_ok(input.project, input.team) {
         anyhow::bail!("exactly one of project or team is required");
     }
-    validate_provider_fields(&input.provider, &input.webhook_url, &input.api_token, &input.room_id)?;
+    validate_provider_fields(
+        &input.provider,
+        &input.webhook_url,
+        &input.api_token,
+        &input.room_id,
+    )?;
 
     let id: i32 = sqlx::query_scalar(
         "INSERT INTO t_chat_integration
@@ -117,23 +127,50 @@ pub async fn create(pool: &PgPool, input: &ChatIntegrationWriteIn, created_by: i
     Ok(id)
 }
 
-pub async fn update(pool: &PgPool, id: i32, input: &ChatIntegrationUpdateIn) -> anyhow::Result<bool> {
+pub async fn update(
+    pool: &PgPool,
+    id: i32,
+    input: &ChatIntegrationUpdateIn,
+) -> anyhow::Result<bool> {
     let existing = match find_by_id(pool, id).await? {
         Some(e) => e,
         None => return Ok(false),
     };
 
-    let project = if input.project.is_some() || input.team.is_some() { input.project } else { existing.project };
-    let team = if input.project.is_some() || input.team.is_some() { input.team } else { existing.team };
+    let project = if input.project.is_some() || input.team.is_some() {
+        input.project
+    } else {
+        existing.project
+    };
+    let team = if input.project.is_some() || input.team.is_some() {
+        input.team
+    } else {
+        existing.team
+    };
     if !scope_ok(project, team) {
         anyhow::bail!("exactly one of project or team is required");
     }
 
     let provider = input.provider.clone().unwrap_or(existing.provider);
-    let webhook_url = if input.webhook_url.is_some() { input.webhook_url.clone() } else { existing.webhook_url };
-    let api_token = if input.api_token.is_some() { input.api_token.clone() } else { existing.api_token };
-    let room_id = if input.room_id.is_some() { input.room_id.clone() } else { existing.room_id };
-    let enabled_categories = input.enabled_categories.clone().unwrap_or(existing.enabled_categories);
+    let webhook_url = if input.webhook_url.is_some() {
+        input.webhook_url.clone()
+    } else {
+        existing.webhook_url
+    };
+    let api_token = if input.api_token.is_some() {
+        input.api_token.clone()
+    } else {
+        existing.api_token
+    };
+    let room_id = if input.room_id.is_some() {
+        input.room_id.clone()
+    } else {
+        existing.room_id
+    };
+    let enabled_categories = input
+        .enabled_categories
+        .clone()
+        .unwrap_or(existing.enabled_categories);
     let is_active = input.is_active.unwrap_or(existing.is_active);
 
     validate_provider_fields(&provider, &webhook_url, &api_token, &room_id)?;
@@ -142,7 +179,7 @@ pub async fn update(pool: &PgPool, id: i32, input: &ChatIntegrationUpdateIn) -> 
         "UPDATE t_chat_integration
          SET project_id = $1, team_id = $2, provider = $3, webhook_url = $4,
              api_token = $5, room_id = $6, enabled_categories = $7, is_active = $8
-         WHERE id = $9"
+         WHERE id = $9",
     )
     .bind(project)
     .bind(team)
@@ -184,7 +221,11 @@ pub async fn find_active_for_ticket_category(
            AND EXISTS (
                SELECT 1 FROM tickets_ticket t
                WHERE t.id = $2
-                 AND ((ci.project_id IS NOT NULL AND ci.project_id = t.project_id)
+                 AND ((ci.project_id IS NOT NULL AND ci.project_id = t.project_id
+                        -- Private チームのチケットは、プロジェクトの連携(Public のチャンネルのことがある)に送らない。
+                        -- そのチームの連携にだけ送る(アクセス制御の再設計 C-6)
+                        AND (t.team_id IS NULL OR EXISTS (
+                            SELECT 1 FROM m_team mt WHERE mt.id = t.team_id AND mt.visibility = 'public')))
                       OR (ci.team_id IS NOT NULL AND ci.team_id = t.team_id))
            )
          ORDER BY ci.created_at ASC"
@@ -195,4 +236,62 @@ pub async fn find_active_for_ticket_category(
         .fetch_all(pool)
         .await?;
     Ok(rows.iter().map(row_to_integration).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{
+        create_test_project, create_test_ticket, create_test_user, test_pool,
+    };
+
+    async fn integration(pool: &PgPool, project: Option<i32>, team: Option<i32>) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO t_chat_integration (project_id, team_id, provider, webhook_url, enabled_categories)
+             VALUES ($1::int4, $2::int4, 'slack', 'https://example.invalid/hook', '{assigned}') RETURNING id",
+        )
+        .bind(project)
+        .bind(team)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    /// Private チームのチケットは、そのチームの連携だけに送る(プロジェクトの連携には送らない)
+    #[tokio::test]
+    async fn private_team_tickets_go_only_to_team_integrations() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let author = create_test_user(&pool, "chi-a").await;
+        let project = create_test_project(&pool, "CHI", author).await;
+        let ticket = create_test_ticket(&pool, project, "CHI", author).await;
+        let team: i32 = sqlx::query_scalar(
+            "SELECT tt.team_id::int4 FROM tickets_ticket tt WHERE tt.id = $1::int8",
+        )
+        .bind(ticket as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let by_project = integration(&pool, Some(project), None).await;
+        let by_team = integration(&pool, None, Some(team)).await;
+
+        let ids =
+            |v: Vec<ChatIntegrationOut>| v.into_iter().map(|i| i.id as i64).collect::<Vec<_>>();
+        // Public: 両方に送る(今の動作)
+        let got = ids(find_active_for_ticket_category(&pool, ticket, "assigned")
+            .await
+            .unwrap());
+        assert_eq!(got, vec![by_project, by_team]);
+        // Private: チームの連携だけ
+        sqlx::query("UPDATE m_team SET visibility = 'private' WHERE id = $1::int8")
+            .bind(team as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let got = ids(find_active_for_ticket_category(&pool, ticket, "assigned")
+            .await
+            .unwrap());
+        assert_eq!(got, vec![by_team]);
+    }
 }

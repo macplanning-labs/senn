@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../shared/api/client';
 import './ChangeLogTimeline.css';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 interface ChangeLog {
   id: number;
@@ -43,19 +44,19 @@ const FIELD_ICONS: Record<string, string> = {
   'Due Date': '⏰',
 };
 
-function formatRelativeTime(dateStr: string, locale: string): string {
+function formatRelativeTime(dateStr: string): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
   const diffHour = Math.floor(diffMs / 3600000);
   const diffDay = Math.floor(diffMs / 86400000);
-  const isJa = locale.startsWith('ja');
 
-  if (diffMin < 1) return isJa ? 'たった今' : 'just now';
-  if (diffMin < 60) return isJa ? `${diffMin}分前` : `${diffMin}m ago`;
-  if (diffHour < 24) return isJa ? `${diffHour}時間前` : `${diffHour}h ago`;
-  if (diffDay < 7) return isJa ? `${diffDay}日前` : `${diffDay}d ago`;
+  if (diffMin < 1) return i18n.t('common.justNow');
+  if (diffMin < 60) return i18n.t('common.minutesAgo', { n: diffMin });
+  if (diffHour < 24) return i18n.t('common.hoursAgo', { n: diffHour });
+  if (diffDay < 7) return i18n.t('common.daysAgo', { n: diffDay });
+  const isJa = i18n.language.startsWith('ja');
   return date.toLocaleDateString(isJa ? 'ja-JP' : undefined, { month: 'short', day: 'numeric' });
 }
 
@@ -65,7 +66,7 @@ function truncateValue(value: string, maxLen = 40, emptyLabel = '—'): string {
 }
 
 export default function ChangeLogTimeline({ ticketId, createdAt, createdByName }: ChangeLogTimelineProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { data: logs, isLoading } = useQuery<ChangeLog[]>({
     queryKey: ['tickets', ticketId, 'change-logs'],
     queryFn: async () => {
@@ -113,7 +114,7 @@ export default function ChangeLogTimeline({ ticketId, createdAt, createdByName }
                   {t('changelog.createdIssue')}
                 </span>
                 <span className="changelog-timeline__time">
-                  {formatRelativeTime(createdAt!, i18n.language)}
+                  {formatRelativeTime(createdAt!)}
                 </span>
               </div>
             </div>
@@ -134,7 +135,7 @@ export default function ChangeLogTimeline({ ticketId, createdAt, createdByName }
                   {t('changelog.changedField', { field: log.fieldName })}
                 </span>
                 <span className="changelog-timeline__time">
-                  {formatRelativeTime(log.changedAt, i18n.language)}
+                  {formatRelativeTime(log.changedAt)}
                 </span>
               </div>
               <div className="changelog-timeline__diff">

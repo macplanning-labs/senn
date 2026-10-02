@@ -1,5 +1,4 @@
 /// domain/models/comment.rs — コメントモデル
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

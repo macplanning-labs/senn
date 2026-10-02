@@ -6,6 +6,7 @@ import { apiClient } from '@/shared/api/client';
 import { useOptimisticMutation } from '@/shared/hooks/useOptimisticMutation';
 import type { Cycle, VelocityData, CycleProgress, BurndownPoint } from '@/shared/api/types';
 import { applyCycleOptimisticPatch } from '../utils/cycleHelpers';
+import i18n from '@/i18n';
 
 /** サイクル一覧を取得（project/team両対応） */
 export function useCycles(projectId: number | undefined, teamId: number | undefined = undefined) {
@@ -142,7 +143,7 @@ export function useUpdateCycle(projectId: number | undefined) {
         },
       },
     ],
-    errorMessage: 'サイクルの更新に失敗しました。元に戻しました。',
+    errorMessage: i18n.t('cycle.updateFailedReverted'),
   });
 }
 
@@ -183,7 +184,7 @@ export function useCompleteCycle(projectId: number | undefined, teamId: number |
       },
     ],
     invalidateKeys: projectId ? [['velocity', projectId]] : [],
-    errorMessage: 'サイクルの完了に失敗しました。元に戻しました。',
+    errorMessage: i18n.t('cycle.completeFailedReverted'),
   });
 }
 

@@ -8,8 +8,10 @@
  * チケット詳細パネルに組み込む。
  */
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useCreateTimeEntry, useTimeEntries, useDeleteTimeEntry } from '../hooks/useTimeEntries';
 import type { TimeEntry } from '@/shared/api/types';
+import { userLabel } from '@/shared/utils/userLabel';
 import './TimeTracker.css';
 
 function formatDuration(minutes: number): string {
@@ -227,6 +229,7 @@ function TimeEntryRow({
   entry: TimeEntry;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   const date = new Date(entry.createdAt).toLocaleDateString('ja-JP', {
     month: 'short',
     day: 'numeric',
@@ -235,7 +238,7 @@ function TimeEntryRow({
   return (
     <div className="time-entry-row">
       <span className="time-entry-row__user">
-        {entry.user.firstName || entry.user.username}
+        {userLabel(entry.user)}
       </span>
       <span className="time-entry-row__duration">
         {formatDuration(entry.durationMinutes)}
@@ -247,7 +250,7 @@ function TimeEntryRow({
       <button
         className="time-entry-row__delete"
         onClick={onDelete}
-        title="削除"
+        title={t('common.delete')}
       >
         ×
       </button>

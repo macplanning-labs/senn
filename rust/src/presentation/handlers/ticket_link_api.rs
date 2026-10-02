@@ -3,19 +3,18 @@
 /// GET    /api/v1/tickets/{ticket_key}/links/     → 一覧
 /// POST   /api/v1/tickets/{ticket_key}/links/     → 追加
 /// DELETE /api/v1/tickets/{ticket_key}/links/{link_id}/ → 削除
-
 use axum::{
-    extract::{State, Path},
-    response::{IntoResponse, Response},
+    extract::{Path, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
-    Extension,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::presentation::state::AppState;
+use crate::domain::access::Viewer;
+use crate::infrastructure::repositories::{ticket_link_repo, ticket_repo};
 use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{ticket_repo, ticket_link_repo};
+use crate::presentation::state::AppState;
 
 #[derive(Debug, Serialize)]
 pub struct TicketLinkOut {
@@ -52,7 +51,10 @@ fn to_out(l: crate::domain::models::ticket_link::TicketLink) -> TicketLinkOut {
         id: l.id,
         url: l.url,
         title: l.title,
-        created_by: CreatedByInfo { id: l.created_by_id, display_name: l.created_by_name.unwrap_or_default() },
+        created_by: CreatedByInfo {
+            id: l.created_by_id,
+            display_name: l.created_by_name.unwrap_or_default(),
+        },
         created_at: l.created_at.to_rfc3339(),
     }
 }
@@ -60,23 +62,59 @@ fn to_out(l: crate::domain::models::ticket_link::TicketLink) -> TicketLinkOut {
 /// GET /api/v1/tickets/{ticket_key}/links/
 pub async fn list_links(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> Response {
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
         }
     };
 
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/links/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     match ticket_link_repo::find_by_ticket(&state.pool, ticket_id).await {
-        Ok(links) => (StatusCode::OK, Json(links.into_iter().map(to_out).collect::<Vec<_>>())).into_response(),
+        Ok(links) => (
+            StatusCode::OK,
+            Json(links.into_iter().map(to_out).collect::<Vec<_>>()),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -84,31 +122,89 @@ pub async fn list_links(
 /// POST /api/v1/tickets/{ticket_key}/links/
 pub async fn add_link(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     Json(body): Json<TicketLinkCreateIn>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     if body.url.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(ErrorResponse { detail: "url は必須です".to_string() })).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                detail: "url は必須です".to_string(),
+            }),
+        )
+            .into_response();
     }
 
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
         }
     };
 
-    match ticket_link_repo::create(&state.pool, ticket_id, &body.url, body.title.as_deref(), auth.user_id).await {
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "POST /api/v1/tickets/{ticket_key}/links/",
+    )
+    .await
+    {
+        return resp;
+    }
+
+    match ticket_link_repo::create(
+        &state.pool,
+        ticket_id,
+        &body.url,
+        body.title.as_deref(),
+        auth.user_id,
+    )
+    .await
+    {
         Ok(id) => match ticket_link_repo::find_by_id(&state.pool, id).await {
             Ok(Some(l)) => (StatusCode::CREATED, Json(to_out(l))).into_response(),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response(),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response(),
         },
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -116,24 +212,62 @@ pub async fn add_link(
 /// DELETE /api/v1/tickets/{ticket_key}/links/{link_id}/
 pub async fn delete_link(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((ticket_key, link_id)): Path<(String, i32)>,
 ) -> Response {
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response();
         }
     };
 
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "DELETE /api/v1/tickets/{ticket_key}/links/{link_id}/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     match ticket_link_repo::delete(&state.pool, link_id, ticket_id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() })).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }

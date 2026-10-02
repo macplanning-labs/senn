@@ -143,7 +143,16 @@ export function ProjectOverview() {
                       </span>
                     );
                   })
-                : t('projectTabs.overviewNotSet')}
+                : (currentProject.hiddenTeamCount ?? 0) === 0 && t('projectTabs.overviewNotSet')}
+              {(currentProject.hiddenTeamCount ?? 0) > 0 && (
+                <span
+                  className="project-overview__hidden-teams"
+                  title={t('projectTeams.hiddenTeams', { count: currentProject.hiddenTeamCount })}
+                  data-testid="project-overview-hidden-teams"
+                >
+                  🔒+{currentProject.hiddenTeamCount}
+                </span>
+              )}
             </div>
           </div>
 

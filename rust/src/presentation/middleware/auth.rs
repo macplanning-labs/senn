@@ -1,3 +1,6 @@
+use crate::domain::services::jwt_service;
+use crate::infrastructure::repositories::{jwt_blacklist_repo, project_repo, user_repo};
+use crate::presentation::state::AppState;
 /// presentation/middleware/auth.rs — 認証ミドルウェア
 ///
 /// Cookie（wip_access_token / wip_refresh_token）からJWTを取得し、
@@ -8,19 +11,15 @@
 /// Step2②（Cookie→JWT統一）でtower_sessions::Session依存を廃止した。
 /// SessionUser型・フィールド構成はダウンストリーム10ファイル以上への影響を
 /// ゼロにするため変更していない。
-
 use axum::{
     extract::{Request, State},
+    http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
-    http::StatusCode,
     Json,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use serde_json::json;
-use crate::domain::services::jwt_service;
-use crate::infrastructure::repositories::{jwt_blacklist_repo, project_repo, user_repo};
-use crate::presentation::state::AppState;
 
 pub const ACCESS_COOKIE: &str = "wip_access_token";
 pub const REFRESH_COOKIE: &str = "wip_refresh_token";
@@ -72,10 +71,12 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
     // 0. デモトークンを早期に拒否
     // Authorization ヘッダーが request context から得られないため、ここではスキップ。
     // 別途 require_auth_with_bearer ミドルウェア内で検查する。
-    
+
     // 1. access token を試す
     if let Some(access_cookie) = jar.get(ACCESS_COOKIE) {
-        if let Ok(claims) = jwt_service::decode_token(access_cookie.value(), &state.config.jwt_secret) {
+        if let Ok(claims) =
+            jwt_service::decode_token(access_cookie.value(), &state.config.jwt_secret)
+        {
             if claims.token_type == jwt_service::TokenType::Access {
                 if let Ok(user_id) = claims.user_id() {
                     if let Some(user) = build_session_user(state, user_id, jar).await {
@@ -91,10 +92,14 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
 
     // 2. access が無い/失効 → refresh を試す（サイレントリフレッシュ）
     if let Some(refresh_cookie) = jar.get(REFRESH_COOKIE) {
-        if let Ok(claims) = jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret) {
+        if let Ok(claims) =
+            jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret)
+        {
             if claims.token_type == jwt_service::TokenType::Refresh {
                 if let (Ok(user_id), Some(jti)) = (claims.user_id(), claims.jti.as_deref()) {
-                    let blacklisted = match jwt_blacklist_repo::is_blacklisted(&state.pool, jti).await {
+                    let blacklisted = match jwt_blacklist_repo::is_blacklisted(&state.pool, jti)
+                        .await
+                    {
                         Ok(v) => v,
                         Err(e) => {
                             tracing::error!("[認証/JWT] 処理=ブラックリスト照会 結果=失敗 影響=安全側で再ログイン要求 | {}", e);
@@ -133,7 +138,11 @@ pub async fn resolve_session_user(state: &AppState, jar: &CookieJar) -> ResolveO
 
 /// user_id からDBの最新情報を引いてSessionUserを組み立てる（must_change_password等はここで常に最新値）。
 /// current_project_id はJWTではなく別Cookieから読み、DBで名前解決する。
-async fn build_session_user(state: &AppState, user_id: i32, jar: &CookieJar) -> Option<SessionUser> {
+async fn build_session_user(
+    state: &AppState,
+    user_id: i32,
+    jar: &CookieJar,
+) -> Option<SessionUser> {
     let user = match user_repo::find_by_id(&state.pool, user_id).await {
         Ok(Some(u)) => u,
         Ok(None) => return None,
@@ -218,15 +227,22 @@ pub async fn require_auth(
             refreshed_access_cookie,
         } => {
             let path = req.uri().path().to_string();
-            if user.must_change_password && path != "/auth/password" && !path.starts_with("/static") {
+            if user.must_change_password && path != "/auth/password" && !path.starts_with("/static")
+            {
                 return Redirect::to("/auth/password").into_response();
             }
             req.extensions_mut().insert(user);
             let mut response = next.run(req).await;
             if let Some(cookie) = refreshed_access_cookie {
                 let jar = CookieJar::new().add(cookie);
-                for header_value in jar.into_response().headers().get_all(axum::http::header::SET_COOKIE) {
-                    response.headers_mut().append(axum::http::header::SET_COOKIE, header_value.clone());
+                for header_value in jar
+                    .into_response()
+                    .headers()
+                    .get_all(axum::http::header::SET_COOKIE)
+                {
+                    response
+                        .headers_mut()
+                        .append(axum::http::header::SET_COOKIE, header_value.clone());
                 }
             }
             response

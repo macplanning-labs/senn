@@ -1,5 +1,4 @@
 /// infrastructure/repositories/user_ai_prompt_template_repo.rs — ユーザーごとの AI プロンプトテンプレート永続化
-
 use sqlx::PgPool;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -77,7 +76,9 @@ mod tests {
     /// 未設定の場合: 全て None を返す
     #[tokio::test]
     async fn get_by_user_returns_all_none_when_not_set() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user_id = test_support::create_test_user(&pool, "ai_prompt_test").await;
         let row = get_by_user(&pool, user_id).await.unwrap();
         assert_eq!(row.common_template, None);
@@ -88,14 +89,24 @@ mod tests {
     /// PUT→GET往復: 保存した値が取得できる
     #[tokio::test]
     async fn upsert_and_get_returns_same_values() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user_id = test_support::create_test_user(&pool, "ai_prompt_upsert").await;
 
         let common = Some("Common rules".to_string());
         let cursor = Some("Cursor rules".to_string());
         let claude = Some("Claude rules".to_string());
 
-        upsert(&pool, user_id, common.clone(), cursor.clone(), claude.clone()).await.unwrap();
+        upsert(
+            &pool,
+            user_id,
+            common.clone(),
+            cursor.clone(),
+            claude.clone(),
+        )
+        .await
+        .unwrap();
 
         let row = get_by_user(&pool, user_id).await.unwrap();
         assert_eq!(row.common_template, common);
@@ -106,7 +117,9 @@ mod tests {
     /// null/空白でクリア: 空白文字列は NULL として保存される
     #[tokio::test]
     async fn upsert_clears_empty_and_whitespace() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user_id = test_support::create_test_user(&pool, "ai_prompt_clear").await;
 
         // 最初に値を設定
@@ -116,16 +129,20 @@ mod tests {
             Some("Initial common".to_string()),
             Some("Initial cursor".to_string()),
             Some("Initial claude".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // 空白・None で更新
         upsert(
             &pool,
             user_id,
-            Some("   ".to_string()),  // 空白のみ
-            None,                      // None
-            Some("".to_string()),      // 空文字列
-        ).await.unwrap();
+            Some("   ".to_string()), // 空白のみ
+            None,                    // None
+            Some("".to_string()),    // 空文字列
+        )
+        .await
+        .unwrap();
 
         let row = get_by_user(&pool, user_id).await.unwrap();
         assert_eq!(row.common_template, None);
@@ -136,7 +153,9 @@ mod tests {
     /// 前後の空白が trim される
     #[tokio::test]
     async fn upsert_trims_whitespace() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user_id = test_support::create_test_user(&pool, "ai_prompt_trim").await;
 
         upsert(
@@ -145,7 +164,9 @@ mod tests {
             Some("  common  ".to_string()),
             Some("\tcursor\n".to_string()),
             Some("  claude  ".to_string()),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let row = get_by_user(&pool, user_id).await.unwrap();
         assert_eq!(row.common_template, Some("common".to_string()));

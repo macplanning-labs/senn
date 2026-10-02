@@ -347,3 +347,12 @@
 .ticket-property-item--button:last-child {
   border-bottom: none;
 }
+
+/* AI 経由で作られたチケットの印(作成者の横。F-3) */
+.ticket-property-ai-badge {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #a0a0a0);
+  cursor: help;
+}

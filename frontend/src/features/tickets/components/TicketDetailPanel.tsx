@@ -24,6 +24,7 @@ import { localUpdateTicket, localDeleteTickets, isTempTicketKey } from '@/shared
 import { syncStateOf } from '@/shared/sync/ticketMapping';
 import type { LocalTicket } from '@/shared/sync/db';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { commitAddedComment, optimisticAddComment, optimisticDeleteComment, optimisticEditComment } from '@/shared/sync/commentWrites';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useToast } from '@/shared/stores/toastStore';
 import { TimeTracker } from './TimeTracker';
@@ -422,9 +423,10 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     anchor?: { start: number; end: number; quote: string };
     parentCommentId?: number;
   }
-  const commentMutation = useOptimisticMutation<void, CommentPayload>({
+  const commentMutation = useOptimisticMutation<number, CommentPayload>({
     mutationFn: async (payload) => {
-      await apiClient.post(`/tickets/${ticketId}/comments/`, payload);
+      const res = await apiClient.post<{ id: number }>(`/tickets/${ticketId}/comments/`, payload);
+      return res.data.id;
     },
     queryKey: ticketQueryKey,
     updater: (currentData, payload) => {
@@ -451,7 +453,20 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         ],
       };
     },
-    onSuccessCallback: (_data, variables) => {
+    // 端末内 DB にも先に入れる（画面はここを読む）。サーバーの確定値はリアルタイムで届いて版番号で上書きされる
+    localOptimistic: async (payload) => {
+      if (!currentUser) return undefined;
+      const added = await optimisticAddComment({
+        ticketKey: ticketId,
+        body: payload.body,
+        parentCommentId: payload.parentCommentId,
+        anchor: payload.anchor,
+        author: { id: currentUser.id, username: currentUser.username, displayName: currentUser.displayName },
+      });
+      return added && { rollback: added.rollback, result: added.tempId };
+    },
+    onSuccessCallback: (commentId, variables, tempId) => {
+      if (typeof tempId === 'number') void commitAddedComment(tempId, commentId);
       if (variables.parentCommentId) {
         setReplyingToRootId(null);
         replyEditor?.commands.clearContent();
@@ -482,6 +497,10 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         ),
       };
     },
+    localOptimistic: async ({ commentId, body }) => {
+      const rollback = await optimisticEditComment(commentId, body);
+      return rollback && { rollback };
+    },
     onSuccessCallback: () => {
       setEditingCommentId(null);
       setEditingCommentText('');
@@ -504,6 +523,10 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           c.id === commentId ? { ...c, isDeleted: true, body: '' } : c
         ),
       };
+    },
+    localOptimistic: async (commentId) => {
+      const rollback = await optimisticDeleteComment(commentId);
+      return rollback && { rollback };
     },
     onSuccessCallback: () => {
       setOpenMenuCommentId(null);

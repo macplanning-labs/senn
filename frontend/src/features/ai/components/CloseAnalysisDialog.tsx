@@ -5,6 +5,7 @@
  * 技術的負債・将来の課題を抽出。ワンクリックでTeamRuleやBacklogチケットを作成できる。
  */
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useCloseAnalysis } from '../useAIAnalysis';
 import { localCreateTicket } from '@/shared/sync/ticketWrites';
 import { apiClient } from '@/shared/api/client';
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Props) {
+  const { t } = useTranslation();
   const [result, setResult] = useState<CloseAnalysisResult | null>(null);
   const [createdItems, setCreatedItems] = useState<Set<string>>(new Set());
   const mutation = useCloseAnalysis();
@@ -87,7 +89,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
     <div style={overlayStyle} onClick={onClose}>
       <div style={dialogStyle} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3 style={{ margin: 0, fontSize: '1rem' }}>🤖 クローズ分析</h3>
+          <h3 style={{ margin: 0, fontSize: '1rem' }}>🤖 {t('ai.closeAnalysisTitle')}</h3>
           <button
             onClick={onClose}
             style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', opacity: 0.6 }}
@@ -98,13 +100,13 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
 
         {mutation.isPending && (
           <div style={{ textAlign: 'center', padding: '2rem', opacity: 0.6 }}>
-            <p>AI分析中...</p>
+            <p>AI {t('ai.analyzing')}</p>
           </div>
         )}
 
         {mutation.isError && (
           <p style={{ color: 'var(--color-error, #e54d4d)', fontSize: '0.875rem' }}>
-            AI分析に失敗しました。ダイアログを閉じて再試行してください。
+            {t('ai.analysisFailedRetryDialog')}
           </p>
         )}
 
@@ -112,7 +114,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
           <div style={{ textAlign: 'center', padding: '1.5rem' }}>
             <p style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>✅</p>
             <p style={{ fontSize: '0.875rem', opacity: 0.7 }}>
-              将来の課題や技術的負債は検出されませんでした。
+              {t('ai.noIssuesDetected')}
             </p>
           </div>
         )}
@@ -128,7 +130,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>📝 Wiki ドラフト</span>
+                    <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>📝 {t('ai.wikiDraftLabel')}</span>
                     <p style={{ margin: '0.25rem 0 0', fontWeight: 600, fontSize: '0.875rem' }}>
                       {result.wiki_draft.title}
                     </p>
@@ -143,7 +145,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
                       color: '#fff',
                     }}
                   >
-                    {createdItems.has('wiki') ? '✓ 作成済み' : 'TeamRule作成'}
+                    {createdItems.has('wiki') ? <>✓ {t('ai.alreadyCreatedRule')}</> : t('ai.createTeamRuleButton')}
                   </button>
                 </div>
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', whiteSpace: 'pre-wrap', opacity: 0.85 }}>
@@ -157,9 +159,9 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
             {result.suggested_backlog_tickets.length > 0 && (
               <div>
                 <h4 style={{ fontSize: '0.8125rem', margin: '0 0 0.5rem', opacity: 0.7 }}>
-                  📋 推奨バックログチケット ({result.suggested_backlog_tickets.length}件)
+                  📋 {t('ai.suggestedBacklogTitle', { count: result.suggested_backlog_tickets.length })}
                 </h4>
-                {result.suggested_backlog_tickets.map((t, i) => (
+                {result.suggested_backlog_tickets.map((ticket, i) => (
                   <div
                     key={i}
                     style={{
@@ -171,13 +173,13 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
                     }}
                   >
                     <div style={{ flex: 1 }}>
-                      <p style={{ margin: 0, fontWeight: 600, fontSize: '0.8125rem' }}>{t.title}</p>
+                      <p style={{ margin: 0, fontWeight: 600, fontSize: '0.8125rem' }}>{ticket.title}</p>
                       <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', opacity: 0.7 }}>
-                        {t.description}
+                        {ticket.description}
                       </p>
                     </div>
                     <button
-                      onClick={() => handleCreateBacklogTicket(t.title, t.description, i)}
+                      onClick={() => handleCreateBacklogTicket(ticket.title, ticket.description, i)}
                       disabled={createdItems.has(`ticket-${i}`)}
                       data-testid={`create-backlog-ticket-${i}`}
                       style={{
@@ -187,7 +189,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
                         color: '#fff', whiteSpace: 'nowrap', flexShrink: 0,
                       }}
                     >
-                      {createdItems.has(`ticket-${i}`) ? '✓ 起票済み' : '起票する'}
+                      {createdItems.has(`ticket-${i}`) ? <>✓ {t('ai.alreadyFiledLabel')}</> : t('ai.fileTicketButton')}
                     </button>
                   </div>
                 ))}
@@ -206,7 +208,7 @@ export function CloseAnalysisDialog({ ticketId, projectId, onClose, isOpen }: Pr
               fontSize: '0.8125rem',
             }}
           >
-            閉じる
+            {t('common.close')}
           </button>
         </div>
       </div>

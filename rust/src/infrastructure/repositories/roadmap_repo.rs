@@ -4,7 +4,6 @@
 /// - ロードマップは全社共通（チーム単位ではない）。
 /// - 名前は 1〜100 文字、大文字小文字を区別せず一意。
 /// - CRUD、所属の追加・削除（冪等）、「プロジェクトが属するロードマップ一覧」。
-
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -84,13 +83,15 @@ pub async fn list_roadmaps(pool: &PgPool) -> anyhow::Result<Vec<RoadmapOut>> {
 
     Ok(rows
         .into_iter()
-        .map(|(id, name, description, owner_id, project_count)| RoadmapOut {
-            id,
-            name,
-            description,
-            owner_id,
-            project_count,
-        })
+        .map(
+            |(id, name, description, owner_id, project_count)| RoadmapOut {
+                id,
+                name,
+                description,
+                owner_id,
+                project_count,
+            },
+        )
         .collect())
 }
 
@@ -101,7 +102,11 @@ pub fn is_valid_roadmap_name(name: &str) -> bool {
     !n.is_empty() && n.chars().count() <= 100
 }
 
-pub async fn create_roadmap(pool: &PgPool, input: &RoadmapCreateIn, owner_id: Option<i32>) -> anyhow::Result<i32> {
+pub async fn create_roadmap(
+    pool: &PgPool,
+    input: &RoadmapCreateIn,
+    owner_id: Option<i32>,
+) -> anyhow::Result<i32> {
     // 名前の妥当性チェック(前後の空白は取り除いて保存する)
     if !is_valid_roadmap_name(&input.name) {
         anyhow::bail!("roadmap name must be 1-100 characters");
@@ -109,12 +114,11 @@ pub async fn create_roadmap(pool: &PgPool, input: &RoadmapCreateIn, owner_id: Op
     let name = input.name.trim();
 
     // 重複チェック（大文字小文字を区別しない）
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM roadmaps WHERE LOWER(name) = LOWER($1))",
-    )
-    .bind(name)
-    .fetch_one(pool)
-    .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roadmaps WHERE LOWER(name) = LOWER($1))")
+            .bind(name)
+            .fetch_one(pool)
+            .await?;
 
     if exists {
         anyhow::bail!("roadmap name already exists");
@@ -142,7 +146,10 @@ pub async fn create_roadmap(pool: &PgPool, input: &RoadmapCreateIn, owner_id: Op
 }
 
 /// ロードマップを取得する
-pub async fn find_roadmap_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<RoadmapDetailOut>> {
+pub async fn find_roadmap_by_id(
+    pool: &PgPool,
+    id: i32,
+) -> anyhow::Result<Option<RoadmapDetailOut>> {
     let roadmap: Option<(i32, String, String, Option<i32>)> = sqlx::query_as(
         "SELECT id::int4, name, description, owner_id::int4 FROM roadmaps WHERE id = $1",
     )
@@ -200,7 +207,11 @@ pub async fn find_roadmap_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option
 }
 
 /// ロードマップを更新する。存在しなければ Ok(false)。
-pub async fn update_roadmap(pool: &PgPool, id: i32, input: &RoadmapUpdateIn) -> anyhow::Result<bool> {
+pub async fn update_roadmap(
+    pool: &PgPool,
+    id: i32,
+    input: &RoadmapUpdateIn,
+) -> anyhow::Result<bool> {
     // 名前の妥当性チェック（指定されている場合）
     if let Some(ref name) = input.name {
         if !is_valid_roadmap_name(name) {
@@ -237,10 +248,11 @@ pub async fn update_roadmap(pool: &PgPool, id: i32, input: &RoadmapUpdateIn) -> 
 
     if parts.is_empty() {
         // 何も更新しない
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roadmaps WHERE id = $1)")
-            .bind(id as i64)
-            .fetch_one(pool)
-            .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roadmaps WHERE id = $1)")
+                .bind(id as i64)
+                .fetch_one(pool)
+                .await?;
         return Ok(exists);
     }
 
@@ -271,10 +283,11 @@ pub async fn update_roadmap(pool: &PgPool, id: i32, input: &RoadmapUpdateIn) -> 
                 .await?
         }
         (None, None) => {
-            let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roadmaps WHERE id = $1)")
-                .bind(id as i64)
-                .fetch_one(pool)
-                .await?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roadmaps WHERE id = $1)")
+                    .bind(id as i64)
+                    .fetch_one(pool)
+                    .await?;
             return Ok(exists);
         }
     };
@@ -297,7 +310,12 @@ pub async fn delete_roadmap(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
 /// ロードマップにプロジェクトを追加する。既に所属なら冪等に成功を返す。
 /// 戻り値: 新規追加なら true、既に所属していたら false。
-pub async fn add_project(pool: &PgPool, roadmap_id: i32, project_id: i32, added_by: Option<i32>) -> anyhow::Result<bool> {
+pub async fn add_project(
+    pool: &PgPool,
+    roadmap_id: i32,
+    project_id: i32,
+    added_by: Option<i32>,
+) -> anyhow::Result<bool> {
     // 両者が存在するか(ロードマップとプロジェクトの id は別の表なので、同じ値になり得る。
     // UNION で id を混ぜると1件に潰れるため、それぞれ存在確認する)
     let both_exist: bool = sqlx::query_scalar(
@@ -329,17 +347,25 @@ pub async fn add_project(pool: &PgPool, roadmap_id: i32, project_id: i32, added_
 }
 
 /// ロードマップからプロジェクトを削除する。所属していなければ Ok(false)。
-pub async fn remove_project(pool: &PgPool, roadmap_id: i32, project_id: i32) -> anyhow::Result<bool> {
-    let result = sqlx::query("DELETE FROM roadmap_projects WHERE roadmap_id = $1 AND project_id = $2")
-        .bind(roadmap_id as i64)
-        .bind(project_id as i64)
-        .execute(pool)
-        .await?;
+pub async fn remove_project(
+    pool: &PgPool,
+    roadmap_id: i32,
+    project_id: i32,
+) -> anyhow::Result<bool> {
+    let result =
+        sqlx::query("DELETE FROM roadmap_projects WHERE roadmap_id = $1 AND project_id = $2")
+            .bind(roadmap_id as i64)
+            .bind(project_id as i64)
+            .execute(pool)
+            .await?;
     Ok(result.rows_affected() > 0)
 }
 
 /// プロジェクトが属するロードマップの一覧
-pub async fn roadmaps_for_project(pool: &PgPool, project_id: i32) -> anyhow::Result<Vec<RoadmapOut>> {
+pub async fn roadmaps_for_project(
+    pool: &PgPool,
+    project_id: i32,
+) -> anyhow::Result<Vec<RoadmapOut>> {
     let rows = sqlx::query_as::<_, (i32, String, String, Option<i32>, i64)>(
         "SELECT
             r.id::int4,
@@ -359,13 +385,15 @@ pub async fn roadmaps_for_project(pool: &PgPool, project_id: i32) -> anyhow::Res
 
     Ok(rows
         .into_iter()
-        .map(|(id, name, description, owner_id, project_count)| RoadmapOut {
-            id,
-            name,
-            description,
-            owner_id,
-            project_count,
-        })
+        .map(
+            |(id, name, description, owner_id, project_count)| RoadmapOut {
+                id,
+                name,
+                description,
+                owner_id,
+                project_count,
+            },
+        )
         .collect())
 }
 
@@ -395,13 +423,15 @@ pub async fn for_owner(pool: &PgPool, user_id: i32) -> anyhow::Result<Vec<Roadma
 
     Ok(rows
         .into_iter()
-        .map(|(id, name, description, owner_id, project_count)| RoadmapOut {
-            id,
-            name,
-            description,
-            owner_id,
-            project_count,
-        })
+        .map(
+            |(id, name, description, owner_id, project_count)| RoadmapOut {
+                id,
+                name,
+                description,
+                owner_id,
+                project_count,
+            },
+        )
         .collect())
 }
 
@@ -411,7 +441,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_roadmap() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let suffix = crate::test_support::unique_suffix();
         let input = RoadmapCreateIn {
             name: format!("Q4 Roadmap {}", suffix),
@@ -429,7 +461,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_roadmap_duplicate_name() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let suffix = crate::test_support::unique_suffix();
         let input = RoadmapCreateIn {
             name: format!("Duplicate {}", suffix),
@@ -445,7 +479,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_roadmap_case_insensitive_duplicate() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let suffix = crate::test_support::unique_suffix();
         let input1 = RoadmapCreateIn {
             name: format!("Roadmap {}", suffix),
@@ -465,7 +501,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_roadmap_name_too_long() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let input = RoadmapCreateIn {
             name: "a".repeat(101),
             description: "".to_string(),
@@ -476,7 +514,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_roadmaps() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let suffix = crate::test_support::unique_suffix();
         let input1 = RoadmapCreateIn {
             name: format!("RM1 {}", suffix),
@@ -499,7 +539,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_project_to_roadmap() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let user = crate::test_support::create_test_user(&pool, "rm").await;
         let project = crate::test_support::create_test_project(&pool, "RM", user).await;
 
@@ -512,7 +554,10 @@ mod tests {
 
         add_project(&pool, roadmap_id, project, None).await.unwrap();
 
-        let roadmap = find_roadmap_by_id(&pool, roadmap_id).await.unwrap().unwrap();
+        let roadmap = find_roadmap_by_id(&pool, roadmap_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(roadmap.projects.len(), 1);
         assert_eq!(roadmap.projects[0].id, project);
 
@@ -523,7 +568,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_project_idempotent() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let user = crate::test_support::create_test_user(&pool, "rm").await;
         let project = crate::test_support::create_test_project(&pool, "RM", user).await;
 
@@ -537,7 +584,10 @@ mod tests {
         add_project(&pool, roadmap_id, project, None).await.unwrap();
         add_project(&pool, roadmap_id, project, None).await.unwrap(); // 2度目
 
-        let roadmap = find_roadmap_by_id(&pool, roadmap_id).await.unwrap().unwrap();
+        let roadmap = find_roadmap_by_id(&pool, roadmap_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(roadmap.projects.len(), 1); // 1 つだけ
 
         // Clean up
@@ -547,7 +597,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_project_from_roadmap() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let user = crate::test_support::create_test_user(&pool, "rm").await;
         let project = crate::test_support::create_test_project(&pool, "RM", user).await;
 
@@ -562,7 +614,10 @@ mod tests {
         let removed = remove_project(&pool, roadmap_id, project).await.unwrap();
         assert!(removed);
 
-        let roadmap = find_roadmap_by_id(&pool, roadmap_id).await.unwrap().unwrap();
+        let roadmap = find_roadmap_by_id(&pool, roadmap_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(roadmap.projects.len(), 0);
 
         // Clean up
@@ -571,7 +626,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_roadmap_add_and_remove_multiple_projects() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let user = crate::test_support::create_test_user(&pool, "rm").await;
         let project1 = crate::test_support::create_test_project(&pool, "RM1", user).await;
         let project2 = crate::test_support::create_test_project(&pool, "RM2", user).await;
@@ -584,15 +641,25 @@ mod tests {
         let roadmap_id = create_roadmap(&pool, &input, None).await.unwrap();
 
         // 複数のプロジェクトを追加
-        add_project(&pool, roadmap_id, project1, None).await.unwrap();
-        add_project(&pool, roadmap_id, project2, None).await.unwrap();
+        add_project(&pool, roadmap_id, project1, None)
+            .await
+            .unwrap();
+        add_project(&pool, roadmap_id, project2, None)
+            .await
+            .unwrap();
 
-        let roadmap = find_roadmap_by_id(&pool, roadmap_id).await.unwrap().unwrap();
+        let roadmap = find_roadmap_by_id(&pool, roadmap_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(roadmap.projects.len(), 2);
 
         // 1つを削除
         remove_project(&pool, roadmap_id, project1).await.unwrap();
-        let roadmap = find_roadmap_by_id(&pool, roadmap_id).await.unwrap().unwrap();
+        let roadmap = find_roadmap_by_id(&pool, roadmap_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(roadmap.projects.len(), 1);
         assert_eq!(roadmap.projects[0].id, project2);
 
@@ -604,7 +671,9 @@ mod tests {
     #[tokio::test]
     async fn test_roadmaps_for_project() {
         // プロジェクトに複数のロードマップを設定
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let user = crate::test_support::create_test_user(&pool, "rm").await;
         let project = crate::test_support::create_test_project(&pool, "RMPROJ", user).await;
 
@@ -621,8 +690,12 @@ mod tests {
         let roadmap_id1 = create_roadmap(&pool, &input1, None).await.unwrap();
         let roadmap_id2 = create_roadmap(&pool, &input2, None).await.unwrap();
 
-        add_project(&pool, roadmap_id1, project, None).await.unwrap();
-        add_project(&pool, roadmap_id2, project, None).await.unwrap();
+        add_project(&pool, roadmap_id1, project, None)
+            .await
+            .unwrap();
+        add_project(&pool, roadmap_id2, project, None)
+            .await
+            .unwrap();
 
         // find_roadmaps_for_project を呼び出す（存在するか確認）
         let sql = "SELECT id::int4 FROM roadmaps WHERE EXISTS (
@@ -644,7 +717,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_roadmap_name_length_limit() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
 
         // 100文字まで（OK）
         let input_100 = RoadmapCreateIn {
@@ -671,7 +746,10 @@ mod tests {
         assert!(!is_valid_roadmap_name(""));
         assert!(!is_valid_roadmap_name("   "), "空白だけは不可");
         assert!(is_valid_roadmap_name("  Q4  "));
-        assert!(is_valid_roadmap_name(&"あ".repeat(100)), "日本語も100文字まで可(バイト数ではなく文字数)");
+        assert!(
+            is_valid_roadmap_name(&"あ".repeat(100)),
+            "日本語も100文字まで可(バイト数ではなく文字数)"
+        );
         assert!(!is_valid_roadmap_name(&"あ".repeat(101)));
         assert!(!is_valid_roadmap_name(&format!("  {}  ", "x".repeat(101))));
     }
@@ -679,26 +757,50 @@ mod tests {
     /// ロードマップの id とプロジェクトの id が同じ値でも、所属を追加できる(別々の表の id)。
     #[tokio::test]
     async fn add_project_works_when_roadmap_id_equals_project_id() {
-        let Some(pool) = crate::test_support::test_pool().await else { return };
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
         let user = crate::test_support::create_test_user(&pool, "same").await;
         // 衝突しにくい大きな id を明示して、ロードマップとプロジェクトの id を一致させる
         let id: i64 = 900_000_000 + (uuid::Uuid::new_v4().as_u128() % 90_000_000) as i64;
         let suffix = crate::test_support::unique_suffix();
         sqlx::query("INSERT INTO roadmaps (id, name, description) VALUES ($1, $2, '')")
-            .bind(id).bind(format!("same-{suffix}")).execute(&pool).await.unwrap();
+            .bind(id)
+            .bind(format!("same-{suffix}"))
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query(
             "INSERT INTO tickets_project (id, name, prefix, description, status, created_at, grace_period_days)
              VALUES ($1, $2, $3, '', 'planned', NOW(), 0)",
         )
         .bind(id).bind(format!("same-{suffix}")).bind(format!("SM{suffix}")).execute(&pool).await.unwrap();
 
-        assert!(add_project(&pool, id as i32, id as i32, Some(user)).await.unwrap(), "新規に追加できる");
-        assert!(!add_project(&pool, id as i32, id as i32, Some(user)).await.unwrap(), "再追加は冪等");
+        assert!(
+            add_project(&pool, id as i32, id as i32, Some(user))
+                .await
+                .unwrap(),
+            "新規に追加できる"
+        );
+        assert!(
+            !add_project(&pool, id as i32, id as i32, Some(user))
+                .await
+                .unwrap(),
+            "再追加は冪等"
+        );
         // 存在しない側は、引き続き「見つからない」になる
-        assert!(add_project(&pool, id as i32, 2_000_000_000, Some(user)).await.is_err());
-        assert!(add_project(&pool, 2_000_000_000, id as i32, Some(user)).await.is_err());
+        assert!(add_project(&pool, id as i32, 2_000_000_000, Some(user))
+            .await
+            .is_err());
+        assert!(add_project(&pool, 2_000_000_000, id as i32, Some(user))
+            .await
+            .is_err());
 
         delete_roadmap(&pool, id as i32).await.unwrap();
-        sqlx::query("DELETE FROM tickets_project WHERE id = $1").bind(id).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM tickets_project WHERE id = $1")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }

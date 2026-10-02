@@ -129,6 +129,15 @@ export function ProjectsTable({ projects, hierarchyEnabled, allProjects }: Proje
               ))}
             </span>
           )}
+          {(project.hiddenTeamCount ?? 0) > 0 && (
+            <span
+              className="projects-table__hidden-teams"
+              title={t('projectTeams.hiddenTeams', { count: project.hiddenTeamCount })}
+              data-testid={`projects-table-hidden-teams-${project.id}`}
+            >
+              🔒+{project.hiddenTeamCount}
+            </span>
+          )}
         </td>
         <td className="projects-table__td">{t(priorityI18nKey as string)}</td>
         <td className="projects-table__td">{project.targetEndDate ?? '—'}</td>

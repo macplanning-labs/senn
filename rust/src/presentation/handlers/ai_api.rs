@@ -1,21 +1,14 @@
 /// presentation/handlers/ai_api.rs — AI推論 JSON API
 ///
 /// Django apps/api/views/ai.py と挙動を一致させるハンドラー。
-
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    http::StatusCode,
-    Json,
-    Extension,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::presentation::state::AppState;
-use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::ai_repo;
+use crate::domain::access::Viewer;
 use crate::domain::services::ai_service;
+use crate::infrastructure::repositories::ai_repo;
+use crate::presentation::state::AppState;
 
 fn err(detail: &str) -> serde_json::Value {
     json!({"error": detail})
@@ -37,7 +30,7 @@ pub struct SuggestPointsIn {
 /// POST /api/v1/ai/suggest-points/
 pub async fn suggest_points(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    _viewer: Viewer,
     Json(body): Json<SuggestPointsIn>,
 ) -> impl IntoResponse {
     let title = match &body.title {
@@ -47,7 +40,11 @@ pub async fn suggest_points(
 
     let ai_config = state.ai_config().await;
     let result = ai_service::suggest_story_points(
-        &ai_config, title, &body.description, &body.team_rules, DEFAULT_LANGUAGE,
+        &ai_config,
+        title,
+        &body.description,
+        &body.team_rules,
+        DEFAULT_LANGUAGE,
     )
     .await;
 
@@ -63,38 +60,71 @@ pub struct SprintHealthIn {
 /// POST /api/v1/ai/sprint-health/
 pub async fn sprint_health(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<SprintHealthIn>,
 ) -> impl IntoResponse {
     let project_id = match body.project_id {
         Some(id) => id,
-        None => return (StatusCode::BAD_REQUEST, Json(err("project_id は必須です"))).into_response(),
+        None => {
+            return (StatusCode::BAD_REQUEST, Json(err("project_id は必須です"))).into_response()
+        }
     };
+
+    // プロジェクトのチケットを読むので、プロジェクトの閲覧権を確認する(アクセス制御の再設計 C-4)
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_project_open_today(
+        &state,
+        &viewer,
+        project_id,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/ai/sprint-health/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     let project_prefix = match ai_repo::find_project_prefix(&state.pool, project_id).await {
         Ok(Some(p)) => p,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(err("Project not found"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    let tasks_json = match ai_repo::find_tasks_json_for_sprint_health(&state.pool, project_id, body.cycle_id).await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
-        }
-    };
+    let tasks_json =
+        match ai_repo::find_tasks_json_for_sprint_health(&state.pool, project_id, body.cycle_id)
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
+            }
+        };
 
     let (start_date, end_date) = if let Some(cid) = body.cycle_id {
         match ai_repo::find_cycle_dates(&state.pool, cid).await {
-            Ok(Some((s, e))) => (s.format("%Y-%m-%d").to_string(), e.format("%Y-%m-%d").to_string()),
+            Ok(Some((s, e))) => (
+                s.format("%Y-%m-%d").to_string(),
+                e.format("%Y-%m-%d").to_string(),
+            ),
             Ok(None) => (String::new(), String::new()),
             Err(e) => {
                 tracing::error!("DB operation failed: {:?}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
         }
     } else {
@@ -103,8 +133,12 @@ pub async fn sprint_health(
 
     let ai_config = state.ai_config().await;
     let result = ai_service::analyze_sprint_health(
-        &ai_config, &project_prefix, &start_date, &end_date,
-        &serde_json::Value::Array(tasks_json), DEFAULT_LANGUAGE,
+        &ai_config,
+        &project_prefix,
+        &start_date,
+        &end_date,
+        &serde_json::Value::Array(tasks_json),
+        DEFAULT_LANGUAGE,
     )
     .await;
 
@@ -112,7 +146,7 @@ pub async fn sprint_health(
 }
 
 /// GET /api/v1/ai/status/
-pub async fn ai_status(State(state): State<AppState>, Extension(_auth): Extension<AuthUser>) -> impl IntoResponse {
+pub async fn ai_status(State(state): State<AppState>, _viewer: Viewer) -> impl IntoResponse {
     let status = ai_service::check_ai_status(&state.ai_config().await).await;
     (StatusCode::OK, Json(status)).into_response()
 }
@@ -125,35 +159,65 @@ pub struct ContextAnalysisIn {
 /// POST /api/v1/ai/context-analysis/
 pub async fn context_analysis(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<ContextAnalysisIn>,
 ) -> impl IntoResponse {
     let ticket_id = match body.ticket_id {
         Some(id) => id,
-        None => return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response(),
+        None => {
+            return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response()
+        }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/ai/context-analysis/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     let ticket = match ai_repo::find_ticket_for_ai(&state.pool, ticket_id).await {
         Ok(Some(t)) => t,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(err("Ticket not found"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.team_id).await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
-        }
-    };
+    let rules_text =
+        match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.team_id).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
+            }
+        };
 
     let ai_config = state.ai_config().await;
     let result = ai_service::analyze_ticket_context(
-        &ai_config, ticket.id, &ticket.title, &ticket.description, &ticket.status,
-        ticket.story_points.map(|p| p as i32), &ticket.project_prefix, &rules_text, DEFAULT_LANGUAGE,
+        &ai_config,
+        ticket.id,
+        &ticket.title,
+        &ticket.description,
+        &ticket.status,
+        ticket.story_points.map(|p| p as i32),
+        &ticket.project_prefix,
+        &rules_text,
+        DEFAULT_LANGUAGE,
     )
     .await;
 
@@ -168,20 +232,38 @@ pub struct CloseAnalysisIn {
 /// POST /api/v1/ai/close-analysis/
 pub async fn close_analysis(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<CloseAnalysisIn>,
 ) -> impl IntoResponse {
     let ticket_id = match body.ticket_id {
         Some(id) => id,
-        None => return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response(),
+        None => {
+            return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response()
+        }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/ai/close-analysis/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     let ticket = match ai_repo::find_ticket_for_ai(&state.pool, ticket_id).await {
         Ok(Some(t)) => t,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(err("Ticket not found"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -189,13 +271,21 @@ pub async fn close_analysis(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
     let ai_config = state.ai_config().await;
     let result = ai_service::analyze_ticket_close(
-        &ai_config, &ticket.title, &ticket.description, &comments_text, DEFAULT_LANGUAGE,
+        &ai_config,
+        &ticket.title,
+        &ticket.description,
+        &comments_text,
+        DEFAULT_LANGUAGE,
     )
     .await;
 
@@ -210,20 +300,38 @@ pub struct GeneratePromptTextIn {
 /// POST /api/v1/ai/generate-prompt-text/
 pub async fn generate_prompt_text(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<GeneratePromptTextIn>,
 ) -> impl IntoResponse {
     let ticket_id = match body.ticket_id {
         Some(id) => id,
-        None => return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response(),
+        None => {
+            return (StatusCode::BAD_REQUEST, Json(err("ticket_id は必須です"))).into_response()
+        }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/ai/generate-prompt-text/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     let ticket = match ai_repo::find_ticket_for_ai(&state.pool, ticket_id).await {
         Ok(Some(t)) => t,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(err("Ticket not found"))).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
@@ -231,17 +339,26 @@ pub async fn generate_prompt_text(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
         }
     };
 
-    let rules_text = match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.team_id).await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(err("サーバーエラーが発生しました"))).into_response();
-        }
-    };
+    let rules_text =
+        match ai_repo::build_associated_rules_text(&state.pool, ticket_id, ticket.team_id).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
+            }
+        };
 
     let ai_config = state.ai_config().await;
     // ハイブリッド方式: Ollama 失敗時も Ok（テンプレート + フォールバック文言）を返す。

@@ -1,5 +1,4 @@
 /// domain/models/attachment.rs — 添付ファイルモデル
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

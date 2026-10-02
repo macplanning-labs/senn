@@ -2,7 +2,6 @@
 ///
 /// Axum の State として全ハンドラに注入される。
 /// DB プール + アプリ設定 + メール送信者 を保持する。
-
 use std::sync::Arc;
 
 use sqlx::PgPool;
@@ -17,6 +16,10 @@ pub struct AppState {
     pub pool: PgPool,
     pub config: AppConfig,
     pub mail_sender: Option<MailSender>,
+    /// リアルタイム同期の部屋・接続の管理
+    pub realtime: Arc<crate::infrastructure::realtime::hub::Hub>,
+    /// REALTIME_ENABLED=false で無効化できる（端末は従来の定期同期だけで動く）
+    pub realtime_enabled: bool,
     ollama_model_override: Arc<RwLock<Option<String>>>,
     ollama_timeout_override: Arc<RwLock<Option<u64>>>,
 }
@@ -30,15 +33,21 @@ impl AppState {
         let ollama_model_override =
             system_settings_repo::get(&pool, system_settings_repo::KEY_OLLAMA_MODEL).await?;
 
-        let ollama_timeout_override = match system_settings_repo::get(&pool, system_settings_repo::KEY_OLLAMA_TIMEOUT).await? {
-            Some(timeout_str) => timeout_str.parse::<u64>().ok(),
-            None => None,
-        };
+        let ollama_timeout_override =
+            match system_settings_repo::get(&pool, system_settings_repo::KEY_OLLAMA_TIMEOUT).await?
+            {
+                Some(timeout_str) => timeout_str.parse::<u64>().ok(),
+                None => None,
+            };
 
         Ok(Self {
             pool,
             config,
             mail_sender,
+            realtime: crate::infrastructure::realtime::hub::Hub::new(),
+            realtime_enabled: std::env::var("REALTIME_ENABLED")
+                .map(|v| v != "false")
+                .unwrap_or(true),
             ollama_model_override: Arc::new(RwLock::new(ollama_model_override)),
             ollama_timeout_override: Arc::new(RwLock::new(ollama_timeout_override)),
         })

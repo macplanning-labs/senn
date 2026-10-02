@@ -8,7 +8,7 @@ vi.mock('react-i18next', () => ({
 }));
 vi.mock('./ProjectUpdates.css', () => ({}));
 
-let mockUser: { id: number; isStaff: boolean } | null = null;
+let mockUser: { id: number; isSystemAdmin: boolean; isGuest?: boolean } | null = null;
 vi.mock('@/shared/stores/authStore', () => ({
   useAuthStore: (sel: (s: { user: typeof mockUser }) => unknown) => sel({ user: mockUser }),
 }));
@@ -46,12 +46,19 @@ const render = (isMember: boolean) =>
 
 describe('ProjectUpdatesSection', () => {
   beforeEach(() => {
-    mockUser = { id: 5, isStaff: false };
+    mockUser = { id: 5, isSystemAdmin: false };
     mockState = { data: { results: [] }, isLoading: false, isError: false };
   });
 
   it('進捗が無いときは空状態を表示する', () => {
     expect(render(true)).toContain('project-updates-empty');
+  });
+
+  it('Guest には、プロジェクト単位の所属(isMember=true)でも「進捗を投稿」ボタンを出さない', () => {
+    mockUser = { id: 5, isSystemAdmin: false, isGuest: true };
+    const html = render(true);
+    expect(html).not.toContain('project-update-open');
+    expect(html).toContain('projectUpdates.memberOnlyHint');
   });
 
   it('メンバーには「進捗を投稿」ボタンが出て、メンバーでない一般ユーザーには出ない', () => {
@@ -62,12 +69,12 @@ describe('ProjectUpdatesSection', () => {
   it('投稿できないユーザーには、理由の案内文を表示する(メンバーには出さない)', () => {
     expect(render(false)).toContain('project-updates-member-hint');
     expect(render(true)).not.toContain('project-updates-member-hint');
-    mockUser = { id: 9, isStaff: true };
+    mockUser = { id: 9, isSystemAdmin: true };
     expect(render(false)).not.toContain('project-updates-member-hint');
   });
 
   it('メンバーでなくても管理者には投稿ボタンが出る', () => {
-    mockUser = { id: 9, isStaff: true };
+    mockUser = { id: 9, isSystemAdmin: true };
     expect(render(false)).toContain('project-update-open');
   });
 
@@ -84,10 +91,10 @@ describe('ProjectUpdatesSection', () => {
     mockState = { data: { results: [update({ authorId: 5 })] }, isLoading: false, isError: false };
     expect(render(true)).toContain('projectUpdates.edit');
 
-    mockUser = { id: 6, isStaff: false }; // 別の一般ユーザー
+    mockUser = { id: 6, isSystemAdmin: false }; // 別の一般ユーザー
     expect(render(true)).not.toContain('projectUpdates.edit');
 
-    mockUser = { id: 7, isStaff: true }; // 管理者
+    mockUser = { id: 7, isSystemAdmin: true }; // 管理者
     expect(render(true)).toContain('projectUpdates.edit');
   });
 

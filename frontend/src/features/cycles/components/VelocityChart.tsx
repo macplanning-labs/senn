@@ -6,6 +6,7 @@
  */
 import { useVelocity } from '../hooks/useCycles';
 import './VelocityChart.css';
+import { useTranslation } from 'react-i18next';
 
 const CHART_WIDTH = 600;
 const CHART_HEIGHT = 200;
@@ -13,6 +14,7 @@ const BAR_GAP = 12;
 const PADDING = { top: 20, right: 20, bottom: 40, left: 50 };
 
 export function VelocityChart({ projectId }: { projectId: number }) {
+  const { t } = useTranslation();
   const { data: velocityData = [] } = useVelocity(projectId);
 
   if (velocityData.length === 0) return null;
@@ -31,7 +33,7 @@ export function VelocityChart({ projectId }: { projectId: number }) {
 
   return (
     <div className="velocity-chart">
-      <h3 className="velocity-chart__title">ベロシティ</h3>
+      <h3 className="velocity-chart__title">{t('cycle.velocityTitle')}</h3>
       <svg
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
         className="velocity-chart__svg"
@@ -128,7 +130,9 @@ export function VelocityChart({ projectId }: { projectId: number }) {
               )}
               {/* ツールチップ領域 */}
               <title>
-                {d.cycleName}: {d.completedPoints}pt 完了{d.scopeChange !== 0 ? `, ${d.scopeChange > 0 ? '+' : ''}${d.scopeChange}pt スコープ変更` : ''}, {d.carryOver}件 持越
+                {d.cycleName}: {t('cycle.tooltipDone', { points: d.completedPoints })}
+                {d.scopeChange !== 0 ? t('cycle.tooltipScopeChange', { sign: d.scopeChange > 0 ? '+' : '', change: d.scopeChange }) : ''}
+                {t('cycle.tooltipCarryOver', { count: d.carryOver })}
               </title>
             </g>
           );
@@ -158,9 +162,9 @@ export function VelocityChart({ projectId }: { projectId: number }) {
         {/* 凡例 */}
         <g transform={`translate(${PADDING.left}, ${CHART_HEIGHT - 25})`}>
           <rect x="0" y="0" width="12" height="12" rx="2" fill="var(--color-warning)" opacity="0.5" />
-          <text x="16" y="10" fill="var(--color-text-tertiary)" fontSize="9">スコープ追加</text>
+          <text x="16" y="10" fill="var(--color-text-tertiary)" fontSize="9">{t('cycle.scopeAddedLegend')}</text>
           <rect x="100" y="0" width="12" height="12" rx="2" fill="var(--color-info)" opacity="0.5" />
-          <text x="116" y="10" fill="var(--color-text-tertiary)" fontSize="9">スコープ削減</text>
+          <text x="116" y="10" fill="var(--color-text-tertiary)" fontSize="9">{t('cycle.scopeRemovedLegend')}</text>
         </g>
 
         {/* グラデーション定義 */}

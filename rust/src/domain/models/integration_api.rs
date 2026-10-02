@@ -1,7 +1,6 @@
 /// domain/models/integration_api.rs — Git連携 JSON API モデル
 ///
 /// t_git_integration / t_git_event テーブル用。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +38,11 @@ pub struct GitIntegrationWriteIn {
     pub webhook_secret: String,
     #[serde(default = "default_true")]
     pub is_active: bool,
-    #[serde(default = "default_true", rename = "autoStatusTransition", alias = "auto_status_transition")]
+    #[serde(
+        default = "default_true",
+        rename = "autoStatusTransition",
+        alias = "auto_status_transition"
+    )]
     pub auto_status_transition: bool,
 }
 
@@ -58,7 +61,11 @@ pub struct GitIntegrationUpdateIn {
     pub repository_url: Option<String>,
     pub webhook_secret: Option<String>,
     pub is_active: Option<bool>,
-    #[serde(default, rename = "autoStatusTransition", alias = "auto_status_transition")]
+    #[serde(
+        default,
+        rename = "autoStatusTransition",
+        alias = "auto_status_transition"
+    )]
     pub auto_status_transition: Option<bool>,
 }
 

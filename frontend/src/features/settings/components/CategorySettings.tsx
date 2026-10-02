@@ -126,7 +126,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      setError('カテゴリー名を入力してください');
+      setError(t('settings.categoryNameRequired'));
       return;
     }
     if (editingCategory) {
@@ -160,7 +160,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
           onClick={() => openCreateModal(1)}
           data-testid="add-category-btn"
         >
-          + フェーズ追加
+          {t('settings.addPhase')}
         </button>
       </div>
 
@@ -182,21 +182,21 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                   />
                   <span className="settings-tree__parent-name">{parent.name}</span>
                   <span className="settings-tree__parent-badge">
-                    {children.length} カテゴリー
+                    {t('settings.categoryCount', { count: children.length })}
                   </span>
                   <div className="settings-table__actions" style={{ opacity: 1 }}>
                     <button
                       className="settings-table__action-btn"
                       onClick={(e) => { e.stopPropagation(); openCreateModal(2, parent.id); }}
-                      title="子カテゴリー追加"
-                      aria-label="子カテゴリー追加"
+                      title={t('settings.addSubCategory')}
+                      aria-label={t('settings.addSubCategory')}
                     >
                       <IconPlus size={12} />
                     </button>
                     <button
                       className="settings-table__action-btn settings-table__action-btn--danger"
                       onClick={(e) => { e.stopPropagation(); setDeleteConfirm(parent); }}
-                      title="削除"
+                      title={t('common.delete')}
                     >
                       🗑
                     </button>
@@ -221,7 +221,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                           <button
                             className="settings-table__action-btn settings-table__action-btn--danger"
                             onClick={(e) => { e.stopPropagation(); setDeleteConfirm(child); }}
-                            title="削除"
+                            title={t('common.delete')}
                           >
                             🗑
                           </button>
@@ -238,7 +238,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
         <div className="settings-empty">
           <div className="settings-empty__icon">📂</div>
           <div className="settings-empty__text">
-            カテゴリーがまだありません。「＋フェーズ追加」ボタンで作成してください。
+            {t('settings.noCategoriesHint', { button: t('settings.addPhase') })}
           </div>
         </div>
       )}
@@ -249,22 +249,19 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
               <h3 className="settings-modal__title">
-                {editingCategory
-                  ? `${editingCategory.level === 1 ? 'フェーズ' : 'カテゴリー'}を編集`
-                  : formData.level === 1 ? '新しいフェーズ' : '新しいカテゴリー'
-                }
+                {editingCategory ? (editingCategory.level === 1 ? t('settings.editPhase') : t('settings.editCategory')) : (formData.level === 1 ? t('settings.newPhase') : t('settings.newCategory'))}
               </h3>
               <button className="settings-modal__close" onClick={closeModal}>×</button>
             </div>
 
             <form onSubmit={handleSubmit}>
               <div className="settings-form__group">
-                <label className="settings-form__label">名前</label>
+                <label className="settings-form__label">{t('settings.name')}</label>
                 <input
                   className="settings-form__input"
                   value={formData.name}
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder={formData.level === 1 ? '例: 要件定義, 基本設計' : '例: ログイン機能, 管理画面'}
+                  placeholder={formData.level === 1 ? t('settings.phaseNamePlaceholder') : t('settings.categoryNamePlaceholder')}
                   autoFocus
                   data-testid="category-name-input"
                 />
@@ -272,7 +269,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
 
               {formData.level === 2 && (
                 <div className="settings-form__group">
-                  <label className="settings-form__label">所属フェーズ</label>
+                  <label className="settings-form__label">{t('settings.parentPhase')}</label>
                   <select
                     className="settings-form__select"
                     value={formData.parent ?? ''}
@@ -289,7 +286,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
               )}
 
               <div className="settings-form__group">
-                <label className="settings-form__label">カラー</label>
+                <label className="settings-form__label">{t('settings.color')}</label>
                 <div className="settings-color-picker">
                   {COLOR_PRESETS.map((color) => (
                     <button
@@ -323,7 +320,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                   className="settings-form__btn settings-form__btn--secondary"
                   onClick={closeModal}
                 >
-                  キャンセル
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -331,7 +328,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                   disabled={isSaving}
                   data-testid="category-save-btn"
                 >
-                  {isSaving ? '保存中...' : editingCategory ? '更新' : '作成'}
+                  {isSaving ? t('common.saving') : editingCategory ? t('common.update') : t('common.create')}
                 </button>
               </div>
             </form>
@@ -345,16 +342,16 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
               <h3 className="settings-modal__title">
-                {deleteConfirm.level === 1 ? 'フェーズ' : 'カテゴリー'}を削除
+                {deleteConfirm.level === 1 ? t('settings.deletePhase') : t('settings.deleteCategory')}
               </h3>
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">
-              「<strong>{deleteConfirm.name}</strong>」を削除しますか？
+              {t('common.deleteConfirm', { name: deleteConfirm.name })}
             </div>
             {deleteConfirm.level === 1 && (
               <div className="confirm-dialog__warning">
-                ⚠️ このフェーズに属する子カテゴリーも一緒に削除されます。
+                ⚠️ {t('settings.deletePhaseWarning')}
               </div>
             )}
             <div className="settings-form__actions">
@@ -362,7 +359,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                 className="settings-form__btn settings-form__btn--secondary"
                 onClick={() => setDeleteConfirm(null)}
               >
-                キャンセル
+                {t('common.cancel')}
               </button>
               <button
                 className="settings-form__btn settings-form__btn--danger"
@@ -370,7 +367,7 @@ export function CategorySettings({ projectId: _projectId }: CategorySettingsProp
                 disabled={deleteMutation.isPending}
                 data-testid="category-delete-confirm-btn"
               >
-                {deleteMutation.isPending ? '削除中...' : '削除'}
+                {deleteMutation.isPending ? t('common.deleting') : t('common.delete')}
               </button>
             </div>
           </div>

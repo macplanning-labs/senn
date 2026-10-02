@@ -1,7 +1,6 @@
 /// domain/models/wiki_api.rs — Wiki JSON API モデル
 ///
 /// wiki_page / wiki_revision テーブル用。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

@@ -1,20 +1,21 @@
 /// presentation/handlers/triage_api.rs — トリアージ依頼 JSON API
 ///
 /// Django /api/v1/triage-requests/* と挙動を一致させるハンドラー。
-
 use axum::{
-    extract::{State, Path, Query},
-    response::IntoResponse,
+    extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     Json,
-    Extension,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::presentation::state::AppState;
-use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{triage_repo, team_repo};
+use crate::domain::access::{Action, ResourceRef, Viewer};
 use crate::domain::models::triage_api::*;
+use crate::infrastructure::access::{facts_repo, shadow::Resource};
+use crate::infrastructure::repositories::{team_repo, triage_repo};
+use crate::presentation::extractors::authorize;
+use crate::presentation::middleware::jwt_auth::AuthUser;
+use crate::presentation::state::AppState;
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -37,51 +38,97 @@ pub struct ErrorResponse {
     pub detail: String,
 }
 
+/// チームへのアクセスの確認(D-5)
+///
+/// 今の判定: チームのメンバーだけ(403)。新しい判定: チームが見えること(Full Member は Public の
+/// どのチームでも。チームの物の規則はサイクルと同じ)。切り替えは `ACCESS_ENFORCE_TEAM`。
 async fn ensure_team_access(
     state: &AppState,
+    viewer: &Viewer,
     team_id: i32,
     user_id: i32,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    action: Action,
+    id: i32,
+    route: &'static str,
+) -> Result<(), axum::response::Response> {
+    let server_error = |e: anyhow::Error| {
+        tracing::error!("DB operation failed: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                detail: "サーバーエラーが発生しました".to_string(),
+            }),
+        )
+            .into_response()
+    };
     let is_member = team_repo::check_team_membership_exists(&state.pool, team_id, user_id)
         .await
-        .map_err(|e| {
-            tracing::error!("DB operation failed: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    detail: "サーバーエラーが発生しました".to_string(),
-                }),
-            )
-        })?;
-    if is_member {
-        return Ok(());
-    }
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(ErrorResponse {
-            detail: "このチームのメンバーではありません".to_string(),
-        }),
-    ))
+        .map_err(server_error)?;
+    let legacy = if is_member {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                detail: "このチームのメンバーではありません".to_string(),
+            }),
+        )
+            .into_response())
+    };
+    let facts = facts_repo::facts_for_team(&state.pool, team_id)
+        .await
+        .map_err(server_error)?
+        .map(|team| ResourceRef::Cycle { team });
+    authorize::gate(
+        &state.pool,
+        viewer,
+        facts.as_ref(),
+        action,
+        Resource::Team,
+        id as i64,
+        legacy,
+        route,
+    )
 }
 
+/// 既存の依頼のチームへのアクセスの確認(チームの無い依頼は、今の判定では確認なし。新しい判定では 404)
 async fn ensure_triage_team_access(
     state: &AppState,
+    viewer: &Viewer,
     item: &TriageRequestOut,
     user_id: i32,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    if let Some(team_id) = item.team {
-        ensure_team_access(state, team_id, user_id).await
-    } else {
-        Ok(())
+    action: Action,
+    route: &'static str,
+) -> Result<(), axum::response::Response> {
+    match item.team {
+        Some(team_id) => {
+            ensure_team_access(state, viewer, team_id, user_id, action, item.id, route).await
+        }
+        None => authorize::gate(
+            &state.pool,
+            viewer,
+            None,
+            action,
+            Resource::Team,
+            item.id as i64,
+            Ok(()),
+            route,
+        ),
     }
 }
 
 /// GET /api/v1/triage-requests/
 pub async fn list(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let team_id = match params.team {
         Some(id) => id,
         None => {
@@ -95,8 +142,18 @@ pub async fn list(
         }
     };
 
-    if let Err(resp) = ensure_team_access(&state, team_id, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = ensure_team_access(
+        &state,
+        &viewer,
+        team_id,
+        auth.user_id,
+        Action::Read,
+        0,
+        "GET /api/v1/triage-requests/",
+    )
+    .await
+    {
+        return resp;
     }
 
     let page = params.page.unwrap_or(1).max(1);
@@ -116,7 +173,9 @@ pub async fn list(
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -135,7 +194,9 @@ pub async fn list(
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -163,7 +224,12 @@ pub async fn list(
 
     (
         StatusCode::OK,
-        Json(PaginatedTriageOut { count, next, previous, results: items }),
+        Json(PaginatedTriageOut {
+            count,
+            next,
+            previous,
+            results: items,
+        }),
     )
         .into_response()
 }
@@ -171,26 +237,45 @@ pub async fn list(
 /// GET /api/v1/triage-requests/{id}/
 pub async fn detail(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     match triage_repo::find_by_id(&state.pool, id).await {
         Ok(Some(item)) => {
-            if let Err(resp) = ensure_triage_team_access(&state, &item, auth.user_id).await {
-                return resp.into_response();
+            if let Err(resp) = ensure_triage_team_access(
+                &state,
+                &viewer,
+                &item,
+                auth.user_id,
+                Action::Read,
+                "GET /api/v1/triage-requests/{id}/",
+            )
+            .await
+            {
+                return resp;
             }
             (StatusCode::OK, Json(item)).into_response()
         }
         Ok(None) => (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
         )
             .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response()
         }
@@ -200,9 +285,15 @@ pub async fn detail(
 /// POST /api/v1/triage-requests/
 pub async fn create(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<TriageRequestWriteIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let team_id = match body.team {
         Some(id) => id,
         None => {
@@ -216,8 +307,18 @@ pub async fn create(
         }
     };
 
-    if let Err(resp) = ensure_team_access(&state, team_id, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = ensure_team_access(
+        &state,
+        &viewer,
+        team_id,
+        auth.user_id,
+        Action::Create,
+        0,
+        "POST /api/v1/triage-requests/",
+    )
+    .await
+    {
+        return resp;
     }
 
     match triage_repo::create(&state.pool, &body, auth.user_id).await {
@@ -225,7 +326,9 @@ pub async fn create(
             Ok(Some(item)) => (StatusCode::CREATED, Json(item)).into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response(),
         },
@@ -233,7 +336,9 @@ pub async fn create(
             tracing::error!("DB operation failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response()
         }
@@ -243,16 +348,24 @@ pub async fn create(
 /// PATCH /api/v1/triage-requests/{id}/
 pub async fn update(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(body): Json<TriageRequestUpdateIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let existing = match triage_repo::find_by_id(&state.pool, id).await {
         Ok(Some(item)) => item,
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -260,14 +373,25 @@ pub async fn update(
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
     };
 
-    if let Err(resp) = ensure_triage_team_access(&state, &existing, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = ensure_triage_team_access(
+        &state,
+        &viewer,
+        &existing,
+        auth.user_id,
+        Action::Write,
+        "PATCH /api/v1/triage-requests/{id}/",
+    )
+    .await
+    {
+        return resp;
     }
 
     match triage_repo::update(&state.pool, id, &body).await {
@@ -275,20 +399,26 @@ pub async fn update(
             Ok(Some(item)) => (StatusCode::OK, Json(item)).into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response(),
         },
         Ok(false) => (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
         )
             .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response()
         }
@@ -298,15 +428,23 @@ pub async fn update(
 /// DELETE /api/v1/triage-requests/{id}/
 pub async fn delete(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let existing = match triage_repo::find_by_id(&state.pool, id).await {
         Ok(Some(item)) => item,
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -314,28 +452,43 @@ pub async fn delete(
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
     };
 
-    if let Err(resp) = ensure_triage_team_access(&state, &existing, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = ensure_triage_team_access(
+        &state,
+        &viewer,
+        &existing,
+        auth.user_id,
+        Action::Delete,
+        "DELETE /api/v1/triage-requests/{id}/",
+    )
+    .await
+    {
+        return resp;
     }
 
     match triage_repo::delete(&state.pool, id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
         )
             .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response()
         }
@@ -345,16 +498,24 @@ pub async fn delete(
 /// POST /api/v1/triage-requests/{id}/approve/
 pub async fn approve(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(body): Json<TriageApproveIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let existing = match triage_repo::find_by_id(&state.pool, id).await {
         Ok(Some(item)) => item,
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -362,43 +523,70 @@ pub async fn approve(
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
     };
 
-    if let Err(resp) = ensure_triage_team_access(&state, &existing, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = ensure_triage_team_access(
+        &state,
+        &viewer,
+        &existing,
+        auth.user_id,
+        Action::Write,
+        "POST /api/v1/triage-requests/{id}/approve/",
+    )
+    .await
+    {
+        return resp;
     }
 
     if existing.status != "pending" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { detail: "この依頼は既にレビュー済みです。".to_string() }),
+            Json(ErrorResponse {
+                detail: "この依頼は既にレビュー済みです。".to_string(),
+            }),
         )
             .into_response();
     }
 
-    match triage_repo::approve(&state.pool, id, auth.user_id, &body.comment, body.project_id).await {
+    match triage_repo::approve(
+        &state.pool,
+        id,
+        auth.user_id,
+        &body.comment,
+        body.project_id,
+    )
+    .await
+    {
         Ok(Some(_)) => match triage_repo::find_by_id(&state.pool, id).await {
             Ok(Some(item)) => (StatusCode::OK, Json(item)).into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response(),
         },
         Ok(None) => (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
         )
             .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response()
         }
@@ -408,16 +596,24 @@ pub async fn approve(
 /// POST /api/v1/triage-requests/{id}/reject/
 pub async fn reject(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(body): Json<TriageReviewIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let existing = match triage_repo::find_by_id(&state.pool, id).await {
         Ok(Some(item)) => item,
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse { detail: "見つかりません".to_string() }),
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
             )
                 .into_response();
         }
@@ -425,20 +621,33 @@ pub async fn reject(
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
     };
 
-    if let Err(resp) = ensure_triage_team_access(&state, &existing, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = ensure_triage_team_access(
+        &state,
+        &viewer,
+        &existing,
+        auth.user_id,
+        Action::Write,
+        "POST /api/v1/triage-requests/{id}/reject/",
+    )
+    .await
+    {
+        return resp;
     }
 
     if existing.status != "pending" {
         return (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { detail: "この依頼は既にレビュー済みです。".to_string() }),
+            Json(ErrorResponse {
+                detail: "この依頼は既にレビュー済みです。".to_string(),
+            }),
         )
             .into_response();
     }
@@ -448,20 +657,26 @@ pub async fn reject(
             Ok(Some(item)) => (StatusCode::OK, Json(item)).into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response(),
         },
         Ok(false) => (
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse { detail: "見つかりません".to_string() }),
+            Json(ErrorResponse {
+                detail: "見つかりません".to_string(),
+            }),
         )
             .into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response()
         }

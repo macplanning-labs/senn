@@ -7,7 +7,7 @@
  * ユーザーごとに独立した DB インスタンスを使用。
  */
 
-import Dexie, { type EntityTable } from 'dexie';
+import Dexie, { type EntityTable, type Table } from 'dexie';
 import { useSyncExternalStore } from 'react';
 // ── サーバーの同期 DTO（GET /api/v1/sync/tickets/ の changes の1件。詳細設計 §2.3） ──
 export interface SyncUser {
@@ -48,6 +48,8 @@ export interface TicketSyncDto {
   assignees: SyncUser[];
   reviewers: SyncUser[];
   author: SyncUser | null;
+  /** AI 経由で作られたか(個人キーでは作成者が持ち主本人になるため、印で残す) */
+  createdViaAi?: boolean;
   category: { id: number; name: string; slug?: string; color: string; level?: number; parent?: number | null; sortOrder?: number } | null;
   milestone: { id: number; name: string; dueDate: string | null; description?: string; project?: number | null } | null;
   project: number | null;
@@ -87,6 +89,8 @@ export interface ProjectSyncDto {
   memberCount: number;
   isMember: boolean;
   teams: Array<SyncTeam & { archived?: boolean }>;
+  /** 参加チームのうち、閲覧できないため `teams` から除かれた数 */
+  hiddenTeamCount?: number;
   ownerId: number | null;
   createdAt: string;
   updatedAt: string;
@@ -105,7 +109,7 @@ export interface SyncAccess {
 }
 
 export interface SyncMeta {
-  entity: 'tickets' | 'projects';
+  entity: 'tickets' | 'projects' | 'comments';
   cursor: string | null;
   lastFullSyncAt: string | null;
   access: SyncAccess | null;
@@ -113,6 +117,8 @@ export interface SyncMeta {
 
 // ── ローカルスキーマ ──
 export interface LocalTicket extends TicketSyncDto {
+  /** 行の版番号（サーバーの sync_version）。手元より新しい版のときだけ上書きする（writeGateway） */
+  v?: number;
   teamId: number | null; // 索引用（team?.id）
   projectId: number | null; // = project
   cycleId: number | null; // = cycle
@@ -132,11 +138,40 @@ export interface LocalTicket extends TicketSyncDto {
 }
 
 export interface LocalProject extends ProjectSyncDto {
+  /** 行の版番号（サーバーの sync_version） */
+  v?: number;
   _dirty: boolean;
   _syncedAt: string | null;
   _pendingCreate?: boolean;
   _deleted?: boolean;
   _syncError?: string | null;
+}
+
+export interface LocalCommentUser {
+  id: number;
+  username: string;
+  displayName: string;
+}
+
+/** コメント。閲覧者に依存する値（canEdit 等）は持たない。画面側で導出する */
+export interface LocalComment {
+  id: number;
+  ticketId: number;
+  body: string;            // 論理削除済みは ''
+  author: LocalCommentUser;
+  actingUser: LocalCommentUser | null;
+  createdAt: string;
+  updatedAt: string | null;
+  anchorStart: number | null;
+  anchorEnd: number | null;
+  anchorQuote: string | null;
+  parentCommentId: number | null;
+  isDeleted: boolean;
+  /** 投稿者が AI エージェントか（サーバーが判定。編集可否の導出に使う） */
+  isAiAgentAuthor: boolean;
+  /** 行の版番号（サーバーの sync_version） */
+  v?: number;
+  _syncedAt: string | null;
 }
 
 export interface LocalWikiPage {
@@ -187,6 +222,21 @@ export interface LocalPendingBlob {
 /** サーバーのエラー応答がこの回数続いたら「同期できなかった変更」として扱う */
 export const MAX_RETRY = 5;
 
+/** リアルタイム同期: 部屋ごとの受信位置（その部屋で最後に適用した seq）。epoch が違えば seq は比べない */
+export interface RealtimeMeta {
+  room: string;
+  epoch: string;
+  seq: number;
+}
+
+/** 削除・見えなくなった行の記録。削除の後に古い upsert が遅れて届いても、蘇らせない（10分で消す） */
+export interface LocalTombstone {
+  entity: string;
+  id: number;
+  v: number;
+  at: number;
+}
+
 export interface SyncQueueItem {
   id?: number;
   /** 対象エンティティ種別 */
@@ -231,6 +281,9 @@ function createDb(name: string) {
     pendingBlobs: EntityTable<LocalPendingBlob, 'localId'>;
     syncQueue: EntityTable<SyncQueueItem, 'id'>;
     syncMeta: EntityTable<SyncMeta, 'entity'>;
+    realtimeMeta: EntityTable<RealtimeMeta, 'room'>;
+    tombstones: Table<LocalTombstone, [string, number]>;
+    comments: EntityTable<LocalComment, 'id'>;
   };
 
   instance.version(1).stores({
@@ -367,6 +420,17 @@ function createDb(name: string) {
       await tx.table('tickets').clear();
       await tx.table('projects').clear();
     });
+
+  // v8: リアルタイム同期（部屋ごとの受信位置・削除の記録）。既存の表は変えない
+  instance.version(8).stores({
+    realtimeMeta: 'room',
+    tombstones: '[entity+id], at',
+  });
+
+  // v9: コメントを端末内 DB に持つ（リアルタイム同期 Phase 2）。既存の表は変えない
+  instance.version(9).stores({
+    comments: 'id, ticketId, [ticketId+createdAt], parentCommentId',
+  });
 
   return instance;
 }

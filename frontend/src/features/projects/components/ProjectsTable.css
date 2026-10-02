@@ -85,6 +85,13 @@
   flex-shrink: 0;
 }
 
+.projects-table__hidden-teams {
+  margin-left: var(--space-1);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
 .projects-table__team-dot {
   width: 7px;
   height: 7px;

@@ -35,11 +35,12 @@ describe('syncEngine', () => {
     expect(removed).toEqual(expect.arrayContaining(['focus', 'online']));
   });
 
-  it('プロジェクト → チケットの順に取り、終わると初回同期済みになる', async () => {
+  it('プロジェクト → チケット → コメントの順に取り（親が先）、終わると初回同期済みになる', async () => {
     startSync(nextUserId());
     await vi.waitFor(() => expect(useSyncStatus.getState().initialSyncDone).toBe(true));
     const urls = get.mock.calls.map((c) => c[0]);
     expect(urls.indexOf('/sync/projects/')).toBeLessThan(urls.indexOf('/sync/tickets/'));
+    expect(urls.indexOf('/sync/tickets/')).toBeLessThan(urls.indexOf('/sync/comments/'));
   });
 
   it('実行中に呼ばれても並列にならず、終わってからもう1回だけ回る', async () => {
@@ -74,13 +75,13 @@ describe('syncEngine', () => {
     release();
     await first; // 1回目が終わった時点で、予約された「もう1回」が始まっている
 
-    // 「もう1回」が終わるのを、取得の回数で待つ（1回目 projects + tickets、もう1回 projects + tickets）
-    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(4), { timeout: 5000 });
+    // 「もう1回」が終わるのを、取得の回数で待つ（1回目 projects + tickets + comments、もう1回 projects + tickets + comments）
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(6), { timeout: 5000 });
     await vi.waitFor(() => expect(useSyncStatus.getState().syncing).toBe(false), { timeout: 5000 });
     // 3回目が走らないこと（予約は1回に畳まれる）。多少待って、回数が増えていないことを確かめる
     await new Promise((r) => setTimeout(r, 50));
 
     expect(maxInFlight).toBe(1);
-    expect(get).toHaveBeenCalledTimes(4);
+    expect(get).toHaveBeenCalledTimes(6);
   }, 15000);
 });

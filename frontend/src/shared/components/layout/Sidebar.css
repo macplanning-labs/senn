@@ -386,6 +386,14 @@
   text-overflow: ellipsis;
 }
 
+/* Private チームの印(アクセス制御の再設計 G-2) */
+.sidebar__team-lock {
+  flex-shrink: 0;
+  margin-left: 4px;
+  font-size: 0.75em;
+  opacity: 0.7;
+}
+
 .sidebar__empty-cta {
   display: flex;
   align-items: center;
@@ -628,6 +636,39 @@
   color: var(--color-text-primary);
 }
 
+/* ── リアルタイム接続状態 ── */
+.sidebar__realtime {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-secondary);
+}
+
+.sidebar__realtime-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sidebar__realtime--connected .sidebar__realtime-dot {
+  background-color: #22c55e;
+}
+
+.sidebar__realtime--disconnected .sidebar__realtime-dot {
+  background-color: var(--color-text-tertiary);
+}
+
+.sidebar__realtime-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── フッター ── */
 .sidebar__footer {
   padding: var(--space-2);
@@ -808,13 +849,19 @@
 
   .sidebar--open .sidebar__label,
   .sidebar--open .sidebar__project-name,
-  .sidebar--open .sidebar__user-name {
+  .sidebar--open .sidebar__user-name,
+  .sidebar--open .sidebar__realtime-label {
     display: none;
   }
 
   .sidebar--open .sidebar__project-icon,
   .sidebar--open .sidebar__avatar {
     margin: 0 auto;
+  }
+
+  .sidebar--open .sidebar__realtime {
+    justify-content: center;
+    padding: var(--space-2);
   }
 
   .sidebar--open .sidebar__project-btn {

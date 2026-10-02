@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getAccessToken } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
 import '../components/AdminPage.css';
@@ -11,6 +12,7 @@ import '@/features/settings/components/SettingsPage.css';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 export function AdminBackupSection() {
+  const { t } = useTranslation();
   const toast = useToast();
   const [exporting, setExporting] = useState(false);
 
@@ -24,7 +26,7 @@ export function AdminBackupSection() {
       });
 
       if (!res.ok) {
-        let message = 'バックアップの取得に失敗しました';
+        let message = t('admin.backupFetchFailed');
         try {
           const body = await res.json();
           if (body?.error) message = body.error;
@@ -48,9 +50,9 @@ export function AdminBackupSection() {
       a.remove();
       URL.revokeObjectURL(url);
 
-      toast.success('バックアップファイルをダウンロードしました');
+      toast.success(t('admin.backupDownloaded'));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'バックアップに失敗しました');
+      toast.error(e instanceof Error ? e.message : t('admin.backupFailedGeneric'));
     } finally {
       setExporting(false);
     }
@@ -58,12 +60,14 @@ export function AdminBackupSection() {
 
   return (
     <section className="settings__section" data-testid="admin-backup-section">
-      <h2 className="settings__section-title">バックアップ</h2>
+      <h2 className="settings__section-title">{t('admin.backupTitle')}</h2>
       <div className="settings__card">
         <p className="admin__hint" style={{ marginBottom: '1rem' }}>
-          PostgreSQL の SQL ダンプを gzip 圧縮してダウンロードします。
-          リストア（復元）は画面からは行いません（ops 手順で実施）。
-          サーバー作業ディレクトリに一時ファイルは作成しません。
+          {t('admin.backupDesc1')}
+          {' '}
+          {t('admin.backupDesc2')}
+          {' '}
+          {t('admin.backupDesc3')}
         </p>
         <button
           type="button"
@@ -71,7 +75,7 @@ export function AdminBackupSection() {
           disabled={exporting}
           onClick={() => void handleExport()}
         >
-          {exporting ? 'エクスポート中…' : '⚡ 即時バックアップ（SQLダンプ）を実行'}
+          {exporting ? t('admin.exportingLabel') : <>⚡ {t('admin.runBackupButton')}</>}
         </button>
       </div>
     </section>

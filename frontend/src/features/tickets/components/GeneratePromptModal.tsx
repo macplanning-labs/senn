@@ -108,7 +108,7 @@ export function GeneratePromptModal() {
             className="prompt-modal__button prompt-modal__button--close"
             onClick={close}
           >
-            {t('common.close', { defaultValue: '閉じる' })}
+            {t('common.close')}
           </button>
           {phase === 'success' && (
             <button

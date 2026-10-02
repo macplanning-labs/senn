@@ -5,13 +5,15 @@
  * UX は Linear 寄り、表示用語は SENN（Issue / Inbox 等は使わない）。
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { userInitial, userLabel } from '@/shared/utils/userLabel';
 import { useTeam, getLastTeamSlug } from '@/shared/hooks/useTeam';
+import { isPrivateTeam, joinedTeams } from '@/features/teams/utils/teamAccess';
 import { isInternalChannel } from '@/shared/config/appChannel';
 import { TeamDetailModal } from '@/features/teams/components/TeamDetailModal';
 import {
@@ -20,6 +22,7 @@ import {
   splitPinnedTeams,
 } from '@/shared/utils/sidebarTeamPins';
 import { useSyncStatus } from '@/shared/sync/syncStatusStore';
+import { useRealtimeState } from '@/shared/sync/realtime/useRealtimeState';
 import { SyncFailuresPanel } from '@/shared/sync/components/SyncFailuresPanel';
 import { TeamSidebarMoreMenu } from './TeamSidebarMoreMenu';
 import { TeamSectionMenu } from './TeamSectionMenu';
@@ -250,7 +253,9 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
-  const { teamList, activeTeams: activeTeamList, isLoading } = useTeam();
+  const { teamList, activeTeams: allActiveTeams, isLoading } = useTeam();
+  // サイドバーには参加しているチームだけを出す(ほかのチームは「チーム」のページで探して参加する)
+  const activeTeamList = useMemo(() => joinedTeams(allActiveTeams), [allActiveTeams]);
   const location = useLocation();
 
   // focused* = サイドバー枠に出す対象（折りたたみでは消さない）
@@ -298,7 +303,10 @@ export function Sidebar() {
 
   const [syncFailuresOpen, setSyncFailuresOpen] = useState(false);
   const failedCount = useSyncStatus((s) => s.failedCount);
+  const realtimeState = useRealtimeState();
 
+  // Guest はチームを作れない(サーバーも 403)。作成の入口を出さない
+  const canCreateTeam = !user?.isGuest;
   const showAddAttention = !isLoading && teamList.length === 0;
 
   useEffect(() => {
@@ -448,16 +456,18 @@ export function Sidebar() {
               <span className="sidebar__nav-label">{t('sidebar.yourTeams')}</span>
             </Link>
             <div className="sidebar__section-actions">
-              <button
-                type="button"
-                className={`sidebar__section-add-btn${showAddAttention ? ' sidebar__section-add-btn--attention' : ''}`}
-                onClick={() => setCreateTeamModalOpen(true)}
-                title={t('team.createNew')}
-                aria-label={t('team.createNew')}
-                data-testid="team-create-btn"
-              >
-                <IconPlus />
-              </button>
+              {canCreateTeam && (
+                <button
+                  type="button"
+                  className={`sidebar__section-add-btn${showAddAttention ? ' sidebar__section-add-btn--attention' : ''}`}
+                  onClick={() => setCreateTeamModalOpen(true)}
+                  title={t('team.createNew')}
+                  aria-label={t('team.createNew')}
+                  data-testid="team-create-btn"
+                >
+                  <IconPlus />
+                </button>
+              )}
               <TeamSectionMenu teams={activeTeamList} />
             </div>
           </div>
@@ -473,7 +483,7 @@ export function Sidebar() {
         )}
 
         <>
-          {activeTeamList.length === 0 && (
+          {canCreateTeam && activeTeamList.length === 0 && (
           <button
             type="button"
             className="sidebar__empty-cta"
@@ -541,6 +551,15 @@ export function Sidebar() {
                       {team.name[0]?.toUpperCase() ?? 'T'}
                     </span>
                     {sidebarOpen && <span className="sidebar__label">{team.name}</span>}
+                    {sidebarOpen && isPrivateTeam(team) && (
+                      <span
+                        className="sidebar__team-lock"
+                        title={t('teamAccess.privateTooltip')}
+                        aria-label={t('teamAccess.private')}
+                      >
+                        🔒
+                      </span>
+                    )}
                   </button>
                   {sidebarOpen && (
                     <TeamSidebarMoreMenu
@@ -697,17 +716,17 @@ export function Sidebar() {
           {sidebarOpen && <span className="sidebar__label">{t('nav.settings')}</span>}
         </NavLink>
 
-        {user?.isStaff && isInternalChannel() && (
+        {user?.isSystemAdmin && isInternalChannel() && (
           <NavLink
             to="/admin"
             className={({ isActive }) =>
               `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
             }
             data-testid="nav-admin"
-            title={!sidebarOpen ? 'システム管理' : undefined}
+            title={!sidebarOpen ? t('sidebar.systemAdmin') : undefined}
           >
             <span className="sidebar__icon">🏢</span>
-            {sidebarOpen && <span className="sidebar__label">システム管理</span>}
+            {sidebarOpen && <span className="sidebar__label">{t('sidebar.systemAdmin')}</span>}
           </NavLink>
         )}
 
@@ -723,6 +742,11 @@ export function Sidebar() {
           </button>
         )}
 
+        <div className={`sidebar__realtime sidebar__realtime--${realtimeState}`} title={t(realtimeState === 'connected' ? 'sync.realtimeOnTitle' : 'sync.realtimeOffTitle')} data-testid="realtime-status" data-state={realtimeState}>
+          <span className="sidebar__realtime-dot" aria-hidden="true" />
+          {sidebarOpen && <span className="sidebar__realtime-label">{t(realtimeState === 'connected' ? 'sync.realtimeOn' : 'sync.realtimeOff')}</span>}
+        </div>
+
         {user && (
           <div className="sidebar__user" data-testid="sidebar-user">
             <button
@@ -735,7 +759,7 @@ export function Sidebar() {
               aria-expanded={userMenuOpen}
               data-testid="sidebar-user-menu-trigger"
             >
-              {user.firstName?.[0] ?? user.username[0]?.toUpperCase() ?? '?'}
+              {userInitial(user)}
             </button>
             {sidebarOpen && (
               <div className="sidebar__user-info">
@@ -744,7 +768,7 @@ export function Sidebar() {
                   className="sidebar__user-name sidebar__user-name--button"
                   onClick={() => setUserMenuOpen((v) => !v)}
                 >
-                  {user.firstName || user.username}
+                  {userLabel(user)}
                 </button>
               </div>
             )}

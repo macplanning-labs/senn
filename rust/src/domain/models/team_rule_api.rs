@@ -1,7 +1,6 @@
 /// domain/models/team_rule_api.rs — Team Rules リソース表現
 ///
 /// m_team_rule テーブル用の JSON API モデル。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

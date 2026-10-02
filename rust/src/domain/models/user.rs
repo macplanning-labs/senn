@@ -1,7 +1,6 @@
 /// domain/models/user.rs — ユーザーモデル
 ///
 /// Djangoの accounts_user テーブルに対応する(created_at/updated_at列は存在しない)。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +16,8 @@ pub struct User {
     pub last_name: String,
     pub is_active: bool,
     pub is_staff: bool,
+    pub is_system_admin: bool,
+    pub is_guest: bool,
     pub must_change_password: bool,
     pub email_notifications_enabled: bool,
 }

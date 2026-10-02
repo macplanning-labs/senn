@@ -17,6 +17,7 @@ import { TicketDrilldownPopover } from './TicketDrilldownPopover';
 import type { DrilldownFilter } from './TicketDrilldownPopover';
 import { IconPlus } from '@/shared/components/ui/icons';
 import './Dashboard.css';
+import { userLabel } from '@/shared/utils/userLabel';
 import { DEFAULT_STATUS_OPTIONS, statusLabelOf } from '@/features/tickets/utils/statusOptions';
 
 // ── 型定義 ──────────────────────────────────
@@ -751,7 +752,7 @@ export function Dashboard() {
             {dashboard?.name || t('dashboard.title')}
           </h1>
           <p className="dashboard__greeting">
-            {user ? t('dashboard.welcomeBack', { name: user.firstName || user.username }) : ''}
+            {user ? t('dashboard.welcomeBack', { name: userLabel(user) }) : ''}
           </p>
         </div>
         <button

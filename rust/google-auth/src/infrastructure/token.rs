@@ -55,7 +55,8 @@ pub async fn get_access_token(
     let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
     let encoding_key = jsonwebtoken::EncodingKey::from_rsa_pem(key.private_key.as_bytes())
         .map_err(GoogleAuthError::Jwt)?;
-    let jwt = jsonwebtoken::encode(&header, &claims, &encoding_key).map_err(GoogleAuthError::Jwt)?;
+    let jwt =
+        jsonwebtoken::encode(&header, &claims, &encoding_key).map_err(GoogleAuthError::Jwt)?;
 
     let client = reqwest::Client::new();
     let resp = client

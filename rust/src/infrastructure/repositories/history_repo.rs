@@ -1,11 +1,14 @@
-/// infrastructure/repositories/history_repo.rs — ステータス変更履歴永続化
-
-use sqlx::PgPool;
 use crate::domain::models::ticket::TicketStatusHistory;
+/// infrastructure/repositories/history_repo.rs — ステータス変更履歴永続化
+use sqlx::PgPool;
 
 /// 履歴記録
 pub async fn save(
-    pool: &PgPool, ticket_id: i32, old_status: &str, new_status: &str, changed_by_id: i32,
+    pool: &PgPool,
+    ticket_id: i32,
+    old_status: &str,
+    new_status: &str,
+    changed_by_id: i32,
 ) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO tickets_status_history (ticket_id, old_status, new_status, changed_by_id, changed_at)
@@ -17,7 +20,8 @@ pub async fn save(
 
 /// マイルストーン内の履歴取得（バーンダウンチャート用）
 pub async fn find_by_milestone(
-    pool: &PgPool, milestone_id: i32,
+    pool: &PgPool,
+    milestone_id: i32,
 ) -> anyhow::Result<Vec<TicketStatusHistory>> {
     let rows = sqlx::query_as::<_, TicketStatusHistory>(
         "SELECT h.id, h.ticket_id, h.old_status, h.new_status, h.changed_by_id, h.changed_at,
@@ -28,7 +32,10 @@ pub async fn find_by_milestone(
          JOIN t_tickets t ON h.ticket_id = t.id
          LEFT JOIN accounts_user u ON h.changed_by_id = u.id
          WHERE t.milestone_id = $1
-         ORDER BY h.changed_at"
-    ).bind(milestone_id).fetch_all(pool).await?;
+         ORDER BY h.changed_at",
+    )
+    .bind(milestone_id)
+    .fetch_all(pool)
+    .await?;
     Ok(rows)
 }

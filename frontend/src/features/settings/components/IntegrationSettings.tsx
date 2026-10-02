@@ -154,7 +154,7 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
         </div>
         <p className="integration-info__help">
           {t('integration.webhookHint')}
-          Content type は <code>application/json</code>、イベントは <code>push</code> と <code>pull_request</code> を選択してください。
+          {t('settings.webhookHintLead')} <code>application/json</code>{t('settings.webhookHintEventsLabel')} <code>push</code> {t('settings.webhookHintAnd')} <code>pull_request</code>{t('settings.webhookHintTrail')}
         </p>
       </div>
 

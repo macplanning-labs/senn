@@ -15,7 +15,7 @@ type Team = {
   ticketCount: number; cycleCount: number; removable: boolean; removeBlockedReason: string | null; archived: boolean;
 };
 let mockState: {
-  data?: { canManage: boolean; teams: Team[]; addableTeams: { id: number; name: string; slug: string; icon: string; color: string }[] };
+  data?: { canManage: boolean; teams: Team[]; addableTeams: { id: number; name: string; slug: string; icon: string; color: string }[]; hiddenTeamCount?: number };
   isLoading: boolean;
   isError: boolean;
 };
@@ -62,6 +62,14 @@ describe('ProjectTeamsSection', () => {
     expect(html).not.toContain('project-team-remove-1');
     expect(html).toContain('project-team-blocked-1');
     expect(html).toContain('チケット3件が残っている');
+  });
+
+  it('見えない参加チームは、名前を出さずに数だけ表示する', () => {
+    expect(render()).not.toContain('project-teams-hidden');
+    mockState.data!.hiddenTeamCount = 2;
+    const html = render();
+    expect(html).toContain('project-teams-hidden');
+    expect(html).toContain('projectTeams.hiddenTeams{&quot;count&quot;:2}');
   });
 
   it('変更権限が無い人には、操作を出さず、案内文だけを表示する', () => {

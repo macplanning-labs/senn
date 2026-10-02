@@ -35,8 +35,9 @@ export function ProjectUpdatesSection({ projectId, isMember }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
 
-  const canPost = isMember || !!user?.isStaff;
-  const canModify = (u: ProjectUpdate) => !!user && (u.authorId === user.id || user.isStaff);
+  // Guest は投稿できない(サーバーも 403。プロジェクト単位の所属でも isMember は true になるため明示的に除く)
+  const canPost = (isMember && !user?.isGuest) || !!user?.isSystemAdmin;
+  const canModify = (u: ProjectUpdate) => !!user && (u.authorId === user.id || user.isSystemAdmin);
   const updates = data?.results ?? [];
 
   return (

@@ -8,17 +8,20 @@
  * - チケットは access（見られる範囲）から外れた行を消す。範囲が増えたらフル同期し直す
  */
 
+import type { Table } from 'dexie';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { TICKET_DASHBOARD_INVALIDATE_KEYS } from '../utils/ticketQueryInvalidation';
 import { db, type LocalTicket, type SyncAccess, type SyncMeta } from './db';
-import { toLocalProject, toLocalTicket } from './ticketMapping';
+import { applyServerChanges, notifyEffects, sameRow, syncTables, type GatewayChange, type GatewayResult } from './writeGateway';
 
-export type SyncEntity = 'tickets' | 'projects';
+export { sameRow };
+
+export type SyncEntity = 'tickets' | 'projects' | 'comments';
 
 interface SyncPage {
   changes: Record<string, unknown>[];
-  deleted: Array<{ id: number; key?: string | null }>;
+  deleted: Array<{ id: number; key?: string | null; v?: number }>;
   access: SyncAccess;
   cursor: string;
   hasMore: boolean;
@@ -51,6 +54,15 @@ export function registerSyncTrigger(fn: () => void): void {
 }
 
 /**
+ * 画面が一時的に覚えているサーバーの応答(React Query のキャッシュ)をすべて消す。
+ * アカウントが切り替わるとき(ログアウト・新しいログイン)に呼ぶ。消さないと、前の利用者の
+ * チーム名などが、次の利用者に最大 staleTime の間見えてしまう(DEMO-000166)
+ */
+export function clearCachedQueries(): void {
+  queryClient?.clear();
+}
+
+/**
  * QueryClient を登録する（App.tsx から）。
  * - pull で行が変わったら、サーバー集計系のキャッシュを invalidate する
  * - 逆に、画面がサーバーへ直接書いた後（添付付きの作成、プロジェクト作成、デモデータ作成など）に
@@ -73,7 +85,34 @@ export function registerSyncQueryClient(qc: QueryClient): void {
   }) as QueryClient['invalidateQueries'];
 }
 
-function onRowsChanged(): void {
+/**
+ * コメントが変わった。詳細画面の付随データ（添付など。コメントの行ではないもの）を取り直す。
+ * pull 自身の invalidate なので、下の橋渡し（同期を起こし直す）は止める。
+ */
+export function onCommentsChanged(): void {
+  invalidateFromSync([['ticket']]);
+}
+
+/**
+ * 同期・リアルタイムの側から、react-query のキャッシュを取り直させる。
+ * 同期自身の invalidate なので、下の橋渡し（同期を起こし直す）は止める。
+ */
+export function invalidateFromSync(keys: QueryKey[]): void {
+  if (!queryClient) return;
+  invalidatingFromSync = true;
+  try {
+    for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });
+  } finally {
+    invalidatingFromSync = false;
+  }
+}
+
+/** そのチケットの詳細を開いている（付随データを取得済み）か */
+export function isTicketDetailLoaded(ticketKey: string): boolean {
+  return !!queryClient?.getQueryState(['ticket', ticketKey]);
+}
+
+export function onRowsChanged(): void {
   if (!queryClient) return;
   invalidatingFromSync = true;
   try {
@@ -93,6 +132,18 @@ export function isAccessible(row: Pick<LocalTicket, 'teamId' | 'projectId'>, acc
   return row.projectId != null && access.scopedProjects.some((s) => s.teamId === row.teamId && s.projectId === row.projectId);
 }
 
+/** 見える範囲が変わったか(どちらかが無い場合は、変わっていない扱い) */
+export function accessChanged(prev: SyncAccess | null | undefined, next: SyncAccess | null | undefined): boolean {
+  if (!prev || !next) return false;
+  if (prev.all !== next.all) return true;
+  const key = (a: SyncAccess) =>
+    JSON.stringify([
+      [...a.teamIds].sort((x, y) => x - y),
+      a.scopedProjects.map((s) => `${s.teamId}:${s.projectId}`).sort(),
+    ]);
+  return key(prev) !== key(next);
+}
+
 /** 見られる範囲が増えたか（増えたチームの古い行は差分では届かないので、フル同期し直す） */
 export function accessExpanded(prev: SyncAccess | null | undefined, next: SyncAccess | null | undefined): boolean {
   if (!prev || !next) return false;
@@ -109,33 +160,10 @@ function isGone(err: unknown): boolean {
   return (err as { response?: { status?: number } })?.response?.status === 410;
 }
 
-/** 行に紐づく送信待ち項目を消す（その行がもう存在しないとき） */
-async function dropQueueFor(entity: 'ticket' | 'project', id: number): Promise<void> {
-  await db.syncQueue
-    .where('entityId')
-    .equals(id)
-    .and((q) => q.entity === entity)
-    .delete();
-}
-
-function hasLocalChanges(row: { _dirty?: boolean; _pendingCreate?: boolean; _deleted?: boolean } | undefined): boolean {
-  return !!row && (!!row._dirty || !!row._pendingCreate || !!row._deleted);
-}
-
-/** 比較用の文字列（キーの順番に依らない。_syncedAt は取り込んだ時刻なので比べない） */
-function stableKey(value: unknown): string {
-  return JSON.stringify(value, (k, v) =>
-    k === '_syncedAt'
-      ? undefined
-      : v && typeof v === 'object' && !Array.isArray(v)
-        ? Object.fromEntries(Object.keys(v as object).sort().map((key) => [key, (v as Record<string, unknown>)[key]]))
-        : v,
-  );
-}
-
-/** 端末内の行と中身が同じか（最終ページの巻き戻しで同じ行が再送されてくるため） */
-export function sameRow(existing: unknown, incoming: unknown): boolean {
-  return existing !== undefined && stableKey(existing) === stableKey(incoming);
+/** ゲートウェイの結果を後始末する（トランザクションの確定後）。変わった行数を返す */
+function settle(result: GatewayResult): number {
+  notifyEffects(result.effects);
+  return result.changed;
 }
 
 /**
@@ -143,9 +171,9 @@ export function sameRow(existing: unknown, incoming: unknown): boolean {
  * 呼び出し側（syncEngine）がタブ内・タブ間の排他を行う前提。
  */
 export async function pullEntity(entity: SyncEntity): Promise<{ changed: number }> {
-  const table = entity === 'tickets' ? db.tickets : db.projects;
-  const queueEntity = entity === 'tickets' ? 'ticket' : 'project';
-  const toLocal = entity === 'tickets' ? toLocalTicket : toLocalProject;
+  const table: Table<{ id: number; _pendingCreate?: boolean; _dirty?: boolean; _deleted?: boolean }, number> =
+    (entity === 'tickets' ? db.tickets : entity === 'projects' ? db.projects : db.comments) as never;
+  const rowEntity = entity === 'tickets' ? 'ticket' : entity === 'projects' ? 'project' : 'comment';
 
   const prevMeta: SyncMeta | undefined = await db.syncMeta.get(entity);
   let cursor: string | null = prevMeta?.cursor ?? null;
@@ -174,25 +202,22 @@ export async function pullEntity(entity: SyncEntity): Promise<{ changed: number 
       throw err;
     }
 
-    await db.transaction('rw', [table, db.syncMeta, db.syncQueue], async () => {
-      for (const dto of page.changes ?? []) {
-        const id = dto.id as number;
-        seen.add(id);
-        const existing = await table.get(id);
-        if (hasLocalChanges(existing)) continue;
-        const next = toLocal(dto);
-        // 中身が同じなら書かない（画面の再描画・集計キャッシュの invalidate を起こさない）
-        if (sameRow(existing, next)) continue;
-        await table.put(next as never);
-        changed++;
-      }
-      for (const del of page.deleted ?? []) {
-        if (await table.get(del.id)) {
-          await table.delete(del.id);
-          changed++;
-        }
-        await dropQueueFor(queueEntity, del.id);
-      }
+    const gatewayChanges: GatewayChange[] = [];
+    for (const dto of page.changes ?? []) {
+      const id = dto.id as number;
+      seen.add(id);
+      gatewayChanges.push({ op: 'upsert', entity: rowEntity, id, v: typeof dto.v === 'number' ? dto.v : undefined, data: dto });
+    }
+    for (const del of page.deleted ?? []) {
+      // key が null = 見られなくなっただけ（チーム移動・権限の縮小）。key がある = 削除
+      gatewayChanges.push(
+        del.key === null || del.key === undefined
+          ? { op: 'evict', entity: rowEntity, id: del.id }
+          : { op: 'delete', entity: rowEntity, id: del.id, v: del.v },
+      );
+    }
+    const result = await db.transaction('rw', [...syncTables(), db.syncMeta], async () => {
+      const applied = await applyServerChanges(gatewayChanges);
       const finished = !page.hasMore;
       await db.syncMeta.put({
         entity,
@@ -200,7 +225,9 @@ export async function pullEntity(entity: SyncEntity): Promise<{ changed: number 
         access: page.access ?? null,
         lastFullSyncAt: full && finished ? new Date().toISOString() : (prevMeta?.lastFullSyncAt ?? null),
       });
+      return applied;
     });
+    changed += settle(result);
     lastAccess = page.access ?? lastAccess;
 
     if (!page.hasMore) break;
@@ -209,38 +236,49 @@ export async function pullEntity(entity: SyncEntity): Promise<{ changed: number 
 
   // フル同期の仕上げ: 受け取らなかった行は、サーバーに無い（または見られない）
   if (full) {
-    await db.transaction('rw', [table, db.syncQueue], async () => {
+    const result = await db.transaction('rw', syncTables(), async () => {
       const rows = await table.toArray();
-      for (const row of rows) {
-        if (seen.has(row.id) || row._pendingCreate || row._dirty || row._deleted) continue;
-        await table.delete(row.id);
-        await dropQueueFor(queueEntity, row.id);
-        changed++;
-      }
+      const gone: GatewayChange[] = rows
+        .filter((row) => !(seen.has(row.id) || row.id < 0 || row._pendingCreate || row._dirty || row._deleted))
+        .map((row) => ({ op: 'evict', entity: rowEntity, id: row.id }));
+      return applyServerChanges(gone);
     });
+    changed += settle(result);
   }
 
   if (entity === 'tickets' && lastAccess) {
     const access = lastAccess;
     // 見られなくなったチームの行を消す（メンバーから外れた・期限切れ。行自体は変わらないので差分では届かない）
-    await db.transaction('rw', [db.tickets, db.syncQueue], async () => {
+    const result = await db.transaction('rw', syncTables(), async () => {
       const rows = await db.tickets.toArray();
-      for (const row of rows) {
-        if (row._pendingCreate || isAccessible(row, access)) continue;
-        await db.tickets.delete(row.id);
-        await dropQueueFor('ticket', row.id);
-        changed++;
-      }
+      const gone: GatewayChange[] = rows
+        .filter((row) => !(row._pendingCreate || isAccessible(row, access)))
+        .map((row) => ({ op: 'evict', entity: 'ticket', id: row.id }));
+      return applyServerChanges(gone);
     });
+    changed += settle(result);
     // 見られる範囲が増えた → 増えたチームの古い行を取るためフル同期し直す
     if (!full && accessExpanded(prevMeta?.access, access)) {
       await db.syncMeta.update('tickets', { cursor: null });
+      // コメントも同じ範囲で見えるので、増えたチームのコメントを取るためフル同期し直す
+      await db.syncMeta.update('comments', { cursor: null });
       const again = await pullEntity('tickets');
       changed += again.changed;
     }
   }
 
-  if (changed > 0) onRowsChanged();
+  // プロジェクト: 見える範囲が変わった(アクセス制御の再設計で、サーバーが範囲を返すようになった)→ フル同期し直す。
+  // 見えなくなったプロジェクトは差分では届かないため、フル同期の仕上げ(受け取らなかった行を消す)で消す
+  if (entity === 'projects' && !full && accessChanged(prevMeta?.access, lastAccess)) {
+    await db.syncMeta.update('projects', { cursor: null });
+    const again = await pullEntity('projects');
+    changed += again.changed;
+  }
+
+  if (changed > 0) {
+    if (entity === 'comments') onCommentsChanged();
+    else onRowsChanged();
+  }
   return { changed };
 }
 

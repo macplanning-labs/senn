@@ -90,7 +90,7 @@ export function SecuritySettings() {
       setStep('setup');
     },
     onError: () => {
-      toast.error(t('common.error') || 'エラーが発生しました');
+      toast.error(t('common.error'));
     },
   });
 
@@ -107,14 +107,14 @@ export function SecuritySettings() {
       return response;
     },
     onSuccess: () => {
-      toast.success(t('settings.totpEnabled') || 'TOTPが有効になりました');
+      toast.success(t('settings.totpEnabled'));
       setIsEnabled(true);
       setStep('idle');
       setConfirmCode('');
       setQrCode('');
     },
     onError: () => {
-      toast.error(t('settings.totpConfirmFailed') || '確認に失敗しました');
+      toast.error(t('settings.totpConfirmFailed'));
     },
   });
 
@@ -128,13 +128,13 @@ export function SecuritySettings() {
       return response;
     },
     onSuccess: () => {
-      toast.success(t('settings.totpDisabled') || 'TOTPが無効になりました');
+      toast.success(t('settings.totpDisabled'));
       setIsEnabled(false);
       setStep('idle');
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(detail || t('common.error') || 'エラーが発生しました');
+      toast.error(detail || t('common.error'));
     },
   });
 
@@ -154,7 +154,7 @@ export function SecuritySettings() {
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(detail || t('common.error') || 'エラーが発生しました');
+      toast.error(detail || t('common.error'));
     },
   });
 
@@ -168,13 +168,13 @@ export function SecuritySettings() {
       return response.data;
     },
     onSuccess: () => {
-      toast.success('パスキーを登録しました');
+      toast.success(t('settings.passkeyRegisteredToast'));
       setPasskeyStep('idle');
       void queryClient.invalidateQueries({ queryKey: ['passkeys'] });
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(detail || t('common.error') || 'パスキー登録に失敗しました');
+      toast.error(detail || t('settings.passkeyRegisterFailed'));
       setPasskeyStep('idle');
     },
   });
@@ -188,12 +188,12 @@ export function SecuritySettings() {
       );
     },
     onSuccess: () => {
-      toast.success('パスキーを削除しました');
+      toast.success(t('settings.passkeyDeletedToast'));
       void queryClient.invalidateQueries({ queryKey: ['passkeys'] });
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(detail || t('common.error') || 'パスキー削除に失敗しました');
+      toast.error(detail || t('settings.passkeyDeleteFailed'));
     },
   });
 
@@ -203,17 +203,17 @@ export function SecuritySettings() {
 
   const handleConfirm = () => {
     if (confirmCode.length !== 6) {
-      toast.error(t('settings.totpCodeLength') || '6桁のコードを入力してください');
+      toast.error(t('settings.totpCodeLength'));
       return;
     }
     confirmMutation.mutate();
   };
 
   const handleDisable = () => {
-    if (!window.confirm(t('settings.totpDisableConfirm') || 'TOTPを無効化してもよろしいですか？')) {
+    if (!window.confirm(t('settings.totpDisableConfirm'))) {
       return;
     }
-    const password = window.prompt(t('settings.totpDisablePasswordPrompt') || '確認のため、現在のパスワードを入力してください');
+    const password = window.prompt(t('settings.totpDisablePasswordPrompt'));
     if (!password) {
       return;
     }
@@ -243,16 +243,16 @@ export function SecuritySettings() {
       console.error('WebAuthn registration error:', error);
       const msg = error?.message || '';
       if (/AbortError|NotAllowedError|取消|canceled|cancelled/i.test(msg)) {
-        toast.error('パスキー登録がキャンセルされました');
+        toast.error(t('settings.passkeyRegisterCanceled'));
       } else {
-        toast.error(msg || 'パスキー作成に失敗しました');
+        toast.error(msg || t('settings.passkeyRegisterFailed'));
       }
       setPasskeyStep('idle');
     }
   };
 
   const handlePasskeyDelete = (id: number) => {
-    if (!window.confirm('このパスキーを削除してもよろしいですか？')) {
+    if (!window.confirm(t('settings.passkeyDeleteConfirm'))) {
       return;
     }
     passkeyDeleteMutation.mutate(id);
@@ -260,7 +260,7 @@ export function SecuritySettings() {
 
   return (
     <section className="settings__section">
-      <h2 className="settings__section-title">🔐 {t('settings.security', 'Security')}</h2>
+      <h2 className="settings__section-title">🔐 {t('settings.security')}</h2>
       <div className="settings__card">
         {step === 'idle' && (
           <div className="settings__totp-idle">
@@ -380,25 +380,25 @@ export function SecuritySettings() {
           <div className="settings__passkey-idle">
             <div className="settings__passkey-status">
               <span className="settings__passkey-label">
-                🔑 パスキー（Passkey / WebAuthn）
+                🔑 {t('settings.passkeyTitle')}
               </span>
               <span className="settings__passkey-state">
                 {(passkeyListData?.passkeys?.length ?? 0) > 0 ? (
-                  <span className="settings__passkey-enabled">✓ {passkeyListData?.passkeys?.length} 登録済み</span>
+                  <span className="settings__passkey-enabled">✓ {t('settings.passkeyCountRegistered', { count: passkeyListData?.passkeys?.length ?? 0 })}</span>
                 ) : (
-                  <span className="settings__passkey-disabled">✗ 未登録</span>
+                  <span className="settings__passkey-disabled">✗ {t('settings.passkeyNotRegistered')}</span>
                 )}
               </span>
             </div>
             <p className="settings__passkey-desc">
-              パスキーを使用して、より安全でかつ簡単にログインできます。
+              {t('settings.passkeyDesc')}
             </p>
 
             {passkeyStep === 'idle' && (
               <>
                 {(passkeyListData?.passkeys?.length ?? 0) > 0 && (
                   <div className="settings__passkey-list">
-                    <h4>登録済みパスキー</h4>
+                    <h4>{t('settings.registeredPasskeys')}</h4>
                     <ul className="settings__passkey-items">
                       {passkeyListData?.passkeys?.map((pk) => (
                         <li key={pk.id} className="settings__passkey-item">
@@ -416,7 +416,7 @@ export function SecuritySettings() {
                             onClick={() => handlePasskeyDelete(pk.id)}
                             disabled={passkeyDeleteMutation.isPending}
                           >
-                            削除
+                            {t('common.delete')}
                           </button>
                         </li>
                       ))}
@@ -430,7 +430,7 @@ export function SecuritySettings() {
                     onClick={handlePasskeyBegin}
                     disabled={passkeyBeginMutation.isPending}
                   >
-                    {passkeyBeginMutation.isPending ? '登録中...' : 'パスキーを登録'}
+                    {passkeyBeginMutation.isPending ? t('settings.registeringPasskey') : t('settings.registerPasskey')}
                   </button>
                 </div>
               </>
@@ -438,8 +438,8 @@ export function SecuritySettings() {
 
             {passkeyStep === 'registering' && (
               <div className="settings__passkey-registering">
-                <p>パスキーを設定中です...</p>
-                <p>デバイスの認証（指紋認証など）を完了してください。</p>
+                <p>{t('settings.passkeySettingUp')}</p>
+                <p>{t('settings.passkeySettingUpHint')}</p>
               </div>
             )}
           </div>

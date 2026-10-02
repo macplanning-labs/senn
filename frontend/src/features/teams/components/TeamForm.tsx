@@ -6,6 +6,7 @@
  */
 
 import { useTranslation } from 'react-i18next';
+import type { TeamVisibility } from '@/shared/api/types';
 
 // 絵文字候補
 const EMOJI_OPTIONS = ['👥', '🛠️', '🎨', '🔧', '📊', '🚀', '💻', '🔒', '📋', '⚙️', '🧪', '📦'];
@@ -37,6 +38,9 @@ interface TeamFormProps {
   submitLabel?: string;
   onCancel?: () => void;
   showActiveToggle?: boolean;
+  /** 作成時の公開区分(作成のときだけ表示。変更はチームの設定で行う) */
+  visibility?: TeamVisibility;
+  onVisibilityChange?: (value: TeamVisibility) => void;
 }
 
 export function TeamForm({
@@ -60,6 +64,8 @@ export function TeamForm({
   onSubmit,
   submitLabel,
   onCancel,
+  visibility,
+  onVisibilityChange,
   showActiveToggle = true,
 }: TeamFormProps) {
   const { t } = useTranslation();
@@ -143,6 +149,33 @@ export function TeamForm({
           {t('team.modal.prefixHelp')}
         </div>
       </div>
+
+      {/* 公開区分(作成のときだけ) */}
+      {!isEdit && visibility && onVisibilityChange && (
+        <div className="teams-modal__field" data-testid="team-visibility-field">
+          <label className="teams-modal__label">{t('teamAccess.visibility')}</label>
+          <label className="teams-modal__radio">
+            <input
+              type="radio"
+              name="team-visibility"
+              checked={visibility === 'public'}
+              onChange={() => onVisibilityChange('public')}
+              data-testid="team-visibility-public"
+            />
+            {t('teamAccess.visibilityPublic')}
+          </label>
+          <label className="teams-modal__radio">
+            <input
+              type="radio"
+              name="team-visibility"
+              checked={visibility === 'private'}
+              onChange={() => onVisibilityChange('private')}
+              data-testid="team-visibility-private"
+            />
+            🔒 {t('teamAccess.visibilityPrivate')}
+          </label>
+        </div>
+      )}
 
       {/* 説明 */}
       <div className="teams-modal__field">

@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import type { Team } from '@/shared/api/types';
 import { ArchiveTeamButton } from './ArchiveTeamButton';
 import { RestoreTeamButton } from './RestoreTeamButton';
+import { useJoinTeam } from '../hooks/useTeamAccess';
+import { isJoined, isPrivateTeam } from '../utils/teamAccess';
 import './TeamsTable.css';
 
 interface TeamsTableProps {
@@ -20,6 +22,7 @@ interface TeamsTableProps {
 export function TeamsTable({ teams, archived = false, onEdit }: TeamsTableProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const joinTeam = useJoinTeam();
 
   if (teams.length === 0) return null;
 
@@ -63,6 +66,14 @@ export function TeamsTable({ teams, archived = false, onEdit }: TeamsTableProps)
               {archived && (
                 <span className="teams-table__badge">{t('teamArchive.badge')}</span>
               )}
+              {isPrivateTeam(team) && (
+                <span
+                  className="teams-table__badge teams-table__badge--private"
+                  title={t('teamAccess.privateTooltip')}
+                >
+                  🔒 {t('teamAccess.private')}
+                </span>
+              )}
             </td>
             <td className="teams-table__td teams-table__td--desc">
               {team.description?.trim() ? team.description : '—'}
@@ -77,6 +88,17 @@ export function TeamsTable({ teams, archived = false, onEdit }: TeamsTableProps)
                 <RestoreTeamButton team={team} />
               ) : (
                 <>
+                  {!isJoined(team) && !isPrivateTeam(team) && (
+                    <button
+                      type="button"
+                      className="teams-table__action-btn teams-table__action-btn--primary"
+                      onClick={() => joinTeam.mutate(team.id)}
+                      disabled={joinTeam.isPending}
+                      data-testid={`team-join-btn-${team.id}`}
+                    >
+                      {t('teamAccess.join')}
+                    </button>
+                  )}
                   {team.viewerCanManage && onEdit && (
                     <button
                       type="button"

@@ -100,7 +100,7 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
     <div style={{ marginTop: 'var(--space-4)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
         <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
-          📖 チームルール
+          📖 {t('team.rulesTitle')}
         </h3>
         <button
           onClick={() => { resetEditor(); setShowEditor(true); }}
@@ -110,7 +110,7 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
             cursor: 'pointer', fontSize: 'var(--font-size-sm)',
           }}
         >
-          + 追加
+          {t('team.addRule')}
         </button>
       </div>
 
@@ -118,19 +118,19 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
       {showEditor && (
         <div style={{ ...cardStyle, marginBottom: 'var(--space-3)' }}>
           <input
-            placeholder="ルール名"
+            placeholder={t('team.ruleNamePlaceholder')}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             style={inputStyle}
           />
           <input
-            placeholder="カテゴリ（例: 命名規約、デプロイ手順）"
+            placeholder={t('team.ruleCategoryPlaceholder')}
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             style={inputStyle}
           />
           <textarea
-            placeholder="内容（Markdown対応）"
+            placeholder={t('team.ruleContentPlaceholder')}
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={6}
@@ -146,7 +146,7 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
                 color: 'var(--color-text-secondary)',
               }}
             >
-              キャンセル
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleSave}
@@ -157,7 +157,7 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
                 cursor: 'pointer',
               }}
             >
-              {saveMutation.isPending ? '保存中...' : editingRule ? '更新' : '作成'}
+              {saveMutation.isPending ? t('common.saving') : editingRule ? t('common.update') : t('common.create')}
             </button>
           </div>
         </div>
@@ -166,11 +166,11 @@ export function TeamRulesSection({ teamId }: TeamRulesSectionProps) {
       {/* ルール一覧 */}
       {isLoading ? (
         <div style={{ color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 'var(--space-4)' }}>
-          読み込み中...
+          {t('common.loading')}
         </div>
       ) : (rules ?? []).length === 0 ? (
         <div style={{ color: 'var(--color-text-tertiary)', textAlign: 'center', padding: 'var(--space-4)' }}>
-          ルールはまだありません
+          {t('team.noRulesYet')}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>

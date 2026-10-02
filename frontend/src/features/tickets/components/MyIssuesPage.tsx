@@ -98,7 +98,10 @@ export function MyIssuesPage() {
           <div className="my-issues__empty">{t('common.loading')}</div>
         ) : tickets.length === 0 ? (
           <div className="my-issues__empty" data-testid="my-issues-empty">
-            {!hasTeam || !hasProject || demoPrefix ? (
+            {currentUser?.isGuest ? (
+              // Guest はチーム・プロジェクトを作れない。作成の手順ではなく、招待された場所への道を案内する
+              <p data-testid="my-issues-guest-empty">{t('myIssues.guestEmpty')}</p>
+            ) : !hasTeam || !hasProject || demoPrefix ? (
               <GettingStartedChecklist createdPrefix={demoPrefix} onDemoCreated={setDemoPrefix} />
             ) : (
               <>

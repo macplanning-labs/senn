@@ -20,19 +20,25 @@ import type { TriageRequest, TriageStatus } from '@/shared/api/types';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconTicket } from '@/shared/components/layout/Sidebar';
 
-const STATUS_BADGES: Record<TriageStatus, { label: string; color: string; bg: string }> = {
-  pending: { label: '承認待ち', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
-  approved: { label: '承認済み', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
-  rejected: { label: '却下', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
-};
-
-const CHANGE_TYPE_LABELS: Record<string, string> = {
-  text_request: '📝 テキスト依頼',
-  master_change: '🗄️ マスタ変更',
-};
-
 export function TriageRequestsPage() {
   const { t } = useTranslation();
+
+  const getStatusBadge = (status: TriageStatus): { label: string; color: string; bg: string } => {
+    const meta: Record<TriageStatus, { color: string; bg: string }> = {
+      pending: { color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+      approved: { color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+      rejected: { color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+    };
+    return { label: t(`triage.status.${status}`), ...meta[status] };
+  };
+
+  const getChangeTypeLabel = (changeType: string): string => {
+    const labels: Record<string, string> = {
+      text_request: t('triage.changeType.textRequest'),
+      master_change: t('triage.changeType.masterChange'),
+    };
+    return labels[changeType] ?? changeType;
+  };
   const [filter, setFilter] = useState<TriageStatus | ''>('');
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -61,7 +67,7 @@ export function TriageRequestsPage() {
   if (!teamId && !teamLoading) {
     return (
       <div style={{ textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
-        チームが見つかりません
+        {t('triage.teamNotFound')}
       </div>
     );
   }
@@ -120,7 +126,7 @@ export function TriageRequestsPage() {
             }}
             data-testid="create-triage-btn"
           >
-            + 新規依頼
+            {'+ '}{t('triage.newRequest')}
           </button>
         }
       />
@@ -129,7 +135,7 @@ export function TriageRequestsPage() {
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="依頼を検索..."
+        searchPlaceholder={t('triage.searchPlaceholder')}
         testId="triage-filters"
       >
         {(['', 'pending', 'approved', 'rejected'] as const).map((s) => (
@@ -147,7 +153,7 @@ export function TriageRequestsPage() {
             }}
             data-testid={`status-filter-${s}`}
           >
-            {s === '' ? 'すべて' : STATUS_BADGES[s].label}
+            {s === '' ? t('triage.filterAll') : getStatusBadge(s).label}
           </button>
         ))}
       </FilterBar>
@@ -161,7 +167,7 @@ export function TriageRequestsPage() {
           padding: 'var(--space-5)',
           marginBottom: 'var(--space-4)',
         }}>
-          <h3 style={{ marginBottom: 'var(--space-3)', color: 'var(--color-text-primary)' }}>新規依頼</h3>
+          <h3 style={{ marginBottom: 'var(--space-3)', color: 'var(--color-text-primary)' }}>{t('triage.newRequest')}</h3>
           <select
             value={newType}
             onChange={(e) => setNewType(e.target.value)}
@@ -171,11 +177,11 @@ export function TriageRequestsPage() {
               borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)',
             }}
           >
-            <option value="text_request">📝 テキスト依頼</option>
-            <option value="master_change">🗄️ マスタ変更</option>
+            <option value="text_request">{t('triage.changeType.textRequest')}</option>
+            <option value="master_change">{t('triage.changeType.masterChange')}</option>
           </select>
           <input
-            placeholder="タイトル"
+            placeholder={t('triage.titlePlaceholder')}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             style={{
@@ -186,7 +192,7 @@ export function TriageRequestsPage() {
             data-testid="triage-title-input"
           />
           <textarea
-            placeholder="詳細・理由"
+            placeholder={t('triage.descPlaceholder')}
             value={newDesc}
             onChange={(e) => setNewDesc(e.target.value)}
             rows={3}
@@ -205,7 +211,7 @@ export function TriageRequestsPage() {
                 borderRadius: 'var(--radius-md)', color: 'var(--color-text-secondary)', cursor: 'pointer',
               }}
             >
-              キャンセル
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleCreate}
@@ -217,7 +223,7 @@ export function TriageRequestsPage() {
               }}
               data-testid="triage-submit-btn"
             >
-              {createMutation.isPending ? '送信中...' : '依頼を作成'}
+              {createMutation.isPending ? t('triage.submitting') : t('triage.createRequest')}
             </button>
           </div>
         </div>
@@ -226,7 +232,7 @@ export function TriageRequestsPage() {
       {/* 一覧 */}
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-tertiary)' }}>
-          読み込み中...
+          {t('common.loading')}
         </div>
       ) : (
         (() => {
@@ -238,12 +244,12 @@ export function TriageRequestsPage() {
           );
           return filteredRequests.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-tertiary)' }}>
-              📋 {search ? `「${search}」に一致する依頼はありません` : '依頼はありません'}
+              📋 {search ? t('triage.noMatchingRequests', { search }) : t('triage.noRequests')}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {filteredRequests.map((req: TriageRequest) => {
-            const badge = STATUS_BADGES[req.status];
+            const badge = getStatusBadge(req.status);
             return (
               <div
                 key={req.id}
@@ -266,7 +272,7 @@ export function TriageRequestsPage() {
                         {badge.label}
                       </span>
                       <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-                        {CHANGE_TYPE_LABELS[req.changeType] ?? req.changeType}
+                        {getChangeTypeLabel(req.changeType)}
                       </span>
                       {req.ticketKey && (
                         <span style={{
@@ -294,7 +300,7 @@ export function TriageRequestsPage() {
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
                       {req.requestedBy?.displayName ?? req.requestedBy?.username} · {new Date(req.createdAt).toLocaleDateString('ja-JP')}
                       {req.reviewedBy && (
-                        <> · レビュー: {req.reviewedBy.displayName ?? req.reviewedBy.username}</>
+                        <> · {t('triage.reviewedBy', { name: req.reviewedBy.displayName ?? req.reviewedBy.username })}</>
                       )}
                     </div>
                     {req.reviewComment && (
@@ -318,7 +324,7 @@ export function TriageRequestsPage() {
                           style={{ color: 'var(--color-accent-primary)', fontWeight: 600 }}
                         >
                           {req.ticketKey}
-                        </a> が自動生成されました
+                        </a>{t('triage.autoCreatedSuffix')}
                       </div>
                     )}
                   </div>
@@ -329,7 +335,7 @@ export function TriageRequestsPage() {
                       {reviewingId === req.id ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
                           <input
-                            placeholder="コメント（任意）"
+                            placeholder={t('triage.commentOptional')}
                             value={reviewComment}
                             onChange={(e) => setReviewComment(e.target.value)}
                             style={{
@@ -347,7 +353,7 @@ export function TriageRequestsPage() {
                               borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', width: 160,
                             }}
                           >
-                            <option value="">起票先プロジェクト</option>
+                            <option value="">{t('triage.targetProject')}</option>
                             {teamProjects.map((p) => (
                               <option key={p.id} value={p.id}>{p.prefix} — {p.name}</option>
                             ))}
@@ -363,7 +369,7 @@ export function TriageRequestsPage() {
                                 fontSize: '0.75rem',
                               }}
                             >
-                              ✓ 承認
+                              ✓ {t('triage.approve')}
                             </button>
                             <button
                               onClick={() => handleReject(req.id)}
@@ -372,7 +378,7 @@ export function TriageRequestsPage() {
                                 border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontSize: '0.75rem',
                               }}
                             >
-                              ✕ 却下
+                              ✕ {t('triage.reject')}
                             </button>
                           </div>
                         </div>
@@ -386,7 +392,7 @@ export function TriageRequestsPage() {
                             fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)',
                           }}
                         >
-                          レビュー
+                          {t('triage.review')}
                         </button>
                       )}
                     </div>

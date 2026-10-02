@@ -554,7 +554,7 @@ export function TicketForm({
               setTimeout(() => setLinkCopied(false), 1500);
             }}
             aria-label="Copy ticket link"
-            title={linkCopied ? 'コピーしました' : 'リンクをコピー'}
+            title={linkCopied ? t('common.linkCopied') : t('common.copyLink')}
             data-testid="copy-link-btn-edit"
           >
             {linkCopied ? '✅' : '🔗'}
@@ -871,7 +871,7 @@ export function TicketForm({
               }}
               data-testid="ticket-project-input"
             >
-              <option value="">{t('ticket.projectNone', '— なし(チームのみ)')}</option>
+              <option value="">{t('ticket.projectNone')}</option>
               {projectsForTeam(projectList, teamId ? Number(teamId) : null).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}

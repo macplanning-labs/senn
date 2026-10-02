@@ -5,21 +5,27 @@
 /// - POST /api/v1/projects/{id}/relations/    関連を追加
 /// - DELETE /api/v1/projects/{id}/relations/{related_id}/  関連を削除
 ///
-/// 設計: docs/詳細設計書_プロジェクト詳細タブ.md §9.4
-
+/// 設計: docs/design/詳細設計書_プロジェクト詳細タブ.md §9.4
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Extension, Json,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::domain::access::{can, sees_team, Action, ResourceRef, Viewer};
 use crate::domain::models::resource_api::ProjectOut;
-use crate::infrastructure::repositories::{
-    project_hierarchy_repo, project_team_repo, resource_repo, roadmap_repo, user_repo, project_activity_repo,
+use crate::infrastructure::access::{
+    facts_repo,
+    shadow::{self, Mode, Resource},
 };
+use crate::infrastructure::repositories::{
+    project_activity_repo, project_hierarchy_repo, project_team_repo, resource_repo, roadmap_repo,
+    user_repo,
+};
+use crate::presentation::extractors::authorize;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::presentation::state::AppState;
 
@@ -29,12 +35,21 @@ pub struct ErrorResponse {
 }
 
 fn error(status: StatusCode, detail: &str) -> Response {
-    (status, Json(ErrorResponse { detail: detail.to_string() })).into_response()
+    (
+        status,
+        Json(ErrorResponse {
+            detail: detail.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 fn server_error(e: anyhow::Error) -> Response {
     tracing::error!("DB operation failed: {:?}", e);
-    error(StatusCode::INTERNAL_SERVER_ERROR, "サーバーエラーが発生しました")
+    error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "サーバーエラーが発生しました",
+    )
 }
 
 // =============================================================================
@@ -48,12 +63,18 @@ fn project_ref(p: &ProjectOut) -> serde_json::Value {
 /// 親を設定・変更・解除する。権限(子側と、新しい親側の両方の can_manage)を検査し、
 /// 循環・深さ・存在のエラーを分かりやすい理由で返し、成功したら Activity を記録する。
 /// Err の Response をそのまま返せばよい。
+///
+/// 新しい判定(D-3): 子側と、新しい親側の両方で、プロジェクトの設定を管理できること(ManageSettings)。
 pub async fn change_parent(
     state: &AppState,
-    auth: &AuthUser,
+    viewer: &Viewer,
     project_id: i32,
     new_parent: Option<i32>,
+    route: &'static str,
 ) -> Result<(), Response> {
+    let auth = AuthUser {
+        user_id: viewer.require_user_id()?,
+    };
     use project_hierarchy_repo::ProjectHierarchyError as E;
 
     // 変更前の状態(Activity の from に使う。set_parent より前に読むこと)
@@ -68,40 +89,64 @@ pub async fn change_parent(
         Ok(None) => return Err(error(StatusCode::UNAUTHORIZED, "ユーザーが見つかりません")),
         Err(e) => return Err(server_error(e)),
     };
-    match project_team_repo::can_manage(&state.pool, project_id, auth.user_id, staff).await {
-        Ok(true) => {}
-        Ok(false) => {
-            return Err(error(
-                StatusCode::FORBIDDEN,
-                "親を変更できるのは、システム管理者・プロジェクトのオーナー・参加チームの管理者です",
-            ))
-        }
+    let legacy = match project_team_repo::can_manage(&state.pool, project_id, auth.user_id, staff)
+        .await
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(error(
+            StatusCode::FORBIDDEN,
+            "親を変更できるのは、システム管理者・プロジェクトのオーナー・参加チームの管理者です",
+        )),
         Err(e) => return Err(server_error(e)),
-    }
+    };
+    authorize::gate_project(
+        &state.pool,
+        viewer,
+        project_id,
+        Action::ManageSettings,
+        legacy,
+        route,
+    )
+    .await?;
     if let Some(parent_id) = new_parent {
-        match project_team_repo::can_manage(&state.pool, parent_id, auth.user_id, staff).await {
-            Ok(true) => {}
-            Ok(false) => {
-                return Err(error(
-                    StatusCode::FORBIDDEN,
-                    "親にするプロジェクトの管理権限(システム管理者・オーナー・参加チームの管理者)が必要です",
-                ))
-            }
+        let legacy = match project_team_repo::can_manage(&state.pool, parent_id, auth.user_id, staff).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(error(
+                StatusCode::FORBIDDEN,
+                "親にするプロジェクトの管理権限(システム管理者・オーナー・参加チームの管理者)が必要です",
+            )),
             Err(e) => return Err(server_error(e)),
-        }
+        };
+        authorize::gate_project(
+            &state.pool,
+            viewer,
+            parent_id,
+            Action::ManageSettings,
+            legacy,
+            route,
+        )
+        .await?;
     }
 
     if let Err(e) = project_hierarchy_repo::set_parent(&state.pool, project_id, new_parent).await {
         return Err(match e.downcast_ref::<E>() {
             Some(E::SelfAsParent) => error(StatusCode::BAD_REQUEST, "自分自身は親にできません"),
-            Some(E::ParentNotFound) => error(StatusCode::NOT_FOUND, "親にするプロジェクトが見つかりません"),
+            Some(E::ParentNotFound) => error(
+                StatusCode::NOT_FOUND,
+                "親にするプロジェクトが見つかりません",
+            ),
             Some(E::Cycle(path)) => {
                 // path は 自分 → … → 新しい親(新しい親は、自分の子孫にあたる)
-                let label = |p: &project_hierarchy_repo::ProjectPath| format!("{} {}", p.prefix, p.name);
+                let label =
+                    |p: &project_hierarchy_repo::ProjectPath| format!("{} {}", p.prefix, p.name);
                 let me = path.first().map(label).unwrap_or_else(|| old.name.clone());
                 let parent = path.last().map(label).unwrap_or_else(|| "親".to_string());
                 let route = path.iter().map(label).collect::<Vec<_>>().join(" → ");
-                let tail = if path.len() > 1 { format!("(たどった経路: {route})") } else { String::new() };
+                let tail = if path.len() > 1 {
+                    format!("(たどった経路: {route})")
+                } else {
+                    String::new()
+                };
                 error(
                     StatusCode::CONFLICT,
                     &format!("「{parent}」は「{me}」の子孫のため、親にできません{tail}"),
@@ -109,7 +154,10 @@ pub async fn change_parent(
             }
             Some(E::DepthExceeded(_)) => error(
                 StatusCode::CONFLICT,
-                &format!("階層は{}段までです。この親にすると超えてしまいます", project_hierarchy_repo::MAX_PROJECT_DEPTH),
+                &format!(
+                    "階層は{}段までです。この親にすると超えてしまいます",
+                    project_hierarchy_repo::MAX_PROJECT_DEPTH
+                ),
             ),
             None => server_error(e),
         });
@@ -119,7 +167,10 @@ pub async fn change_parent(
     if old.parent_project_id != new_parent {
         let lookup = |id: Option<i32>| async move {
             match id {
-                Some(id) => resource_repo::find_project_by_id(&state.pool, id, None).await.ok().flatten(),
+                Some(id) => resource_repo::find_project_by_id(&state.pool, id, None)
+                    .await
+                    .ok()
+                    .flatten(),
                 None => None,
             }
         };
@@ -135,13 +186,21 @@ pub async fn change_parent(
         .await;
         if let Some(from) = &from {
             project_activity_repo::record_best_effort(
-                &state.pool, from.id, Some(auth.user_id), "child_removed", json!({ "project": project_ref(&old) }),
+                &state.pool,
+                from.id,
+                Some(auth.user_id),
+                "child_removed",
+                json!({ "project": project_ref(&old) }),
             )
             .await;
         }
         if let Some(to) = &to {
             project_activity_repo::record_best_effort(
-                &state.pool, to.id, Some(auth.user_id), "child_added", json!({ "project": project_ref(&old) }),
+                &state.pool,
+                to.id,
+                Some(auth.user_id),
+                "child_added",
+                json!({ "project": project_ref(&old) }),
             )
             .await;
         }
@@ -248,11 +307,31 @@ pub struct RoadmapCandidate {
 /// プロジェクトの構造 GET /api/v1/projects/{id}/structure/
 pub async fn structure(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    // 新しい判定(D-3): プロジェクトが見えること(今の判定には確認が無い)
+    if let Err(resp) = authorize::gate_project(
+        &state.pool,
+        &viewer,
+        id,
+        Action::Read,
+        Ok(()),
+        "GET /api/v1/projects/{id}/structure/",
+    )
+    .await
+    {
+        return resp;
+    }
     // プロジェクトが存在するか確認
-    let project = match resource_repo::find_project_by_id(&state.pool, id, Some(auth.user_id)).await {
+    let project = match resource_repo::find_project_by_id(&state.pool, id, Some(auth.user_id)).await
+    {
         Ok(Some(p)) => p,
         Ok(None) => return error(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_error(e),
@@ -266,10 +345,15 @@ pub async fn structure(
     };
 
     // can_manage
-    let can_manage = match project_team_repo::can_manage(&state.pool, id, auth.user_id, caller_is_staff).await {
-        Ok(cm) => cm,
-        Err(e) => return server_error(e),
-    };
+    let can_manage =
+        match project_team_repo::can_manage(&state.pool, id, auth.user_id, caller_is_staff).await {
+            Ok(cm) => cm,
+            Err(e) => return server_error(e),
+        };
+
+    // 新しい判定(`on`)では、見えないプロジェクト・チーム・ロードマップを応答に含めない(D-3)。
+    // 名前・Prefix・件数から、見えない物の存在が分からないようにする
+    let scope = (shadow::mode(Resource::Project) == Mode::On).then(|| viewer.scope());
 
     // 祖先（ルート → 直近の親）
     let ancestors = match project_hierarchy_repo::ancestors(&state.pool, id).await {
@@ -292,7 +376,8 @@ pub async fn structure(
     };
 
     // 直接の子
-    let children = match project_hierarchy_repo::children(&state.pool, id).await {
+    let children: Vec<ProjectChild> = match project_hierarchy_repo::children(&state.pool, id).await
+    {
         Ok(ch) => ch
             .into_iter()
             .map(|c| {
@@ -338,20 +423,21 @@ pub async fn structure(
     };
 
     // 関連
-    let related = match project_hierarchy_repo::relations(&state.pool, id).await {
-        Ok(rels) => rels
-            .into_iter()
-            .map(|r| RelatedProjectOut {
-                id: r.id,
-                prefix: r.prefix,
-                name: r.name,
-                status: r.status,
-                ticket_count: r.ticket_count,
-                progress: r.progress,
-            })
-            .collect(),
-        Err(e) => return server_error(e),
-    };
+    let related: Vec<RelatedProjectOut> =
+        match project_hierarchy_repo::relations(&state.pool, id).await {
+            Ok(rels) => rels
+                .into_iter()
+                .map(|r| RelatedProjectOut {
+                    id: r.id,
+                    prefix: r.prefix,
+                    name: r.name,
+                    status: r.status,
+                    ticket_count: r.ticket_count,
+                    progress: r.progress,
+                })
+                .collect(),
+            Err(e) => return server_error(e),
+        };
 
     // このプロジェクトが所属するロードマップ
     let roadmaps: Vec<RoadmapBadge> = match roadmap_repo::for_project(&state.pool, id).await {
@@ -371,8 +457,13 @@ pub async fn structure(
 
     // candidates
     let candidates = if can_manage {
-        let parent_candidates = match project_hierarchy_repo::parent_candidates(&state.pool, id, auth.user_id, caller_is_staff)
-            .await
+        let parent_candidates = match project_hierarchy_repo::parent_candidates(
+            &state.pool,
+            id,
+            auth.user_id,
+            caller_is_staff,
+        )
+        .await
         {
             Ok(pc) => pc
                 .into_iter()
@@ -388,8 +479,13 @@ pub async fn structure(
             }
         };
 
-        let related_candidates = match project_hierarchy_repo::relation_candidates(&state.pool, id, auth.user_id, caller_is_staff)
-            .await
+        let related_candidates = match project_hierarchy_repo::relation_candidates(
+            &state.pool,
+            id,
+            auth.user_id,
+            caller_is_staff,
+        )
+        .await
         {
             Ok(rc) => rc
                 .into_iter()
@@ -407,10 +503,14 @@ pub async fn structure(
 
         let roadmap_candidates = match roadmap_repo::list_roadmaps(&state.pool).await {
             Ok(all) => {
-                let existing_ids: std::collections::HashSet<_> = roadmaps.iter().map(|r| r.id).collect();
+                let existing_ids: std::collections::HashSet<_> =
+                    roadmaps.iter().map(|r| r.id).collect();
                 all.into_iter()
                     .filter(|rm| !existing_ids.contains(&rm.id))
-                    .map(|rm| RoadmapCandidate { id: rm.id, name: rm.name })
+                    .map(|rm| RoadmapCandidate {
+                        id: rm.id,
+                        name: rm.name,
+                    })
                     .collect()
             }
             Err(e) => {
@@ -430,10 +530,14 @@ pub async fn structure(
             related: vec![],
             roadmaps: match roadmap_repo::for_owner(&state.pool, auth.user_id).await {
                 Ok(all) => {
-                    let existing_ids: std::collections::HashSet<_> = roadmaps.iter().map(|r| r.id).collect();
+                    let existing_ids: std::collections::HashSet<_> =
+                        roadmaps.iter().map(|r| r.id).collect();
                     all.into_iter()
                         .filter(|rm| !existing_ids.contains(&rm.id))
-                        .map(|rm| RoadmapCandidate { id: rm.id, name: rm.name })
+                        .map(|rm| RoadmapCandidate {
+                            id: rm.id,
+                            name: rm.name,
+                        })
                         .collect()
                 }
                 Err(e) => {
@@ -441,6 +545,76 @@ pub async fn structure(
                     vec![]
                 }
             },
+        }
+    };
+
+    let (ancestors, parent, children, rollup, related, roadmaps, candidates) = match &scope {
+        None => (
+            ancestors, parent, children, rollup, related, roadmaps, candidates,
+        ),
+        Some(scope) => {
+            let mut ids: Vec<i32> = ancestors.iter().map(|a| a.id).collect();
+            ids.extend(parent.iter().map(|p| p.id));
+            ids.extend(children.iter().map(|c: &ProjectChild| c.id));
+            ids.extend(related.iter().map(|r: &RelatedProjectOut| r.id));
+            ids.extend(candidates.parent.iter().map(|p| p.id));
+            ids.extend(candidates.related.iter().map(|p| p.id));
+            let visible =
+                match project_hierarchy_repo::visible_project_ids(&state.pool, &ids, scope).await {
+                    Ok(v) => v,
+                    Err(e) => return server_error(e),
+                };
+            let rollup = match project_hierarchy_repo::rollup_scoped(&state.pool, id, scope).await {
+                Ok(r) => RollupOut {
+                    project_count: r.project_count,
+                    ticket_count: r.ticket_count,
+                    completed_count: r.completed_count,
+                    progress: r.progress,
+                },
+                Err(e) => return server_error(e),
+            };
+            // ロードマップは Full Member の物(Guest には見えない)
+            let roadmaps_visible = can(&viewer, Action::Read, &ResourceRef::Roadmap).is_allowed();
+            let children = children
+                .into_iter()
+                .filter(|c| visible.contains(&c.id))
+                .map(|mut c| {
+                    c.teams
+                        .retain(|t| sees_team(&viewer, &viewer.team_facts_for_read(t.id)));
+                    c
+                })
+                .collect();
+            (
+                ancestors
+                    .into_iter()
+                    .filter(|a| visible.contains(&a.id))
+                    .collect(),
+                parent.filter(|p| visible.contains(&p.id)),
+                children,
+                rollup,
+                related
+                    .into_iter()
+                    .filter(|r| visible.contains(&r.id))
+                    .collect(),
+                if roadmaps_visible { roadmaps } else { vec![] },
+                CandidatesOut {
+                    parent: candidates
+                        .parent
+                        .into_iter()
+                        .filter(|p| visible.contains(&p.id))
+                        .collect(),
+                    related: candidates
+                        .related
+                        .into_iter()
+                        .filter(|p| visible.contains(&p.id))
+                        .collect(),
+                    roadmaps: if roadmaps_visible {
+                        candidates.roadmaps
+                    } else {
+                        vec![]
+                    },
+                },
+            )
         }
     };
 
@@ -465,9 +639,22 @@ pub async fn structure(
 /// 直接の子プロジェクト GET /api/v1/projects/{id}/children/
 pub async fn children(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    const ROUTE: &str = "GET /api/v1/projects/{id}/children/";
+    // 新しい判定(D-3): プロジェクトが見えること(今の判定には確認が無い)
+    if let Err(resp) =
+        authorize::gate_project(&state.pool, &viewer, id, Action::Read, Ok(()), ROUTE).await
+    {
+        return resp;
+    }
     // プロジェクトが存在するか確認
     if let Err(resp) = resource_repo::find_project_by_id(&state.pool, id, Some(auth.user_id))
         .await
@@ -509,6 +696,23 @@ pub async fn children(
                     }
                 })
                 .collect();
+            // 子プロジェクトも、見えるものだけ(`on`。試運転では記録だけ)
+            let res = authorize::filter_list(
+                &state.pool,
+                &viewer,
+                Resource::Project,
+                ROUTE,
+                res,
+                |c| c.id as i64,
+                |c| ResourceRef::Project {
+                    project_id: c.id,
+                    teams: c
+                        .teams
+                        .iter()
+                        .map(|t| viewer.team_facts_for_read(t.id))
+                        .collect(),
+                },
+            );
             (StatusCode::OK, Json(res)).into_response()
         }
         Err(e) => server_error(e),
@@ -530,10 +734,16 @@ pub struct AddRelationIn {
 /// 関連を追加 POST /api/v1/projects/{id}/relations/
 pub async fn add_relation(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(body): Json<AddRelationIn>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // プロジェクトが存在するか確認
     if let Err(resp) = resource_repo::find_project_by_id(&state.pool, id, Some(auth.user_id))
         .await
@@ -544,17 +754,21 @@ pub async fn add_relation(
     }
 
     // 相手が存在するか確認
-    if let Err(resp) = resource_repo::find_project_by_id(&state.pool, body.related_project_id, Some(auth.user_id))
-        .await
-        .map_err(|e| server_error(e))
-        .and_then(|opt| opt.ok_or_else(|| error(StatusCode::NOT_FOUND, "見つかりません")))
+    if let Err(resp) =
+        resource_repo::find_project_by_id(&state.pool, body.related_project_id, Some(auth.user_id))
+            .await
+            .map_err(|e| server_error(e))
+            .and_then(|opt| opt.ok_or_else(|| error(StatusCode::NOT_FOUND, "見つかりません")))
     {
         return resp;
     }
 
     // 自己関連は 400
     if id == body.related_project_id {
-        return error(StatusCode::BAD_REQUEST, "同じプロジェクトと関連付けることはできません");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "同じプロジェクトと関連付けることはできません",
+        );
     }
 
     let caller_is_staff = match user_repo::find_by_id(&state.pool, auth.user_id).await {
@@ -564,32 +778,76 @@ pub async fn add_relation(
     };
 
     // 両方のプロジェクトに can_manage があるか確認
-    let can_manage_self = match project_team_repo::can_manage(&state.pool, id, auth.user_id, caller_is_staff).await {
-        Ok(cm) => cm,
-        Err(e) => return server_error(e),
-    };
+    let can_manage_self =
+        match project_team_repo::can_manage(&state.pool, id, auth.user_id, caller_is_staff).await {
+            Ok(cm) => cm,
+            Err(e) => return server_error(e),
+        };
 
-    let can_manage_other = match project_team_repo::can_manage(&state.pool, body.related_project_id, auth.user_id, caller_is_staff)
-        .await
+    let can_manage_other = match project_team_repo::can_manage(
+        &state.pool,
+        body.related_project_id,
+        auth.user_id,
+        caller_is_staff,
+    )
+    .await
     {
         Ok(cm) => cm,
         Err(e) => return server_error(e),
     };
 
-    if !can_manage_self || !can_manage_other {
-        return error(StatusCode::FORBIDDEN, "両方のプロジェクトを変更することはできません");
+    let legacy = if can_manage_self && can_manage_other {
+        Ok(())
+    } else {
+        Err(error(
+            StatusCode::FORBIDDEN,
+            "両方のプロジェクトを変更することはできません",
+        ))
+    };
+    // 新しい判定(D-3): 両方のプロジェクトで、設定を管理できること(今の判定の結果は、自分側の判定に持たせる)
+    const ROUTE: &str = "POST /api/v1/projects/{id}/relations/";
+    if let Err(resp) = authorize::gate_project(
+        &state.pool,
+        &viewer,
+        id,
+        Action::ManageSettings,
+        legacy,
+        ROUTE,
+    )
+    .await
+    {
+        return resp;
+    }
+    if let Err(resp) = authorize::gate_project(
+        &state.pool,
+        &viewer,
+        body.related_project_id,
+        Action::ManageSettings,
+        Ok(()),
+        ROUTE,
+    )
+    .await
+    {
+        return resp;
     }
 
     // 既に関連があるか確認（既に関連なら 200）
     match project_hierarchy_repo::add_relation(&state.pool, id, body.related_project_id).await {
         // 既に関連だった場合は、何も変えず 200(冪等。Activity も記録しない)
-        Ok(false) => (StatusCode::OK, Json(json!({"id": id, "relatedProjectId": body.related_project_id}))).into_response(),
+        Ok(false) => (
+            StatusCode::OK,
+            Json(json!({"id": id, "relatedProjectId": body.related_project_id})),
+        )
+            .into_response(),
         Ok(true) => {
             // Activity を記録（両方に relation_added）
-            let proj = match resource_repo::find_project_by_id(&state.pool, body.related_project_id, None).await {
-                Ok(Some(p)) => Some(json!({ "id": p.id, "prefix": p.prefix, "name": p.name })),
-                _ => None,
-            };
+            let proj =
+                match resource_repo::find_project_by_id(&state.pool, body.related_project_id, None)
+                    .await
+                {
+                    Ok(Some(p)) => Some(json!({ "id": p.id, "prefix": p.prefix, "name": p.name })),
+                    _ => None,
+                };
 
             let self_proj = match resource_repo::find_project_by_id(&state.pool, id, None).await {
                 Ok(Some(p)) => Some(json!({ "id": p.id, "prefix": p.prefix, "name": p.name })),
@@ -619,7 +877,11 @@ pub async fn add_relation(
             }
 
             // 新しく関連を作った
-            (StatusCode::CREATED, Json(json!({"id": id, "relatedProjectId": body.related_project_id}))).into_response()
+            (
+                StatusCode::CREATED,
+                Json(json!({"id": id, "relatedProjectId": body.related_project_id})),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!("関連の追加に失敗: {:?}", e);
@@ -631,9 +893,15 @@ pub async fn add_relation(
 /// 関連を削除 DELETE /api/v1/projects/{id}/relations/{related_id}/
 pub async fn remove_relation(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((id, related_id)): Path<(i32, i32)>,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // プロジェクトが存在するか確認
     if let Err(resp) = resource_repo::find_project_by_id(&state.pool, id, Some(auth.user_id))
         .await
@@ -650,18 +918,62 @@ pub async fn remove_relation(
     };
 
     // どちらか一方に can_manage があるか確認
-    let can_manage_self = match project_team_repo::can_manage(&state.pool, id, auth.user_id, caller_is_staff).await {
-        Ok(cm) => cm,
-        Err(e) => return server_error(e),
-    };
+    let can_manage_self =
+        match project_team_repo::can_manage(&state.pool, id, auth.user_id, caller_is_staff).await {
+            Ok(cm) => cm,
+            Err(e) => return server_error(e),
+        };
 
-    let can_manage_other = match project_team_repo::can_manage(&state.pool, related_id, auth.user_id, caller_is_staff).await {
-        Ok(cm) => cm,
-        Err(e) => return server_error(e),
-    };
+    let can_manage_other =
+        match project_team_repo::can_manage(&state.pool, related_id, auth.user_id, caller_is_staff)
+            .await
+        {
+            Ok(cm) => cm,
+            Err(e) => return server_error(e),
+        };
 
-    if !can_manage_self && !can_manage_other {
-        return error(StatusCode::FORBIDDEN, "プロジェクトを変更することはできません");
+    let legacy = if can_manage_self || can_manage_other {
+        Ok(())
+    } else {
+        Err(error(
+            StatusCode::FORBIDDEN,
+            "プロジェクトを変更することはできません",
+        ))
+    };
+    // 新しい判定(D-3): どちらか一方のプロジェクトで、設定を管理できること。
+    // 両方の参加チームを合わせたプロジェクトとして判定する(ManageSettings は「参加チームのどれかを管理できる」
+    // なので、合わせたものでの判定は「どちらかを管理できる」と同じ。どちらも見えなければ 404)
+    let facts = match (
+        facts_repo::facts_for_project(&state.pool, id).await,
+        facts_repo::facts_for_project(&state.pool, related_id).await,
+    ) {
+        (Ok(a), Ok(b)) => {
+            let teams: Vec<_> = [a, b]
+                .into_iter()
+                .flatten()
+                .flat_map(|f| match f {
+                    ResourceRef::Project { teams, .. } => teams,
+                    _ => vec![],
+                })
+                .collect();
+            ResourceRef::Project {
+                project_id: id,
+                teams,
+            }
+        }
+        (Err(e), _) | (_, Err(e)) => return server_error(e),
+    };
+    if let Err(resp) = authorize::gate(
+        &state.pool,
+        &viewer,
+        Some(&facts),
+        Action::ManageSettings,
+        Resource::Project,
+        id as i64,
+        legacy,
+        "DELETE /api/v1/projects/{id}/relations/{related_id}/",
+    ) {
+        return resp;
     }
 
     match project_hierarchy_repo::remove_relation(&state.pool, id, related_id).await {
@@ -671,7 +983,8 @@ pub async fn remove_relation(
             }
 
             // Activity を記録（両方に relation_removed）
-            let proj = match resource_repo::find_project_by_id(&state.pool, related_id, None).await {
+            let proj = match resource_repo::find_project_by_id(&state.pool, related_id, None).await
+            {
                 Ok(Some(p)) => Some(json!({ "id": p.id, "prefix": p.prefix, "name": p.name })),
                 _ => None,
             };

@@ -1,9 +1,8 @@
+use crate::domain::models::saved_view_api::SavedViewOut;
 /// infrastructure/repositories/saved_view_repo.rs — Saved View 永続化
-
 use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
 use sqlx::PgPool;
-use crate::domain::models::saved_view_api::SavedViewOut;
 
 type SavedViewRow = (
     i64,
@@ -139,7 +138,7 @@ pub async fn update(
     is_shared: Option<bool>,
 ) -> anyhow::Result<Option<SavedViewOut>> {
     let current = sqlx::query_as::<_, (String, JsonValue, bool)>(
-        "SELECT name, filters, is_shared FROM t_saved_view WHERE id = $1 AND owner_id = $2"
+        "SELECT name, filters, is_shared FROM t_saved_view WHERE id = $1 AND owner_id = $2",
     )
     .bind(id)
     .bind(owner_id)
@@ -171,18 +170,12 @@ pub async fn update(
 }
 
 /// Saved View 削除
-pub async fn delete(
-    pool: &PgPool,
-    id: i64,
-    owner_id: i64,
-) -> anyhow::Result<bool> {
-    let result = sqlx::query(
-        "DELETE FROM t_saved_view WHERE id = $1 AND owner_id = $2"
-    )
-    .bind(id)
-    .bind(owner_id)
-    .execute(pool)
-    .await?;
+pub async fn delete(pool: &PgPool, id: i64, owner_id: i64) -> anyhow::Result<bool> {
+    let result = sqlx::query("DELETE FROM t_saved_view WHERE id = $1 AND owner_id = $2")
+        .bind(id)
+        .bind(owner_id)
+        .execute(pool)
+        .await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -257,7 +250,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_list_global_saved_view() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "saved-view-owner").await as i64;
         let filters = serde_json::json!({ "status": "in_progress" });
 
@@ -268,10 +263,14 @@ mod tests {
         assert!(created.project.is_none());
         assert!(created.team_id.is_none());
 
-        let list = list_global_and_owner(&pool, owner, "tickets").await.unwrap();
+        let list = list_global_and_owner(&pool, owner, "tickets")
+            .await
+            .unwrap();
         assert!(list.iter().any(|v| v.id == created.id));
 
-        let empty_wrong_type = list_global_and_owner(&pool, owner, "projects").await.unwrap();
+        let empty_wrong_type = list_global_and_owner(&pool, owner, "projects")
+            .await
+            .unwrap();
         assert!(!empty_wrong_type.iter().any(|v| v.id == created.id));
     }
 }

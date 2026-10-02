@@ -2,7 +2,6 @@
 ///
 /// Projects, Categories, Milestones, Labels の CRUD 操作。
 /// Phase 3: Django API との互換性を重視した実装。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::resource_api::*;
@@ -11,7 +10,13 @@ use crate::domain::models::resource_api::*;
 // Projects
 // =============================================================================
 
-pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<i32>, filter: &crate::domain::models::resource_api::ProjectListFilter) -> anyhow::Result<Vec<ProjectOut>> {
+pub async fn find_all_projects(
+    pool: &PgPool,
+    page: i64,
+    viewer_user_id: Option<i32>,
+    filter: &crate::domain::models::resource_api::ProjectListFilter,
+    scope: Option<&crate::domain::access::Scope>,
+) -> anyhow::Result<Vec<ProjectOut>> {
     use sqlx::QueryBuilder;
 
     const PAGE_SIZE: i64 = 50;
@@ -65,7 +70,7 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
               FROM tickets_project_teams pt2
               JOIN t_team_membership tm2 ON tm2.team_id = pt2.team_id
               WHERE pt2.project_id = p.id
-                AND tm2.user_id = "
+                AND tm2.user_id = ",
     );
     qb.push_bind(viewer_user_id);
     qb.push(
@@ -134,6 +139,12 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
         qb.push("))");
     }
 
+    // アクセス制御の再設計(D-3): 新しい判定で見えるプロジェクトだけ(`on` のときだけ渡される)
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_project_visible(&mut qb, "p.id", scope);
+    }
+
     qb.push(" ORDER BY p.name ASC LIMIT ");
     qb.push_bind(PAGE_SIZE);
     qb.push(" OFFSET ");
@@ -144,10 +155,12 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
     let projects = rows
         .into_iter()
         .map(|row| {
-            let teams: Vec<ProjectTeamOut> = row.teams
+            let teams: Vec<ProjectTeamOut> = row
+                .teams
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
-            let roadmap_ids: Vec<i32> = row.roadmap_ids
+            let roadmap_ids: Vec<i32> = row
+                .roadmap_ids
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
 
@@ -163,6 +176,7 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
                 member_count: row.member_count,
                 is_member: row.is_member,
                 teams,
+                hidden_team_count: 0,
                 owner_id: row.owner_id,
                 created_at: row.created_at,
                 cycle_auto_complete: row.cycle_auto_complete,
@@ -178,15 +192,26 @@ pub async fn find_all_projects(pool: &PgPool, page: i64, viewer_user_id: Option<
     Ok(projects)
 }
 
-pub async fn count_projects(pool: &PgPool) -> anyhow::Result<i64> {
-    let row = sqlx::query("SELECT COUNT(*) as count FROM tickets_project")
-        .fetch_one(pool)
-        .await?;
+/// プロジェクトの件数。`scope` があれば、新しい判定で見えるプロジェクトだけを数える(D-3)
+pub async fn count_projects(
+    pool: &PgPool,
+    scope: Option<&crate::domain::access::Scope>,
+) -> anyhow::Result<i64> {
+    let mut qb = sqlx::QueryBuilder::new("SELECT COUNT(*) as count FROM tickets_project p");
+    if let Some(scope) = scope {
+        qb.push(" WHERE ");
+        crate::infrastructure::access::scope_sql::push_project_visible(&mut qb, "p.id", scope);
+    }
+    let row = qb.build().fetch_one(pool).await?;
     let count: i64 = row.get(0);
     Ok(count)
 }
 
-pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i32>) -> anyhow::Result<Option<ProjectOut>> {
+pub async fn find_project_by_id(
+    pool: &PgPool,
+    id: i32,
+    viewer_user_id: Option<i32>,
+) -> anyhow::Result<Option<ProjectOut>> {
     #[derive(sqlx::FromRow)]
     struct ProjectRow {
         id: i32,
@@ -281,10 +306,12 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i
     .await?;
 
     let project = row_opt.map(|row| {
-        let teams: Vec<ProjectTeamOut> = row.teams
+        let teams: Vec<ProjectTeamOut> = row
+            .teams
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
-        let roadmap_ids: Vec<i32> = row.roadmap_ids
+        let roadmap_ids: Vec<i32> = row
+            .roadmap_ids
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
 
@@ -300,6 +327,7 @@ pub async fn find_project_by_id(pool: &PgPool, id: i32, viewer_user_id: Option<i
             member_count: row.member_count,
             is_member: row.is_member,
             teams,
+            hidden_team_count: 0,
             owner_id: row.owner_id,
             created_at: row.created_at,
             cycle_auto_complete: row.cycle_auto_complete,
@@ -350,7 +378,7 @@ pub async fn create_project(
         sqlx::query(
             "INSERT INTO tickets_project_teams (project_id, team_id, joined_at)
              VALUES ($1, $2, NOW())
-             ON CONFLICT (project_id, team_id) DO NOTHING"
+             ON CONFLICT (project_id, team_id) DO NOTHING",
         )
         .bind(project_id)
         .bind(team_id)
@@ -389,11 +417,15 @@ pub async fn create_project(
     Ok(project_id)
 }
 
-pub async fn add_project_team(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow::Result<bool> {
+pub async fn add_project_team(
+    pool: &PgPool,
+    project_id: i32,
+    team_id: i32,
+) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "INSERT INTO tickets_project_teams (project_id, team_id, joined_at)
          VALUES ($1, $2, NOW())
-         ON CONFLICT (project_id, team_id) DO NOTHING"
+         ON CONFLICT (project_id, team_id) DO NOTHING",
     )
     .bind(project_id)
     .bind(team_id)
@@ -403,14 +435,17 @@ pub async fn add_project_team(pool: &PgPool, project_id: i32, team_id: i32) -> a
     Ok(rows_affected.rows_affected() > 0)
 }
 
-pub async fn remove_project_team(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow::Result<bool> {
+pub async fn remove_project_team(
+    pool: &PgPool,
+    project_id: i32,
+    team_id: i32,
+) -> anyhow::Result<bool> {
     // Check if this is the last team (should fail if so)
-    let team_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets_project_teams WHERE project_id = $1"
-    )
-    .bind(project_id)
-    .fetch_one(pool)
-    .await?;
+    let team_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets_project_teams WHERE project_id = $1")
+            .bind(project_id)
+            .fetch_one(pool)
+            .await?;
 
     if team_count <= 1 {
         anyhow::bail!("cannot remove the last team from a project");
@@ -418,7 +453,7 @@ pub async fn remove_project_team(pool: &PgPool, project_id: i32, team_id: i32) -
 
     let rows_affected = sqlx::query(
         "DELETE FROM tickets_project_teams
-         WHERE project_id = $1 AND team_id = $2"
+         WHERE project_id = $1 AND team_id = $2",
     )
     .bind(project_id)
     .bind(team_id)
@@ -428,11 +463,15 @@ pub async fn remove_project_team(pool: &PgPool, project_id: i32, team_id: i32) -
     Ok(rows_affected.rows_affected() > 0)
 }
 
-pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> anyhow::Result<bool> {
+pub async fn update_project(
+    pool: &PgPool,
+    id: i32,
+    input: &ProjectWriteIn,
+) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE tickets_project
          SET name = $1, prefix = $2, description = $3, priority = $4
-         WHERE id = $5"
+         WHERE id = $5",
     )
     .bind(&input.name)
     .bind(&input.prefix)
@@ -446,7 +485,11 @@ pub async fn update_project(pool: &PgPool, id: i32, input: &ProjectWriteIn) -> a
     Ok(rows_affected > 0)
 }
 
-pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &ProjectPatchIn) -> anyhow::Result<bool> {
+pub async fn patch_project_settings(
+    pool: &PgPool,
+    project_id: i32,
+    input: &ProjectPatchIn,
+) -> anyhow::Result<bool> {
     if input.cycle_auto_complete.is_none()
         && input.cycle_auto_create_next.is_none()
         && input.status.is_none()
@@ -471,9 +514,7 @@ pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &Proj
             .push_bind_unseparated(cacn);
     }
     if let Some(ref status) = input.status {
-        separated
-            .push("status = ")
-            .push_bind_unseparated(status);
+        separated.push("status = ").push_bind_unseparated(status);
     }
     if let Some(ref priority) = input.priority {
         separated
@@ -499,17 +540,20 @@ pub async fn patch_project_settings(pool: &PgPool, project_id: i32, input: &Proj
 }
 
 pub async fn get_project_owner_id(pool: &PgPool, project_id: i32) -> anyhow::Result<Option<i32>> {
-    let owner_id: Option<i32> = sqlx::query_scalar(
-        "SELECT owner_id::int4 FROM tickets_project WHERE id = $1"
-    )
-    .bind(project_id)
-    .fetch_optional(pool)
-    .await?
-    .flatten();
+    let owner_id: Option<i32> =
+        sqlx::query_scalar("SELECT owner_id::int4 FROM tickets_project WHERE id = $1")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
     Ok(owner_id)
 }
 
-pub async fn is_project_owner(pool: &PgPool, project_id: i32, user_id: i32) -> anyhow::Result<bool> {
+pub async fn is_project_owner(
+    pool: &PgPool,
+    project_id: i32,
+    user_id: i32,
+) -> anyhow::Result<bool> {
     let owner_id = get_project_owner_id(pool, project_id).await?;
     Ok(owner_id == Some(user_id))
 }
@@ -531,27 +575,31 @@ pub enum DeleteProjectResult {
 pub async fn delete_project(pool: &PgPool, id: i32) -> anyhow::Result<DeleteProjectResult> {
     let mut tx = pool.begin().await?;
 
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_project WHERE id = $1)")
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_project WHERE id = $1)")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
     if !exists {
         return Ok(DeleteProjectResult::NotFound);
     }
 
-    let ticket_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE project_id = $1")
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let ticket_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE project_id = $1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
     if ticket_count > 0 {
         return Ok(DeleteProjectResult::HasTickets);
     }
 
     // 子プロジェクトがいれば削除不可
-    let child_names: Vec<String> = sqlx::query_scalar("SELECT name FROM tickets_project WHERE parent_project_id = $1 ORDER BY name")
-        .bind(id)
-        .fetch_all(&mut *tx)
-        .await?;
+    let child_names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM tickets_project WHERE parent_project_id = $1 ORDER BY name",
+    )
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await?;
     if !child_names.is_empty() {
         return Ok(DeleteProjectResult::HasChildren(child_names));
     }
@@ -566,41 +614,59 @@ pub async fn delete_project(pool: &PgPool, id: i32) -> anyhow::Result<DeleteProj
     sqlx::query("DELETE FROM wiki_revision WHERE page_id IN (SELECT id FROM wiki_page WHERE project_id = $1)")
         .bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM wiki_page WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // m_label とその子孫(M2M中間テーブル)
     sqlx::query("DELETE FROM tickets_ticket_labels WHERE labelmodel_id IN (SELECT id FROM m_label WHERE project_id = $1)")
         .bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM m_label WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // t_dashboard とその子孫
     sqlx::query("DELETE FROM t_dashboard_widget WHERE dashboard_id IN (SELECT id FROM t_dashboard WHERE project_id = $1)")
         .bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM t_dashboard WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // t_git_integration とその子孫
     sqlx::query("DELETE FROM t_git_event WHERE integration_id IN (SELECT id FROM t_git_integration WHERE project_id = $1)")
         .bind(id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM t_git_integration WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // その他直接の子(on_delete=CASCADE)
     // t_team_membership.scoped_project_id は ON DELETE CASCADE のため明示的な削除は不要
     sqlx::query("DELETE FROM t_cycle WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM t_workflow_status WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM milestones_milestone WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // on_delete=SET_NULL
     sqlx::query("UPDATE t_triage_request SET project_id = NULL WHERE project_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query("DELETE FROM tickets_project WHERE id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
     Ok(DeleteProjectResult::Deleted)
@@ -614,7 +680,7 @@ pub async fn find_all_categories(pool: &PgPool) -> anyhow::Result<Vec<CategoryOu
     let rows = sqlx::query(
         "SELECT id::int4, name, slug, level, sort_order, color, parent_id::int4
          FROM tickets_category
-         ORDER BY id ASC"
+         ORDER BY id ASC",
     )
     .fetch_all(pool)
     .await?;
@@ -639,7 +705,7 @@ pub async fn find_category_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Optio
     let row_opt = sqlx::query(
         "SELECT id::int4, name, slug, level, sort_order, color, parent_id::int4
          FROM tickets_category
-         WHERE id = $1"
+         WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -693,12 +759,11 @@ pub async fn create_category(pool: &PgPool, input: &CategoryWriteIn) -> anyhow::
     // 重複チェック＆連番付与
     let mut counter = 1;
     loop {
-        let existing_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tickets_category WHERE slug = $1"
-        )
-        .bind(&slug)
-        .fetch_one(pool)
-        .await?;
+        let existing_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM tickets_category WHERE slug = $1")
+                .bind(&slug)
+                .fetch_one(pool)
+                .await?;
 
         if existing_count == 0 {
             break;
@@ -716,7 +781,7 @@ pub async fn create_category(pool: &PgPool, input: &CategoryWriteIn) -> anyhow::
     let category_id: i32 = sqlx::query_scalar(
         "INSERT INTO tickets_category (name, slug, level, parent_id, sort_order, color)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id::int4"
+         RETURNING id::int4",
     )
     .bind(&input.name)
     .bind(&slug)
@@ -730,7 +795,11 @@ pub async fn create_category(pool: &PgPool, input: &CategoryWriteIn) -> anyhow::
     Ok(category_id)
 }
 
-pub async fn update_category(pool: &PgPool, id: i32, input: &CategoryWriteIn) -> anyhow::Result<bool> {
+pub async fn update_category(
+    pool: &PgPool,
+    id: i32,
+    input: &CategoryWriteIn,
+) -> anyhow::Result<bool> {
     // Slug 生成
     let slug = if input.slug.is_empty() {
         generate_slug(&input.name)
@@ -741,7 +810,7 @@ pub async fn update_category(pool: &PgPool, id: i32, input: &CategoryWriteIn) ->
     let rows_affected = sqlx::query(
         "UPDATE tickets_category
          SET name = $1, slug = $2, level = $3, parent_id = $4, sort_order = $5, color = $6
-         WHERE id = $7"
+         WHERE id = $7",
     )
     .bind(&input.name)
     .bind(&slug)
@@ -762,7 +831,9 @@ pub async fn delete_category(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     // tickets_ticket.category は on_delete=SET_NULL
     sqlx::query("UPDATE tickets_ticket SET category_id = NULL WHERE category_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM tickets_category WHERE id = $1")
         .bind(id)
@@ -778,27 +849,39 @@ pub async fn delete_category(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 // Milestones
 // =============================================================================
 
-pub async fn find_all_milestones(pool: &PgPool, project_id: Option<i32>, page: i64) -> anyhow::Result<Vec<MilestoneOut>> {
+/// マイルストーンの一覧。`scope` があれば、新しい判定で見える物だけ(D-4。`on` のときだけ渡される)
+pub async fn find_all_milestones(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    page: i64,
+    scope: Option<&crate::domain::access::Scope>,
+) -> anyhow::Result<Vec<MilestoneOut>> {
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
 
-    let rows = sqlx::query(
+    let mut qb = sqlx::QueryBuilder::new(
         "SELECT
             m.id::int4, m.name, m.due_date, m.description, m.created_at,
             m.project_id::int4,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE milestone_id = m.id AND status != 'closed') as open_count,
             (SELECT COUNT(*)::int8 FROM tickets_ticket WHERE milestone_id = m.id AND status = 'closed') as closed_count
          FROM milestones_milestone m
-         WHERE ($1::int4 IS NULL OR m.project_id = $1::int4)
-         ORDER BY m.due_date ASC NULLS LAST
-         LIMIT $2 OFFSET $3"
-    )
-    .bind(project_id)
-    .bind(PAGE_SIZE)
-    .bind(offset)
-    .fetch_all(pool)
-    .await?;
+         WHERE (",
+    );
+    qb.push_bind(project_id)
+        .push("::int4 IS NULL OR m.project_id = ")
+        .push_bind(project_id)
+        .push("::int4)");
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_milestone_visible(&mut qb, "m", scope);
+    }
+    qb.push(" ORDER BY m.due_date ASC NULLS LAST LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
+    let rows = qb.build().fetch_all(pool).await?;
 
     let milestones = rows
         .into_iter()
@@ -817,13 +900,22 @@ pub async fn find_all_milestones(pool: &PgPool, project_id: Option<i32>, page: i
     Ok(milestones)
 }
 
-pub async fn count_milestones(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<i64> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM milestones_milestone WHERE ($1::int4 IS NULL OR project_id = $1::int4)"
-    )
-    .bind(project_id)
-    .fetch_one(pool)
-    .await?;
+/// マイルストーンの件数。`scope` は `find_all_milestones` と同じ
+pub async fn count_milestones(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
+) -> anyhow::Result<i64> {
+    let mut qb = sqlx::QueryBuilder::new("SELECT COUNT(*) FROM milestones_milestone m WHERE (");
+    qb.push_bind(project_id)
+        .push("::int4 IS NULL OR m.project_id = ")
+        .push_bind(project_id)
+        .push("::int4)");
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_milestone_visible(&mut qb, "m", scope);
+    }
+    let count: i64 = qb.build_query_scalar().fetch_one(pool).await?;
 
     Ok(count)
 }
@@ -860,7 +952,7 @@ pub async fn create_milestone(pool: &PgPool, input: &MilestoneWriteIn) -> anyhow
     let milestone_id: i32 = sqlx::query_scalar(
         "INSERT INTO milestones_milestone (name, due_date, description, created_at, project_id)
          VALUES ($1, $2, $3, NOW(), $4)
-         RETURNING id::int4"
+         RETURNING id::int4",
     )
     .bind(&input.name)
     .bind(input.due_date)
@@ -872,11 +964,15 @@ pub async fn create_milestone(pool: &PgPool, input: &MilestoneWriteIn) -> anyhow
     Ok(milestone_id)
 }
 
-pub async fn update_milestone(pool: &PgPool, id: i32, input: &MilestoneWriteIn) -> anyhow::Result<bool> {
+pub async fn update_milestone(
+    pool: &PgPool,
+    id: i32,
+    input: &MilestoneWriteIn,
+) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE milestones_milestone
          SET name = $1, due_date = $2, description = $3, project_id = $4
-         WHERE id = $5"
+         WHERE id = $5",
     )
     .bind(&input.name)
     .bind(input.due_date)
@@ -895,7 +991,9 @@ pub async fn delete_milestone(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     // tickets_ticket.milestone は on_delete=SET_NULL
     sqlx::query("UPDATE tickets_ticket SET milestone_id = NULL WHERE milestone_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM milestones_milestone WHERE id = $1")
         .bind(id)
@@ -911,28 +1009,34 @@ pub async fn delete_milestone(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 // Labels
 // =============================================================================
 
+/// ラベルの一覧。`scope` があれば、新しい判定で見える物だけ(D-4。`on` のときだけ渡される)
 pub async fn find_all_labels(
     pool: &PgPool,
     project_id: Option<i32>,
     team_id: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<Vec<LabelOut>> {
-    let rows = sqlx::query(
-        "SELECT id::int4, name, color, created_at, project_id, team_id, description, category, is_ai_enabled
-         FROM m_label
-         WHERE ($1::int4 IS NULL OR project_id = $1::int4)
-           AND ($2::int4 IS NULL OR team_id = $2::int4)
-         ORDER BY created_at DESC
-         LIMIT 100"
-    )
-    .bind(project_id)
-    .bind(team_id)
-    .fetch_all(pool)
-    .await?;
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT l.id::int4, l.name, l.color, l.created_at, l.project_id, l.team_id, l.description, l.category, l.is_ai_enabled
+         FROM m_label l
+         WHERE (",
+    );
+    qb.push_bind(project_id)
+        .push("::int4 IS NULL OR l.project_id = ")
+        .push_bind(project_id)
+        .push("::int4) AND (")
+        .push_bind(team_id)
+        .push("::int4 IS NULL OR l.team_id = ")
+        .push_bind(team_id)
+        .push("::int4)");
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_label_visible(&mut qb, "l", scope);
+    }
+    qb.push(" ORDER BY l.created_at DESC LIMIT 100");
+    let rows = qb.build().fetch_all(pool).await?;
 
-    let labels = rows
-        .into_iter()
-        .map(map_label_row)
-        .collect();
+    let labels = rows.into_iter().map(map_label_row).collect();
 
     Ok(labels)
 }
@@ -968,7 +1072,11 @@ pub async fn find_label_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<L
 
 /// プロジェクト内で名前一致するラベルを探し、無ければ作成してIDを返す。
 /// AI経由のチケット作成など、呼び出し側がラベルIDではなく名前しか持たない場合に使う。
-pub async fn find_or_create_label(pool: &PgPool, project_id: i32, name: &str) -> anyhow::Result<i32> {
+pub async fn find_or_create_label(
+    pool: &PgPool,
+    project_id: i32,
+    name: &str,
+) -> anyhow::Result<i32> {
     find_or_create_label_for_scope(pool, Some(project_id), None, name).await
 }
 
@@ -982,7 +1090,7 @@ pub async fn find_or_create_label_for_scope(
 
     if let Some(pid) = project_id {
         if let Some(id) = sqlx::query_scalar::<_, i32>(
-            "SELECT id::int4 FROM m_label WHERE name = $1 AND project_id = $2 LIMIT 1"
+            "SELECT id::int4 FROM m_label WHERE name = $1 AND project_id = $2 LIMIT 1",
         )
         .bind(name)
         .bind(pid)
@@ -1008,7 +1116,7 @@ pub async fn find_or_create_label_for_scope(
         if let Some(id) = sqlx::query_scalar::<_, i32>(
             "SELECT id::int4 FROM m_label
              WHERE name = $1 AND team_id = $2 AND project_id IS NULL
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(name)
         .bind(tid)
@@ -1020,7 +1128,7 @@ pub async fn find_or_create_label_for_scope(
         if let Some(id) = sqlx::query_scalar::<_, i32>(
             "SELECT id::int4 FROM m_label
              WHERE name = $1 AND project_id IS NULL AND team_id IS NULL
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(name)
         .fetch_optional(pool)
@@ -1089,7 +1197,9 @@ pub async fn delete_label(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     // tickets_ticket_labels はM2M中間テーブル(DjangoのManyToManyField削除はjoin行を自動除去)
     sqlx::query("DELETE FROM tickets_ticket_labels WHERE labelmodel_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM m_label WHERE id = $1")
         .bind(id)
@@ -1118,7 +1228,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_find_project_roundtrip() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("PRJ{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_prj").await;
         let input = write_in(&prefix, vec![team_id]);
@@ -1136,10 +1248,14 @@ mod tests {
 
     #[tokio::test]
     async fn update_project_changes_fields() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("UPD{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_upd").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
 
         let mut updated = write_in(&prefix, vec![team_id]);
         updated.name = "更新後の名前".to_string();
@@ -1152,11 +1268,15 @@ mod tests {
 
     #[tokio::test]
     async fn create_project_sets_owner_id() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "project-owner").await;
         let team_id = test_support::create_test_team(&pool, "team_own").await;
         let prefix = format!("OWN{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), Some(owner), None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), Some(owner), None)
+            .await
+            .unwrap();
 
         let owner_id = get_project_owner_id(&pool, id).await.unwrap();
         assert_eq!(owner_id, Some(owner));
@@ -1164,11 +1284,15 @@ mod tests {
 
     #[tokio::test]
     async fn delete_project_with_tickets_is_rejected() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "del-guard-author").await;
         let team_id = test_support::create_test_team(&pool, "team_del").await;
         let prefix = format!("DEL{}", &test_support::unique_suffix()[..6]);
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
         test_support::create_test_ticket(&pool, id, "DELGUARD", author).await;
 
         let result = delete_project(&pool, id).await.unwrap();
@@ -1181,10 +1305,14 @@ mod tests {
 
     #[tokio::test]
     async fn delete_project_without_tickets_succeeds() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("DOK{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_dok").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
 
         let result = delete_project(&pool, id).await.unwrap();
         assert!(matches!(result, DeleteProjectResult::Deleted));
@@ -1195,14 +1323,18 @@ mod tests {
 
     #[tokio::test]
     async fn delete_project_not_found() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let result = delete_project(&pool, 999_999_999).await.unwrap();
         assert!(matches!(result, DeleteProjectResult::NotFound));
     }
 
     #[tokio::test]
     async fn create_project_defaults_to_in_progress_status() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("STS{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_sts").await;
         let input = write_in(&prefix, vec![team_id]);
@@ -1217,7 +1349,9 @@ mod tests {
 
     #[tokio::test]
     async fn create_project_defaults_to_medium_priority() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("PRI{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_pri").await;
         let input = write_in(&prefix, vec![team_id]);
@@ -1232,16 +1366,22 @@ mod tests {
     async fn patch_project_updates_status() {
         use crate::domain::models::resource_api::ProjectPatchIn;
 
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("PST{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_pst").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
 
         let patch_input = ProjectPatchIn {
             status: Some("paused".to_string()),
             ..Default::default()
         };
-        let result = patch_project_settings(&pool, id, &patch_input).await.unwrap();
+        let result = patch_project_settings(&pool, id, &patch_input)
+            .await
+            .unwrap();
         assert!(result);
 
         let found = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
@@ -1250,12 +1390,16 @@ mod tests {
 
     #[tokio::test]
     async fn find_project_reports_is_member_for_participating_user() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("MEM{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_mem").await;
         let member_user = test_support::create_test_user(&pool, "project-member").await;
         let outsider_user = test_support::create_test_user(&pool, "project-outsider").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
 
         sqlx::query(
             "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, 'member', NOW())"
@@ -1266,10 +1410,16 @@ mod tests {
         .await
         .unwrap();
 
-        let as_member = find_project_by_id(&pool, id, Some(member_user)).await.unwrap().unwrap();
+        let as_member = find_project_by_id(&pool, id, Some(member_user))
+            .await
+            .unwrap()
+            .unwrap();
         assert!(as_member.is_member);
 
-        let as_outsider = find_project_by_id(&pool, id, Some(outsider_user)).await.unwrap().unwrap();
+        let as_outsider = find_project_by_id(&pool, id, Some(outsider_user))
+            .await
+            .unwrap()
+            .unwrap();
         assert!(!as_outsider.is_member);
 
         let as_anonymous = find_project_by_id(&pool, id, None).await.unwrap().unwrap();
@@ -1280,11 +1430,15 @@ mod tests {
     async fn find_project_is_member_true_for_guest_within_grace_period() {
         use chrono::Duration;
 
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("GST{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_gst").await;
         let guest_user = test_support::create_test_user(&pool, "project-guest").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
 
         // create_project の grace_period_days 既定値は 7。end_date を昨日にして、
         // 期限自体は過ぎているがグレースピリオド内であることを確認する。
@@ -1301,7 +1455,10 @@ mod tests {
         .await
         .unwrap();
 
-        let found = find_project_by_id(&pool, id, Some(guest_user)).await.unwrap().unwrap();
+        let found = find_project_by_id(&pool, id, Some(guest_user))
+            .await
+            .unwrap()
+            .unwrap();
         assert!(found.is_member);
     }
 
@@ -1309,11 +1466,15 @@ mod tests {
     async fn find_project_is_member_false_for_guest_past_grace_period() {
         use chrono::Duration;
 
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let prefix = format!("EXP{}", &test_support::unique_suffix()[..6]);
         let team_id = test_support::create_test_team(&pool, "team_exp").await;
         let expired_guest = test_support::create_test_user(&pool, "project-expired-guest").await;
-        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None).await.unwrap();
+        let id = create_project(&pool, &write_in(&prefix, vec![team_id]), None, None)
+            .await
+            .unwrap();
 
         let long_ago = chrono::Utc::now().date_naive() - Duration::days(30);
         sqlx::query(
@@ -1328,30 +1489,44 @@ mod tests {
         .await
         .unwrap();
 
-        let found = find_project_by_id(&pool, id, Some(expired_guest)).await.unwrap().unwrap();
+        let found = find_project_by_id(&pool, id, Some(expired_guest))
+            .await
+            .unwrap()
+            .unwrap();
         assert!(!found.is_member);
     }
 
     #[tokio::test]
     async fn find_all_projects_returns_hierarchy_fields() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let suffix = test_support::unique_suffix();
         let user = test_support::create_test_user(&pool, &format!("hier{}", suffix)).await;
-        let parent_id = test_support::create_test_project(&pool, &format!("PARENT{}", suffix), user).await;
-        let child_id = test_support::create_test_project(&pool, &format!("CHILD{}", suffix), user).await;
+        let parent_id =
+            test_support::create_test_project(&pool, &format!("PARENT{}", suffix), user).await;
+        let child_id =
+            test_support::create_test_project(&pool, &format!("CHILD{}", suffix), user).await;
 
         // 子を親に設定
         use crate::infrastructure::repositories::project_hierarchy_repo;
-        project_hierarchy_repo::set_parent(&pool, child_id, Some(parent_id)).await.unwrap();
+        project_hierarchy_repo::set_parent(&pool, child_id, Some(parent_id))
+            .await
+            .unwrap();
 
         // 親のプロジェクトを直接取得して確認
-        let parent = find_project_by_id(&pool, parent_id, Some(user)).await.unwrap().unwrap();
+        let parent = find_project_by_id(&pool, parent_id, Some(user))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(parent.parent_project_id, None);
         assert_eq!(parent.child_count, 1);
 
-        let child = find_project_by_id(&pool, child_id, Some(user)).await.unwrap().unwrap();
+        let child = find_project_by_id(&pool, child_id, Some(user))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(child.parent_project_id, Some(parent_id));
         assert_eq!(child.child_count, 0);
     }
-
 }

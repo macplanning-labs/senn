@@ -57,7 +57,7 @@ export function TeamSettingsPage() {
           onClick={() => setActiveTab('members')}
           data-testid="tab-members"
         >
-          👤 メンバー
+          👤 {t('settings.tabMembers')}
         </button>
         <button
           type="button"
@@ -65,7 +65,7 @@ export function TeamSettingsPage() {
           onClick={() => setActiveTab('guests')}
           data-testid="tab-guests"
         >
-          🔑 ゲスト
+          🔑 {t('settings.tabGuests')}
         </button>
         <button
           type="button"
@@ -73,7 +73,7 @@ export function TeamSettingsPage() {
           onClick={() => setActiveTab('rules')}
           data-testid="tab-rules"
         >
-          📖 ルール
+          📖 {t('settings.tabRules')}
         </button>
         <button
           type="button"

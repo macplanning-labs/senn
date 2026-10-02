@@ -21,8 +21,11 @@ import { reviveTransientFailures, wakeQueue } from './failedChanges';
 import { registerPushRequester } from './pushRequester';
 import { useSyncStatus } from './syncStatusStore';
 import { registerDevConsistencyCheck } from './devConsistencyCheck';
+import { isRealtimeConnected, startRealtime } from './realtime/realtimeClient';
 
 const SYNC_INTERVAL_MS = 30_000;
+/** リアルタイムがつながっている間の、保険の差分同期の間隔 */
+const REALTIME_BACKSTOP_MS = 5 * 60_000;
 /** 送信順（プロジェクト作成をチケットより先に。チケットはプロジェクトに依存しうる） */
 const ENTITY_ORDER: Record<SyncQueueItem['entity'], number> = {
   custom_emoji: 0,
@@ -38,6 +41,9 @@ let cycleRunning = false;
 let rerunRequested = false;
 let rerunTrigger: string | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
+let stopRealtimeFn: (() => void) | null = null;
+/** 直近の同期が終わった時刻（保険の間隔の判定に使う） */
+let lastCycleAt = 0;
 let focusListenerFn: (() => void) | null = null;
 let visibilityListenerFn: (() => void) | null = null;
 let onlineListenerFn: (() => void) | null = null;
@@ -79,7 +85,9 @@ export async function runCycle(trigger: string = 'manual'): Promise<void> {
       await pushChangesUnlocked(t);
       await pullEntity('projects');
       await pullEntity('tickets');
+      await pullEntity('comments');
     });
+    lastCycleAt = Date.now();
     status.set({ lastSyncAt: new Date().toISOString(), lastError: null, initialSyncDone: true });
   } catch (err) {
     status.set({ lastError: err instanceof Error ? err.message : String(err) });
@@ -302,7 +310,13 @@ export function startSync(userId: number): void {
   void reviveTransientFailures()
     .catch(() => undefined)
     .then(() => runCycle('start'));
-  syncInterval = setInterval(() => void runCycle('interval'), SYNC_INTERVAL_MS);
+  syncInterval = setInterval(() => {
+    // リアルタイムがつながっている間は、保険の差分同期を5分ごとにする（つながっていなければ従来どおり30秒）
+    if (isRealtimeConnected() && Date.now() - lastCycleAt < REALTIME_BACKSTOP_MS) return;
+    void runCycle('interval');
+  }, SYNC_INTERVAL_MS);
+  // 他の人の変更をリロードなしで受け取る。欠落・再同期の合図は、差分同期を1回走らせて埋める
+  stopRealtimeFn = startRealtime(userId, { onCatchUp: () => void runCycle('realtime') });
 
   if (typeof window === 'undefined') return;
   focusListenerFn = () => void runCycle('focus');
@@ -322,6 +336,10 @@ export function startSync(userId: number): void {
 
 /** 同期を止める（ログアウト・ユーザー切り替え時） */
 export function stopSync(): void {
+  if (stopRealtimeFn) {
+    stopRealtimeFn();
+    stopRealtimeFn = null;
+  }
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;

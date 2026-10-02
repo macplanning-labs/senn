@@ -1,7 +1,6 @@
 /// domain/models/time_entry_api.rs — Time Entry リソース表現
 ///
 /// t_time_entry テーブル用の JSON API モデル。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

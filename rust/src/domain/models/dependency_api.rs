@@ -6,7 +6,6 @@
 /// (/api/v1/tickets/{ticket_id}/dependencies/)だが、Rust側は他の
 /// /api/v1/tickets/{ticket_key}/* と一貫させるためticket_keyベースの
 /// URLにする(フロントエンドは現状この機能を未使用のため互換性の懸念なし)。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

@@ -1,0 +1,120 @@
+/* 招待の作成と、未使用の招待の一覧(アクセス制御の再設計 A-4) */
+.invite-panel {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.invite-panel__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-md, 15px);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.invite-panel__hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.invite-panel__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.invite-panel__input {
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.invite-panel__input[type='email'] {
+  flex: 1 1 220px;
+}
+
+.invite-panel__roles,
+.invite-panel__guest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.invite-panel__roles label,
+.invite-panel__date {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.invite-panel__submit,
+.invite-panel__revoke {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.invite-panel__submit {
+  border-color: var(--color-accent-primary);
+  color: var(--color-accent-primary);
+}
+
+.invite-panel__submit:disabled,
+.invite-panel__revoke:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.invite-panel__manual {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.invite-panel__manual code {
+  display: block;
+  margin-top: var(--space-1);
+  word-break: break-all;
+  color: var(--color-text-primary);
+}
+
+.invite-panel__list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+
+.invite-panel__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.invite-panel__email {
+  flex: 1 1 200px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.invite-panel__badge,
+.invite-panel__expires {
+  color: var(--color-text-secondary);
+}

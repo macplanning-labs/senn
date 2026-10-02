@@ -52,12 +52,11 @@ pub async fn load_mail_settings(pool: &PgPool) -> anyhow::Result<MailSettingsSna
 }
 
 pub async fn get(pool: &PgPool, key: &str) -> anyhow::Result<Option<String>> {
-    let value: Option<String> = sqlx::query_scalar(
-        "SELECT value FROM system_settings WHERE key = $1",
-    )
-    .bind(key)
-    .fetch_optional(pool)
-    .await?;
+    let value: Option<String> =
+        sqlx::query_scalar("SELECT value FROM system_settings WHERE key = $1")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
     Ok(value)
 }
 

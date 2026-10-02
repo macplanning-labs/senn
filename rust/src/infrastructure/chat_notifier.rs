@@ -2,7 +2,6 @@
 ///
 /// Slack/Google Chat/Teamsは同一のJSON形式({"text": ...})、
 /// ChatworkはAPIトークン+room_idでform-urlencoded POSTする。
-
 use serde_json::json;
 
 use crate::domain::models::chat_integration_api::ChatIntegrationOut;
@@ -47,7 +46,10 @@ async fn send_chatwork(integration: &ChatIntegrationOut, text: &str) -> anyhow::
 
     let client = reqwest::Client::new();
     let res = client
-        .post(format!("https://api.chatwork.com/v2/rooms/{}/messages", room_id))
+        .post(format!(
+            "https://api.chatwork.com/v2/rooms/{}/messages",
+            room_id
+        ))
         .header("X-ChatWorkToken", token)
         .form(&[("body", text)])
         .send()

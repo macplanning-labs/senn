@@ -1,21 +1,25 @@
 /// presentation/handlers/time_entry_api.rs — Time Entry JSON API
 ///
 /// Django /api/v1/time-entries/ と挙動を一致させるハンドラー。
-
 use axum::{
-    extract::{State, Path, Query},
-    response::IntoResponse,
+    extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     Json,
-    Extension,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::presentation::state::AppState;
-use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::time_entry_repo;
+use crate::domain::access::{Action, ResourceRef, Viewer};
 use crate::domain::models::time_entry_api::*;
+use crate::infrastructure::access::{
+    facts_repo,
+    shadow::{self, Mode, Resource},
+};
+use crate::infrastructure::repositories::time_entry_repo;
+use crate::presentation::extractors::authorize;
+use crate::presentation::middleware::jwt_auth::AuthUser;
+use crate::presentation::state::AppState;
 
 // =============================================================================
 // リクエスト構造体
@@ -45,6 +49,45 @@ pub struct ErrorResponse {
     pub detail: String,
 }
 
+// アクセス制御の再設計(D-5。設計書 §5.2・§6.1)。時間記録は「親のチケットが見えること」。
+// 削除は、本人か、そのチームの設定を管理できる人。切り替えはチケットと同じ `ACCESS_ENFORCE_TICKET`。
+// 今の判定には確認が無い。
+
+fn db_error(e: anyhow::Error) -> axum::response::Response {
+    tracing::error!("DB operation failed: {:?}", e);
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse {
+            detail: "サーバーエラーが発生しました".to_string(),
+        }),
+    )
+        .into_response()
+}
+
+/// 親のチケットへの判定
+async fn ticket_gate(
+    state: &AppState,
+    viewer: &Viewer,
+    ticket_id: i32,
+    action: Action,
+    route: &'static str,
+) -> Result<Option<ResourceRef>, axum::response::Response> {
+    let facts = facts_repo::facts_for_ticket(&state.pool, ticket_id)
+        .await
+        .map_err(db_error)?;
+    authorize::gate(
+        &state.pool,
+        viewer,
+        facts.as_ref(),
+        action,
+        Resource::Ticket,
+        ticket_id as i64,
+        Ok(()),
+        route,
+    )?;
+    Ok(facts)
+}
+
 // =============================================================================
 // Time Entries
 // =============================================================================
@@ -52,11 +95,14 @@ pub struct ErrorResponse {
 /// タイムエントリー一覧 GET /api/v1/time-entries/
 pub async fn time_entry_list(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<TimeEntryListQuery>,
 ) -> impl IntoResponse {
     let page = params.page.unwrap_or(1).max(1);
     const PAGE_SIZE: i64 = 50;
+
+    // 新しい判定(on)では SQL で絞る(親のチケットが見える物だけ。件数・ページ送りも合わせる)
+    let scope = (shadow::mode(Resource::Ticket) == Mode::On).then(|| viewer.scope());
 
     // タイムエントリー一覧取得
     let entries = match time_entry_repo::find_all_time_entries(
@@ -64,6 +110,7 @@ pub async fn time_entry_list(
         page,
         params.ticket,
         params.user,
+        scope.as_ref(),
     )
     .await
     {
@@ -80,9 +127,52 @@ pub async fn time_entry_list(
         }
     };
 
+    // 試運転: 見えなくなる行を記録する(親のチケットの情報は、出てきたチケットの分だけ読む)
+    let entries = if shadow::mode(Resource::Ticket) == Mode::Shadow {
+        let mut facts = std::collections::HashMap::new();
+        for e in &entries {
+            if facts.contains_key(&e.ticket) {
+                continue;
+            }
+            match facts_repo::facts_for_ticket(&state.pool, e.ticket).await {
+                Ok(Some(f)) => {
+                    facts.insert(e.ticket, f);
+                }
+                Ok(None) => {}
+                Err(e) => return db_error(e),
+            }
+        }
+        authorize::filter_list(
+            &state.pool,
+            &viewer,
+            Resource::Ticket,
+            "GET /api/v1/time-entries/",
+            entries,
+            |e| e.id as i64,
+            |e| {
+                facts
+                    .get(&e.ticket)
+                    .cloned()
+                    .unwrap_or(ResourceRef::Ticket {
+                        team: None,
+                        project_id: None,
+                        author_id: None,
+                        assignee_ids: vec![],
+                    })
+            },
+        )
+    } else {
+        entries
+    };
+
     // 件数取得
-    let count = match time_entry_repo::count_time_entries(&state.pool, params.ticket, params.user)
-        .await
+    let count = match time_entry_repo::count_time_entries(
+        &state.pool,
+        params.ticket,
+        params.user,
+        scope.as_ref(),
+    )
+    .await
     {
         Ok(c) => c,
         Err(e) => {
@@ -154,9 +244,26 @@ pub async fn time_entry_list(
 /// タイムエントリー作成 POST /api/v1/time-entries/
 pub async fn time_entry_create(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<TimeEntryCreateIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    if let Err(resp) = ticket_gate(
+        &state,
+        &viewer,
+        body.ticket,
+        Action::Write,
+        "POST /api/v1/time-entries/",
+    )
+    .await
+    {
+        return resp;
+    }
     // バリデーション: (startTime と endTime が両方あり) または (durationMinutes > 0)
     let duration_minutes = if let (Some(start), Some(end)) = (body.start_time, body.end_time) {
         // startTime と endTime が両方指定されている場合
@@ -186,8 +293,9 @@ pub async fn time_entry_create(
         return (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                detail: "startTimeとendTimeの両方、またはdurationMinutesのいずれかを指定してください"
-                    .to_string(),
+                detail:
+                    "startTimeとendTimeの両方、またはdurationMinutesのいずれかを指定してください"
+                        .to_string(),
             }),
         )
             .into_response();
@@ -233,9 +341,41 @@ pub async fn time_entry_create(
 /// タイムエントリー削除 DELETE /api/v1/time-entries/{id}/
 pub async fn time_entry_delete(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    const ROUTE: &str = "DELETE /api/v1/time-entries/{id}/";
+    match time_entry_repo::find_time_entry_by_id(&state.pool, id).await {
+        Ok(Some(entry)) => {
+            // 親のチケットが見えること。本人以外は、そのチームの設定を管理できること
+            let facts = match ticket_gate(&state, &viewer, entry.ticket, Action::Read, ROUTE).await
+            {
+                Ok(f) => f,
+                Err(resp) => return resp,
+            };
+            if viewer.user_id() != Some(entry.user.id) {
+                let team = match facts {
+                    Some(ResourceRef::Ticket { team: Some(t), .. }) => Some(ResourceRef::Team(t)),
+                    // チームの無いチケットは、本人だけ(判定材料が無いので、on では 404)
+                    _ => None,
+                };
+                if let Err(resp) = authorize::gate(
+                    &state.pool,
+                    &viewer,
+                    team.as_ref(),
+                    Action::ManageSettings,
+                    Resource::Ticket,
+                    entry.ticket as i64,
+                    Ok(()),
+                    ROUTE,
+                ) {
+                    return resp;
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => return db_error(e),
+    }
     match time_entry_repo::delete_time_entry(&state.pool, id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
@@ -261,9 +401,14 @@ pub async fn time_entry_delete(
 /// 今日の自分の作業時間サマリー GET /api/v1/time-entries/my-today/
 pub async fn time_entry_my_today(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
 ) -> impl IntoResponse {
-    match time_entry_repo::get_today_time_entries(&state.pool, auth.user_id).await {
+    // 本人の記録だけを返す(閲覧者の確認だけ)
+    let user_id = match viewer.require_user_id() {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match time_entry_repo::get_today_time_entries(&state.pool, user_id).await {
         Ok(today) => (StatusCode::OK, Json(today)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);

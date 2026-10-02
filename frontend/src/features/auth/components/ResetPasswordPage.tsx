@@ -25,7 +25,7 @@ export function ResetPasswordPage() {
     setError('');
 
     if (!token) {
-      setError(t('auth.resetTokenMissing', 'リセットリンクが無効です。再度パスワードリセットを申請してください。'));
+      setError(t('auth.resetTokenMissing'));
       return;
     }
 
@@ -35,7 +35,7 @@ export function ResetPasswordPage() {
     }
 
     if (newPassword !== confirmPassword) {
-      setError(t('auth.resetPasswordMismatch', '新しいパスワードが一致しません'));
+      setError(t('auth.resetPasswordMismatch'));
       return;
     }
 
@@ -53,7 +53,7 @@ export function ResetPasswordPage() {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(
         axiosErr.response?.data?.detail
-          || t('auth.resetConfirmFailed', 'パスワードの更新に失敗しました。リンクの有効期限が切れている可能性があります。'),
+          || t('auth.resetConfirmFailed'),
       );
     } finally {
       setIsLoading(false);
@@ -69,7 +69,7 @@ export function ResetPasswordPage() {
             <h1 className="login__logo">SENN</h1>
           </div>
           <div className="login__error" role="alert">
-            {t('auth.resetTokenMissing', 'リセットリンクが無効です。再度パスワードリセットを申請してください。')}
+            {t('auth.resetTokenMissing')}
           </div>
           <p className="login__signup">
             <Link to="/forgot-password">{t('auth.forgotPassword')}</Link>
@@ -85,7 +85,7 @@ export function ResetPasswordPage() {
         <div className="login__header">
           <h1 className="login__logo">SENN</h1>
           <p className="login__tagline">
-            {t('auth.resetPasswordTitle', '新しいパスワードを設定')}
+            {t('auth.resetPasswordTitle')}
           </p>
         </div>
 
@@ -98,7 +98,7 @@ export function ResetPasswordPage() {
 
           <div className="login__field">
             <label htmlFor="new-password" className="login__label">
-              {t('auth.newPassword', '新しいパスワード')}
+              {t('auth.newPassword')}
             </label>
             <input
               id="new-password"
@@ -114,7 +114,7 @@ export function ResetPasswordPage() {
 
           <div className="login__field">
             <label htmlFor="confirm-password" className="login__label">
-              {t('auth.confirmPassword', '新しいパスワード（確認）')}
+              {t('auth.confirmPassword')}
             </label>
             <input
               id="confirm-password"
@@ -133,11 +133,11 @@ export function ResetPasswordPage() {
             disabled={isLoading}
             data-testid="reset-password-submit"
           >
-            {isLoading ? t('common.loading') : t('auth.updatePassword', 'パスワードを更新')}
+            {isLoading ? t('common.loading') : t('auth.updatePassword')}
           </button>
 
           <p className="login__signup">
-            <Link to="/login">{t('auth.backToLogin', 'ログイン画面に戻る')}</Link>
+            <Link to="/login">{t('auth.backToLogin')}</Link>
           </p>
         </form>
       </div>

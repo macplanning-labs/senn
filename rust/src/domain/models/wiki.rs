@@ -2,7 +2,6 @@
 ///
 /// WikiPage と WikiRevision（編集履歴）。
 /// [[Wikiリンク]] 記法のレンダリングはサービス層で実装。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -53,8 +52,12 @@ impl WikiCategory {
 
     pub fn all() -> Vec<WikiCategory> {
         vec![
-            Self::Manual, Self::Minutes, Self::Spec,
-            Self::Knowhow, Self::Glossary, Self::Other,
+            Self::Manual,
+            Self::Minutes,
+            Self::Spec,
+            Self::Knowhow,
+            Self::Glossary,
+            Self::Other,
         ]
     }
 }

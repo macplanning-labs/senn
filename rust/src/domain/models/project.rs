@@ -1,5 +1,4 @@
 /// domain/models/project.rs — プロジェクトモデル
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

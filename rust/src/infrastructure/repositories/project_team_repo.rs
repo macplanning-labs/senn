@@ -7,7 +7,6 @@
 /// - 外せる条件: そのチームのチケット・サイクルが、そのプロジェクトに無いこと
 ///   (残っていると、後でそのチケットを編集した時に「チームがプロジェクトの参加者ではない」エラーになる)
 ///   ※最後の1チームは外せない既存ルールは resource_repo::remove_project_team が維持する
-
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -75,10 +74,18 @@ pub struct ProjectTeamsOut {
     pub teams: Vec<ParticipatingTeamOut>,
     #[serde(rename = "addableTeams")]
     pub addable_teams: Vec<AddableTeamOut>,
+    /// 参加チームのうち、閲覧者に見えないため `teams` から除いた数(アクセス制御の再設計 §8)
+    #[serde(rename = "hiddenTeamCount")]
+    pub hidden_team_count: i64,
 }
 
 /// 担当チームを変更できるか(管理者 / プロジェクトのオーナー / 参加チームの管理者)。
-pub async fn can_manage(pool: &PgPool, project_id: i32, user_id: i32, is_staff: bool) -> anyhow::Result<bool> {
+pub async fn can_manage(
+    pool: &PgPool,
+    project_id: i32,
+    user_id: i32,
+    is_staff: bool,
+) -> anyhow::Result<bool> {
     if is_staff {
         return Ok(true);
     }
@@ -105,7 +112,12 @@ pub async fn can_manage(pool: &PgPool, project_id: i32, user_id: i32, is_staff: 
 /// プロジェクトの設定（名前・接頭辞・説明・優先度・状態・サイクル自動化）を変更できるか。
 /// 管理権限（can_manage）を持つ人、または参加チームの正規メンバー（チーム全体メンバー。
 /// scoped_project_id が NULL の行）。Project ゲスト（scoped_project_id 付き）は不可。
-pub async fn can_edit(pool: &PgPool, project_id: i32, user_id: i32, is_staff: bool) -> anyhow::Result<bool> {
+pub async fn can_edit(
+    pool: &PgPool,
+    project_id: i32,
+    user_id: i32,
+    is_staff: bool,
+) -> anyhow::Result<bool> {
     if can_manage(pool, project_id, user_id, is_staff).await? {
         return Ok(true);
     }
@@ -150,13 +162,12 @@ pub async fn team_usage(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow:
     .bind(team_id as i64)
     .fetch_one(pool)
     .await?;
-    let cycles: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM t_cycle WHERE project_id = $1 AND team_id = $2",
-    )
-    .bind(project_id as i64)
-    .bind(team_id as i64)
-    .fetch_one(pool)
-    .await?;
+    let cycles: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM t_cycle WHERE project_id = $1 AND team_id = $2")
+            .bind(project_id as i64)
+            .bind(team_id as i64)
+            .fetch_one(pool)
+            .await?;
     Ok(TeamUsage { tickets, cycles })
 }
 
@@ -191,7 +202,10 @@ pub async fn overview(
             let reason = if !can_manage {
                 None
             } else if only_one {
-                Some("プロジェクトには1つ以上のチームが必要です(先に別のチームを追加してください)".to_string())
+                Some(
+                    "プロジェクトには1つ以上のチームが必要です(先に別のチームを追加してください)"
+                        .to_string(),
+                )
             } else if !usage.is_empty() {
                 Some(usage.block_message())
             } else {
@@ -234,7 +248,12 @@ pub async fn overview(
         Vec::new()
     };
 
-    Ok(ProjectTeamsOut { can_manage, teams, addable_teams })
+    Ok(ProjectTeamsOut {
+        can_manage,
+        teams,
+        addable_teams,
+        hidden_team_count: 0,
+    })
 }
 
 #[cfg(test)]
@@ -256,22 +275,45 @@ mod tests {
 
     #[test]
     fn block_message_lists_only_remaining_items() {
-        let m = TeamUsage { tickets: 3, cycles: 0 }.block_message();
+        let m = TeamUsage {
+            tickets: 3,
+            cycles: 0,
+        }
+        .block_message();
         assert!(m.contains("チケット3件") && !m.contains("サイクル"));
-        let m = TeamUsage { tickets: 1, cycles: 2 }.block_message();
+        let m = TeamUsage {
+            tickets: 1,
+            cycles: 2,
+        }
+        .block_message();
         assert!(m.contains("チケット1件・サイクル2件"));
-        assert!(TeamUsage { tickets: 0, cycles: 0 }.is_empty());
+        assert!(TeamUsage {
+            tickets: 0,
+            cycles: 0
+        }
+        .is_empty());
     }
 
     #[tokio::test]
     async fn can_manage_allows_staff_owner_and_team_admin_only() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "own").await;
         let project = test_support::create_test_project(&pool, "PT1", owner).await;
         sqlx::query("UPDATE tickets_project SET owner_id = $2 WHERE id = $1")
-            .bind(project as i64).bind(owner as i64).execute(&pool).await.unwrap();
-        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project as i64).fetch_one(&pool).await.unwrap();
+            .bind(project as i64)
+            .bind(owner as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
         let admin = test_support::create_test_user(&pool, "adm").await;
         let member = test_support::create_test_user(&pool, "mem").await;
@@ -279,22 +321,48 @@ mod tests {
         set_role(&pool, team, admin, "admin").await;
         set_role(&pool, team, member, "member").await;
 
-        assert!(can_manage(&pool, project, owner, false).await.unwrap(), "オーナー");
-        assert!(can_manage(&pool, project, admin, false).await.unwrap(), "参加チームの管理者");
-        assert!(can_manage(&pool, project, outsider, true).await.unwrap(), "システム管理者");
-        assert!(!can_manage(&pool, project, member, false).await.unwrap(), "一般メンバーは不可");
-        assert!(!can_manage(&pool, project, outsider, false).await.unwrap(), "無関係な人は不可");
+        assert!(
+            can_manage(&pool, project, owner, false).await.unwrap(),
+            "オーナー"
+        );
+        assert!(
+            can_manage(&pool, project, admin, false).await.unwrap(),
+            "参加チームの管理者"
+        );
+        assert!(
+            can_manage(&pool, project, outsider, true).await.unwrap(),
+            "システム管理者"
+        );
+        assert!(
+            !can_manage(&pool, project, member, false).await.unwrap(),
+            "一般メンバーは不可"
+        );
+        assert!(
+            !can_manage(&pool, project, outsider, false).await.unwrap(),
+            "無関係な人は不可"
+        );
     }
 
     #[tokio::test]
     async fn overview_lists_addable_teams_by_membership_and_blocks_removal_with_work() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "ov").await;
         let project = test_support::create_test_project(&pool, "PT2", owner).await;
         sqlx::query("UPDATE tickets_project SET owner_id = $2 WHERE id = $1")
-            .bind(project as i64).bind(owner as i64).execute(&pool).await.unwrap();
-        let team_a = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project as i64).fetch_one(&pool).await.unwrap();
+            .bind(project as i64)
+            .bind(owner as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let team_a = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
         // オーナーが所属するチームB(追加可能)と、所属しないチームC(追加不可)
         let team_b = test_support::create_test_team(&pool, "addB").await;
@@ -310,32 +378,51 @@ mod tests {
         // 参加チームが1つだけなら、外せない
         assert_eq!(out.teams.len(), 1);
         assert!(!out.teams[0].removable);
-        assert!(out.teams[0].remove_blocked_reason.as_deref().unwrap().contains("1つ以上"));
+        assert!(out.teams[0]
+            .remove_blocked_reason
+            .as_deref()
+            .unwrap()
+            .contains("1つ以上"));
 
         // システム管理者には、所属していないチームも出る
         let staff_out = overview(&pool, project, owner, true).await.unwrap();
         assert!(staff_out.addable_teams.iter().any(|t| t.id == team_c));
 
         // Bを追加し、Aにチケットがあると、Aは外せず、Bは外せる
-        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, team_b).await.unwrap();
+        crate::infrastructure::repositories::resource_repo::add_project_team(
+            &pool, project, team_b,
+        )
+        .await
+        .unwrap();
         test_support::create_test_ticket(&pool, project, "PT2", owner).await;
         let out = overview(&pool, project, owner, false).await.unwrap();
         assert_eq!(out.teams.len(), 2);
         let a = out.teams.iter().find(|t| t.id == team_a).unwrap();
         let b = out.teams.iter().find(|t| t.id == team_b).unwrap();
         assert!(a.ticket_count >= 1 && !a.removable);
-        assert!(a.remove_blocked_reason.as_deref().unwrap().contains("チケット"));
+        assert!(a
+            .remove_blocked_reason
+            .as_deref()
+            .unwrap()
+            .contains("チケット"));
         assert!(b.removable && b.remove_blocked_reason.is_none());
     }
 
     #[tokio::test]
     async fn overview_hides_controls_without_permission() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "np").await;
         let project = test_support::create_test_project(&pool, "PT3", owner).await;
         let member = test_support::create_test_user(&pool, "npm").await;
-        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         set_role(&pool, team, member, "member").await;
 
         let out = overview(&pool, project, member, false).await.unwrap();
@@ -347,7 +434,9 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e1_staff_can_edit() {
         // E1: staff
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e1o").await;
         let project = test_support::create_test_project(&pool, "E1", owner).await;
 
@@ -367,11 +456,17 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e2_project_owner_can_edit() {
         // E2: プロジェクトのオーナー
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e2o").await;
         let project = test_support::create_test_project(&pool, "E2", owner).await;
         sqlx::query("UPDATE tickets_project SET owner_id = $2 WHERE id = $1")
-            .bind(project as i64).bind(owner as i64).execute(&pool).await.unwrap();
+            .bind(project as i64)
+            .bind(owner as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
 
         assert!(can_edit(&pool, project, owner, false).await.unwrap());
     }
@@ -379,12 +474,19 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e3_team_admin_can_edit() {
         // E3: 参加チームの管理者（role='admin'）
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e3o").await;
         let admin = test_support::create_test_user(&pool, "e3a").await;
         let project = test_support::create_test_project(&pool, "E3", owner).await;
-        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         set_role(&pool, team, admin, "admin").await;
 
         assert!(can_edit(&pool, project, admin, false).await.unwrap());
@@ -393,12 +495,19 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e4_team_regular_member_can_edit() {
         // E4: 参加チームの一般メンバー（scoped_project_id が NULL）
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e4o").await;
         let member = test_support::create_test_user(&pool, "e4m").await;
         let project = test_support::create_test_project(&pool, "E4", owner).await;
-        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         set_role(&pool, team, member, "member").await;
 
         assert!(can_edit(&pool, project, member, false).await.unwrap());
@@ -407,7 +516,9 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e5_non_member_cannot_edit() {
         // E5: 参加していないチームの人
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e5o").await;
         let outsider = test_support::create_test_user(&pool, "e5x").await;
         let project = test_support::create_test_project(&pool, "E5", owner).await;
@@ -418,12 +529,19 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e6_project_guest_cannot_edit() {
         // E6: Project ゲスト（scoped_project_id がこのプロジェクト）
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e6o").await;
         let guest = test_support::create_test_user(&pool, "e6g").await;
         let project = test_support::create_test_project(&pool, "E6", owner).await;
-        let team = sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project as i64).fetch_one(&pool).await.unwrap();
+        let team = sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project as i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
         // Project ゲストを追加（scoped_project_id付き）
         let tomorrow = crate::test_support::db_today().succ_opt().unwrap();
@@ -442,7 +560,9 @@ mod tests {
     #[tokio::test]
     async fn can_edit_e7_unaffiliated_non_staff_cannot_edit() {
         // E7: チームもオーナーもないプロジェクトの、staff でない人
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "e7o").await;
         let unaffiliated = test_support::create_test_user(&pool, "e7u").await;
         let project = test_support::create_test_project(&pool, "E7", owner).await;

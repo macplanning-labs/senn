@@ -12,6 +12,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
+use crate::domain::access::Viewer;
 use crate::domain::models::ticket_api::*;
 use crate::domain::services::{ai_service, notification_service};
 use crate::infrastructure::repositories::{
@@ -147,9 +148,15 @@ async fn ticket_scope_by_key(
 )]
 pub async fn list(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // フィルタ条件を構築
     let mut filter = ticket_repo::ApiTicketFilter::default();
 
@@ -180,6 +187,8 @@ pub async fn list(
     filter.parent = params.parent;
     filter.parent_isnull = params.parent__isnull;
     filter.user_id = Some(auth.user_id);
+    // 新しい判定の見える範囲(試運転のスイッチで、応答に使うかが決まる。アクセス制御の再設計 C-1)
+    filter.scope = Some(viewer.scope());
 
     // due_date
     if let Some(due_gte) = params.due_date__gte {
@@ -271,15 +280,34 @@ pub async fn list(
 )]
 pub async fn detail(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
-    match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(auth.user_id), &state.config.wip_ai_api_user).await {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    match ticket_repo::api_find_by_key(
+        &state.pool,
+        &ticket_key,
+        Some(auth.user_id),
+        &state.config.wip_ai_api_user,
+    )
+    .await
+    {
         Ok(Some(ticket)) => {
-            match membership_repo::check_ticket_access(&state.pool, ticket.base.id, auth.user_id)
-                .await
+            match crate::presentation::extractors::authorize::authorize_ticket(
+                &state,
+                &viewer,
+                ticket.base.id,
+                crate::domain::access::Action::Read,
+                "GET /api/v1/tickets/{key}/",
+            )
+            .await
             {
-                Ok(true) => {
+                Ok(_) => {
                     let mut headers = HeaderMap::new();
                     let updated_at = ticket.base.updated_at.to_rfc3339();
                     headers.insert(
@@ -294,23 +322,7 @@ pub async fn detail(
                     );
                     (StatusCode::OK, headers, Json(ticket)).into_response()
                 }
-                Ok(false) => (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        detail: "見つかりません".to_string(),
-                    }),
-                )
-                    .into_response(),
-                Err(e) => {
-                    tracing::error!("Access check failed: {:?}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            detail: "サーバーエラーが発生しました".to_string(),
-                        }),
-                    )
-                        .into_response()
-                }
+                Err(resp) => resp,
             }
         }
         Ok(None) => {
@@ -343,36 +355,54 @@ pub async fn detail(
 /// 権限・404 は詳細 API と同じ。
 pub async fn extras(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
-    let ticket = match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(auth.user_id), &state.config.wip_ai_api_user).await {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    let ticket = match ticket_repo::api_find_by_key(
+        &state.pool,
+        &ticket_key,
+        Some(auth.user_id),
+        &state.config.wip_ai_api_user,
+    )
+    .await
+    {
         Ok(Some(t)) => t,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response();
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "見つかりません".to_string(),
+                }),
+            )
+                .into_response();
         }
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
             )
                 .into_response();
         }
     };
-    match membership_repo::check_ticket_access(&state.pool, ticket.base.id, auth.user_id).await {
-        Ok(true) => {}
-        Ok(false) => {
-            return (StatusCode::NOT_FOUND, Json(ErrorResponse { detail: "見つかりません".to_string() })).into_response();
-        }
-        Err(e) => {
-            tracing::error!("Access check failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse { detail: "サーバーエラーが発生しました".to_string() }),
-            )
-                .into_response();
-        }
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket.base.id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{key}/extras/",
+    )
+    .await
+    {
+        return resp;
     }
     (
         StatusCode::OK,
@@ -391,10 +421,16 @@ pub async fn extras(
 /// チケット作成 POST /api/v1/tickets/
 pub async fn create(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     headers: HeaderMap,
     Json(body): Json<TicketWriteIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // G6-1: teamId は必須、project は任意。api_create で検証
 
     // 冪等キー（詳細設計 §2.5）: 同じキーで作成済みなら、その行を 200 で返す
@@ -425,6 +461,19 @@ pub async fn create(
         reject_unknown_team_status(&state.pool, body.project, body.team_id, &body.status).await
     {
         return resp.into_response();
+    }
+
+    // 作成先のチームで、チケットを作れるか(アクセス制御の再設計 C-1。試運転のスイッチに従う)
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket_create(
+        &state,
+        &viewer,
+        body.team_id,
+        body.project,
+        "POST /api/v1/tickets/",
+    )
+    .await
+    {
+        return resp;
     }
 
     // assignees のプロジェクトメンバーバリデーション（project がある場合のみ）
@@ -541,11 +590,12 @@ pub async fn create(
     // 冪等キーを同じトランザクションで保存する。同時に同じキーで作成された場合は UNIQUE 違反になるので、
     // こちらは取り消して先に作られた行を返す。
     if let Some(key) = client_request_id {
-        if let Err(e) = sqlx::query("UPDATE tickets_ticket SET client_request_id = $1 WHERE id = $2")
-            .bind(key)
-            .bind(ticket_id)
-            .execute(&mut *tx)
-            .await
+        if let Err(e) =
+            sqlx::query("UPDATE tickets_ticket SET client_request_id = $1 WHERE id = $2")
+                .bind(key)
+                .bind(ticket_id)
+                .execute(&mut *tx)
+                .await
         {
             if let Err(re) = tx.rollback().await {
                 tracing::error!("transaction rollback failed: {:?}", re);
@@ -606,7 +656,14 @@ pub async fn create(
         };
 
     if let Some(ticket_key) = ticket_key_result {
-        match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(auth.user_id), &state.config.wip_ai_api_user).await {
+        match ticket_repo::api_find_by_key(
+            &state.pool,
+            &ticket_key,
+            Some(auth.user_id),
+            &state.config.wip_ai_api_user,
+        )
+        .await
+        {
             Ok(Some(ticket)) => (StatusCode::CREATED, Json(ticket)).into_response(),
             _ => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -658,7 +715,14 @@ async fn existing_ticket_for_key(
     if author_id != user_id {
         return Some(super::idempotency::conflict_response());
     }
-    match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(user_id), &state.config.wip_ai_api_user).await {
+    match ticket_repo::api_find_by_key(
+        &state.pool,
+        &ticket_key,
+        Some(user_id),
+        &state.config.wip_ai_api_user,
+    )
+    .await
+    {
         Ok(Some(ticket)) => Some((StatusCode::OK, Json(ticket)).into_response()),
         other => {
             tracing::error!("idempotency fetch failed: {:?}", other.err());
@@ -779,10 +843,16 @@ async fn notify_ticket_change(
 /// チケット更新 PUT /api/v1/tickets/{ticket_key}/
 pub async fn update(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     Json(body): Json<TicketWriteIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // チケットを取得して権限チェック
     let ticket_id: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
@@ -804,27 +874,16 @@ pub async fn update(
         };
 
     if let Some(tid) = ticket_id {
-        match membership_repo::check_ticket_access(&state.pool, tid, auth.user_id).await {
-            Ok(false) => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        detail: "見つかりません".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("Access check failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        detail: "サーバーエラーが発生しました".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-            Ok(true) => {}
+        if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+            &state,
+            &viewer,
+            tid,
+            crate::domain::access::Action::Write,
+            "PUT /api/v1/tickets/{key}/",
+        )
+        .await
+        {
+            return resp;
         }
     } else {
         return (
@@ -1030,7 +1089,14 @@ pub async fn update(
             notify_ticket_change(&state, auth.user_id, &events).await;
 
             // 更新後の詳細を取得
-            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(auth.user_id), &state.config.wip_ai_api_user).await {
+            match ticket_repo::api_find_by_key(
+                &state.pool,
+                &ticket_key,
+                Some(auth.user_id),
+                &state.config.wip_ai_api_user,
+            )
+            .await
+            {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1063,10 +1129,16 @@ pub async fn update(
 /// (PUT /api/v1/tickets/{ticket_key}/ は全項目必須のフォーム編集用、こちらは部分更新用で用途が異なる)
 pub async fn patch(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     Json(body): Json<TicketPatchIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // チケットを取得して権限チェック
     let ticket_id: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
@@ -1088,27 +1160,16 @@ pub async fn patch(
         };
 
     if let Some(tid) = ticket_id {
-        match membership_repo::check_ticket_access(&state.pool, tid, auth.user_id).await {
-            Ok(false) => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        detail: "見つかりません".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("Access check failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        detail: "サーバーエラーが発生しました".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-            Ok(true) => {}
+        if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+            &state,
+            &viewer,
+            tid,
+            crate::domain::access::Action::Write,
+            "PATCH /api/v1/tickets/{key}/",
+        )
+        .await
+        {
+            return resp;
         }
     } else {
         return (
@@ -1317,7 +1378,14 @@ pub async fn patch(
 
             notify_ticket_change(&state, auth.user_id, &events).await;
 
-            match ticket_repo::api_find_by_key(&state.pool, &ticket_key, Some(auth.user_id), &state.config.wip_ai_api_user).await {
+            match ticket_repo::api_find_by_key(
+                &state.pool,
+                &ticket_key,
+                Some(auth.user_id),
+                &state.config.wip_ai_api_user,
+            )
+            .await
+            {
                 Ok(Some(ticket)) => (StatusCode::OK, Json(ticket)).into_response(),
                 _ => (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1347,9 +1415,15 @@ pub async fn patch(
 /// チケット削除 DELETE /api/v1/tickets/{ticket_key}/
 pub async fn delete(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // チケットを取得して権限チェック
     let ticket_id: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
@@ -1371,27 +1445,16 @@ pub async fn delete(
         };
 
     if let Some(tid) = ticket_id {
-        match membership_repo::check_ticket_access(&state.pool, tid, auth.user_id).await {
-            Ok(false) => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        detail: "見つかりません".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("Access check failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        detail: "サーバーエラーが発生しました".to_string(),
-                    }),
-                )
-                    .into_response();
-            }
-            Ok(true) => {}
+        if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+            &state,
+            &viewer,
+            tid,
+            crate::domain::access::Action::Delete,
+            "DELETE /api/v1/tickets/{key}/",
+        )
+        .await
+        {
+            return resp;
         }
     } else {
         return (
@@ -1594,10 +1657,16 @@ async fn process_mentions(
 /// コメント追加 POST /api/v1/tickets/{ticket_key}/comments/
 pub async fn add_comment(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     Json(body): Json<AddCommentIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // ticket_key から ticket_id を解決
     let ticket_id_opt: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
@@ -1625,6 +1694,18 @@ pub async fn add_comment(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "POST /api/v1/tickets/{ticket_key}/comments/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // 返信対象の実効スレッドルートを解決
     let resolved_parent_comment_id = if let Some(parent_id) = body.parent_comment_id {
@@ -1705,10 +1786,7 @@ pub async fn add_comment(
                 if let Err(e) =
                     ai_service::generate_and_cache_ai_prompt(ticket_id, &pool, &ai_config).await
                 {
-                    tracing::warn!(
-                        ticket_id,
-                        "generate_and_cache_ai_prompt failed: {e:#}"
-                    );
+                    tracing::warn!(ticket_id, "generate_and_cache_ai_prompt failed: {e:#}");
                 }
             });
 
@@ -1735,7 +1813,7 @@ pub async fn add_comment(
 /// コメント一覧 GET /api/v1/tickets/{ticket_key}/comments/
 pub async fn list_comments(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
     // ticket_key から ticket_id を解決
@@ -1765,6 +1843,18 @@ pub async fn list_comments(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/comments/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // コメント取得
     let comments_rows = match sqlx::query(
@@ -1844,10 +1934,16 @@ pub async fn list_comments(
 /// 投稿者本人のみ編集可能。他人のコメントを編集しようとした場合は403を返す。
 pub async fn update_comment(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((ticket_key, comment_id)): Path<(String, i32)>,
     Json(body): Json<AddCommentIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // ticket_key から ticket_id を解決
     let ticket_id_opt: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
@@ -1874,6 +1970,18 @@ pub async fn update_comment(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "PATCH /api/v1/tickets/{ticket_key}/comments/{comment_id}/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // コメントの所属チケット・投稿者を確認
     let owner = match ticket_repo::api_find_comment_owner(&state.pool, comment_id).await {
@@ -1929,11 +2037,13 @@ pub async fn update_comment(
     let is_ai_agent_and_assignee = if is_own || is_acting_user {
         false
     } else {
-        let author_username = match ticket_repo::api_find_user_username(&state.pool, author_id).await {
-            Ok(Some(username)) => Some(username),
-            _ => None,
-        };
-        let is_ai_agent_author = author_username.as_deref() == Some(state.config.wip_ai_api_user.as_str());
+        let author_username =
+            match ticket_repo::api_find_user_username(&state.pool, author_id).await {
+                Ok(Some(username)) => Some(username),
+                _ => None,
+            };
+        let is_ai_agent_author =
+            author_username.as_deref() == Some(state.config.wip_ai_api_user.as_str());
         is_ai_agent_author
             && ticket_repo::is_ticket_assignee(&state.pool, ticket_id, auth.user_id)
                 .await
@@ -1942,7 +2052,9 @@ pub async fn update_comment(
     if !is_own && !is_acting_user && !is_ai_agent_and_assignee {
         return (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse { detail: "このコメントを編集する権限がありません".to_string() }),
+            Json(ErrorResponse {
+                detail: "このコメントを編集する権限がありません".to_string(),
+            }),
         )
             .into_response();
     }
@@ -1967,9 +2079,15 @@ pub async fn update_comment(
 /// 投稿者本人のみ削除可能。他人のコメントを削除しようとした場合は403を返す。
 pub async fn delete_comment(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((ticket_key, comment_id)): Path<(String, i32)>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // ticket_key から ticket_id を解決
     let ticket_id_opt: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
@@ -1996,6 +2114,18 @@ pub async fn delete_comment(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "DELETE /api/v1/tickets/{ticket_key}/comments/{comment_id}/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // コメントの所属チケット・投稿者を確認
     let owner = match ticket_repo::api_find_comment_owner(&state.pool, comment_id).await {
@@ -2051,11 +2181,13 @@ pub async fn delete_comment(
     let is_ai_agent_and_assignee = if is_own || is_acting_user {
         false
     } else {
-        let author_username = match ticket_repo::api_find_user_username(&state.pool, author_id).await {
-            Ok(Some(username)) => Some(username),
-            _ => None,
-        };
-        let is_ai_agent_author = author_username.as_deref() == Some(state.config.wip_ai_api_user.as_str());
+        let author_username =
+            match ticket_repo::api_find_user_username(&state.pool, author_id).await {
+                Ok(Some(username)) => Some(username),
+                _ => None,
+            };
+        let is_ai_agent_author =
+            author_username.as_deref() == Some(state.config.wip_ai_api_user.as_str());
         is_ai_agent_author
             && ticket_repo::is_ticket_assignee(&state.pool, ticket_id, auth.user_id)
                 .await
@@ -2064,7 +2196,9 @@ pub async fn delete_comment(
     if !is_own && !is_acting_user && !is_ai_agent_and_assignee {
         return (
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse { detail: "このコメントを削除する権限がありません".to_string() }),
+            Json(ErrorResponse {
+                detail: "このコメントを削除する権限がありません".to_string(),
+            }),
         )
             .into_response();
     }
@@ -2093,9 +2227,15 @@ pub struct WatchOut {
 /// チケットウォッチ登録 POST /api/v1/tickets/{ticket_key}/watch/
 pub async fn watch_ticket(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let ticket_id_opt: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
             .bind(&ticket_key)
@@ -2121,6 +2261,18 @@ pub async fn watch_ticket(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/tickets/{ticket_key}/watch/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     match ticket_repo::add_watcher(&state.pool, ticket_id, auth.user_id).await {
         Ok(()) => (StatusCode::OK, Json(WatchOut { is_watching: true })).into_response(),
@@ -2140,9 +2292,15 @@ pub async fn watch_ticket(
 /// チケットウォッチ解除 DELETE /api/v1/tickets/{ticket_key}/watch/
 pub async fn unwatch_ticket(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let ticket_id_opt: Option<i32> =
         match sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
             .bind(&ticket_key)
@@ -2169,6 +2327,18 @@ pub async fn unwatch_ticket(
         }
     };
 
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "DELETE /api/v1/tickets/{ticket_key}/watch/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     match ticket_repo::remove_watcher(&state.pool, ticket_id, auth.user_id).await {
         Ok(()) => (StatusCode::OK, Json(WatchOut { is_watching: false })).into_response(),
         Err(e) => {
@@ -2187,7 +2357,7 @@ pub async fn unwatch_ticket(
 /// 変更ログ取得 GET /api/v1/tickets/{ticket_key}/change-logs/
 pub async fn change_logs(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
     // ticket_key から ticket_id を解決
@@ -2217,6 +2387,18 @@ pub async fn change_logs(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/change-logs/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // 変更ログ取得
     match ticket_repo::api_find_change_logs(&state.pool, ticket_id).await {
@@ -2237,7 +2419,7 @@ pub async fn change_logs(
 /// ポイント履歴取得 GET /api/v1/tickets/{ticket_key}/point-history/
 pub async fn point_history(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
     // ticket_key から ticket_id を解決
@@ -2267,6 +2449,18 @@ pub async fn point_history(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/point-history/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // ポイント履歴取得
     match ticket_repo::api_find_point_history(&state.pool, ticket_id).await {
@@ -2295,7 +2489,7 @@ pub async fn point_history(
 /// GET /api/v1/tickets/{ticket_key}/dependencies/
 pub async fn list_dependencies(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
@@ -2321,6 +2515,18 @@ pub async fn list_dependencies(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/dependencies/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     match ticket_repo::find_dependencies_for_ticket(&state.pool, ticket_id).await {
         Ok(deps) => (StatusCode::OK, Json(deps)).into_response(),
@@ -2340,12 +2546,18 @@ pub async fn list_dependencies(
 /// POST /api/v1/tickets/{ticket_key}/dependencies/
 pub async fn add_dependency(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     Json(body): Json<crate::domain::models::dependency_api::TaskDependencyCreateIn>,
 ) -> impl IntoResponse {
     use ticket_repo::CreateDependencyResult;
 
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
@@ -2370,6 +2582,18 @@ pub async fn add_dependency(
         }
     };
 
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "POST /api/v1/tickets/{ticket_key}/dependencies/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     let to_task = match body.to_task {
         Some(id) => id,
         None => {
@@ -2382,6 +2606,18 @@ pub async fn add_dependency(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        to_task,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/tickets/{ticket_key}/dependencies/ (dependency target)",
+    )
+    .await
+    {
+        return resp;
+    }
 
     let result = ticket_repo::create_dependency(
         &state.pool,
@@ -2449,7 +2685,7 @@ pub async fn add_dependency(
 /// DELETE /api/v1/tickets/{ticket_key}/dependencies/{dep_id}/
 pub async fn delete_dependency(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((ticket_key, dep_id)): Path<(String, i32)>,
 ) -> impl IntoResponse {
     use ticket_repo::DeleteDependencyResult;
@@ -2478,6 +2714,18 @@ pub async fn delete_dependency(
         }
     };
 
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "DELETE /api/v1/tickets/{ticket_key}/dependencies/{dep_id}/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     match ticket_repo::delete_dependency(&state.pool, dep_id, ticket_id).await {
         Ok(DeleteDependencyResult::Deleted) => StatusCode::NO_CONTENT.into_response(),
         Ok(DeleteDependencyResult::NotFound) | Ok(DeleteDependencyResult::NotRelated) => (
@@ -2504,7 +2752,7 @@ pub async fn delete_dependency(
 /// dependenciesと同じ理由でticket_keyベースのURLにする(ステップ0.5の方針)。
 pub async fn git_events(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
     let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
@@ -2530,6 +2778,18 @@ pub async fn git_events(
                 .into_response();
         }
     };
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/git-events/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     match crate::infrastructure::repositories::integration_repo::find_events_by_ticket(
         &state.pool,
@@ -2568,9 +2828,15 @@ fn csv_escape(field: &str) -> String {
 
 pub async fn export_csv(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<CsvExportQuery>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let project_id = match params.project {
         Some(id) => id,
         None => {
@@ -2578,8 +2844,13 @@ pub async fn export_csv(
         }
     };
 
-    let rows = match ticket_repo::find_tickets_for_csv_export(&state.pool, project_id, auth.user_id)
-        .await
+    let rows = match ticket_repo::find_tickets_for_csv_export(
+        &state.pool,
+        project_id,
+        auth.user_id,
+        &viewer.scope(),
+    )
+    .await
     {
         Ok(r) => r,
         Err(e) => {
@@ -2639,9 +2910,33 @@ pub async fn export_csv(
 /// バルクインポート POST /api/v1/tickets/bulk-import/
 pub async fn bulk_import(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<BulkImportIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    // 取り込み先のプロジェクトに書き込めるか(今の判定には確認が無い。アクセス制御の再設計 C-3)
+    let mut projects: Vec<i32> = body.tickets.iter().map(|t| t.project).collect();
+    projects.sort_unstable();
+    projects.dedup();
+    for project_id in projects {
+        if let Err(resp) = crate::presentation::extractors::authorize::authorize_project_open_today(
+            &state,
+            &viewer,
+            project_id,
+            crate::domain::access::Action::Write,
+            "POST /api/v1/tickets/bulk-import/",
+        )
+        .await
+        {
+            return resp;
+        }
+    }
+
     let mut imported = 0;
     let mut errors: Vec<BulkImportError> = Vec::new();
 
@@ -2748,9 +3043,15 @@ pub struct BulkDeleteOut {
 /// プロジェクトオーナーのみ実行可能。物理削除（子チケットも再帰的に削除）。
 pub async fn bulk_delete(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<BulkDeleteIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let ticket_keys: Vec<String> = if body.delete_all == Some(true) {
         let project_id = match body.project_id {
             Some(id) => id,
@@ -2841,9 +3142,33 @@ pub async fn bulk_delete(
         }
     };
 
-    match resource_repo::is_project_owner(&state.pool, project_id, auth.user_id).await {
-        Ok(true) => {}
-        Ok(false) => {
+    // 今の判定: プロジェクトのオーナーだけ(フェーズ H で廃止。新しい判定は、各チケットの削除権限)
+    let legacy_allowed =
+        match resource_repo::is_project_owner(&state.pool, project_id, auth.user_id).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        detail: "サーバーエラーが発生しました".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
+    match crate::presentation::extractors::authorize::authorize_bulk_delete(
+        &state,
+        &viewer,
+        &ticket_keys,
+        legacy_allowed,
+        "POST /api/v1/tickets/bulk-delete/",
+    )
+    .await
+    {
+        Some(Err(resp)) => return resp,
+        Some(Ok(())) => {}
+        None if !legacy_allowed => {
             return (
                 StatusCode::FORBIDDEN,
                 Json(ErrorResponse {
@@ -2852,17 +3177,8 @@ pub async fn bulk_delete(
             )
                 .into_response();
         }
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    detail: "サーバーエラーが発生しました".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
+        None => {}
+    }
 
     let mut deleted = 0i32;
     for key in &ticket_keys {
@@ -2891,9 +3207,15 @@ pub async fn bulk_delete(
 /// 権限チェックは detail と同等：チケット閲覧可能なユーザーなら呼び出せる。
 pub async fn generate_ticket_ai_prompt(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     #[derive(Serialize)]
     struct AiPromptResponse {
         #[serde(rename = "aiPrompt")]
@@ -2929,27 +3251,16 @@ pub async fn generate_ticket_ai_prompt(
     };
 
     // 権限チェック（detail と同等）
-    match membership_repo::check_ticket_access(&state.pool, ticket_id, auth.user_id).await {
-        Ok(true) => {}
-        Ok(false) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    detail: "見つかりません".to_string(),
-                }),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            tracing::error!("Access check failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    detail: "サーバーエラーが発生しました".to_string(),
-                }),
-            )
-                .into_response();
-        }
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "POST /api/v1/tickets/{key}/ai-prompt/",
+    )
+    .await
+    {
+        return resp;
     }
 
     // AI プロンプト生成（await で同期的に実行）
@@ -2961,13 +3272,16 @@ pub async fn generate_ticket_ai_prompt(
     }
 
     // DB から ai_prompt を読み込む
-    let ai_prompt = match crate::infrastructure::repositories::ai_repo::get_ticket_ai_prompt(&pool, ticket_id).await {
-        Ok(prompt) => prompt,
-        Err(e) => {
-            tracing::warn!(ticket_id, "get_ticket_ai_prompt failed: {e:#}");
-            None
-        }
-    };
+    let ai_prompt =
+        match crate::infrastructure::repositories::ai_repo::get_ticket_ai_prompt(&pool, ticket_id)
+            .await
+        {
+            Ok(prompt) => prompt,
+            Err(e) => {
+                tracing::warn!(ticket_id, "get_ticket_ai_prompt failed: {e:#}");
+                None
+            }
+        };
 
     (StatusCode::OK, Json(AiPromptResponse { ai_prompt })).into_response()
 }

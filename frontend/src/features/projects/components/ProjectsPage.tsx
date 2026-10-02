@@ -13,6 +13,7 @@ import { apiClient } from '@/shared/api/client';
 import { useProjects } from '@/shared/sync/repos/projectRepo';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { useAuthStore } from '@/shared/stores/authStore';
 import { useRoadmaps } from '@/features/projects/hooks/useProjectStructure';
 import { ProjectCreateModal } from './ProjectCreateModal';
 import { ProjectsTable } from './ProjectsTable';
@@ -76,6 +77,8 @@ export function ProjectsPage() {
   const { data: roadmaps = [] } = useRoadmaps();
   const { addToast } = useToastStore();
   const queryClient = useQueryClient();
+  // Guest はプロジェクトを作れない(サーバーも 403)。作成の入口を出さない
+  const isGuest = useAuthStore((s) => s.user?.isGuest ?? false);
 
   const [filter, setFilter] = useState<FilterKey>('all');
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => loadGroupOpenState());
@@ -246,14 +249,16 @@ export function ProjectsPage() {
           <Link to="/roadmaps" className="projects-page__roadmaps-link" data-testid="projects-page-roadmaps-link">
             {t('sidebar.projectView.roadmapsLink')}
           </Link>
-          <button
-            type="button"
-            className="projects-page__create-btn"
-            onClick={() => setCreateModalOpen(true)}
-            data-testid="projects-page-create-btn"
-          >
-            + {t('sidebar.newProject')}
-          </button>
+          {!isGuest && (
+            <button
+              type="button"
+              className="projects-page__create-btn"
+              onClick={() => setCreateModalOpen(true)}
+              data-testid="projects-page-create-btn"
+            >
+              + {t('sidebar.newProject')}
+            </button>
+          )}
         </div>
       </header>
 

@@ -2,12 +2,11 @@
 ///
 /// チケットの CRUD、ステータス遷移、キー生成を集約。
 /// ハンドラ層はこのサービスを経由してチケット操作を行う（DB直接操作禁止）。
-
 use chrono::NaiveDate;
 use sqlx::PgPool;
 
 use crate::domain::models::ticket::{Ticket, TicketStatus};
-use crate::infrastructure::repositories::{ticket_repo, history_repo};
+use crate::infrastructure::repositories::{history_repo, ticket_repo};
 
 /// チケット作成リクエスト
 pub struct CreateTicketRequest {
@@ -38,12 +37,22 @@ pub async fn create_ticket(
 
     let ticket_id = ticket_repo::create(
         pool,
-        &ticket_key, &req.title, &req.description,
-        status, &req.priority, &req.ticket_type,
-        req.parent_id, req.category_id, req.project_id,
-        author_id, req.assignee_id, req.milestone_id,
-        req.start_date, req.due_date,
-    ).await?;
+        &ticket_key,
+        &req.title,
+        &req.description,
+        status,
+        &req.priority,
+        &req.ticket_type,
+        req.parent_id,
+        req.category_id,
+        req.project_id,
+        author_id,
+        req.assignee_id,
+        req.milestone_id,
+        req.start_date,
+        req.due_date,
+    )
+    .await?;
 
     // 初期ステータス履歴
     history_repo::save(pool, ticket_id, "", status, author_id).await?;
@@ -66,7 +75,8 @@ pub fn calc_parent_progress(children: &[Ticket]) -> i32 {
     if children.is_empty() {
         return 0;
     }
-    let total: i32 = children.iter()
+    let total: i32 = children
+        .iter()
         .map(|c| TicketStatus::from_db(&c.status).progress_pct())
         .sum();
     total / children.len() as i32

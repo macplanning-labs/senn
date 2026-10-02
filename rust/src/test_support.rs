@@ -13,7 +13,6 @@
 /// username/ticket_key/prefixを使い、UNIQUE制約に抵触しないようにする。
 /// 作成した行はテスト用DB専用(実データベースには接続しない)であり、
 /// 明示的な削除は行わない(使い捨てのテストDBのため蓄積しても実害がない)。
-
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -131,12 +130,14 @@ pub async fn create_test_user(pool: &PgPool, username_prefix: &str) -> i32 {
     .expect("テストユーザー作成に失敗")
 }
 
-
 /// 使い捨てのテスト用チームを作成し、その `id` を返す。
 pub async fn create_test_team(pool: &PgPool, name_prefix: &str) -> i32 {
     let suffix = unique_suffix();
     let slug = format!("t{suffix}");
-    let prefix = format!("T{}", &suffix[..6.min(suffix.len())]).chars().take(20).collect::<String>();
+    let prefix = format!("T{}", &suffix[..6.min(suffix.len())])
+        .chars()
+        .take(20)
+        .collect::<String>();
     sqlx::query_scalar::<_, i32>(
         r#"
         INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, prefix, created_at)
@@ -188,7 +189,7 @@ pub async fn create_test_project(pool: &PgPool, prefix_base: &str, _author_id: i
 
     // Add team to project
     sqlx::query(
-        "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1, $2, NOW())"
+        "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1, $2, NOW())",
     )
     .bind(project_id)
     .bind(team_id)
@@ -200,7 +201,12 @@ pub async fn create_test_project(pool: &PgPool, prefix_base: &str, _author_id: i
 }
 
 /// 使い捨てのテスト用チケットを作成し、その `id` を返す。
-pub async fn create_test_ticket(pool: &PgPool, project_id: i32, key_prefix: &str, author_id: i32) -> i32 {
+pub async fn create_test_ticket(
+    pool: &PgPool,
+    project_id: i32,
+    key_prefix: &str,
+    author_id: i32,
+) -> i32 {
     let ticket_key = format!("{key_prefix}-{}", unique_suffix());
     let team_id: i32 = sqlx::query_scalar(
         "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id LIMIT 1"
@@ -228,6 +234,73 @@ pub async fn create_test_ticket(pool: &PgPool, project_id: i32, key_prefix: &str
     .fetch_one(pool)
     .await
     .expect("テストチケット作成に失敗")
+}
+
+/// ハンドラを直接呼ぶテスト用の設定(固定値。SMTP は無し = メールは送らない)
+pub fn test_config() -> crate::config::AppConfig {
+    crate::config::AppConfig {
+        database_url: String::new(),
+        port: 0,
+        base_url: "https://senn.test".to_string(),
+        additional_allowed_origins: vec!["https://stg.senn.test".to_string()],
+        cookie_secure: true,
+        media_dir: "media".to_string(),
+        max_upload_size: 10_485_760,
+        smtp_host: None,
+        smtp_port: None,
+        smtp_user: None,
+        smtp_password: None,
+        webauthn_rp_id: "senn.test".to_string(),
+        webauthn_rp_origin: "https://senn.test".to_string(),
+        jwt_secret: "test-secret-test-secret-test-secret".to_string(),
+        access_token_lifetime_minutes: 30,
+        refresh_token_lifetime_days: 7,
+        mfa_token_lifetime_seconds: 300,
+        password_reset_token_ttl_hours: 24,
+        wip_api_key: None,
+        wip_api_user: "管理者".to_string(),
+        wip_ai_api_key: None,
+        wip_ai_api_user: "ai_agent".to_string(),
+        ollama_url: String::new(),
+        ollama_model: String::new(),
+        ollama_timeout_secs: 1,
+        openai_api_key: None,
+        openai_model: String::new(),
+        openai_timeout_secs: 1,
+        app_channel: "internal".to_string(),
+    }
+}
+
+/// ハンドラを直接呼ぶテスト用の AppState
+pub async fn test_state(pool: &PgPool) -> crate::presentation::state::AppState {
+    crate::presentation::state::AppState::new(pool.clone(), test_config(), None)
+        .await
+        .expect("テスト用 AppState の作成に失敗")
+}
+
+/// ログインした人(ブラウザ)としての閲覧者を読み込む
+pub async fn test_viewer(pool: &PgPool, user_id: i32) -> crate::domain::access::Viewer {
+    crate::infrastructure::access::viewer_repo::load(
+        pool,
+        crate::domain::access::Principal::Human { user_id },
+        crate::infrastructure::access::viewer_repo::today_utc(),
+    )
+    .await
+    .expect("閲覧者の読み込みに失敗")
+    .expect("閲覧者が見つからない")
+}
+
+/// チーム全体の所属を追加する(role: 'admin' = Owner / 'member')
+pub async fn add_test_team_member(pool: &PgPool, team_id: i32, user_id: i32, role: &str) {
+    sqlx::query(
+        "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1::int8, $2::int8, $3, NOW())",
+    )
+    .bind(team_id as i64)
+    .bind(user_id as i64)
+    .bind(role)
+    .execute(pool)
+    .await
+    .expect("テスト用のチーム所属の追加に失敗");
 }
 
 #[cfg(test)]

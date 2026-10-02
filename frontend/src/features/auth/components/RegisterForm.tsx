@@ -23,8 +23,13 @@ const registerSchema = z.object({
 });
 
 interface RegisterResponse {
-  user: { id: number; username: string; email: string };
-  tokens: { access: string; refresh: string };
+  user?: { id: number; username: string; email: string };
+  tokens?: { access: string; refresh: string };
+  /** 社内ドメインの自己登録(メール確認待ち)のとき true。トークンは返らない */
+  verificationRequired?: boolean;
+  detail?: string;
+  /** SMTP 未設定の本番以外だけ返る、確認の画面のパス */
+  verifyUrl?: string | null;
 }
 
 export function RegisterForm() {
@@ -39,6 +44,7 @@ export function RegisterForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [pending, setPending] = useState<{ message: string; verifyUrl: string | null } | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -57,6 +63,11 @@ export function RegisterForm() {
         email,
         password,
       });
+      if (data.verificationRequired || !data.tokens) {
+        // メール確認待ち(確認が済むまでログインできない)
+        setPending({ message: data.detail ?? t('invite.checkMail'), verifyUrl: data.verifyUrl ?? null });
+        return;
+      }
       await completeAuth(data.tokens.access, data.tokens.refresh);
       navigate('/my-issues');
     } catch (err) {
@@ -76,6 +87,16 @@ export function RegisterForm() {
           <p className="login__tagline">{t('app.tagline')}</p>
         </div>
 
+        {pending ? (
+          <div className="login__form" data-testid="register-pending">
+            <p className="login__hint">{pending.message}</p>
+            {pending.verifyUrl && (
+              <p className="login__hint">
+                <Link to={pending.verifyUrl} data-testid="register-verify-link">{t('invite.verifyNow')}</Link>
+              </p>
+            )}
+          </div>
+        ) : (
         <form className="login__form" onSubmit={(e) => { void handleSubmit(e); }} data-testid="register-form">
           {error && (
             <div className="login__error" data-testid="register-error" role="alert">
@@ -143,6 +164,7 @@ export function RegisterForm() {
             {isLoading ? t('common.loading') : t('auth.register')}
           </button>
         </form>
+        )}
 
         <p className="login__signup">
           {t('auth.haveAccount', 'Already have an account?')}{' '}

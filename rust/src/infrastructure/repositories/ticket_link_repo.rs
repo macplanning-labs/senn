@@ -1,7 +1,6 @@
-/// infrastructure/repositories/ticket_link_repo.rs — チケット参照リンク永続化
-
-use sqlx::PgPool;
 use crate::domain::models::ticket_link::TicketLink;
+/// infrastructure/repositories/ticket_link_repo.rs — チケット参照リンク永続化
+use sqlx::PgPool;
 
 pub async fn find_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<TicketLink>> {
     let rows = sqlx::query_as::<_, TicketLink>(
@@ -16,19 +15,31 @@ pub async fn find_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec
 }
 
 pub async fn create(
-    pool: &PgPool, ticket_id: i32, url: &str, title: Option<&str>, created_by_id: i32,
+    pool: &PgPool,
+    ticket_id: i32,
+    url: &str,
+    title: Option<&str>,
+    created_by_id: i32,
 ) -> anyhow::Result<i32> {
     let id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO ticket_link (ticket_id, url, title, created_by_id, created_at)
-         VALUES ($1, $2, $3, $4, NOW()) RETURNING id::int4"
-    ).bind(ticket_id).bind(url).bind(title).bind(created_by_id)
-     .fetch_one(pool).await?;
+         VALUES ($1, $2, $3, $4, NOW()) RETURNING id::int4",
+    )
+    .bind(ticket_id)
+    .bind(url)
+    .bind(title)
+    .bind(created_by_id)
+    .fetch_one(pool)
+    .await?;
     Ok(id)
 }
 
 pub async fn delete(pool: &PgPool, id: i32, ticket_id: i32) -> anyhow::Result<bool> {
     let result = sqlx::query("DELETE FROM ticket_link WHERE id = $1 AND ticket_id = $2")
-        .bind(id).bind(ticket_id).execute(pool).await?;
+        .bind(id)
+        .bind(ticket_id)
+        .execute(pool)
+        .await?;
     Ok(result.rows_affected() > 0)
 }
 

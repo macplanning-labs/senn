@@ -1,3 +1,4 @@
+use crate::domain::models::wiki::{WikiPage, WikiRevision};
 /// infrastructure/repositories/wiki_repo.rs — Wiki 永続化
 ///
 /// DEMO-000032のテスト作成中に判明: 本ファイルは元々 t_wiki_pages / m_users /
@@ -7,11 +8,12 @@
 /// テーブル名に合わせて修正した)。呼び出し元は wiki_service.rs(Askama用、
 /// presentation/handlers/wiki.rsのみが使用)と ai_agent_api.rs
 /// (list_wiki_pages)。
-
 use sqlx::PgPool;
-use crate::domain::models::wiki::{WikiPage, WikiRevision};
 
-pub async fn find_by_project(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<WikiPage>> {
+pub async fn find_by_project(
+    pool: &PgPool,
+    project_id: Option<i32>,
+) -> anyhow::Result<Vec<WikiPage>> {
     let rows = if let Some(pid) = project_id {
         sqlx::query_as::<_, WikiPage>(
             "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
@@ -47,7 +49,11 @@ pub async fn find_by_project(pool: &PgPool, project_id: Option<i32>) -> anyhow::
     Ok(rows)
 }
 
-pub async fn find_by_slug(pool: &PgPool, project_id: Option<i32>, slug: &str) -> anyhow::Result<Option<WikiPage>> {
+pub async fn find_by_slug(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    slug: &str,
+) -> anyhow::Result<Option<WikiPage>> {
     let row = if let Some(pid) = project_id {
         sqlx::query_as::<_, WikiPage>(
             "SELECT w.id::int4, w.project_id::int4, w.team_id::int4, w.title, w.slug, w.category, w.content,
@@ -81,8 +87,13 @@ pub async fn find_by_slug(pool: &PgPool, project_id: Option<i32>, slug: &str) ->
 }
 
 pub async fn create(
-    pool: &PgPool, project_id: Option<i32>, title: &str, slug: &str,
-    category: &str, content: &str, author_id: i32,
+    pool: &PgPool,
+    project_id: Option<i32>,
+    title: &str,
+    slug: &str,
+    category: &str,
+    content: &str,
+    author_id: i32,
 ) -> anyhow::Result<i32> {
     let id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO wiki_page (project_id, title, slug, category, content, author_id, last_editor_id, created_at, updated_at)
@@ -93,7 +104,12 @@ pub async fn create(
 }
 
 pub async fn update(
-    pool: &PgPool, id: i32, title: &str, category: &str, content: &str, editor_id: i32,
+    pool: &PgPool,
+    id: i32,
+    title: &str,
+    category: &str,
+    content: &str,
+    editor_id: i32,
 ) -> anyhow::Result<()> {
     sqlx::query(
         "UPDATE wiki_page SET title=$2, category=$3, content=$4, last_editor_id=$5, updated_at=NOW()
@@ -104,20 +120,32 @@ pub async fn update(
 }
 
 pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM wiki_page WHERE id=$1").bind(id).execute(pool).await?;
+    sqlx::query("DELETE FROM wiki_page WHERE id=$1")
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 // --- リビジョン ---
 
 pub async fn create_revision(
-    pool: &PgPool, page_id: i32, content: &str, editor_id: i32, comment: &str,
+    pool: &PgPool,
+    page_id: i32,
+    content: &str,
+    editor_id: i32,
+    comment: &str,
 ) -> anyhow::Result<i32> {
     let id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO wiki_revision (page_id, content, editor_id, comment, created_at)
-         VALUES ($1, $2, $3, $4, NOW()) RETURNING id::int4"
-    ).bind(page_id).bind(content).bind(editor_id).bind(comment)
-     .fetch_one(pool).await?;
+         VALUES ($1, $2, $3, $4, NOW()) RETURNING id::int4",
+    )
+    .bind(page_id)
+    .bind(content)
+    .bind(editor_id)
+    .bind(comment)
+    .fetch_one(pool)
+    .await?;
     Ok(id)
 }
 
@@ -128,8 +156,11 @@ pub async fn find_revisions(pool: &PgPool, page_id: i32) -> anyhow::Result<Vec<W
          FROM wiki_revision r
          LEFT JOIN accounts_user u ON r.editor_id = u.id
          WHERE r.page_id = $1
-         ORDER BY r.created_at DESC"
-    ).bind(page_id).fetch_all(pool).await?;
+         ORDER BY r.created_at DESC",
+    )
+    .bind(page_id)
+    .fetch_all(pool)
+    .await?;
     Ok(rows)
 }
 
@@ -139,14 +170,19 @@ pub async fn find_revision_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Optio
                 u.display_name as editor_name
          FROM wiki_revision r
          LEFT JOIN accounts_user u ON r.editor_id = u.id
-         WHERE r.id = $1"
-    ).bind(id).fetch_optional(pool).await?;
+         WHERE r.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
     Ok(row)
 }
 
 /// カテゴリーフィルタ付きWikiページ一覧
 pub async fn find_by_project_with_category(
-    pool: &PgPool, project_id: Option<i32>, category: Option<&str>,
+    pool: &PgPool,
+    project_id: Option<i32>,
+    category: Option<&str>,
 ) -> anyhow::Result<Vec<WikiPage>> {
     let rows = match (project_id, category) {
         (Some(pid), Some(cat)) => {
@@ -224,14 +260,24 @@ mod tests {
 
     #[tokio::test]
     async fn create_and_find_by_slug_project_scoped() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "wiki-author").await;
         let project = test_support::create_test_project(&pool, "WK", author).await;
         let slug = format!("test-page-{}", test_support::unique_suffix());
 
-        let page_id = create(&pool, Some(project), "テストページ", &slug, "general", "本文", author)
-            .await
-            .unwrap();
+        let page_id = create(
+            &pool,
+            Some(project),
+            "テストページ",
+            &slug,
+            "general",
+            "本文",
+            author,
+        )
+        .await
+        .unwrap();
 
         let found = find_by_slug(&pool, Some(project), &slug).await.unwrap();
         assert!(found.is_some());
@@ -246,7 +292,9 @@ mod tests {
 
     #[tokio::test]
     async fn shared_wiki_page_has_no_project() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "shared-wiki-author").await;
         let slug = format!("shared-page-{}", test_support::unique_suffix());
 
@@ -263,18 +311,33 @@ mod tests {
 
     #[tokio::test]
     async fn update_changes_content_and_editor() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "update-author").await;
         let editor = test_support::create_test_user(&pool, "update-editor").await;
         let project = test_support::create_test_project(&pool, "UPD", author).await;
         let slug = format!("update-page-{}", test_support::unique_suffix());
-        let page_id = create(&pool, Some(project), "タイトル", &slug, "general", "旧本文", author)
+        let page_id = create(
+            &pool,
+            Some(project),
+            "タイトル",
+            &slug,
+            "general",
+            "旧本文",
+            author,
+        )
+        .await
+        .unwrap();
+
+        update(&pool, page_id, "新タイトル", "general", "新本文", editor)
             .await
             .unwrap();
 
-        update(&pool, page_id, "新タイトル", "general", "新本文", editor).await.unwrap();
-
-        let found = find_by_slug(&pool, Some(project), &slug).await.unwrap().unwrap();
+        let found = find_by_slug(&pool, Some(project), &slug)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(found.title, "新タイトル");
         assert_eq!(found.content, "新本文");
         assert_eq!(found.last_editor_id, Some(editor));
@@ -282,13 +345,23 @@ mod tests {
 
     #[tokio::test]
     async fn delete_removes_page() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "delete-author").await;
         let project = test_support::create_test_project(&pool, "DEL", author).await;
         let slug = format!("delete-page-{}", test_support::unique_suffix());
-        let page_id = create(&pool, Some(project), "削除対象", &slug, "general", "本文", author)
-            .await
-            .unwrap();
+        let page_id = create(
+            &pool,
+            Some(project),
+            "削除対象",
+            &slug,
+            "general",
+            "本文",
+            author,
+        )
+        .await
+        .unwrap();
 
         delete(&pool, page_id).await.unwrap();
 
@@ -298,16 +371,30 @@ mod tests {
 
     #[tokio::test]
     async fn revisions_are_recorded_and_ordered() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "rev-author").await;
         let project = test_support::create_test_project(&pool, "REV", author).await;
         let slug = format!("rev-page-{}", test_support::unique_suffix());
-        let page_id = create(&pool, Some(project), "リビジョンテスト", &slug, "general", "v1", author)
+        let page_id = create(
+            &pool,
+            Some(project),
+            "リビジョンテスト",
+            &slug,
+            "general",
+            "v1",
+            author,
+        )
+        .await
+        .unwrap();
+
+        create_revision(&pool, page_id, "v1", author, "初版")
             .await
             .unwrap();
-
-        create_revision(&pool, page_id, "v1", author, "初版").await.unwrap();
-        create_revision(&pool, page_id, "v2", author, "第2版").await.unwrap();
+        create_revision(&pool, page_id, "v2", author, "第2版")
+            .await
+            .unwrap();
 
         let revisions = find_revisions(&pool, page_id).await.unwrap();
         assert_eq!(revisions.len(), 2);

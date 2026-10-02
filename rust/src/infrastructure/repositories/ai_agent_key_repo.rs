@@ -4,7 +4,7 @@
 /// 検索(UNIQUE制約によるO(1) lookup)で照合する。対象は256bitの高エントロピーなランダムトークン
 /// であり、bcrypt/argon2のような低速化(ストレッチング)は総当たり耐性の観点で不要かつ、
 /// 「提示されたキーからDBの該当行を1発で特定する」という認証フローには不向き(ソルトが都度
-/// 変わるため全件比較が必要になる)。詳細は docs/詳細設計書_AIエージェント人ごとAPIキー.md §3.2。
+/// 変わるため全件比較が必要になる)。詳細は docs/design/詳細設計書_AIエージェント人ごとAPIキー.md §3.2。
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use rand::RngCore;

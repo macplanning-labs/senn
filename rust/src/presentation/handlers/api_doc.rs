@@ -7,7 +7,6 @@
 /// POST/PUT(create/update)はリクエストボディ型(TicketWriteIn等)に
 /// utoipa::ToSchemaの実装が無く追加できていない。導入する場合は
 /// 該当のdomain/models配下の型に#[derive(utoipa::ToSchema)]を追加する。
-
 use utoipa::OpenApi;
 
 #[derive(OpenApi)]

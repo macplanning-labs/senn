@@ -71,6 +71,11 @@ describe('ticketMapping', () => {
       expect(result._syncedAt).toBeDefined();
     });
 
+    it('AI 経由の印(createdViaAi)を取り込み、無ければ false にする', () => {
+      expect(toLocalTicket({ id: 1, ticketKey: 'A-1', createdViaAi: true }).createdViaAi).toBe(true);
+      expect(toLocalTicket({ id: 2, ticketKey: 'A-2' }).createdViaAi).toBe(false);
+    });
+
     it('不足した項目に安全な既定値を使う', () => {
       const minimalDto = { id: 1, ticketKey: 'ABC-001' };
       const result = toLocalTicket(minimalDto);

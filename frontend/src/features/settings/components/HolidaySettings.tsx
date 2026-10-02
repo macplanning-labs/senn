@@ -47,16 +47,10 @@ export function HolidaySettings() {
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['holidays'] });
       const added = res.data.added;
-      addToast({
-        message: `${added}件の祝日を追加しました`,
-        type: 'success',
-      });
+      addToast({ message: t('settings.holidaysAdded', { count: added }), type: 'success' });
     },
     onError: () => {
-      addToast({
-        message: '祝日の追加に失敗しました',
-        type: 'error',
-      });
+      addToast({ message: t('settings.holidaysAddFailed'), type: 'error' });
     },
   });
 
@@ -66,10 +60,7 @@ export function HolidaySettings() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['holidays'] });
       setDeleteConfirm(null);
-      addToast({
-        message: '削除しました',
-        type: 'success',
-      });
+      addToast({ message: t('settings.holidayDeleted'), type: 'success' });
     },
     onError: () => {
       addToast({
@@ -98,7 +89,7 @@ export function HolidaySettings() {
       {/* ヘッダー：一括追加セクション */}
       <div className="settings-section__header">
         <h2 className="settings-section__title">
-          {t('settings.holidays', '休日')}
+          {t('settings.holidays')}
           <span className="settings-section__count">({sortedHolidays.length})</span>
         </h2>
       </div>
@@ -107,13 +98,13 @@ export function HolidaySettings() {
       <div style={{ marginBottom: 'var(--space-6)', padding: 'var(--space-4)', background: 'var(--color-bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-default)' }}>
         <div className="settings-section__header" style={{ marginBottom: 'var(--space-4)' }}>
           <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 600 }}>
-            {t('settings.holidaysBulkAdd', '年ごとの祝日一括追加')}
+            {t('settings.holidaysBulkAdd')}
           </h3>
         </div>
         <form onSubmit={handleBulkAdd} style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)' }}>
-              {t('settings.year', '年')}
+              {t('settings.year')}
             </label>
             <input
               type="number"
@@ -147,7 +138,7 @@ export function HolidaySettings() {
               opacity: bulkAddMutation.isPending ? 0.6 : 1,
             }}
           >
-            {bulkAddMutation.isPending ? t('common.loading', '追加中...') : t('settings.holidaysAdd', '追加')}
+            {bulkAddMutation.isPending ? t('common.loading') : t('settings.holidaysAdd')}
           </button>
         </form>
       </div>
@@ -163,13 +154,13 @@ export function HolidaySettings() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
                 <th style={{ textAlign: 'left', padding: 'var(--space-3)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                  {t('settings.date', '日付')}
+                  {t('settings.date')}
                 </th>
                 <th style={{ textAlign: 'left', padding: 'var(--space-3)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                  {t('settings.holidayName', '祝日名')}
+                  {t('settings.holidayName')}
                 </th>
                 <th style={{ textAlign: 'right', padding: 'var(--space-3)', fontWeight: 600, color: 'var(--color-text-secondary)', width: 60 }}>
-                  {t('common.action', 'アクション')}
+                  {t('common.action')}
                 </th>
               </tr>
             </thead>
@@ -193,7 +184,7 @@ export function HolidaySettings() {
                         fontSize: '1.2em',
                         padding: 'var(--space-1)',
                       }}
-                      title={t('common.delete', '削除')}
+                      title={t('common.delete')}
                     >
                       🗑
                     </button>
@@ -207,7 +198,7 @@ export function HolidaySettings() {
         <div className="settings-empty">
           <div className="settings-empty__icon">🗓️</div>
           <div className="settings-empty__text">
-            {t('settings.noHolidays', '祝日がまだありません。「年ごとの祝日一括追加」で作成してください。')}
+            {t('settings.noHolidays')}
           </div>
         </div>
       )}
@@ -218,26 +209,26 @@ export function HolidaySettings() {
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
               <h3 className="settings-modal__title">
-                {t('settings.deleteHoliday', '祝日を削除')}
+                {t('settings.deleteHoliday')}
               </h3>
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">
-              「<strong>{new Date(deleteConfirm.date).toLocaleDateString('ja-JP')}</strong> {deleteConfirm.name}」を削除しますか？
+              {t('settings.deleteHolidayConfirm', { date: new Date(deleteConfirm.date).toLocaleDateString('ja-JP'), name: deleteConfirm.name })}
             </div>
             <div className="settings-form__actions">
               <button
                 className="settings-form__btn settings-form__btn--secondary"
                 onClick={() => setDeleteConfirm(null)}
               >
-                {t('common.cancel', 'キャンセル')}
+                {t('common.cancel')}
               </button>
               <button
                 className="settings-form__btn settings-form__btn--danger"
                 onClick={() => deleteMutation.mutate(deleteConfirm.id)}
                 disabled={deleteMutation.isPending}
               >
-                {deleteMutation.isPending ? t('common.loading', '削除中...') : t('common.delete', '削除')}
+                {deleteMutation.isPending ? t('common.loading') : t('common.delete')}
               </button>
             </div>
           </div>

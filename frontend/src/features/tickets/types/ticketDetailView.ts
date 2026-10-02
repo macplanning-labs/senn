@@ -48,6 +48,8 @@ export interface TicketDetailView {
   assignees: Array<{ id: number; username: string; displayName: string }>;
   reviewers: Array<{ id: number; username: string; displayName: string }>;
   author: { id: number; username: string; displayName: string } | null;
+  /** AI 経由で作られたか */
+  createdViaAi?: boolean;
   category: { id: number; name: string; color: string } | null;
   milestone: { id: number; name: string; dueDate: string | null } | null;
   project: number | null;

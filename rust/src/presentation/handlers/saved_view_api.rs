@@ -1,22 +1,21 @@
 /// presentation/handlers/saved_view_api.rs — Saved View JSON API ハンドラー
 ///
 /// t_saved_view テーブル用。個人用チケット一覧フィルタ。
-
 use axum::{
-    extract::{State, Path, Query},
-    response::IntoResponse,
+    extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     Json,
-    Extension,
 };
 use serde::Serialize;
 
-use crate::presentation::state::AppState;
+use crate::domain::access::{Action, ResourceRef, Viewer};
+use crate::domain::models::saved_view_api::{SavedViewCreateIn, SavedViewUpdateIn};
+use crate::infrastructure::access::{facts_repo, shadow::Resource};
+use crate::infrastructure::repositories::{resource_repo, saved_view_repo, team_repo};
+use crate::presentation::extractors::authorize;
 use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{saved_view_repo, resource_repo, team_repo};
-use crate::domain::models::saved_view_api::{
-    SavedViewCreateIn, SavedViewUpdateIn,
-};
+use crate::presentation::state::AppState;
 
 #[derive(Serialize)]
 pub struct ErrorResponse {
@@ -102,6 +101,59 @@ async fn ensure_team_access(
     ))
 }
 
+// アクセス制御の再設計(D-5。設計書 §5.2): 保存済みビューは作成者本人の物(リポジトリ関数が owner で絞る)。
+// 対象のチーム・プロジェクトは、見えること。今の判定は所属(プロジェクトはオーナーも可)。
+
+/// 対象のプロジェクトへの判定(今の判定は `ensure_project_access`)
+async fn project_gate(
+    state: &AppState,
+    viewer: &Viewer,
+    project_id: i32,
+    user_id: i32,
+    route: &'static str,
+) -> Result<(), axum::response::Response> {
+    let legacy = ensure_project_access(state, project_id, user_id)
+        .await
+        .map_err(IntoResponse::into_response);
+    authorize::gate_project(&state.pool, viewer, project_id, Action::Read, legacy, route).await
+}
+
+/// 対象のチームへの判定(今の判定は `ensure_team_access`)
+async fn team_gate(
+    state: &AppState,
+    viewer: &Viewer,
+    team_id: i32,
+    user_id: i32,
+    route: &'static str,
+) -> Result<(), axum::response::Response> {
+    let legacy = ensure_team_access(state, team_id, user_id)
+        .await
+        .map_err(IntoResponse::into_response);
+    let facts = match facts_repo::facts_for_team(&state.pool, team_id).await {
+        Ok(f) => f.map(ResourceRef::Team),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    detail: "サーバーエラーが発生しました".to_string(),
+                }),
+            )
+                .into_response());
+        }
+    };
+    authorize::gate(
+        &state.pool,
+        viewer,
+        facts.as_ref(),
+        Action::Read,
+        Resource::Team,
+        team_id as i64,
+        legacy,
+        route,
+    )
+}
+
 fn validate_view_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     let trimmed_len = name.trim().chars().count();
     if trimmed_len == 0 || trimmed_len > 100 {
@@ -118,19 +170,31 @@ fn validate_view_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
 /// GET /api/v1/projects/{project_id}/saved-views/ — 自分の Saved View 一覧
 pub async fn list(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(project_id): Path<i64>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
 
-    if let Err(resp) = ensure_project_access(&state, project_id as i32, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = project_gate(
+        &state,
+        &viewer,
+        project_id as i32,
+        auth.user_id,
+        "GET /api/v1/projects/{project_id}/saved-views/",
+    )
+    .await
+    {
+        return resp;
     }
 
     // 一覧取得
-    match saved_view_repo::list_by_project_and_owner(&state.pool, project_id, owner_id)
-        .await
-    {
+    match saved_view_repo::list_by_project_and_owner(&state.pool, project_id, owner_id).await {
         Ok(views) => (StatusCode::OK, Json(views)).into_response(),
         Err(e) => {
             tracing::error!("DB operation failed: {:?}", e);
@@ -148,18 +212,32 @@ pub async fn list(
 /// POST /api/v1/projects/{project_id}/saved-views/ — Saved View 作成
 pub async fn create(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(project_id): Path<i64>,
     Json(input): Json<SavedViewCreateIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
     let name = input.name.trim();
 
     if let Err(resp) = validate_view_name(name) {
         return resp.into_response();
     }
-    if let Err(resp) = ensure_project_access(&state, project_id as i32, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = project_gate(
+        &state,
+        &viewer,
+        project_id as i32,
+        auth.user_id,
+        "POST /api/v1/projects/{project_id}/saved-views/",
+    )
+    .await
+    {
+        return resp;
     }
 
     // 作成
@@ -202,13 +280,27 @@ pub async fn create(
 /// GET /api/v1/teams/{team_id}/saved-views/ — Team スコープの Saved View 一覧
 pub async fn list_by_team(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(team_id): Path<i64>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
 
-    if let Err(resp) = ensure_team_access(&state, team_id as i32, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = team_gate(
+        &state,
+        &viewer,
+        team_id as i32,
+        auth.user_id,
+        "GET /api/v1/teams/{team_id}/saved-views/",
+    )
+    .await
+    {
+        return resp;
     }
 
     match saved_view_repo::list_by_team_and_owner(&state.pool, team_id, owner_id).await {
@@ -229,18 +321,32 @@ pub async fn list_by_team(
 /// POST /api/v1/teams/{team_id}/saved-views/ — Team スコープの Saved View 作成
 pub async fn create_for_team(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(team_id): Path<i64>,
     Json(input): Json<SavedViewCreateIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
     let name = input.name.trim();
 
     if let Err(resp) = validate_view_name(name) {
         return resp.into_response();
     }
-    if let Err(resp) = ensure_team_access(&state, team_id as i32, auth.user_id).await {
-        return resp.into_response();
+    if let Err(resp) = team_gate(
+        &state,
+        &viewer,
+        team_id as i32,
+        auth.user_id,
+        "POST /api/v1/teams/{team_id}/saved-views/",
+    )
+    .await
+    {
+        return resp;
     }
 
     match saved_view_repo::create_for_team(
@@ -281,10 +387,16 @@ pub async fn create_for_team(
 /// PATCH /api/v1/saved-views/{id}/ — Saved View 更新
 pub async fn update(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i64>,
     Json(input): Json<SavedViewUpdateIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
     let trimmed_name = input.name.as_ref().map(|n| n.trim().to_string());
 
@@ -340,9 +452,15 @@ pub async fn update(
 /// DELETE /api/v1/saved-views/{id}/ — Saved View 削除
 pub async fn delete(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
 
     match saved_view_repo::delete(&state.pool, id, owner_id).await {
@@ -370,9 +488,15 @@ pub async fn delete(
 /// GET /api/v1/saved-views/ — グローバル(project/teamスコープ無し)Saved View一覧
 pub async fn list_global(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<SavedViewListQuery>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
 
     match saved_view_repo::list_global_and_owner(&state.pool, owner_id, &params.view_type).await {
@@ -393,9 +517,15 @@ pub async fn list_global(
 /// POST /api/v1/saved-views/ — グローバル Saved View 作成
 pub async fn create_global(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(input): Json<SavedViewCreateIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     let owner_id: i64 = auth.user_id.into();
     let name = input.name.trim();
 

@@ -124,7 +124,7 @@ export function MarkdownImportModal({ isOpen, onClose, onSuccess }: MarkdownImpo
     <div className="markdown-import-modal__overlay" onClick={onClose}>
       <div className="markdown-import-modal" onClick={(e) => e.stopPropagation()}>
         <div className="markdown-import-modal__header">
-          <h2 className="markdown-import-modal__title">Markdownからインポート</h2>
+          <h2 className="markdown-import-modal__title">{t('ticketTable.importFromMarkdown')}</h2>
           <button
             className="markdown-import-modal__close"
             onClick={onClose}

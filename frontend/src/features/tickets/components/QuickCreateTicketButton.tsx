@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
 import { ensureTicketLocal } from '@/shared/sync/repos/ticketRepo';
 import { useProjectById } from '@/shared/sync/repos/projectRepo';
@@ -35,8 +36,9 @@ export function QuickCreateTicketButton({
   projectId,
   wikiPageId,
   onCreated,
-  label = '⚡ チケット起票',
+  label,
 }: Props) {
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState(defaultTitle);
   const [created, setCreated] = useState<CreatedTicket | null>(null);
@@ -88,7 +90,7 @@ export function QuickCreateTicketButton({
           style={{ color: 'inherit', textDecoration: 'underline' }}
         >
           {created.ticketKey}
-        </Link> を起票しました
+        </Link> {t('ticket.filedSuffix')}
       </div>
     );
   }
@@ -102,7 +104,7 @@ export function QuickCreateTicketButton({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="チケットタイトル..."
+          placeholder={t('ticket.titleInputPlaceholder')}
           style={{
             flex: 1, padding: '0.375rem 0.5rem',
             borderRadius: '6px', border: '1px solid var(--color-border-default, #e0e0e0)',
@@ -126,7 +128,7 @@ export function QuickCreateTicketButton({
             opacity: !title.trim() || mutation.isPending ? 0.5 : 1,
           }}
         >
-          {mutation.isPending ? '作成中...' : '作成'}
+          {mutation.isPending ? t('common.creating') : t('common.create')}
         </button>
         <button
           onClick={() => setShowForm(false)}
@@ -158,7 +160,7 @@ export function QuickCreateTicketButton({
         transition: 'all 0.15s',
       }}
     >
-      {label}
+      {label ?? `⚡ ${t('ticket.fileTicketButton')}`}
     </button>
   );
 }

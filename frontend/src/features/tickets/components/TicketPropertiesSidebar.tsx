@@ -447,7 +447,21 @@ export function TicketPropertiesSidebar({
       <div className="ticket-properties-sidebar">
         <h3 className="ticket-properties-sidebar__title">Others</h3>
         <div className="ticket-properties-list">
-          {row(null, 'Author', ticket.author?.displayName || ticket.author?.username || '—', false)}
+          <div className="ticket-property-item">
+            <span className="ticket-property-label">Author</span>
+            <span className="ticket-property-value" data-testid="ticket-property-author">
+              {ticket.author?.displayName || ticket.author?.username || '—'}
+              {ticket.createdViaAi && (
+                <span
+                  className="ticket-property-ai-badge"
+                  title={t('ticketDetail.createdViaAiTooltip')}
+                  data-testid="ticket-created-via-ai"
+                >
+                  {t('ticketDetail.aiAgentBadge')}
+                </span>
+              )}
+            </span>
+          </div>
           <div className="ticket-property-item">
             <span className="ticket-property-label">Start date</span>
             <DateInput

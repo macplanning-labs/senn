@@ -2,7 +2,6 @@
 ///
 /// TOTP 秘密鍵と同じ auth-core の encrypt_secret / decrypt_secret を利用する。
 /// 暗号鍵は JWT 秘密鍵（DJANGO_SECRET_KEY 系）から派生する。
-
 use auth_core::domain::totp;
 
 pub fn encrypt_value(plaintext: &str, jwt_secret: &str) -> anyhow::Result<String> {

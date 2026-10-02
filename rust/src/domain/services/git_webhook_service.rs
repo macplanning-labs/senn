@@ -1,13 +1,12 @@
+use crate::infrastructure::repositories::workflow_status_repo;
 /// domain/services/git_webhook_service.rs — Git Webhook 署名検証・チケットキー抽出・ステータス遷移
 ///
 /// Django apps/integrations/services.py の GitWebhookService の移植。
-
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use regex::Regex;
-use std::sync::OnceLock;
+use sha2::Sha256;
 use sqlx::PgPool;
-use crate::infrastructure::repositories::workflow_status_repo;
+use std::sync::OnceLock;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -103,27 +102,26 @@ pub async fn apply_git_status_transition(
     }
 
     let project_id = ticket.project_id;
-    let team_id: Option<i32> = sqlx::query_scalar(
-        "SELECT team_id::int4 FROM tickets_ticket WHERE id = $1"
-    )
-    .bind(ticket_id)
-    .fetch_optional(pool)
-    .await?
-    .flatten();
+    let team_id: Option<i32> =
+        sqlx::query_scalar("SELECT team_id::int4 FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
 
     // 2. 現在の status から category を取得（Project → Team → ワークスペース既定）
-    let current_category = workflow_status_repo::lookup_status_category(
-        pool,
-        project_id,
-        team_id,
-        current_status,
-    )
-    .await?;
+    let current_category =
+        workflow_status_repo::lookup_status_category(pool, project_id, team_id, current_status)
+            .await?;
 
     // 単調性ガード：completed / cancelled からは戻さない
     if let Some(category) = &current_category {
         if category == "completed" || category == "cancelled" {
-            tracing::debug!("git status skipped: ticket {} already in {} category", ticket_id, category);
+            tracing::debug!(
+                "git status skipped: ticket {} already in {} category",
+                ticket_id,
+                category
+            );
             return Ok(StatusTransitionResult::Skipped);
         }
     }
@@ -132,13 +130,11 @@ pub async fn apply_git_status_transition(
     let mut tx = pool.begin().await?;
 
     // ステータス更新
-    sqlx::query(
-        "UPDATE tickets_ticket SET status = $1, updated_at = NOW() WHERE id = $2"
-    )
-    .bind(target_slug)
-    .bind(ticket_id)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("UPDATE tickets_ticket SET status = $1, updated_at = NOW() WHERE id = $2")
+        .bind(target_slug)
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
 
     // ステータス履歴に記録
     sqlx::query(
@@ -152,31 +148,17 @@ pub async fn apply_git_status_transition(
     .execute(&mut *tx)
     .await?;
 
-    // 4. 目標が completed カテゴリ、またはフォールバック完了 slug なら closed_at をセット
-    let target_category = workflow_status_repo::lookup_status_category(
-        pool,
-        project_id,
-        team_id,
-        target_slug,
-    )
-    .await?;
-
-    let should_close = matches!(target_category.as_deref(), Some("completed"))
-        || target_slug == "closed"
-        || target_slug == "resolved";
-
-    if should_close {
-        sqlx::query("UPDATE tickets_ticket SET closed_at = NOW() WHERE id = $1")
-            .bind(ticket_id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    // 4. 完了日時(closed_at)をステータスに合わせる(画面・API からの変更と同じ処理)
+    ticket_repo::sync_closed_at(&mut *tx, ticket_id, current_status).await?;
 
     tx.commit().await?;
 
     tracing::info!(
         "git auto-status: ticket={} from={} to={} trigger={}",
-        ticket_id, current_status, target_slug, trigger
+        ticket_id,
+        current_status,
+        target_slug,
+        trigger
     );
 
     Ok(StatusTransitionResult::Applied)
@@ -187,12 +169,11 @@ pub async fn ticket_scope(
     pool: &PgPool,
     ticket_id: i32,
 ) -> anyhow::Result<(Option<i32>, Option<i32>)> {
-    let row: Option<(Option<i32>, Option<i32>)> = sqlx::query_as(
-        "SELECT project_id::int4, team_id::int4 FROM tickets_ticket WHERE id = $1"
-    )
-    .bind(ticket_id)
-    .fetch_optional(pool)
-    .await?;
+    let row: Option<(Option<i32>, Option<i32>)> =
+        sqlx::query_as("SELECT project_id::int4, team_id::int4 FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(row.unwrap_or((None, None)))
 }
 
@@ -229,12 +210,11 @@ pub async fn resolve_git_actor(
 ) -> anyhow::Result<Option<GitActor>> {
     // 1. integration.created_by_id
     if let Some(user_id) = integration_created_by_id {
-        if let Some(username) = sqlx::query_scalar::<_, String>(
-            "SELECT username FROM accounts_user WHERE id = $1"
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
+        if let Some(username) =
+            sqlx::query_scalar::<_, String>("SELECT username FROM accounts_user WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?
         {
             return Ok(Some(GitActor { user_id, username }));
         }
@@ -246,7 +226,7 @@ pub async fn resolve_git_actor(
             "SELECT p.owner_id::int4, u.username
              FROM tickets_project p
              JOIN accounts_user u ON p.owner_id = u.id
-             WHERE p.id = $1 AND p.owner_id IS NOT NULL"
+             WHERE p.id = $1 AND p.owner_id IS NOT NULL",
         )
         .bind(pid)
         .fetch_optional(pool)
@@ -263,7 +243,7 @@ pub async fn resolve_git_actor(
              JOIN accounts_user u ON u.id = m.user_id
              WHERE m.scoped_project_id = $1
              ORDER BY u.is_staff DESC, m.user_id ASC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(pid)
         .fetch_optional(pool)
@@ -283,7 +263,7 @@ pub async fn resolve_git_actor(
              JOIN accounts_user u ON u.id = m.user_id
              WHERE m.team_id = $1 AND m.scoped_project_id IS NULL
              ORDER BY u.is_staff DESC, m.user_id ASC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(tid)
         .fetch_optional(pool)
@@ -410,13 +390,12 @@ mod tests {
         );
 
         // チケットの status が変わっていないことを確認
-        let current_status: String = sqlx::query_scalar(
-            "SELECT status FROM tickets_ticket WHERE id = $1"
-        )
-        .bind(ticket_id)
-        .fetch_one(&pool)
-        .await
-        .expect("チケット取得失敗");
+        let current_status: String =
+            sqlx::query_scalar("SELECT status FROM tickets_ticket WHERE id = $1")
+                .bind(ticket_id)
+                .fetch_one(&pool)
+                .await
+                .expect("チケット取得失敗");
 
         assert_eq!(
             current_status, "completed",
@@ -477,13 +456,12 @@ mod tests {
         );
 
         // チケットの status が変わっていないことを確認
-        let current_status: String = sqlx::query_scalar(
-            "SELECT status FROM tickets_ticket WHERE id = $1"
-        )
-        .bind(ticket_id)
-        .fetch_one(&pool)
-        .await
-        .expect("チケット取得失敗");
+        let current_status: String =
+            sqlx::query_scalar("SELECT status FROM tickets_ticket WHERE id = $1")
+                .bind(ticket_id)
+                .fetch_one(&pool)
+                .await
+                .expect("チケット取得失敗");
 
         assert_eq!(
             current_status, "cancelled",

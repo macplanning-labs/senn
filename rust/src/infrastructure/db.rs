@@ -1,7 +1,6 @@
 /// infrastructure/db.rs — PostgreSQL 接続プール
 ///
 /// sqlx PgPool を作成する。
-
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 

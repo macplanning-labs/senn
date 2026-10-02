@@ -8,18 +8,25 @@
 /// - POST /api/v1/roadmaps/{id}/projects/        プロジェクトを追加
 /// - DELETE /api/v1/roadmaps/{id}/projects/{project_id}/  プロジェクトを削除
 ///
-/// 設計: docs/詳細設計書_プロジェクト詳細タブ.md §9.3 / §9.4.4
-
+/// 設計: docs/design/詳細設計書_プロジェクト詳細タブ.md §9.3 / §9.4.4
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Extension, Json,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::infrastructure::repositories::{project_team_repo, resource_repo, roadmap_repo, user_repo, project_activity_repo};
+use crate::domain::access::{can, Action, Decision, ResourceRef, Viewer};
+use crate::infrastructure::access::{
+    facts_repo,
+    shadow::{self, Mode, Resource},
+};
+use crate::infrastructure::repositories::{
+    project_activity_repo, project_team_repo, resource_repo, roadmap_repo, user_repo,
+};
+use crate::presentation::extractors::authorize;
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::presentation::state::AppState;
 
@@ -29,12 +36,101 @@ pub struct ErrorResponse {
 }
 
 fn error(status: StatusCode, detail: &str) -> Response {
-    (status, Json(ErrorResponse { detail: detail.to_string() })).into_response()
+    (
+        status,
+        Json(ErrorResponse {
+            detail: detail.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 fn server_error(e: anyhow::Error) -> Response {
     tracing::error!("DB operation failed: {:?}", e);
-    error(StatusCode::INTERNAL_SERVER_ERROR, "サーバーエラーが発生しました")
+    error(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "サーバーエラーが発生しました",
+    )
+}
+
+// =============================================================================
+// アクセス制御の再設計(D-5。設計書 §5.2・§4.5)
+// =============================================================================
+//
+// ロードマップは Full Member の物(Guest は見えない)。`owner_id` は責任の表示で、管理権限は持たない
+// (編集・削除は Full Member)。含まれるプロジェクトは、見えるものだけを返す。
+// 切り替えはプロジェクトと同じ `ACCESS_ENFORCE_PROJECT`。
+
+#[allow(clippy::result_large_err)] // 認可の失敗は、そのまま応答として返す
+fn auth_of(viewer: &Viewer) -> Result<AuthUser, Response> {
+    Ok(AuthUser {
+        user_id: viewer.require_user_id()?,
+    })
+}
+
+/// ロードマップへの操作の判定(`legacy` は今の判定の応答)
+#[allow(clippy::result_large_err)]
+fn roadmap_gate(
+    state: &AppState,
+    viewer: &Viewer,
+    id: i32,
+    action: Action,
+    legacy: Result<(), Response>,
+    route: &'static str,
+) -> Result<(), Response> {
+    authorize::gate(
+        &state.pool,
+        viewer,
+        Some(&ResourceRef::Roadmap),
+        action,
+        Resource::Project,
+        id as i64,
+        legacy,
+        route,
+    )
+}
+
+/// 新しい判定(on)での「管理できるか」(応答の canManage)。off / shadow では今の値
+fn can_manage_for(viewer: &Viewer, legacy: bool) -> bool {
+    match shadow::mode(Resource::Project) {
+        Mode::On => can(viewer, Action::Write, &ResourceRef::Roadmap) == Decision::Allow,
+        _ => legacy,
+    }
+}
+
+/// 含まれるプロジェクトを、見えるものだけにする(on。試運転では記録だけ)
+async fn visible_projects(
+    state: &AppState,
+    viewer: &Viewer,
+    projects: Vec<RoadmapProjectOut>,
+    route: &'static str,
+) -> Result<Vec<RoadmapProjectOut>, Response> {
+    if shadow::mode(Resource::Project) == Mode::Off {
+        return Ok(projects);
+    }
+    let mut facts = std::collections::HashMap::new();
+    for p in &projects {
+        if let Some(f) = facts_repo::facts_for_project(&state.pool, p.id)
+            .await
+            .map_err(server_error)?
+        {
+            facts.insert(p.id, f);
+        }
+    }
+    Ok(authorize::filter_list(
+        &state.pool,
+        viewer,
+        Resource::Project,
+        route,
+        projects,
+        |p| p.id as i64,
+        |p| {
+            facts.get(&p.id).cloned().unwrap_or(ResourceRef::Project {
+                project_id: p.id,
+                teams: vec![],
+            })
+        },
+    ))
 }
 
 // =============================================================================
@@ -99,10 +195,18 @@ pub struct AddProjectIn {
 // =============================================================================
 
 /// 一覧
-pub async fn roadmaps_list(
-    State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
-) -> Response {
+pub async fn roadmaps_list(State(state): State<AppState>, viewer: Viewer) -> Response {
+    // Guest には見えない(on)。今の判定には確認が無い
+    if let Err(resp) = roadmap_gate(
+        &state,
+        &viewer,
+        0,
+        Action::Read,
+        Ok(()),
+        "GET /api/v1/roadmaps/",
+    ) {
+        return resp;
+    }
     match roadmap_repo::list_roadmaps(&state.pool).await {
         Ok(roadmaps) => {
             let res: Vec<RoadmapOut> = roadmaps
@@ -128,13 +232,30 @@ pub async fn roadmaps_list(
 /// 作成
 pub async fn roadmaps_create(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<RoadmapCreateIn>,
 ) -> Response {
+    let auth = match auth_of(&viewer) {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = roadmap_gate(
+        &state,
+        &viewer,
+        0,
+        Action::Create,
+        Ok(()),
+        "POST /api/v1/roadmaps/",
+    ) {
+        return resp;
+    }
     // 名前が 1〜100 文字か確認
     let name = body.name.trim().to_string();
     if !roadmap_repo::is_valid_roadmap_name(&name) {
-        return error(StatusCode::BAD_REQUEST, "名前は1〜100文字で入力してください");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "名前は1〜100文字で入力してください",
+        );
     }
 
     let input = roadmap_repo::RoadmapCreateIn {
@@ -152,7 +273,7 @@ pub async fn roadmaps_create(
                         name: detail.name,
                         description: detail.description,
                         owner_id: detail.owner_id,
-                        can_manage: detail.owner_id == Some(auth.user_id),
+                        can_manage: can_manage_for(&viewer, detail.owner_id == Some(auth.user_id)),
                         projects: detail
                             .projects
                             .into_iter()
@@ -179,7 +300,10 @@ pub async fn roadmaps_create(
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("already exists") {
-                error(StatusCode::CONFLICT, "このロードマップ名は既に使用されています")
+                error(
+                    StatusCode::CONFLICT,
+                    "このロードマップ名は既に使用されています",
+                )
             } else {
                 server_error(e)
             }
@@ -194,16 +318,41 @@ pub async fn roadmaps_create(
 /// 詳細
 pub async fn roadmap_detail(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
+    const ROUTE: &str = "GET /api/v1/roadmaps/{id}/";
+    let auth = match auth_of(&viewer) {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
     match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
         Ok(Some(detail)) => {
-            let can_manage = detail.owner_id == Some(auth.user_id) || {
+            if let Err(resp) = roadmap_gate(&state, &viewer, id, Action::Read, Ok(()), ROUTE) {
+                return resp;
+            }
+            let legacy_can_manage = detail.owner_id == Some(auth.user_id) || {
                 match user_repo::find_by_id(&state.pool, auth.user_id).await {
                     Ok(Some(u)) => u.is_staff,
                     _ => false,
                 }
+            };
+            let projects = detail
+                .projects
+                .into_iter()
+                .map(|p| RoadmapProjectOut {
+                    id: p.id,
+                    prefix: p.prefix,
+                    name: p.name,
+                    status: p.status,
+                    ticket_count: p.ticket_count,
+                    completed_count: p.completed_count,
+                    progress: p.progress,
+                })
+                .collect();
+            let projects = match visible_projects(&state, &viewer, projects, ROUTE).await {
+                Ok(p) => p,
+                Err(resp) => return resp,
             };
 
             let res = RoadmapDetailOut {
@@ -211,20 +360,8 @@ pub async fn roadmap_detail(
                 name: detail.name,
                 description: detail.description,
                 owner_id: detail.owner_id,
-                can_manage,
-                projects: detail
-                    .projects
-                    .into_iter()
-                    .map(|p| RoadmapProjectOut {
-                        id: p.id,
-                        prefix: p.prefix,
-                        name: p.name,
-                        status: p.status,
-                        ticket_count: p.ticket_count,
-                        completed_count: p.completed_count,
-                        progress: p.progress,
-                    })
-                    .collect(),
+                can_manage: can_manage_for(&viewer, legacy_can_manage),
+                projects,
             };
             (StatusCode::OK, Json(res)).into_response()
         }
@@ -240,10 +377,15 @@ pub async fn roadmap_detail(
 /// 編集
 pub async fn roadmap_update(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(mut body): Json<roadmap_repo::RoadmapUpdateIn>,
 ) -> Response {
+    const ROUTE: &str = "PUT /api/v1/roadmaps/{id}/";
+    let auth = match auth_of(&viewer) {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
     // 存在確認・権限確認
     let detail = match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
         Ok(Some(d)) => d,
@@ -257,15 +399,27 @@ pub async fn roadmap_update(
         Err(e) => return server_error(e),
     };
 
-    let can_manage = is_staff || detail.owner_id == Some(auth.user_id);
-    if !can_manage {
-        return error(StatusCode::FORBIDDEN, "ロードマップを編集することはできません");
+    let legacy_can_manage = is_staff || detail.owner_id == Some(auth.user_id);
+    let legacy = if legacy_can_manage {
+        Ok(())
+    } else {
+        Err(error(
+            StatusCode::FORBIDDEN,
+            "ロードマップを編集することはできません",
+        ))
+    };
+    if let Err(resp) = roadmap_gate(&state, &viewer, id, Action::Write, legacy, ROUTE) {
+        return resp;
     }
+    let can_manage = can_manage_for(&viewer, legacy_can_manage);
 
     // 名前が更新される場合、1〜100 文字か確認
     if let Some(ref name) = body.name {
         if !roadmap_repo::is_valid_roadmap_name(name) {
-            return error(StatusCode::BAD_REQUEST, "名前は1〜100文字で入力してください");
+            return error(
+                StatusCode::BAD_REQUEST,
+                "名前は1〜100文字で入力してください",
+            );
         }
     }
     // 名前は前後の空白を取り除いて保存する
@@ -274,39 +428,45 @@ pub async fn roadmap_update(
     }
 
     match roadmap_repo::update_roadmap(&state.pool, id, &body).await {
-        Ok(_) => {
-            match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
-                Ok(Some(updated)) => {
-                    let res = RoadmapDetailOut {
-                        id: updated.id,
-                        name: updated.name,
-                        description: updated.description,
-                        owner_id: updated.owner_id,
-                        can_manage,
-                        projects: updated
-                            .projects
-                            .into_iter()
-                            .map(|p| RoadmapProjectOut {
-                                id: p.id,
-                                prefix: p.prefix,
-                                name: p.name,
-                                status: p.status,
-                                ticket_count: p.ticket_count,
-                                completed_count: p.completed_count,
-                                progress: p.progress,
-                            })
-                            .collect(),
-                    };
-                    (StatusCode::OK, Json(res)).into_response()
-                }
-                Ok(None) => error(StatusCode::NOT_FOUND, "見つかりません"),
-                Err(e) => server_error(e),
+        Ok(_) => match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
+            Ok(Some(updated)) => {
+                let projects = updated
+                    .projects
+                    .into_iter()
+                    .map(|p| RoadmapProjectOut {
+                        id: p.id,
+                        prefix: p.prefix,
+                        name: p.name,
+                        status: p.status,
+                        ticket_count: p.ticket_count,
+                        completed_count: p.completed_count,
+                        progress: p.progress,
+                    })
+                    .collect();
+                let projects = match visible_projects(&state, &viewer, projects, ROUTE).await {
+                    Ok(p) => p,
+                    Err(resp) => return resp,
+                };
+                let res = RoadmapDetailOut {
+                    id: updated.id,
+                    name: updated.name,
+                    description: updated.description,
+                    owner_id: updated.owner_id,
+                    can_manage,
+                    projects,
+                };
+                (StatusCode::OK, Json(res)).into_response()
             }
-        }
+            Ok(None) => error(StatusCode::NOT_FOUND, "見つかりません"),
+            Err(e) => server_error(e),
+        },
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("already exists") {
-                error(StatusCode::CONFLICT, "このロードマップ名は既に使用されています")
+                error(
+                    StatusCode::CONFLICT,
+                    "このロードマップ名は既に使用されています",
+                )
             } else {
                 server_error(e)
             }
@@ -321,9 +481,13 @@ pub async fn roadmap_update(
 /// 削除
 pub async fn roadmap_delete(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
+    let auth = match auth_of(&viewer) {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
     // 存在確認・権限確認
     let detail = match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
         Ok(Some(d)) => d,
@@ -337,9 +501,23 @@ pub async fn roadmap_delete(
         Err(e) => return server_error(e),
     };
 
-    let can_manage = is_staff || detail.owner_id == Some(auth.user_id);
-    if !can_manage {
-        return error(StatusCode::FORBIDDEN, "ロードマップを削除することはできません");
+    let legacy = if is_staff || detail.owner_id == Some(auth.user_id) {
+        Ok(())
+    } else {
+        Err(error(
+            StatusCode::FORBIDDEN,
+            "ロードマップを削除することはできません",
+        ))
+    };
+    if let Err(resp) = roadmap_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Delete,
+        legacy,
+        "DELETE /api/v1/roadmaps/{id}/",
+    ) {
+        return resp;
     }
 
     match roadmap_repo::delete_roadmap(&state.pool, id).await {
@@ -355,10 +533,15 @@ pub async fn roadmap_delete(
 /// プロジェクトを追加
 pub async fn roadmap_add_project(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(body): Json<AddProjectIn>,
 ) -> Response {
+    const ROUTE: &str = "POST /api/v1/roadmaps/{id}/projects/";
+    let auth = match auth_of(&viewer) {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
     // ロードマップ存在確認
     let roadmap = match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
         Ok(Some(r)) => r,
@@ -367,10 +550,11 @@ pub async fn roadmap_add_project(
     };
 
     // プロジェクト存在確認
-    if let Err(resp) = resource_repo::find_project_by_id(&state.pool, body.project_id, Some(auth.user_id))
-        .await
-        .map_err(|e| server_error(e))
-        .and_then(|opt| opt.ok_or_else(|| error(StatusCode::NOT_FOUND, "見つかりません")))
+    if let Err(resp) =
+        resource_repo::find_project_by_id(&state.pool, body.project_id, Some(auth.user_id))
+            .await
+            .map_err(|e| server_error(e))
+            .and_then(|opt| opt.ok_or_else(|| error(StatusCode::NOT_FOUND, "見つかりません")))
     {
         return resp;
     }
@@ -383,16 +567,37 @@ pub async fn roadmap_add_project(
 
     // 権限：システム管理者 / ロードマップの owner / そのプロジェクトの can_manage
     let can_manage_roadmap = is_staff || roadmap.owner_id == Some(auth.user_id);
-    let can_manage_project = match project_team_repo::can_manage(&state.pool, body.project_id, auth.user_id, is_staff).await {
-        Ok(cm) => cm,
-        Err(e) => return server_error(e),
-    };
+    let can_manage_project =
+        match project_team_repo::can_manage(&state.pool, body.project_id, auth.user_id, is_staff)
+            .await
+        {
+            Ok(cm) => cm,
+            Err(e) => return server_error(e),
+        };
 
-    if !can_manage_roadmap && !can_manage_project {
-        return error(
+    let legacy = if can_manage_roadmap || can_manage_project {
+        Ok(())
+    } else {
+        Err(error(
             StatusCode::FORBIDDEN,
             "ロードマップまたはプロジェクトを変更することはできません",
-        );
+        ))
+    };
+    // 新しい判定: ロードマップを編集でき(Full Member)、プロジェクトが書き込めること
+    if let Err(resp) = roadmap_gate(&state, &viewer, id, Action::Write, legacy, ROUTE) {
+        return resp;
+    }
+    if let Err(resp) = authorize::gate_project(
+        &state.pool,
+        &viewer,
+        body.project_id,
+        Action::Write,
+        Ok(()),
+        ROUTE,
+    )
+    .await
+    {
+        return resp;
     }
 
     match roadmap_repo::add_project(&state.pool, id, body.project_id, Some(auth.user_id)).await {
@@ -414,7 +619,11 @@ pub async fn roadmap_add_project(
                     )
                     .await;
 
-                    (status, Json(json!({"id": id, "projectId": body.project_id}))).into_response()
+                    (
+                        status,
+                        Json(json!({"id": id, "projectId": body.project_id})),
+                    )
+                        .into_response()
                 }
                 Ok(None) => {
                     tracing::error!("ロードマップが見つかりません (id={})", id);
@@ -437,9 +646,14 @@ pub async fn roadmap_add_project(
 /// プロジェクトを削除
 pub async fn roadmap_remove_project(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((id, project_id)): Path<(i32, i32)>,
 ) -> Response {
+    const ROUTE: &str = "DELETE /api/v1/roadmaps/{id}/projects/{project_id}/";
+    let auth = match auth_of(&viewer) {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
     // ロードマップ存在確認
     let roadmap = match roadmap_repo::find_roadmap_by_id(&state.pool, id).await {
         Ok(Some(r)) => r,
@@ -455,16 +669,41 @@ pub async fn roadmap_remove_project(
 
     // 権限：システム管理者 / ロードマップの owner / そのプロジェクトの can_manage
     let can_manage_roadmap = is_staff || roadmap.owner_id == Some(auth.user_id);
-    let can_manage_project = match project_team_repo::can_manage(&state.pool, project_id, auth.user_id, is_staff).await {
+    let can_manage_project = match project_team_repo::can_manage(
+        &state.pool,
+        project_id,
+        auth.user_id,
+        is_staff,
+    )
+    .await
+    {
         Ok(cm) => cm,
         Err(e) => return server_error(e),
     };
 
-    if !can_manage_roadmap && !can_manage_project {
-        return error(
+    let legacy = if can_manage_roadmap || can_manage_project {
+        Ok(())
+    } else {
+        Err(error(
             StatusCode::FORBIDDEN,
             "ロードマップまたはプロジェクトを変更することはできません",
-        );
+        ))
+    };
+    // 新しい判定: ロードマップを編集でき(Full Member)、プロジェクトが見えること
+    if let Err(resp) = roadmap_gate(&state, &viewer, id, Action::Write, legacy, ROUTE) {
+        return resp;
+    }
+    if let Err(resp) = authorize::gate_project(
+        &state.pool,
+        &viewer,
+        project_id,
+        Action::Read,
+        Ok(()),
+        ROUTE,
+    )
+    .await
+    {
+        return resp;
     }
 
     match roadmap_repo::remove_project(&state.pool, id, project_id).await {

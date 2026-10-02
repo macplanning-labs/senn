@@ -2,7 +2,7 @@
  * DemoEntry — お客様向けビルド専用のデモ入口（/demo）
  *
  * VITE_APP_CHANNEL=customer のときだけ有効。業務用 /login とは分離。
- * 正本: docs/方針_ビルドチャネル_customerとinternal.md
+ * 正本: docs/design/方針_ビルドチャネル_customerとinternal.md
  */
 
 import { useEffect, useState } from 'react';

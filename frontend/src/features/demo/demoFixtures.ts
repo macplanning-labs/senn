@@ -13,7 +13,8 @@ export const demoUser = {
   lastName: 'User',
   displayName: 'Demo User',
   alias: null as string | null,
-  isStaff: false,
+  isSystemAdmin: false,
+  isGuest: false,
   emailNotificationsEnabled: true,
 };
 

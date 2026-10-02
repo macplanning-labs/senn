@@ -3,7 +3,6 @@
 /// wiki_page / wiki_revision の CRUD + revisions/link-ticket/unlink-ticket。
 /// 既存の infrastructure/repositories/wiki_repo.rs (HTML画面用、テーブル名が
 /// 実スキーマと不一致で現状未使用)とは別ファイルにして衝突を避ける。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::wiki_api::*;
@@ -75,6 +74,41 @@ fn row_to_list(row: &sqlx::postgres::PgRow) -> WikiPageListOut {
     }
 }
 
+/// 一覧・件数で共通の WHERE 句。`scope` があれば、新しい判定で見える物だけ(D-4。`on` のときだけ渡される)
+fn push_list_filters(
+    qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    category: Option<&str>,
+    search: Option<&str>,
+    scope: Option<&crate::domain::access::Scope>,
+) {
+    let search_pattern = search.map(|s| format!("%{}%", s));
+    qb.push("(")
+        .push_bind(project_id)
+        .push("::int4 IS NULL OR w.project_id = ")
+        .push_bind(project_id)
+        .push(") AND (")
+        .push_bind(team_id)
+        .push("::int4 IS NULL OR w.team_id = ")
+        .push_bind(team_id)
+        .push(") AND (")
+        .push_bind(category.map(str::to_string))
+        .push("::text IS NULL OR w.category = ")
+        .push_bind(category.map(str::to_string))
+        .push(") AND (")
+        .push_bind(search_pattern.clone())
+        .push("::text IS NULL OR w.title ILIKE ")
+        .push_bind(search_pattern.clone())
+        .push(" OR w.content ILIKE ")
+        .push_bind(search_pattern)
+        .push(")");
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_wiki_visible(qb, "w", scope);
+    }
+}
+
 pub async fn find_all(
     pool: &PgPool,
     project_id: Option<i32>,
@@ -82,31 +116,20 @@ pub async fn find_all(
     category: Option<&str>,
     search: Option<&str>,
     page: i64,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<Vec<WikiPageListOut>> {
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
-    let search_pattern = search.map(|s| format!("%{}%", s));
 
-    let query = format!(
-        "{LIST_SELECT}
-         WHERE ($1::int4 IS NULL OR w.project_id = $1)
-           AND ($2::int4 IS NULL OR w.team_id = $2)
-           AND ($3::text IS NULL OR w.category = $3)
-           AND ($4::text IS NULL OR w.title ILIKE $4 OR w.content ILIKE $4)
-         ORDER BY w.updated_at DESC
-         LIMIT $5 OFFSET $6"
-    );
-
-    let rows = sqlx::query(&query)
-        .bind(project_id)
-        .bind(team_id)
-        .bind(category)
-        .bind(&search_pattern)
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?;
+    let mut qb = sqlx::QueryBuilder::new(LIST_SELECT);
+    qb.push(" WHERE ");
+    push_list_filters(&mut qb, project_id, team_id, category, search, scope);
+    qb.push(" ORDER BY w.updated_at DESC LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
+    let rows = qb.build().fetch_all(pool).await?;
 
     Ok(rows.iter().map(row_to_list).collect())
 }
@@ -117,22 +140,11 @@ pub async fn count_all(
     team_id: Option<i32>,
     category: Option<&str>,
     search: Option<&str>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<i64> {
-    let search_pattern = search.map(|s| format!("%{}%", s));
-
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM wiki_page w
-         WHERE ($1::int4 IS NULL OR w.project_id = $1)
-           AND ($2::int4 IS NULL OR w.team_id = $2)
-           AND ($3::text IS NULL OR w.category = $3)
-           AND ($4::text IS NULL OR w.title ILIKE $4 OR w.content ILIKE $4)"
-    )
-    .bind(project_id)
-    .bind(team_id)
-    .bind(category)
-    .bind(&search_pattern)
-    .fetch_one(pool)
-    .await?;
+    let mut qb = sqlx::QueryBuilder::new("SELECT COUNT(*) FROM wiki_page w WHERE ");
+    push_list_filters(&mut qb, project_id, team_id, category, search, scope);
+    let count: i64 = qb.build_query_scalar().fetch_one(pool).await?;
 
     Ok(count)
 }
@@ -166,7 +178,7 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiPag
         "SELECT t.id::int4, t.ticket_key, t.title, t.status, t.priority
          FROM wiki_page_linked_tickets wlt
          JOIN tickets_ticket t ON wlt.ticketmodel_id = t.id
-         WHERE wlt.wikipage_id = $1"
+         WHERE wlt.wikipage_id = $1",
     )
     .bind(id)
     .fetch_all(pool)
@@ -211,7 +223,11 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiPag
 }
 
 /// ページ作成(初回リビジョン自動生成)。projectまたはteamスコープ内でslugをユニーク化。
-pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> anyhow::Result<i32> {
+pub async fn create(
+    pool: &PgPool,
+    input: &WikiPageCreateIn,
+    author_id: i32,
+) -> anyhow::Result<i32> {
     let base_slug = generate_slug(&input.title);
     let mut slug = base_slug.clone();
     let mut counter = 1;
@@ -220,7 +236,7 @@ pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> 
             "SELECT COUNT(*) FROM wiki_page WHERE slug = $1 AND
              ((project_id IS NULL AND $2::int4 IS NULL AND team_id IS NULL AND $3::int4 IS NULL) OR
               (project_id = $2) OR
-              (team_id = $3))"
+              (team_id = $3))",
         )
         .bind(&slug)
         .bind(input.project)
@@ -254,7 +270,7 @@ pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> 
 
     sqlx::query(
         "INSERT INTO wiki_revision (page_id, content, editor_id, comment, created_at)
-         VALUES ($1, $2, $3, 'Initial version', NOW())"
+         VALUES ($1, $2, $3, 'Initial version', NOW())",
     )
     .bind(page_id)
     .bind(&input.content)
@@ -267,7 +283,12 @@ pub async fn create(pool: &PgPool, input: &WikiPageCreateIn, author_id: i32) -> 
 }
 
 /// ページ更新(リビジョン自動生成)。slugは変更しない。
-pub async fn update(pool: &PgPool, id: i32, input: &WikiPageUpdateIn, editor_id: i32) -> anyhow::Result<bool> {
+pub async fn update(
+    pool: &PgPool,
+    id: i32,
+    input: &WikiPageUpdateIn,
+    editor_id: i32,
+) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
     let existing = sqlx::query(
@@ -311,7 +332,7 @@ pub async fn update(pool: &PgPool, id: i32, input: &WikiPageUpdateIn, editor_id:
 
     sqlx::query(
         "INSERT INTO wiki_revision (page_id, content, editor_id, comment, created_at)
-         VALUES ($1, $2, $3, $4, NOW())"
+         VALUES ($1, $2, $3, $4, NOW())",
     )
     .bind(id)
     .bind(&content)
@@ -329,10 +350,22 @@ pub async fn update(pool: &PgPool, id: i32, input: &WikiPageUpdateIn, editor_id:
 pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE wikipage_id = $1").bind(id).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM notifications_notification WHERE wiki_page_id = $1").bind(id).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM notifications_user_read_state WHERE wiki_page_id = $1").bind(id).execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM wiki_revision WHERE page_id = $1").bind(id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE wikipage_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM notifications_notification WHERE wiki_page_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM notifications_user_read_state WHERE wiki_page_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM wiki_revision WHERE page_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM wiki_page WHERE id = $1")
         .bind(id)
@@ -389,17 +422,18 @@ pub async fn page_exists(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 }
 
 pub async fn ticket_exists(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
     Ok(exists)
 }
 
 pub async fn link_ticket(pool: &PgPool, page_id: i32, ticket_id: i32) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO wiki_page_linked_tickets (wikipage_id, ticketmodel_id)
-         VALUES ($1, $2) ON CONFLICT DO NOTHING"
+         VALUES ($1, $2) ON CONFLICT DO NOTHING",
     )
     .bind(page_id)
     .bind(ticket_id)
@@ -409,11 +443,13 @@ pub async fn link_ticket(pool: &PgPool, page_id: i32, ticket_id: i32) -> anyhow:
 }
 
 pub async fn unlink_ticket(pool: &PgPool, page_id: i32, ticket_id: i32) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM wiki_page_linked_tickets WHERE wikipage_id = $1 AND ticketmodel_id = $2")
-        .bind(page_id)
-        .bind(ticket_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "DELETE FROM wiki_page_linked_tickets WHERE wikipage_id = $1 AND ticketmodel_id = $2",
+    )
+    .bind(page_id)
+    .bind(ticket_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -461,7 +497,11 @@ pub async fn can_write_scope(
         return Ok(true);
     }
     if let Some(p) = project {
-        if !crate::infrastructure::repositories::project_team_repo::can_edit(pool, p, user_id, false).await? {
+        if !crate::infrastructure::repositories::project_team_repo::can_edit(
+            pool, p, user_id, false,
+        )
+        .await?
+        {
             return Ok(false);
         }
     }
@@ -548,12 +588,14 @@ mod tests {
 
     #[tokio::test]
     async fn w1_staff_can_write_any_scope() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w1o").await;
         let staff = create_staff_user(&pool, "w1s").await;
         let project = test_support::create_test_project(&pool, "W1", owner).await;
         let team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)
@@ -561,20 +603,28 @@ mod tests {
         .unwrap();
 
         // staff can write to any scope
-        assert!(can_write_scope(&pool, staff, Some(project), None).await.unwrap());
-        assert!(can_write_scope(&pool, staff, None, Some(team)).await.unwrap());
-        assert!(can_write_scope(&pool, staff, Some(project), Some(team)).await.unwrap());
+        assert!(can_write_scope(&pool, staff, Some(project), None)
+            .await
+            .unwrap());
+        assert!(can_write_scope(&pool, staff, None, Some(team))
+            .await
+            .unwrap());
+        assert!(can_write_scope(&pool, staff, Some(project), Some(team))
+            .await
+            .unwrap());
         assert!(can_write_scope(&pool, staff, None, None).await.unwrap());
     }
 
     #[tokio::test]
     async fn w2_project_team_member_can_write_project_scope() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w2o").await;
         let member = test_support::create_test_user(&pool, "w2m").await;
         let project = test_support::create_test_project(&pool, "W2", owner).await;
         let team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)
@@ -582,46 +632,62 @@ mod tests {
         .unwrap();
         set_role(&pool, team, member, "member").await;
 
-        assert!(can_write_scope(&pool, member, Some(project), None).await.unwrap());
+        assert!(can_write_scope(&pool, member, Some(project), None)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w3_non_member_cannot_write_project_scope() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w3o").await;
         let outsider = test_support::create_test_user(&pool, "w3x").await;
         let project = test_support::create_test_project(&pool, "W3", owner).await;
 
-        assert!(!can_write_scope(&pool, outsider, Some(project), None).await.unwrap());
+        assert!(!can_write_scope(&pool, outsider, Some(project), None)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w4_team_member_can_write_team_scope() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let member = test_support::create_test_user(&pool, "w4m").await;
         let team = test_support::create_test_team(&pool, "W4").await;
         set_role(&pool, team, member, "member").await;
 
-        assert!(can_write_scope(&pool, member, None, Some(team)).await.unwrap());
+        assert!(can_write_scope(&pool, member, None, Some(team))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w5_non_member_cannot_write_team_scope() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let non_member = test_support::create_test_user(&pool, "w5n").await;
         let team = test_support::create_test_team(&pool, "W5").await;
 
-        assert!(!can_write_scope(&pool, non_member, None, Some(team)).await.unwrap());
+        assert!(!can_write_scope(&pool, non_member, None, Some(team))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w6_project_guest_cannot_write_project_scope() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w6o").await;
         let guest = test_support::create_test_user(&pool, "w6g").await;
         let project = test_support::create_test_project(&pool, "W6", owner).await;
         let team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)
@@ -629,18 +695,22 @@ mod tests {
         .unwrap();
         set_guest_role(&pool, team, guest, project).await;
 
-        assert!(!can_write_scope(&pool, guest, Some(project), None).await.unwrap());
+        assert!(!can_write_scope(&pool, guest, Some(project), None)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w12_project_guest_cannot_write_team_scope() {
         // チーム所属のページには、そのチームのプロジェクトゲスト（scoped_project_id 付き）は書けない
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w12o").await;
         let guest = test_support::create_test_user(&pool, "w12g").await;
         let project = test_support::create_test_project(&pool, "W12", owner).await;
         let team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)
@@ -648,12 +718,16 @@ mod tests {
         .unwrap();
         set_guest_role(&pool, team, guest, project).await;
 
-        assert!(!can_write_scope(&pool, guest, None, Some(team)).await.unwrap());
+        assert!(!can_write_scope(&pool, guest, None, Some(team))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w7_both_scope_requires_project_permission() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w7o").await;
         let outsider = test_support::create_test_user(&pool, "w7x").await;
         let project = test_support::create_test_project(&pool, "W7", owner).await;
@@ -661,17 +735,21 @@ mod tests {
         set_role(&pool, team, outsider, "member").await;
 
         // outsider is team member but not project member
-        assert!(!can_write_scope(&pool, outsider, Some(project), Some(team)).await.unwrap());
+        assert!(!can_write_scope(&pool, outsider, Some(project), Some(team))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w8_both_scope_requires_team_permission() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w8o").await;
         let member = test_support::create_test_user(&pool, "w8m").await;
         let project = test_support::create_test_project(&pool, "W8", owner).await;
         let project_team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)
@@ -681,17 +759,23 @@ mod tests {
         set_role(&pool, project_team, member, "member").await;
 
         // member is project member but not team member (on other_team)
-        assert!(!can_write_scope(&pool, member, Some(project), Some(other_team)).await.unwrap());
+        assert!(
+            !can_write_scope(&pool, member, Some(project), Some(other_team))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
     async fn w9_both_scope_requires_both_permissions() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "w9o").await;
         let member = test_support::create_test_user(&pool, "w9m").await;
         let project = test_support::create_test_project(&pool, "W9", owner).await;
         let project_team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)
@@ -701,12 +785,16 @@ mod tests {
         set_role(&pool, project_team, member, "member").await;
         set_role(&pool, team, member, "member").await;
 
-        assert!(can_write_scope(&pool, member, Some(project), Some(team)).await.unwrap());
+        assert!(can_write_scope(&pool, member, Some(project), Some(team))
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn w10_shared_page_allows_non_staff() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "w10").await;
 
         // shared page (no project, no team)
@@ -715,12 +803,14 @@ mod tests {
 
     #[tokio::test]
     async fn w11_find_scope_returns_scope_or_none() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "w11").await;
         let owner = test_support::create_test_user(&pool, "w11o").await;
         let project = test_support::create_test_project(&pool, "W11", owner).await;
         let team = sqlx::query_scalar::<_, i32>(
-            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1"
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
         )
         .bind(project as i64)
         .fetch_one(&pool)

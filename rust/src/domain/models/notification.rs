@@ -1,7 +1,6 @@
 /// domain/models/notification.rs — 通知モデル
 ///
 /// In-app 通知（ベル通知）と通知送信ログ。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

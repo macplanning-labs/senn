@@ -1,8 +1,7 @@
+use crate::domain::models::ticket_api::UserSummaryOut;
 /// domain/models/reaction.rs — チケットリアクション / カスタム絵文字モデル
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::domain::models::ticket_api::UserSummaryOut;
 
 // リアクション出力型
 #[derive(Debug, Clone, Serialize)]
