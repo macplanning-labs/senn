@@ -47,8 +47,9 @@ services:
       WEBAUTHN_RP_ID: localhost
       WEBAUTHN_RP_ORIGIN: ${BASE_URL:-http://localhost:8151}
       MEDIA_DIR: /app/media
-      # AIエージェント(Claude等)専用の外部API用キー。既定値はローカルお試し用のダミー値。
-      SENN_AI_API_KEY: ${SENN_AI_API_KEY:-senn-ai-demo-key}
+      # AIエージェント(Claude等)専用の外部API用キー。既定値は持たない(空なら AI 用 API は無効)。
+      # 使うときだけ .env に設定する(例: openssl rand -hex 32)。既定値を置くと、誰でも知っている鍵で入れてしまう
+      SENN_AI_API_KEY: ${SENN_AI_API_KEY:-}
     volumes:
       - senn_media:/app/media
     depends_on:
