@@ -40,6 +40,13 @@ services:
     environment:
       DATABASE_URL: postgres://senn:${DB_PASSWORD:?DB_PASSWORD is empty. Set it in .env - see Start in README.md (openssl rand -hex 24)}@db:5432/senn
       PORT: "8151"
+      # 登録の方式とメール送信(任意)。.env に書いた値をバックエンドに渡す(README「Adding people」参照)
+      SENN_REGISTRATION_MODE: ${SENN_REGISTRATION_MODE:-}
+      SENN_INTERNAL_EMAIL_DOMAINS: ${SENN_INTERNAL_EMAIL_DOMAINS:-}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USER: ${EMAIL_USER:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
       BASE_URL: ${BASE_URL:-http://localhost:8151}
       COOKIE_SECURE: "false"
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is empty. Set it in .env - see Start in README.md (openssl rand -base64 48)}
