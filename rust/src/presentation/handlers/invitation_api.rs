@@ -412,6 +412,48 @@ pub fn register_as_open(restricted: bool, has_any_user: bool) -> bool {
     !restricted || !has_any_user
 }
 
+/// 自己登録を断るときの理由(画面が日英の文言に置き換えるための `code`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistrationRefusal {
+    /// 社内のドメインが設定されていない(既定)。2 人目からは招待だけ
+    InviteRequired,
+    /// 社内のドメインは設定されているが、そのドメインのアドレスではない
+    ExternalEmail,
+}
+
+impl RegistrationRefusal {
+    /// 自己登録を断る理由。社内のドメインが 1 つも設定されていなければ「招待制」。
+    /// 設定されているのに通らなかったなら「このアドレスでは登録できない」
+    pub fn for_domains(domains: Option<&str>) -> Self {
+        let configured = domains
+            .unwrap_or_default()
+            .split(',')
+            .any(|d| !d.trim().is_empty());
+        if configured {
+            Self::ExternalEmail
+        } else {
+            Self::InviteRequired
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::InviteRequired => "invite_required",
+            Self::ExternalEmail => "external_email_invite_required",
+        }
+    }
+
+    /// 画面が `code` を知らないとき(古い画面など)に出す文言
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::InviteRequired => "新規登録は招待制です。チームの管理者に、招待のリンクを依頼してください",
+            Self::ExternalEmail => {
+                "このメールアドレスでは、自分で登録できません。チームの管理者に招待を依頼してください"
+            }
+        }
+    }
+}
+
 /// 社内のメールのドメイン(`SENN_INTERNAL_EMAIL_DOMAINS`)に入っているか
 pub fn is_internal_email(email: &str) -> bool {
     let Some((_, domain)) = email.trim().rsplit_once('@') else {
@@ -437,10 +479,14 @@ pub async fn register_restricted(
     last_name: &str,
 ) -> Response {
     if !is_internal_email(email) {
-        return reply(
-            StatusCode::FORBIDDEN,
-            "社外のメールアドレスでは登録できません。チームの管理者に招待を依頼してください",
+        let refusal = RegistrationRefusal::for_domains(
+            std::env::var("SENN_INTERNAL_EMAIL_DOMAINS").ok().as_deref(),
         );
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "detail": refusal.detail(), "code": refusal.code() })),
+        )
+            .into_response();
     }
     let user_id = match invitation_repo::create_unverified_user(
         &state.pool,
@@ -530,6 +576,21 @@ mod tests {
             !is_internal_email("taro@corp.example"),
             "未設定なら社内は無い"
         );
+    }
+
+    /// 自己登録を断る理由: 社内のドメインが無ければ「招待制」。あれば「このアドレスでは登録できない」。
+    /// 社内のドメインを設定していない OSS 版で「社外のメール」と言わない(DEMO-000093)
+    #[test]
+    fn registration_refusal_depends_on_internal_domains() {
+        for none in [None, Some(""), Some(" "), Some(" , ")] {
+            let r = RegistrationRefusal::for_domains(none);
+            assert_eq!(r, RegistrationRefusal::InviteRequired, "{none:?}");
+            assert_eq!(r.code(), "invite_required");
+            assert!(!r.detail().contains("社外"));
+        }
+        let r = RegistrationRefusal::for_domains(Some("corp.example"));
+        assert_eq!(r, RegistrationRefusal::ExternalEmail);
+        assert_eq!(r.code(), "external_email_invite_required");
     }
 }
 

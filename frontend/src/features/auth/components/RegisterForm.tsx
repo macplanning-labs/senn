@@ -71,8 +71,15 @@ export function RegisterForm() {
       await completeAuth(data.tokens.access, data.tokens.refresh);
       navigate('/my-issues');
     } catch (err) {
-      const detail = (err as AxiosError<{ detail?: string }>)?.response?.data?.detail;
-      setError(detail || t('auth.registerError', 'Failed to create account'));
+      const data = (err as AxiosError<{ detail?: string; code?: string }>)?.response?.data;
+      // 招待制で断られたときは、サーバーの文言(日本語)ではなく、表示中の言語の文言を出す
+      if (data?.code === 'invite_required') {
+        setError(t('auth.inviteRequired'));
+      } else if (data?.code === 'external_email_invite_required') {
+        setError(t('auth.externalEmailInviteRequired'));
+      } else {
+        setError(data?.detail || t('auth.registerError', 'Failed to create account'));
+      }
     } finally {
       setIsLoading(false);
     }

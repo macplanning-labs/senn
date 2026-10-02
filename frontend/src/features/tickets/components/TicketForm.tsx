@@ -574,7 +574,7 @@ export function TicketForm({
             className={`ticket-form__input ${errors.title ? 'ticket-form__input--error' : ''}`}
             value={formData.title}
             onChange={(e) => updateField('title', e.target.value)}
-            placeholder="What needs to be done?"
+            placeholder={t('ticket.titlePlaceholder')}
             autoFocus
             data-testid="ticket-title-input"
           />
@@ -602,7 +602,7 @@ export function TicketForm({
               e.preventDefault();
               addPendingImages(Array.from(e.dataTransfer.files));
             }}
-            placeholder="Add a description..."
+            placeholder={t('ticket.descriptionPlaceholder')}
             rows={6}
             data-testid="ticket-description-input"
           />
@@ -846,7 +846,7 @@ export function TicketForm({
         <TeamSelect
           teamId={teamId}
           onTeamChange={setTeamId}
-          label="Team *"
+          label={`${t('ticket.team')} *`}
           required
           projectTeams={activeProject?.teams?.length ? activeProject.teams : null}
         />
