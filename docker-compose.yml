@@ -9,6 +9,11 @@
 #
 # 入口: http://localhost:8151
 # 秘密は .env のみ（本ファイルに平文で埋め込まない）
+#
+# コンテナ名は固定しない(同じ PC で別の SENN と名前がぶつからないように)。
+# 別の SENN と並べて動かすときは、プロジェクト名とポートを変える:
+#   docker compose -p senn-old up     ( .env の PORT / BASE_URL / WEBAUTHN_RP_ORIGIN も別の番号に)
+# プロジェクト名(既定 senn-oss)を変えると、データの保存先(ボリューム)も別になる
 # ============================================================
 
 name: senn-oss
@@ -16,7 +21,6 @@ name: senn-oss
 services:
   db:
     image: postgres:16-alpine
-    container_name: senn-oss-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: senn
@@ -35,7 +39,6 @@ services:
     build:
       context: ./rust
       dockerfile: Dockerfile
-    container_name: senn-oss-backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://senn:${DB_PASSWORD:?DB_PASSWORD is empty. Set it in .env - see Start in README.md (openssl rand -hex 24)}@db:5432/senn
@@ -68,7 +71,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: senn-oss-web
     restart: unless-stopped
     ports:
       - "${PORT:-8151}:80"
