@@ -1,12 +1,12 @@
 /// infrastructure/repositories/workflow_status_repo.rs — Workflow Status 永続化
 ///
 /// t_workflow_status テーブルの CRUD 操作。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::workflow_status_api::*;
 
-const WF_SELECT: &str = "SELECT id::int4 AS id, project_id, team_id, name, slug, category, color, position, is_default
+const WF_SELECT: &str =
+    "SELECT id::int4 AS id, project_id, team_id, name, slug, category, color, position, is_default
              FROM t_workflow_status";
 
 fn map_wf_row(row: sqlx::postgres::PgRow) -> WorkflowStatusOut {
@@ -25,30 +25,49 @@ fn map_wf_row(row: sqlx::postgres::PgRow) -> WorkflowStatusOut {
     }
 }
 
+/// 一覧・件数で共通の WHERE 句(別名 `ws`)。`scope` があれば、新しい判定で見える物だけ(D-4。`on` のときだけ)
+fn push_list_filters(
+    qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    project: Option<i32>,
+    team: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
+) {
+    let project = project.map(|p| p as i64);
+    let team = team.map(|t| t as i64);
+    qb.push("(")
+        .push_bind(project)
+        .push("::bigint IS NULL OR ws.project_id = ")
+        .push_bind(project)
+        .push(") AND (")
+        .push_bind(team)
+        .push("::bigint IS NULL OR ws.team_id = ")
+        .push_bind(team)
+        .push(")");
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_workflow_status_visible(qb, "ws", scope);
+    }
+}
+
 pub async fn find_all_workflow_statuses(
     pool: &PgPool,
     page: i64,
     project: Option<i32>,
     team: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<Vec<WorkflowStatusOut>> {
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
 
-    let sql = format!(
-        "{WF_SELECT}
-         WHERE ($1::bigint IS NULL OR project_id = $1)
-           AND ($2::bigint IS NULL OR team_id = $2)
-         ORDER BY position ASC
-         LIMIT $3 OFFSET $4"
-    );
-    let rows = sqlx::query(&sql)
-        .bind(project.map(|p| p as i64))
-        .bind(team.map(|t| t as i64))
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?;
+    let mut qb = sqlx::QueryBuilder::new(WF_SELECT);
+    qb.push(" ws WHERE ");
+    push_list_filters(&mut qb, project, team, scope);
+    qb.push(" ORDER BY ws.position ASC LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
+    let rows = qb.build().fetch_all(pool).await?;
 
     Ok(rows.into_iter().map(map_wf_row).collect())
 }
@@ -57,16 +76,11 @@ pub async fn count_workflow_statuses(
     pool: &PgPool,
     project: Option<i32>,
     team: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<i64> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM t_workflow_status
-         WHERE ($1::bigint IS NULL OR project_id = $1)
-           AND ($2::bigint IS NULL OR team_id = $2)"
-    )
-    .bind(project.map(|p| p as i64))
-    .bind(team.map(|t| t as i64))
-    .fetch_one(pool)
-    .await?;
+    let mut qb = sqlx::QueryBuilder::new("SELECT COUNT(*) FROM t_workflow_status ws WHERE ");
+    push_list_filters(&mut qb, project, team, scope);
+    let count: i64 = qb.build_query_scalar().fetch_one(pool).await?;
 
     Ok(count)
 }
@@ -151,7 +165,11 @@ pub async fn partial_update_workflow_status(
     let team_id = input.team_id.or(existing.team_id);
     let name = input.name.as_ref().unwrap_or(&existing.name).clone();
     let slug = input.slug.as_ref().unwrap_or(&existing.slug).clone();
-    let category = input.category.as_ref().unwrap_or(&existing.category).clone();
+    let category = input
+        .category
+        .as_ref()
+        .unwrap_or(&existing.category)
+        .clone();
     let color = input.color.as_ref().unwrap_or(&existing.color).clone();
     let position = input.position.unwrap_or(existing.position);
     let is_default = input.is_default.unwrap_or(existing.is_default);
@@ -187,17 +205,14 @@ pub async fn delete_workflow_status(pool: &PgPool, id: i32) -> anyhow::Result<bo
     Ok(rows_affected > 0)
 }
 
-pub async fn reorder_workflow_statuses(
-    pool: &PgPool,
-    order: Vec<i32>,
-) -> anyhow::Result<()> {
+pub async fn reorder_workflow_statuses(pool: &PgPool, order: Vec<i32>) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
 
     for (idx, status_id) in order.iter().enumerate() {
         let result = sqlx::query(
             "UPDATE t_workflow_status
              SET position = $1
-             WHERE id = $2"
+             WHERE id = $2",
         )
         .bind(idx as i32)
         .bind(*status_id as i64)
@@ -211,7 +226,10 @@ pub async fn reorder_workflow_statuses(
     }
 
     if let Err(e) = tx.commit().await {
-        tracing::error!("Failed to commit workflow status reorder transaction: {:?}", e);
+        tracing::error!(
+            "Failed to commit workflow status reorder transaction: {:?}",
+            e
+        );
         return Err(e.into());
     }
 
@@ -227,7 +245,7 @@ pub async fn resolve_status_slug_by_category(
         "SELECT slug FROM t_workflow_status
          WHERE project_id = $1 AND category = $2
          ORDER BY position ASC, id ASC
-         LIMIT 1"
+         LIMIT 1",
     )
     .bind(project_id as i64)
     .bind(category)
@@ -252,7 +270,7 @@ pub async fn resolve_status_slug_by_scope(
             "SELECT slug FROM t_workflow_status
              WHERE team_id = $1 AND project_id IS NULL AND category = $2
              ORDER BY position ASC, id ASC
-             LIMIT 1"
+             LIMIT 1",
         )
         .bind(tid as i64)
         .bind(category)
@@ -266,7 +284,7 @@ pub async fn resolve_status_slug_by_scope(
         "SELECT slug FROM t_workflow_status
          WHERE project_id IS NULL AND team_id IS NULL AND category = $1
          ORDER BY position ASC, id ASC
-         LIMIT 1"
+         LIMIT 1",
     )
     .bind(category)
     .fetch_optional(pool)
@@ -282,7 +300,7 @@ pub async fn lookup_status_category(
 ) -> anyhow::Result<Option<String>> {
     if let Some(pid) = project_id {
         return sqlx::query_scalar(
-            "SELECT category FROM t_workflow_status WHERE project_id = $1 AND slug = $2"
+            "SELECT category FROM t_workflow_status WHERE project_id = $1 AND slug = $2",
         )
         .bind(pid as i64)
         .bind(slug)
@@ -293,7 +311,7 @@ pub async fn lookup_status_category(
     if let Some(tid) = team_id {
         let cat: Option<String> = sqlx::query_scalar(
             "SELECT category FROM t_workflow_status
-             WHERE team_id = $1 AND project_id IS NULL AND slug = $2"
+             WHERE team_id = $1 AND project_id IS NULL AND slug = $2",
         )
         .bind(tid as i64)
         .bind(slug)
@@ -305,7 +323,7 @@ pub async fn lookup_status_category(
     }
     let cat: Option<String> = sqlx::query_scalar(
         "SELECT category FROM t_workflow_status
-         WHERE project_id IS NULL AND team_id IS NULL AND slug = $1"
+         WHERE project_id IS NULL AND team_id IS NULL AND slug = $1",
     )
     .bind(slug)
     .fetch_optional(pool)
@@ -342,7 +360,7 @@ pub async fn resolve_review_status_slug_by_scope(
             &sqlx::query(
                 "SELECT slug, category, position FROM t_workflow_status
                  WHERE project_id = $1
-                 ORDER BY position ASC, id ASC"
+                 ORDER BY position ASC, id ASC",
             )
             .bind(pid as i64)
             .fetch_all(pool)
@@ -358,7 +376,7 @@ pub async fn resolve_review_status_slug_by_scope(
             &sqlx::query(
                 "SELECT slug, category, position FROM t_workflow_status
                  WHERE team_id = $1 AND project_id IS NULL
-                 ORDER BY position ASC, id ASC"
+                 ORDER BY position ASC, id ASC",
             )
             .bind(tid as i64)
             .fetch_all(pool)
@@ -372,7 +390,7 @@ pub async fn resolve_review_status_slug_by_scope(
         &sqlx::query(
             "SELECT slug, category, position FROM t_workflow_status
              WHERE project_id IS NULL AND team_id IS NULL
-             ORDER BY position ASC, id ASC"
+             ORDER BY position ASC, id ASC",
         )
         .fetch_all(pool)
         .await?,

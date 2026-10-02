@@ -16,16 +16,18 @@ interface NotificationPreference {
   emailEnabled: boolean;
 }
 
-const CATEGORY_META: { key: string; icon: string; labelKey: string; fallback: string }[] = [
-  { key: 'assigned', icon: '👤', labelKey: 'settings.assignedToMe', fallback: '担当設定' },
-  { key: 'commented', icon: '💬', labelKey: 'settings.commentsOnTickets', fallback: 'コメント' },
-  { key: 'status_changed', icon: '🔄', labelKey: 'settings.statusChanges', fallback: 'ステータス変更' },
-  { key: 'updated', icon: '📝', labelKey: 'settings.ticketUpdated', fallback: '更新' },
-  { key: 'mentioned', icon: '📢', labelKey: 'settings.mentioned', fallback: 'メンション' },
-  { key: 'review_requested', icon: '👁️', labelKey: 'settings.reviewRequested', fallback: 'レビュー依頼' },
-  { key: 'due_soon', icon: '⏰', labelKey: 'settings.dueReminders', fallback: '期限間近' },
-  { key: 'overdue', icon: '🔥', labelKey: 'settings.overdue', fallback: '期限超過' },
-];
+function getEventCategories(t: (key: string) => string): { key: string; icon: string; label: string }[] {
+  return [
+    { key: 'assigned', icon: '👤', label: t('notifications.eventAssigned') },
+    { key: 'commented', icon: '💬', label: t('notifications.eventCommented') },
+    { key: 'status_changed', icon: '🔄', label: t('notifications.eventStatusChanged') },
+    { key: 'updated', icon: '📝', label: t('notifications.eventUpdated') },
+    { key: 'mentioned', icon: '📢', label: t('notifications.eventMentioned') },
+    { key: 'review_requested', icon: '👁️', label: t('notifications.eventReviewRequested') },
+    { key: 'due_soon', icon: '⏰', label: t('notifications.eventDueSoon') },
+    { key: 'overdue', icon: '🔥', label: t('notifications.eventOverdue') },
+  ];
+}
 
 export function NotificationSettings() {
   const { t } = useTranslation();
@@ -99,14 +101,14 @@ export function NotificationSettings() {
 
         {emailEnabled && (
           <div className="settings__notification-categories">
-            {CATEGORY_META.map((cat) => {
+            {getEventCategories(t).map((cat) => {
               const pref = preferences.find((p) => p.category === cat.key);
               const checked = pref?.emailEnabled ?? true;
               return (
                 <div key={cat.key} className="settings__notification-row">
                   <div>
                     <div className="settings__notification-label">
-                      {cat.icon} {t(cat.labelKey, cat.fallback)}
+                      {cat.icon} {cat.label}
                     </div>
                   </div>
                   <label className="settings__toggle">

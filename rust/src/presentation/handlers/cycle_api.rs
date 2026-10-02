@@ -2,20 +2,21 @@
 ///
 /// Djangoの /api/v1/cycles/* (基本CRUD) と挙動を一致させるハンドラー。
 /// progress/complete/velocity/burndown は含めない。
-
 use axum::{
-    extract::{State, Path, Query},
-    response::IntoResponse,
+    extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
     Json,
-    Extension,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::presentation::state::AppState;
-use crate::presentation::middleware::jwt_auth::AuthUser;
+use crate::domain::access::{Action, ResourceRef, Viewer};
+use crate::domain::models::cycle_api::{CycleGraphPositionIn, CyclePatchIn, CycleWriteIn};
+use crate::infrastructure::access::{facts_repo, shadow::Resource};
 use crate::infrastructure::repositories::cycle_repo;
-use crate::domain::models::cycle_api::{CycleWriteIn, CyclePatchIn, CycleGraphPositionIn};
+use crate::presentation::extractors::authorize;
+use crate::presentation::middleware::jwt_auth::AuthUser;
+use crate::presentation::state::AppState;
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -29,10 +30,76 @@ pub struct ErrorResponse {
     pub detail: String,
 }
 
+// アクセス制御の再設計(D-4): サイクルはチームの物。見える・操作できるのは、チームが見える人
+// (プロジェクト単位の所属では見えない)。切り替えは `ACCESS_ENFORCE_CYCLE`。今の判定には確認が無い。
+
+fn server_error(e: anyhow::Error) -> axum::response::Response {
+    tracing::error!(
+        "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+        e
+    );
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse {
+            detail: "サーバーエラーが発生しました".to_string(),
+        }),
+    )
+        .into_response()
+}
+
+/// サイクル 1 件の判定
+async fn cycle_gate(
+    state: &AppState,
+    viewer: &Viewer,
+    id: i32,
+    action: Action,
+    route: &'static str,
+) -> Result<(), axum::response::Response> {
+    let facts = facts_repo::facts_for_cycle(&state.pool, id)
+        .await
+        .map_err(server_error)?;
+    authorize::gate(
+        &state.pool,
+        viewer,
+        facts.as_ref(),
+        action,
+        Resource::Cycle,
+        id as i64,
+        Ok(()),
+        route,
+    )
+}
+
+/// サイクルの作成先・移し先のチームの判定(チームが見つからない場合は、今の処理の検証に任せる)
+async fn team_cycle_gate(
+    state: &AppState,
+    viewer: &Viewer,
+    team_id: i32,
+    action: Action,
+    route: &'static str,
+) -> Result<(), axum::response::Response> {
+    let facts = facts_repo::facts_for_team(&state.pool, team_id)
+        .await
+        .map_err(server_error)?;
+    let Some(team) = facts else {
+        return Ok(());
+    };
+    authorize::gate(
+        &state.pool,
+        viewer,
+        Some(&ResourceRef::Cycle { team }),
+        action,
+        Resource::Cycle,
+        team_id as i64,
+        Ok(()),
+        route,
+    )
+}
+
 /// GET /api/v1/cycles/?project=<id>&team=<id>&status=<s> — サイクル一覧
 pub async fn list(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<ListQuery>,
 ) -> impl IntoResponse {
     match cycle_repo::find_all_cycles(
@@ -43,9 +110,27 @@ pub async fn list(
     )
     .await
     {
-        Ok(cycles) => (StatusCode::OK, Json(cycles)).into_response(),
+        Ok(cycles) => {
+            // 一覧は件数の上限が無いので、取得後の絞り込みで正確に絞れる(on)。試運転では記録だけ
+            let cycles = authorize::filter_list(
+                &state.pool,
+                &viewer,
+                Resource::Cycle,
+                "GET /api/v1/cycles/",
+                cycles,
+                |c| c.id as i64,
+                |c| ResourceRef::Cycle {
+                    // チームは必須(NOT NULL)。万一無い場合は、見えないチームとして扱う
+                    team: viewer.team_facts_for_read(c.team.as_ref().map_or(0, |t| t.id)),
+                },
+            );
+            (StatusCode::OK, Json(cycles)).into_response()
+        }
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -60,9 +145,20 @@ pub async fn list(
 /// GET /api/v1/cycles/{id}/ — サイクル詳細
 pub async fn detail(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Read,
+        "GET /api/v1/cycles/{id}/",
+    )
+    .await
+    {
+        return resp;
+    }
     match cycle_repo::find_cycle_by_id(&state.pool, id).await {
         Ok(Some(cycle)) => (StatusCode::OK, Json(cycle)).into_response(),
         Ok(None) => (
@@ -73,7 +169,10 @@ pub async fn detail(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -88,9 +187,37 @@ pub async fn detail(
 /// POST /api/v1/cycles/ — サイクル作成
 pub async fn create(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(input): Json<CycleWriteIn>,
 ) -> impl IntoResponse {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
+    // 作成先: チームの指定があればそのチーム、無ければプロジェクトに書き込めること(チームは作成の処理が選ぶ)
+    const ROUTE: &str = "POST /api/v1/cycles/";
+    let gated = match (input.team_id, input.project) {
+        (Some(team_id), _) => {
+            team_cycle_gate(&state, &viewer, team_id, Action::Create, ROUTE).await
+        }
+        (None, Some(project_id)) => {
+            authorize::gate_project(
+                &state.pool,
+                &viewer,
+                project_id,
+                Action::Write,
+                Ok(()),
+                ROUTE,
+            )
+            .await
+        }
+        (None, None) => Ok(()),
+    };
+    if let Err(resp) = gated {
+        return resp;
+    }
     match cycle_repo::create_cycle(&state.pool, &input, auth.user_id).await {
         Ok(id) => {
             // 作成したサイクルを返す
@@ -116,7 +243,9 @@ pub async fn create(
             }
         }
         Err(e) => {
-            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+            if let Some(resp) =
+                crate::presentation::handlers::team_archive_api::archived_conflict(&e)
+            {
                 return resp;
             }
             let msg = e.to_string();
@@ -141,7 +270,10 @@ pub async fn create(
                 )
                     .into_response()
             } else {
-                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+                tracing::error!(
+                    "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                    e
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -157,10 +289,21 @@ pub async fn create(
 /// PUT /api/v1/cycles/{id}/ — サイクル更新
 pub async fn update(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(input): Json<CycleWriteIn>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Write,
+        "PUT /api/v1/cycles/{id}/",
+    )
+    .await
+    {
+        return resp;
+    }
     // t_cycle.team_id は NOT NULL。PUT で teamId 省略時に NULL を bind しないよう、
     // PATCH と同様に既存値で補完する（DEMO-000167）。
     let existing = match cycle_repo::find_cycle_by_id(&state.pool, id).await {
@@ -175,7 +318,10 @@ pub async fn update(
                 .into_response();
         }
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -199,34 +345,50 @@ pub async fn update(
             .into_response();
     };
 
+    // 別のチームへ移す場合は、移し先のチームでも判定する
+    if Some(team_id_val) != existing.team.as_ref().map(|t| t.id) {
+        if let Err(resp) = team_cycle_gate(
+            &state,
+            &viewer,
+            team_id_val,
+            Action::Create,
+            "PUT /api/v1/cycles/{id}/",
+        )
+        .await
+        {
+            return resp;
+        }
+    }
+
     let merged = CycleWriteIn {
         team_id: Some(team_id_val),
         ..input
     };
 
     match cycle_repo::update_cycle(&state.pool, id, &merged).await {
-        Ok(true) => {
-            match cycle_repo::find_cycle_by_id(&state.pool, id).await {
-                Ok(Some(cycle)) => (StatusCode::OK, Json(cycle)).into_response(),
-                Ok(None) => (
-                    StatusCode::NOT_FOUND,
+        Ok(true) => match cycle_repo::find_cycle_by_id(&state.pool, id).await {
+            Ok(Some(cycle)) => (StatusCode::OK, Json(cycle)).into_response(),
+            Ok(None) => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    detail: "サイクルが見つかりません".to_string(),
+                }),
+            )
+                .into_response(),
+            Err(e) => {
+                tracing::error!(
+                    "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                    e
+                );
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
-                        detail: "サイクルが見つかりません".to_string(),
+                        detail: "サーバーエラーが発生しました".to_string(),
                     }),
                 )
-                    .into_response(),
-                Err(e) => {
-                    tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            detail: "サーバーエラーが発生しました".to_string(),
-                        }),
-                    )
-                        .into_response()
-                }
+                    .into_response()
             }
-        }
+        },
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -235,7 +397,9 @@ pub async fn update(
         )
             .into_response(),
         Err(e) => {
-            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+            if let Some(resp) =
+                crate::presentation::handlers::team_archive_api::archived_conflict(&e)
+            {
                 return resp;
             }
             if e.to_string().contains("開始日は終了日より前") {
@@ -247,7 +411,10 @@ pub async fn update(
                 )
                     .into_response()
             } else {
-                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+                tracing::error!(
+                    "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                    e
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -269,10 +436,21 @@ pub async fn update(
 /// (遷移ロジックの重複実装を避けるため)。
 pub async fn patch(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(input): Json<CyclePatchIn>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Write,
+        "PATCH /api/v1/cycles/{id}/",
+    )
+    .await
+    {
+        return resp;
+    }
     let existing = match cycle_repo::find_cycle_by_id(&state.pool, id).await {
         Ok(Some(c)) => c,
         Ok(None) => {
@@ -285,7 +463,10 @@ pub async fn patch(
                 .into_response();
         }
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -296,9 +477,27 @@ pub async fn patch(
         }
     };
 
-    let team_id_val = input.team_id
+    let team_id_val = input
+        .team_id
         .flatten()
         .or_else(|| existing.team.as_ref().map(|t| t.id));
+
+    // 別のチームへ移す場合は、移し先のチームでも判定する
+    if let Some(new_team) = team_id_val {
+        if Some(new_team) != existing.team.as_ref().map(|t| t.id) {
+            if let Err(resp) = team_cycle_gate(
+                &state,
+                &viewer,
+                new_team,
+                Action::Create,
+                "PATCH /api/v1/cycles/{id}/",
+            )
+            .await
+            {
+                return resp;
+            }
+        }
+    }
 
     let merged = CycleWriteIn {
         project: input.project.or(existing.project),
@@ -321,7 +520,10 @@ pub async fn patch(
             )
                 .into_response(),
             Err(e) => {
-                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+                tracing::error!(
+                    "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                    e
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -339,7 +541,9 @@ pub async fn patch(
         )
             .into_response(),
         Err(e) => {
-            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+            if let Some(resp) =
+                crate::presentation::handlers::team_archive_api::archived_conflict(&e)
+            {
                 return resp;
             }
             if e.to_string().contains("開始日は終了日より前") {
@@ -351,7 +555,10 @@ pub async fn patch(
                 )
                     .into_response()
             } else {
-                tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+                tracing::error!(
+                    "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                    e
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -367,10 +574,21 @@ pub async fn patch(
 /// PATCH /api/v1/cycles/{id}/graph-position/ — 依存関係グラフ上のCycle枠の表示位置を保存
 pub async fn update_graph_position(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(input): Json<CycleGraphPositionIn>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Write,
+        "PATCH /api/v1/cycles/{id}/graph-position/",
+    )
+    .await
+    {
+        return resp;
+    }
     match cycle_repo::update_cycle_graph_position(&state.pool, id, input.x, input.y).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
@@ -396,9 +614,20 @@ pub async fn update_graph_position(
 /// DELETE /api/v1/cycles/{id}/ — サイクル削除
 pub async fn delete(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Delete,
+        "DELETE /api/v1/cycles/{id}/",
+    )
+    .await
+    {
+        return resp;
+    }
     match cycle_repo::delete_cycle(&state.pool, id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
@@ -409,10 +638,15 @@ pub async fn delete(
         )
             .into_response(),
         Err(e) => {
-            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+            if let Some(resp) =
+                crate::presentation::handlers::team_archive_api::archived_conflict(&e)
+            {
                 return resp;
             }
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -436,9 +670,20 @@ pub struct VelocityQuery {
 /// GET /api/v1/cycles/{id}/progress/ — サイクル進捗
 pub async fn progress(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Read,
+        "GET /api/v1/cycles/{id}/progress/",
+    )
+    .await
+    {
+        return resp;
+    }
     match cycle_repo::get_cycle_progress(&state.pool, id).await {
         Ok(Some(data)) => (StatusCode::OK, Json(data)).into_response(),
         Ok(None) => (
@@ -449,7 +694,10 @@ pub async fn progress(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -464,10 +712,21 @@ pub async fn progress(
 /// POST /api/v1/cycles/{id}/complete/ — サイクル手動完了
 pub async fn complete(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
     Json(body): Json<crate::domain::models::cycle_api::CompleteCycleIn>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Write,
+        "POST /api/v1/cycles/{id}/complete/",
+    )
+    .await
+    {
+        return resp;
+    }
     use cycle_repo::CompleteCycleResult;
     match cycle_repo::complete_cycle(&state.pool, id, body.carry_over_to).await {
         Ok(CompleteCycleResult::Success(data)) => (StatusCode::OK, Json(data)).into_response(),
@@ -484,10 +743,15 @@ pub async fn complete(
         )
             .into_response(),
         Err(e) => {
-            if let Some(resp) = crate::presentation::handlers::team_archive_api::archived_conflict(&e) {
+            if let Some(resp) =
+                crate::presentation::handlers::team_archive_api::archived_conflict(&e)
+            {
                 return resp;
             }
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -502,7 +766,7 @@ pub async fn complete(
 /// GET /api/v1/cycles/velocity/?project=<id> — 直近6サイクルのベロシティデータ
 pub async fn velocity(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Query(params): Query<VelocityQuery>,
 ) -> impl IntoResponse {
     let project_id = match params.project {
@@ -518,10 +782,26 @@ pub async fn velocity(
         }
     };
 
+    // 集計の中のサイクルの絞り込みは、集計(D-5)と合わせて行う
+    if let Err(resp) = authorize::gate_project(
+        &state.pool,
+        &viewer,
+        project_id,
+        Action::Read,
+        Ok(()),
+        "GET /api/v1/cycles/velocity/",
+    )
+    .await
+    {
+        return resp;
+    }
     match cycle_repo::get_velocity_data(&state.pool, project_id, 6).await {
         Ok(data) => (StatusCode::OK, Json(data)).into_response(),
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -536,9 +816,20 @@ pub async fn velocity(
 /// GET /api/v1/cycles/{id}/burndown/ — バーンダウンチャートデータ
 pub async fn burndown(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
+    if let Err(resp) = cycle_gate(
+        &state,
+        &viewer,
+        id,
+        Action::Read,
+        "GET /api/v1/cycles/{id}/burndown/",
+    )
+    .await
+    {
+        return resp;
+    }
     match cycle_repo::get_burndown_data(&state.pool, id).await {
         Ok(Some(data)) => (StatusCode::OK, Json(data)).into_response(),
         Ok(None) => (
@@ -549,7 +840,10 @@ pub async fn burndown(
         )
             .into_response(),
         Err(e) => {
-            tracing::error!("[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}", e);
+            tracing::error!(
+                "[サイクル/操作] 処理=DB操作 結果=失敗 影響=操作が完了していない | {}",
+                e
+            );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {

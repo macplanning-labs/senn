@@ -1,7 +1,6 @@
-/// infrastructure/repositories/attachment_repo.rs — 添付ファイル永続化
-
-use sqlx::PgPool;
 use crate::domain::models::attachment::Attachment;
+/// infrastructure/repositories/attachment_repo.rs — 添付ファイル永続化
+use sqlx::PgPool;
 
 pub async fn find_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<Attachment>> {
     let rows = sqlx::query_as::<_, Attachment>(
@@ -11,14 +10,22 @@ pub async fn find_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec
          FROM tickets_attachment a
          LEFT JOIN accounts_user u ON a.uploader_id = u.id
          WHERE a.ticket_id = $1
-         ORDER BY a.created_at"
-    ).bind(ticket_id).fetch_all(pool).await?;
+         ORDER BY a.created_at",
+    )
+    .bind(ticket_id)
+    .fetch_all(pool)
+    .await?;
     Ok(rows)
 }
 
 pub async fn create(
-    pool: &PgPool, ticket_id: i32, comment_id: Option<i32>,
-    uploader_id: i32, filename: &str, file_path: &str, file_size: i32,
+    pool: &PgPool,
+    ticket_id: i32,
+    comment_id: Option<i32>,
+    uploader_id: i32,
+    filename: &str,
+    file_path: &str,
+    file_size: i32,
 ) -> anyhow::Result<i32> {
     let id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO tickets_attachment (ticket_id, comment_id, uploader_id, filename, file, file_size, created_at)
@@ -30,7 +37,10 @@ pub async fn create(
 }
 
 pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM tickets_attachment WHERE id=$1").bind(id).execute(pool).await?;
+    sqlx::query("DELETE FROM tickets_attachment WHERE id=$1")
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -41,8 +51,11 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Attachm
                 u.display_name as uploader_name
          FROM tickets_attachment a
          LEFT JOIN accounts_user u ON a.uploader_id = u.id
-         WHERE a.id = $1"
-    ).bind(id).fetch_optional(pool).await?;
+         WHERE a.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
     Ok(row)
 }
 
@@ -134,17 +147,9 @@ mod tests {
         let ticket_b = test_support::create_test_ticket(&pool, project, "ATT-B", author).await;
         let comment_b = create_test_comment(&pool, ticket_b, author).await;
 
-        let att_a = create(
-            &pool,
-            ticket_a,
-            None,
-            author,
-            "a.txt",
-            "path/a.txt",
-            1024,
-        )
-        .await
-        .expect("Failed to create attachment on ticket A");
+        let att_a = create(&pool, ticket_a, None, author, "a.txt", "path/a.txt", 1024)
+            .await
+            .expect("Failed to create attachment on ticket A");
         let att_b = create(
             &pool,
             ticket_b,
@@ -164,9 +169,13 @@ mod tests {
             .await
             .expect("Failed to find attachments for ticket B");
 
-        assert!(atts_a.iter().any(|a| a.id == att_a && a.comment_id.is_none()));
+        assert!(atts_a
+            .iter()
+            .any(|a| a.id == att_a && a.comment_id.is_none()));
         assert!(!atts_a.iter().any(|a| a.id == att_b));
-        assert!(atts_b.iter().any(|a| a.id == att_b && a.comment_id == Some(comment_b)));
+        assert!(atts_b
+            .iter()
+            .any(|a| a.id == att_b && a.comment_id == Some(comment_b)));
         assert!(!atts_b.iter().any(|a| a.id == att_a));
     }
 }

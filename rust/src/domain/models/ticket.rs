@@ -2,7 +2,6 @@
 ///
 /// チケットエンティティおよび値オブジェクト（TicketStatus, Priority, TicketType）を定義。
 /// ステータス遷移ルールはここに集約（KI #064/#065 準拠: 遷移ルール1箇所定義）。
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 

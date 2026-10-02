@@ -12,6 +12,8 @@ import { useTeams } from '../hooks/useTeams';
 import { TeamDetailModal } from './TeamDetailModal';
 import { TeamsTable } from './TeamsTable';
 import { activeTeams as filterActiveTeams, archivedTeams as filterArchivedTeams } from '../utils/archivedTeams';
+import { discoverableTeams, joinedTeams } from '../utils/teamAccess';
+import { useAuthStore } from '@/shared/stores/authStore';
 import './TeamsPage.css';
 
 export function TeamsPage() {
@@ -23,9 +25,13 @@ export function TeamsPage() {
     searchParams.get('archived') === '1',
   );
 
-  const activeTeamList = filterActiveTeams(teams);
+  const isGuest = useAuthStore((s) => s.user?.isGuest ?? false);
+  // 参加しているチームと、参加できる Public チームを分けて出す(アクセス制御の再設計 G-2)。
+  // Guest には「参加できるチーム」を出さない(招待されたチームだけ)
+  const activeTeamList = joinedTeams(filterActiveTeams(teams));
+  const joinableTeamList = isGuest ? [] : discoverableTeams(teams);
   const archivedTeamList = filterArchivedTeams(teams);
-  const hasAny = activeTeamList.length > 0 || archivedTeamList.length > 0;
+  const hasAny = activeTeamList.length > 0 || archivedTeamList.length > 0 || joinableTeamList.length > 0;
 
   if (isLoading) {
     return (
@@ -40,32 +46,53 @@ export function TeamsPage() {
       <header className="teams-page__header">
         <h1 className="teams-page__title">{t('nav.teams')}</h1>
         <div className="teams-page__header-actions">
-          <button
-            type="button"
-            className="teams-page__create-btn"
-            onClick={() => setModalTeam('create')}
-            data-testid="create-team-btn"
-          >
-            + {t('team.createNew')}
-          </button>
+          {!isGuest && (
+            <button
+              type="button"
+              className="teams-page__create-btn"
+              onClick={() => setModalTeam('create')}
+              data-testid="create-team-btn"
+            >
+              + {t('team.createNew')}
+            </button>
+          )}
         </div>
       </header>
 
       {!hasAny ? (
         <div className="teams-page__empty" data-testid="teams-page-empty">
-          <p>{t('team.noTeams')}</p>
-          <button
-            type="button"
-            className="teams-page__create-btn"
-            onClick={() => setModalTeam('create')}
-            data-testid="teams-page-empty-create"
-          >
-            {t('team.createFirst')}
-          </button>
+          {isGuest ? (
+            // Guest はチームを作れない。招待されたプロジェクトへの道を案内する
+            <p>{t('teamAccess.guestNoTeams')}</p>
+          ) : (
+            <>
+              <p>{t('team.noTeams')}</p>
+              <button
+                type="button"
+                className="teams-page__create-btn"
+                onClick={() => setModalTeam('create')}
+                data-testid="teams-page-empty-create"
+              >
+                {t('team.createFirst')}
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <>
+          <h2 className="teams-page__section-title">{t('teamAccess.yourTeamsHeading')}</h2>
           <TeamsTable teams={activeTeamList} onEdit={(team) => setModalTeam(team)} />
+
+          {!isGuest && (
+            <section className="teams-page__explore" data-testid="teams-page-explore">
+              <h2 className="teams-page__section-title">{t('teamAccess.exploreHeading')}</h2>
+              {joinableTeamList.length > 0 ? (
+                <TeamsTable teams={joinableTeamList} />
+              ) : (
+                <p className="teams-page__explore-empty">{t('teamAccess.exploreEmpty')}</p>
+              )}
+            </section>
+          )}
 
           {archivedTeamList.length > 0 && (
             <details className="teams-page__archived-section" open={archivedSectionOpen}>

@@ -1,11 +1,10 @@
+use auth_core::domain::one_time_token::{OneTimeToken, OneTimeTokenStore};
 /// presentation/handlers/password_reset_api.rs — パスワードリセット（セルフサービス）
 ///
 /// メール（またはユーザー名）でリセットリンクを送付し、ワンタイムトークンで
 /// 新パスワードを設定する。アカウント列挙を防ぐため、リクエスト時は常に
 /// 同じ成功レスポンスを返す。
-
 use axum::{extract::State, http::HeaderMap, http::StatusCode, response::IntoResponse, Json};
-use auth_core::domain::one_time_token::{OneTimeToken, OneTimeTokenStore};
 use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
@@ -74,10 +73,7 @@ pub async fn password_reset_request(
     };
 
     if user.email.trim().is_empty() {
-        tracing::warn!(
-            "パスワードリセット要求: メール未設定 user_id={}",
-            user.id
-        );
+        tracing::warn!("パスワードリセット要求: メール未設定 user_id={}", user.id);
         return (StatusCode::OK, Json(response)).into_response();
     }
 
@@ -85,14 +81,18 @@ pub async fn password_reset_request(
     let store = password_reset_repo::PasswordResetTokenStore::new(state.pool.clone());
 
     if let Err(e) = store.replace_for_user(user.id, &token).await {
-        tracing::error!("パスワードリセット要求: トークン保存失敗 user_id={}: {:?}", user.id, e);
+        tracing::error!(
+            "パスワードリセット要求: トークン保存失敗 user_id={}: {:?}",
+            user.id,
+            e
+        );
         return (StatusCode::OK, Json(response)).into_response();
     }
 
     let reset_path = format!("/reset-password?token={}", token.token);
     let reset_url = format!(
         "{}{}",
-        public_base_url(&headers, &state.config.base_url),
+        crate::presentation::public_url::mail_link_base(&headers, &state.config),
         reset_path
     );
 
@@ -245,7 +245,8 @@ pub async fn password_reset_confirm(
         StatusCode::OK,
         Json(PasswordResetConfirmResponse {
             ok: true,
-            message: "パスワードを更新しました。新しいパスワードでログインしてください。".to_string(),
+            message: "パスワードを更新しました。新しいパスワードでログインしてください。"
+                .to_string(),
         }),
     )
         .into_response()
@@ -264,44 +265,6 @@ fn expose_reset_url_for_non_production(
     response.message =
         "SMTP未設定のためメールは送信されませんでした。以下のリンクからパスワードを再設定してください。"
             .to_string();
-}
-
-/// パスワードリセットメール内リンク用の公開ベース URL。
-/// Origin → Referer → X-Forwarded-Host → Host の順で解決し、最後に BASE_URL。
-fn public_base_url(headers: &HeaderMap, configured_base_url: &str) -> String {
-    if let Some(origin) = headers
-        .get("origin")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-    {
-        return origin.trim_end_matches('/').to_string();
-    }
-
-    if let Some(referer) = headers.get("referer").and_then(|v| v.to_str().ok()) {
-        if let Ok(parsed) = url::Url::parse(referer) {
-            let origin = parsed.origin().ascii_serialization();
-            if !origin.is_empty() && origin != "null" {
-                return origin;
-            }
-        }
-    }
-
-    let host = headers
-        .get("x-forwarded-host")
-        .or_else(|| headers.get(axum::http::header::HOST))
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty());
-    let scheme = headers
-        .get("x-forwarded-proto")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty());
-
-    if let Some(host) = host {
-        let scheme = scheme.unwrap_or("http");
-        return format!("{scheme}://{host}");
-    }
-
-    configured_base_url.trim_end_matches('/').to_string()
 }
 
 async fn resolve_user_for_reset(

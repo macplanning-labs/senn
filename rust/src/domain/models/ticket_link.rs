@@ -1,5 +1,4 @@
 /// domain/models/ticket_link.rs — チケット参照リンクモデル
-
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, sqlx::FromRow)]

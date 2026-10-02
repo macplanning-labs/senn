@@ -13,15 +13,13 @@ import {
   useDeleteTeam,
   useArchiveTeam,
   useUnarchiveTeam,
-  useTeamMembers,
   useCheckTeamArchive,
   type BlockingProject,
 } from '@/features/teams/hooks/useTeams';
 import { TeamForm } from '@/features/teams/components/TeamForm';
+import { TeamAccessSection } from './TeamAccessSection';
 import { buildTeamUpdateData } from '../utils/teamUpdatePayload';
 import { projectStatusLabelKey } from '../utils/teamArchiveCheck';
-import { canManageTeam } from '@/features/teams/utils/teamPermissions';
-import { useAuthStore } from '@/shared/stores/authStore';
 import { useToastStore } from '@/shared/stores/toastStore';
 import type { Team } from '@/shared/api/types';
 import './TeamGeneralSection.css';
@@ -39,10 +37,9 @@ export function TeamGeneralSection({ team }: Props) {
   const unarchiveTeam = useUnarchiveTeam();
   const checkTeamArchive = useCheckTeamArchive();
   const { addToast } = useToastStore();
-  const viewer = useAuthStore((st) => st.user);
-  const { data: members } = useTeamMembers(team.id);
-  // アーカイブ・復元ボタンは、できる人(システム管理者 / チームの管理者)にだけ出す。最終判定はサーバー
-  const canArchive = canManageTeam(viewer, members);
+  // アーカイブ・復元・削除は Owner の操作。サーバーの viewerCanManageOwners だけで出し分ける
+  // (画面で権限を計算しない。最終判定はサーバー。DEMO-000170)
+  const canArchive = !!team.viewerCanManageOwners;
 
   const [name, setName] = useState(team?.name ?? '');
   const [description, setDescription] = useState(team?.description ?? '');
@@ -217,6 +214,9 @@ export function TeamGeneralSection({ team }: Props) {
           )}
         </fieldset>
 
+        {/* 公開区分・設定の方針・退出(アクセス制御の再設計 G-2) */}
+        <TeamAccessSection team={team} />
+
         {/* アーカイブセクション */}
         <div className="team-general-section__archive-section">
           <h3 className="team-general-section__archive-heading">{t('teamArchive.title')}</h3>
@@ -347,20 +347,22 @@ export function TeamGeneralSection({ team }: Props) {
           )}
         </div>
 
-        {/* 危険な操作エリア */}
-        <div className="team-general-section__danger-zone">
-          <h3 className="team-general-section__danger-heading">{t('team.dangerZone')}</h3>
-          <p className="team-general-section__danger-description">
-            {t('team.deleteTeamWarning')}
-          </p>
-          <button
-            className="team-general-section__danger-btn"
-            onClick={() => setShowDeleteConfirm(true)}
-            type="button"
-          >
-            {t('team.delete')}
-          </button>
-        </div>
+        {/* 危険な操作エリア。削除は Owner の操作なので、Owner とシステム管理者にだけ出す(DEMO-000169) */}
+        {canArchive && (
+          <div className="team-general-section__danger-zone">
+            <h3 className="team-general-section__danger-heading">{t('team.dangerZone')}</h3>
+            <p className="team-general-section__danger-description">
+              {t('team.deleteTeamWarning')}
+            </p>
+            <button
+              className="team-general-section__danger-btn"
+              onClick={() => setShowDeleteConfirm(true)}
+              type="button"
+            >
+              {t('team.delete')}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 削除確認ダイアログ */}

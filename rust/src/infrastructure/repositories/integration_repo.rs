@@ -1,7 +1,6 @@
 /// infrastructure/repositories/integration_repo.rs — Git連携永続化
 ///
 /// t_git_integration / t_git_event の CRUD + Webhook処理。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::integration_api::*;
@@ -67,7 +66,11 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<GitInte
     Ok(row.map(|r| row_to_integration(&r)))
 }
 
-pub async fn create(pool: &PgPool, input: &GitIntegrationWriteIn, created_by: i32) -> anyhow::Result<i32> {
+pub async fn create(
+    pool: &PgPool,
+    input: &GitIntegrationWriteIn,
+    created_by: i32,
+) -> anyhow::Result<i32> {
     if !scope_ok(input.project, input.team) {
         anyhow::bail!("exactly one of project or team is required");
     }
@@ -90,7 +93,11 @@ pub async fn create(pool: &PgPool, input: &GitIntegrationWriteIn, created_by: i3
     Ok(id)
 }
 
-pub async fn update(pool: &PgPool, id: i32, input: &GitIntegrationUpdateIn) -> anyhow::Result<bool> {
+pub async fn update(
+    pool: &PgPool,
+    id: i32,
+    input: &GitIntegrationUpdateIn,
+) -> anyhow::Result<bool> {
     let existing = match find_by_id(pool, id).await? {
         Some(e) => e,
         None => return Ok(false),
@@ -111,16 +118,24 @@ pub async fn update(pool: &PgPool, id: i32, input: &GitIntegrationUpdateIn) -> a
     }
 
     let provider = input.provider.clone().unwrap_or(existing.provider);
-    let repository_url = input.repository_url.clone().unwrap_or(existing.repository_url);
-    let webhook_secret = input.webhook_secret.clone().unwrap_or(existing.webhook_secret);
+    let repository_url = input
+        .repository_url
+        .clone()
+        .unwrap_or(existing.repository_url);
+    let webhook_secret = input
+        .webhook_secret
+        .clone()
+        .unwrap_or(existing.webhook_secret);
     let is_active = input.is_active.unwrap_or(existing.is_active);
-    let auto_status_transition = input.auto_status_transition.unwrap_or(existing.auto_status_transition);
+    let auto_status_transition = input
+        .auto_status_transition
+        .unwrap_or(existing.auto_status_transition);
 
     let rows_affected = sqlx::query(
         "UPDATE t_git_integration
          SET project_id = $1, team_id = $2, provider = $3, repository_url = $4,
              webhook_secret = $5, is_active = $6, auto_status_transition = $7
-         WHERE id = $8"
+         WHERE id = $8",
     )
     .bind(project)
     .bind(team)
@@ -181,7 +196,10 @@ pub async fn find_active_integrations_by_repo_url(
 }
 
 pub async fn find_ticket_id_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::Result<Option<i32>> {
-    if let Some(id) = crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(pool, ticket_key).await? {
+    if let Some(id) =
+        crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(pool, ticket_key)
+            .await?
+    {
         return Ok(Some(id));
     }
 
@@ -189,7 +207,11 @@ pub async fn find_ticket_id_by_key(pool: &PgPool, ticket_key: &str) -> anyhow::R
         if let Ok(num) = num_str.parse::<u32>() {
             let padded_key = format!("{}-{:06}", prefix, num);
             if padded_key != ticket_key {
-                return crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(pool, &padded_key).await;
+                return crate::infrastructure::repositories::ticket_repo::resolve_ticket_id(
+                    pool,
+                    &padded_key,
+                )
+                .await;
             }
         }
     }
@@ -224,7 +246,7 @@ pub async fn create_commit_event_if_new(
         "INSERT INTO t_git_event
             (integration_id, ticket_id, event_type, title, url, sha, branch, author_name,
              author_avatar_url, pr_number, pr_state, created_at)
-         VALUES ($1, $2, 'commit', $3, $4, $5, $6, $7, '', NULL, '', NOW())"
+         VALUES ($1, $2, 'commit', $3, $4, $5, $6, $7, '', NULL, '', NOW())",
     )
     .bind(integration_id)
     .bind(ticket_id)
@@ -265,7 +287,7 @@ pub async fn upsert_pr_event(
     if let Some(id) = existing_id {
         sqlx::query(
             "UPDATE t_git_event SET title = $1, url = $2, branch = $3, author_name = $4,
-                author_avatar_url = $5, pr_state = $6 WHERE id = $7"
+                author_avatar_url = $5, pr_state = $6 WHERE id = $7",
         )
         .bind(title)
         .bind(url)
@@ -282,7 +304,7 @@ pub async fn upsert_pr_event(
             "INSERT INTO t_git_event
                 (integration_id, ticket_id, event_type, title, url, sha, branch, author_name,
                  author_avatar_url, pr_number, pr_state, created_at)
-             VALUES ($1, $2, 'pull_request', $3, $4, '', $5, $6, $7, $8, $9, NOW())"
+             VALUES ($1, $2, 'pull_request', $3, $4, '', $5, $6, $7, $8, $9, NOW())",
         )
         .bind(integration_id)
         .bind(ticket_id)
@@ -299,13 +321,16 @@ pub async fn upsert_pr_event(
     }
 }
 
-pub async fn find_events_by_ticket(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Vec<GitEventOut>> {
+pub async fn find_events_by_ticket(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<Vec<GitEventOut>> {
     let rows = sqlx::query(
         "SELECT id::int4, event_type, title, url, sha, branch, author_name,
             author_avatar_url, pr_number::int4, pr_state, created_at
          FROM t_git_event
          WHERE ticket_id = $1
-         ORDER BY created_at DESC"
+         ORDER BY created_at DESC",
     )
     .bind(ticket_id)
     .fetch_all(pool)

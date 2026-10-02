@@ -1,8 +1,8 @@
+use crate::domain::services::jwt_service;
 /// presentation/handlers/auth.rs — 認証ハンドラ
 ///
 /// ログイン/ログアウト/パスワード変更/MFA 設定を処理する。
 /// Step2②：Cookie + JWT 方式に移行。tower_sessions 依存を廃止。
-
 use axum::{
     extract::State,
     http::StatusCode,
@@ -10,7 +10,6 @@ use axum::{
     Extension, Form, Json,
 };
 use axum_extra::extract::cookie::CookieJar;
-use crate::domain::services::jwt_service;
 use chrono::DateTime;
 use serde::Deserialize;
 
@@ -53,7 +52,9 @@ pub async fn login_submit(
         _ => return login_failed_response(),
     };
 
-    match auth_service::verify_password(&state.pool, user.id, &form.password, &user.password_hash).await {
+    match auth_service::verify_password(&state.pool, user.id, &form.password, &user.password_hash)
+        .await
+    {
         Ok(true) => {}
         _ => return login_failed_response(),
     }
@@ -69,7 +70,8 @@ pub async fn login_submit(
             user.id,
             &state.config.jwt_secret,
             state.config.mfa_token_lifetime_seconds,
-        ).unwrap();
+        )
+        .unwrap();
         let cookie = build_cookie(
             MFA_COOKIE,
             mfa_token,
@@ -98,7 +100,8 @@ async fn build_login_cookie_jar(state: &AppState, user_id: i32) -> CookieJar {
         &state.config.jwt_secret,
         state.config.access_token_lifetime_minutes,
         state.config.refresh_token_lifetime_days,
-    ).unwrap();
+    )
+    .unwrap();
     let access_cookie = build_cookie(
         ACCESS_COOKIE,
         pair.access,
@@ -140,17 +143,26 @@ fn login_failed_response() -> Response {
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     // リフレッシュトークンがあればブラックリスト登録
     if let Some(refresh_cookie) = jar.get(REFRESH_COOKIE) {
-        if let Ok(claims) = jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret) {
+        if let Ok(claims) =
+            jwt_service::decode_token(refresh_cookie.value(), &state.config.jwt_secret)
+        {
             if let Some(jti) = claims.jti.as_deref() {
-                let expires_at =
-                    DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0).unwrap_or_else(chrono::Utc::now);
+                let expires_at = DateTime::<chrono::Utc>::from_timestamp(claims.exp, 0)
+                    .unwrap_or_else(chrono::Utc::now);
                 let _ = jwt_blacklist_repo::blacklist(&state.pool, jti, expires_at).await;
             }
         }
     }
 
     let clear = |name: &str, path: &str| {
-        build_cookie(name, String::new(), path, 0, SameSite::Lax, state.config.cookie_secure)
+        build_cookie(
+            name,
+            String::new(),
+            path,
+            0,
+            SameSite::Lax,
+            state.config.cookie_secure,
+        )
     };
     let jar = CookieJar::new()
         .add(clear(ACCESS_COOKIE, "/"))
@@ -188,24 +200,32 @@ pub async fn password_change(
         _ => return Redirect::to("/auth/login").into_response(),
     };
 
-    match auth_service::verify_password(&state.pool, db_user.id, &form.current_password, &db_user.password_hash)
-        .await
+    match auth_service::verify_password(
+        &state.pool,
+        db_user.id,
+        &form.current_password,
+        &db_user.password_hash,
+    )
+    .await
     {
         Ok(true) => {
             match auth_service::hash_password(&form.new_password) {
-                Ok(new_hash) => match user_repo::update_password(&state.pool, user.user_id, &new_hash).await {
-                    Ok(()) => {
-                        // セッション更新は不要（次リクエストの require_auth で DBから最新値を取得）
-                        Redirect::to("/").into_response()
+                Ok(new_hash) => {
+                    match user_repo::update_password(&state.pool, user.user_id, &new_hash).await {
+                        Ok(()) => {
+                            // セッション更新は不要（次リクエストの require_auth で DBから最新値を取得）
+                            Redirect::to("/").into_response()
+                        }
+                        Err(e) => {
+                            tracing::error!("[認証/パスワード変更] 処理=パスワード更新 結果=失敗 影響=新パスワードが保存されていない | {}", e);
+                            Html("<script>alert('パスワードの更新に失敗しました');history.back();</script>").into_response()
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("[認証/パスワード変更] 処理=パスワード更新 結果=失敗 影響=新パスワードが保存されていない | {}", e);
-                        Html("<script>alert('パスワードの更新に失敗しました');history.back();</script>").into_response()
-                    }
-                },
+                }
                 Err(e) => {
                     tracing::error!("[認証/パスワード変更] 処理=パスワードハッシュ 結果=失敗 影響=パスワード変更不能 | {}", e);
-                    Html("<script>alert('パスワードの更新に失敗しました');history.back();</script>").into_response()
+                    Html("<script>alert('パスワードの更新に失敗しました');history.back();</script>")
+                        .into_response()
                 }
             }
         }
@@ -244,7 +264,9 @@ pub async fn totp_verify(
         return Redirect::to("/auth/login").into_response();
     };
 
-    let Ok(mfa_claims) = jwt_service::decode_mfa_token(mfa_cookie.value(), &state.config.jwt_secret) else {
+    let Ok(mfa_claims) =
+        jwt_service::decode_mfa_token(mfa_cookie.value(), &state.config.jwt_secret)
+    else {
         return Redirect::to("/auth/login").into_response();
     };
 
@@ -252,11 +274,17 @@ pub async fn totp_verify(
         return Redirect::to("/auth/login").into_response();
     };
 
-    match auth_service::verify_totp_for_user(&state.pool, &state.config.jwt_secret, user_id, &form.code)
-        .await
+    match auth_service::verify_totp_for_user(
+        &state.pool,
+        &state.config.jwt_secret,
+        user_id,
+        &form.code,
+    )
+    .await
     {
         Ok(true) => issue_login_cookies_and_redirect(&state, user_id, "/").await,
-        _ => Html("<script>alert('認証コードが正しくありません');history.back();</script>").into_response(),
+        _ => Html("<script>alert('認証コードが正しくありません');history.back();</script>")
+            .into_response(),
     }
 }
 
@@ -302,20 +330,18 @@ pub async fn webauthn_login_complete(
         };
 
     // 検証前に、レスポンスからユーザーを識別する(全ユーザー分を先読みしない)
-    let (user_uuid, _cred_id_hint) = match webauthn_service::identify_authentication(
-        &webauthn,
-        &body.credential,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("パスキー識別エラー: {:?}", e);
-            return (
+    let (user_uuid, _cred_id_hint) =
+        match webauthn_service::identify_authentication(&webauthn, &body.credential) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("パスキー識別エラー: {:?}", e);
+                return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({"status": "error", "error": "パスキー認証に失敗しました"})),
             )
                 .into_response();
-        }
-    };
+            }
+        };
     let user_id = user_uuid.as_u128() as i32;
 
     let passkeys = match user_repo::find_passkeys_by_user(&state.pool, user_id).await {

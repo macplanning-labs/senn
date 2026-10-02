@@ -1,7 +1,6 @@
 /// domain/models/chat_integration_api.rs — チャット通知連携 JSON API モデル
 ///
 /// t_chat_integration テーブル用。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +41,11 @@ pub struct ChatIntegrationWriteIn {
     pub api_token: Option<String>,
     #[serde(default, rename = "roomId", alias = "room_id")]
     pub room_id: Option<String>,
-    #[serde(default = "default_categories", rename = "enabledCategories", alias = "enabled_categories")]
+    #[serde(
+        default = "default_categories",
+        rename = "enabledCategories",
+        alias = "enabled_categories"
+    )]
     pub enabled_categories: Vec<String>,
     #[serde(default = "default_true")]
     pub is_active: bool,

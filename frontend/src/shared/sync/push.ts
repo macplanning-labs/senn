@@ -112,7 +112,7 @@ export async function recordFailure(item: SyncQueueItem, err: unknown): Promise<
 function errorMessage(err: unknown): string {
   const detail = (err as HttpError)?.response?.data?.detail;
   if (typeof detail === 'string' && detail) return detail;
-  return i18n.t('sync.pushRejected', '変更を保存できませんでした。元に戻しました');
+  return i18n.t('sync.pushRejected');
 }
 
 function isNotFound(err: unknown): boolean {

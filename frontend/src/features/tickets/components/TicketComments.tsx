@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEditor, useEditorState, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -7,6 +8,8 @@ import TiptapPlaceholder from '@tiptap/extension-placeholder';
 import { apiClient } from '../../../shared/api/client';
 import { useOptimisticMutation } from '../../../shared/hooks/useOptimisticMutation';
 import { bumpTicketCounter } from '../../../shared/sync/ticketWrites';
+import { commitAddedComment, optimisticAddComment, optimisticDeleteComment, optimisticEditComment } from '../../../shared/sync/commentWrites';
+import { useAuthStore } from '../../../shared/stores/authStore';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { createMentionExtension, renderCommentBodyWithMentions, commentBodyToEditorDoc } from '../utils/createMentionExtension';
 import type { Comment, TicketAttachment, TicketDetailView } from '../types/ticketDetailView';
@@ -31,7 +34,7 @@ interface TicketCommentsProps {
   teamId?: number | null;
 }
 
-function formatRelativeTime(dateStr: string, isJa: boolean): string {
+function formatRelativeTime(dateStr: string): string {
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
@@ -39,10 +42,11 @@ function formatRelativeTime(dateStr: string, isJa: boolean): string {
   const diffHour = Math.floor(diffMs / 3600000);
   const diffDay = Math.floor(diffMs / 86400000);
 
-  if (diffMin < 1) return isJa ? 'たった今' : 'just now';
-  if (diffMin < 60) return isJa ? `${diffMin}分前` : `${diffMin}m ago`;
-  if (diffHour < 24) return isJa ? `${diffHour}時間前` : `${diffHour}h ago`;
-  if (diffDay < 7) return isJa ? `${diffDay}日前` : `${diffDay}d ago`;
+  if (diffMin < 1) return i18n.t('common.justNow');
+  if (diffMin < 60) return i18n.t('common.minutesAgo', { n: diffMin });
+  if (diffHour < 24) return i18n.t('common.hoursAgo', { n: diffHour });
+  if (diffDay < 7) return i18n.t('common.daysAgo', { n: diffDay });
+  const isJa = i18n.language.startsWith('ja');
   return date.toLocaleDateString(isJa ? 'ja-JP' : undefined, {
     month: 'short',
     day: 'numeric',
@@ -79,8 +83,9 @@ export function TicketComments({
   projectId,
   teamId,
 }: TicketCommentsProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const viewer = useAuthStore((s) => s.user);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
@@ -157,7 +162,19 @@ export function TicketComments({
         ],
       };
     },
-    onSuccessCallback: async (commentId) => {
+    // 端末内 DB にも先に入れる（画面はここを読む）。サーバーの確定値はリアルタイムで届いて版番号で上書きされる
+    localOptimistic: async ({ body, parentCommentId }) => {
+      if (!viewer) return undefined;
+      const added = await optimisticAddComment({
+        ticketKey: ticketId,
+        body,
+        parentCommentId,
+        author: { id: viewer.id, username: viewer.username, displayName: viewer.displayName },
+      });
+      return added && { rollback: added.rollback, result: added.tempId };
+    },
+    onSuccessCallback: async (commentId, _variables, tempId) => {
+      if (typeof tempId === 'number') await commitAddedComment(tempId, commentId);
       commentEditor?.commands.clearContent();
       setReplyingToRootId(null);
       void bumpTicketCounter(ticketId, 'commentCount', 1);
@@ -188,6 +205,10 @@ export function TicketComments({
         comments: (data.comments || []).map((c) => (c.id === commentId ? { ...c, body, updatedAt: new Date().toISOString() } : c)),
       };
     },
+    localOptimistic: async ({ commentId, body }) => {
+      const rollback = await optimisticEditComment(commentId, body);
+      return rollback && { rollback };
+    },
     onSuccessCallback: () => {
       setEditingCommentId(null);
       editEditor?.commands.clearContent();
@@ -207,6 +228,10 @@ export function TicketComments({
         ...data,
         comments: (data.comments || []).map((c) => (c.id === commentId ? { ...c, isDeleted: true, body: '' } : c)),
       };
+    },
+    localOptimistic: async (commentId) => {
+      const rollback = await optimisticDeleteComment(commentId);
+      return rollback && { rollback };
     },
     onSuccessCallback: () => {
       void bumpTicketCounter(ticketId, 'commentCount', -1);
@@ -439,7 +464,7 @@ export function TicketComments({
                       {renderCommentAuthor(rootComment, t)}
                     </span>
                     <span className="ticket-comment-item__time">
-                      {formatRelativeTime(rootComment.createdAt, i18n.language.startsWith('ja'))}
+                      {formatRelativeTime(rootComment.createdAt)}
                     </span>
                   </div>
                   {rootComment.isDeleted ? (
@@ -564,7 +589,7 @@ export function TicketComments({
                           {renderCommentAuthor(reply, t)}
                         </span>
                         <span className="ticket-comment-item__time">
-                          {formatRelativeTime(reply.createdAt, i18n.language.startsWith('ja'))}
+                          {formatRelativeTime(reply.createdAt)}
                         </span>
                       </div>
                       {reply.isDeleted ? (

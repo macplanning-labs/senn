@@ -71,6 +71,12 @@
   gap: var(--space-2);
 }
 
+.project-overview__hidden-teams {
+  align-self: center;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary);
+}
+
 .project-overview__team-badge {
   display: inline-flex;
   align-items: center;

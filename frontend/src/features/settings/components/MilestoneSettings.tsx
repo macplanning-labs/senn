@@ -36,8 +36,8 @@ interface MilestoneSettingsProps {
 // ─── ヘルパー ────────────────────────────────────
 
 /** 日付フォーマット: YYYY-MM-DD → M/D 表示 */
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '期限なし';
+function formatDate(dateStr: string | null, noDueDateLabel: string): string {
+  if (!dateStr) return noDueDateLabel;
   const d = new Date(dateStr + 'T00:00:00');
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
@@ -149,7 +149,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      setError('マイルストーン名を入力してください');
+      setError(t('settings.milestoneNameRequired'));
       return;
     }
     if (editingMilestone) {
@@ -183,7 +183,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
           onClick={openCreateModal}
           data-testid="add-milestone-btn"
         >
-          + 追加
+          {t('settings.addNew')}
         </button>
       </div>
 
@@ -192,10 +192,10 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
         <table className="settings-table">
           <thead>
             <tr>
-              <th>マイルストーン</th>
-              <th>期限</th>
-              <th>進捗</th>
-              <th style={{ width: 100, textAlign: 'right' }}>アクション</th>
+              <th>{t('settings.milestoneCol')}</th>
+              <th>{t('settings.dueDateCol')}</th>
+              <th>{t('settings.progressCol')}</th>
+              <th style={{ width: 100, textAlign: 'right' }}>{t('common.action')}</th>
             </tr>
           </thead>
           <tbody>
@@ -209,7 +209,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
                   </td>
                   <td>
                     <span className={`milestone-due ${isOverdue(ms.dueDate) ? 'milestone-due--overdue' : ''}`}>
-                      {formatDate(ms.dueDate)}
+                      {formatDate(ms.dueDate, t('settings.noDueDate'))}
                       {isOverdue(ms.dueDate) && ' ⚠️'}
                     </span>
                   </td>
@@ -231,7 +231,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
                       <button
                         className="settings-table__action-btn settings-table__action-btn--danger"
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirm(ms); }}
-                        title="削除"
+                        title={t('common.delete')}
                       >
                         🗑
                       </button>
@@ -246,7 +246,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
         <div className="settings-empty">
           <div className="settings-empty__icon">🎯</div>
           <div className="settings-empty__text">
-            マイルストーンがまだありません。「＋追加」ボタンで作成してください。
+            {t('settings.noMilestonesHint', { button: t('settings.addNew') })}
           </div>
         </div>
       )}
@@ -257,26 +257,26 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
               <h3 className="settings-modal__title">
-                {editingMilestone ? 'マイルストーンを編集' : '新しいマイルストーン'}
+                {editingMilestone ? t('settings.editMilestone') : t('settings.newMilestone')}
               </h3>
               <button className="settings-modal__close" onClick={closeModal}>×</button>
             </div>
 
             <form onSubmit={handleSubmit}>
               <div className="settings-form__group">
-                <label className="settings-form__label">マイルストーン名</label>
+                <label className="settings-form__label">{t('settings.name')}</label>
                 <input
                   className="settings-form__input"
                   value={formData.name}
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="例: v1.0 リリース, Sprint 1"
+                  placeholder={t('settings.milestoneNamePlaceholder')}
                   autoFocus
                   data-testid="milestone-name-input"
                 />
               </div>
 
               <div className="settings-form__group">
-                <label className="settings-form__label">期限日</label>
+                <label className="settings-form__label">{t('settings.dueDate')}</label>
                 <DateInput
                   className="settings-form__input"
                   value={formData.due_date || null}
@@ -286,7 +286,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
               </div>
 
               <div className="settings-form__group">
-                <label className="settings-form__label">説明</label>
+                <label className="settings-form__label">{t('settings.description')}</label>
                 <textarea
                   className="settings-form__textarea"
                   value={formData.description}
@@ -304,7 +304,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
                   className="settings-form__btn settings-form__btn--secondary"
                   onClick={closeModal}
                 >
-                  キャンセル
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -312,7 +312,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
                   disabled={isSaving}
                   data-testid="milestone-save-btn"
                 >
-                  {isSaving ? '保存中...' : editingMilestone ? '更新' : '作成'}
+                  {isSaving ? t('common.saving') : editingMilestone ? t('common.update') : t('common.create')}
                 </button>
               </div>
             </form>
@@ -329,17 +329,17 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">
-              マイルストーン「<strong>{deleteConfirm.name}</strong>」を削除しますか？
+              {t('common.deleteConfirm', { name: deleteConfirm.name })}
             </div>
             <div className="confirm-dialog__warning">
-              ⚠️ このマイルストーンに紐付いているチケットのマイルストーンが未設定になります。
+              ⚠️ {t('settings.deleteMilestoneWarning')}
             </div>
             <div className="settings-form__actions">
               <button
                 className="settings-form__btn settings-form__btn--secondary"
                 onClick={() => setDeleteConfirm(null)}
               >
-                キャンセル
+                {t('common.cancel')}
               </button>
               <button
                 className="settings-form__btn settings-form__btn--danger"
@@ -347,7 +347,7 @@ export function MilestoneSettings({ projectId }: MilestoneSettingsProps) {
                 disabled={deleteMutation.isPending}
                 data-testid="milestone-delete-confirm-btn"
               >
-                {deleteMutation.isPending ? '削除中...' : '削除'}
+                {deleteMutation.isPending ? t('common.deleting') : t('common.delete')}
               </button>
             </div>
           </div>

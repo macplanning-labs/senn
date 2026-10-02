@@ -4,8 +4,10 @@
  * 選択されたチームのメンバー一覧・追加・削除を行う。
  */
 
+import { InvitePanel } from './InvitePanel';
 import { useState } from 'react';
 import { useTeamMembers, useAddTeamMember, useRemoveTeamMember } from '../hooks/useTeams';
+import { useSetTeamOwner } from '../hooks/useTeamAccess';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { Team, UserSummary, TeamRole } from '@/shared/api/types';
@@ -21,6 +23,10 @@ export function TeamMembersSection({ team }: Props) {
   const { data: members, isLoading } = useTeamMembers(team.id);
   const addMember = useAddTeamMember();
   const removeMember = useRemoveTeamMember();
+  const setOwner = useSetTeamOwner();
+  // Owner の操作(指名・解除、招待、管理者としての追加、Owner を外す)は、サーバーの viewerCanManageOwners だけで
+  // 出し分ける(画面で権限を計算しない。最終判定はサーバー。DEMO-000170)
+  const canManageOwners = !!team.viewerCanManageOwners && !team.archivedAt;
   const { addToast } = useToastStore();
 
   // ユーザー一覧（メンバー追加用）
@@ -109,7 +115,7 @@ export function TeamMembersSection({ team }: Props) {
             data-testid="member-role-select"
           >
             <option value="member">{t('team.roleMember')}</option>
-            <option value="admin">{t('team.roleAdmin')}</option>
+            {canManageOwners && <option value="admin">{t('team.roleAdmin')}</option>}
           </select>
           <button
             className="team-members__submit-btn"
@@ -141,17 +147,37 @@ export function TeamMembersSection({ team }: Props) {
                   {membership.role === 'admin' ? t('team.roleAdmin') : t('team.roleMember')}
                 </span>
               </div>
-              <button
-                className="team-member-item__remove"
-                onClick={() => void handleRemove(
-                  membership.user.id,
-                  membership.user.displayName || membership.user.username,
-                )}
-                title={t('team.removeMemberTitle')}
-                data-testid={`remove-member-${membership.user.id}`}
-              >
-                ✕
-              </button>
+              {canManageOwners && (
+                <button
+                  type="button"
+                  className="team-member-item__owner-toggle"
+                  onClick={() =>
+                    setOwner.mutate({
+                      teamId: team.id,
+                      userId: membership.user.id,
+                      owner: membership.role !== 'admin',
+                    })
+                  }
+                  disabled={setOwner.isPending}
+                  data-testid={`toggle-owner-${membership.user.id}`}
+                >
+                  {membership.role === 'admin' ? t('teamAccess.removeOwner') : t('teamAccess.makeOwner')}
+                </button>
+              )}
+              {/* Owner を外すのは Owner の操作 */}
+              {(membership.role !== 'admin' || canManageOwners) && (
+                <button
+                  className="team-member-item__remove"
+                  onClick={() => void handleRemove(
+                    membership.user.id,
+                    membership.user.displayName || membership.user.username,
+                  )}
+                  title={t('team.removeMemberTitle')}
+                  data-testid={`remove-member-${membership.user.id}`}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -160,6 +186,9 @@ export function TeamMembersSection({ team }: Props) {
           {t('team.noMembersHint')}
         </div>
       )}
+
+      {/* 招待(チームの設定を管理できる人。アクセス制御の再設計 A-4) */}
+      {canManageOwners && <InvitePanel teamId={team.id} />}
     </div>
   );
 }

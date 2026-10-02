@@ -5,22 +5,24 @@
 /// - POST /api/v1/teams/{id}/unarchive/  復元
 ///
 /// 権限: システム管理者 / そのチームの管理者。設計: DEMO-000069 第2段階。
-
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Extension, Json,
+    Json,
 };
 
 use serde::Serialize;
 
+use crate::domain::access::{Action, Viewer};
 use crate::infrastructure::repositories::{team_archive_repo, team_repo, user_repo};
+use crate::presentation::extractors::authorize as access;
 use crate::presentation::handlers::project_team_api::{error, server_error};
 use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::presentation::state::AppState;
 
-const NO_PERMISSION: &str = "チームをアーカイブ・復元できるのは、システム管理者とそのチームの管理者です";
+const NO_PERMISSION: &str =
+    "チームをアーカイブ・復元できるのは、システム管理者とそのチームの管理者です";
 
 /// アーカイブを止めているプロジェクト(応答用)
 #[derive(Debug, Serialize)]
@@ -40,17 +42,38 @@ pub struct TeamArchiveCheckOut {
     pub blocking_projects: Vec<BlockingProjectOut>,
 }
 
-async fn authorize(state: &AppState, auth: &AuthUser, team_id: i32) -> Result<(), Response> {
+/// 権限の確認。新しい判定(D-3)は、Owner の操作ができること(Delete → manages_owners。DEMO-000169)
+async fn authorize(
+    state: &AppState,
+    viewer: &Viewer,
+    team_id: i32,
+    route: &'static str,
+) -> Result<AuthUser, Response> {
+    let auth = AuthUser {
+        user_id: viewer.require_user_id()?,
+    };
     let staff = match user_repo::find_by_id(&state.pool, auth.user_id).await {
         Ok(Some(u)) => u.is_staff,
         Ok(None) => return Err(error(StatusCode::UNAUTHORIZED, "ユーザーが見つかりません")),
         Err(e) => return Err(server_error(e)),
     };
-    match team_archive_repo::can_manage(&state.pool, team_id, auth.user_id, staff).await {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(error(StatusCode::FORBIDDEN, NO_PERMISSION)),
-        Err(e) => Err(server_error(e)),
-    }
+    let legacy =
+        match team_archive_repo::can_manage(&state.pool, team_id, auth.user_id, staff).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(error(StatusCode::FORBIDDEN, NO_PERMISSION)),
+            Err(e) => return Err(server_error(e)),
+        };
+    access::gate_team(
+        &state.pool,
+        viewer,
+        team_id,
+        // アーカイブ・復元は、削除と同じ Owner の操作(設計書 §4.3)
+        Action::Delete,
+        legacy,
+        route,
+    )
+    .await?;
+    Ok(auth)
 }
 
 async fn team_response(state: &AppState, team_id: i32) -> Response {
@@ -64,7 +87,7 @@ async fn team_response(state: &AppState, team_id: i32) -> Response {
 /// アーカイブ可能か事前チェック GET /api/v1/teams/{id}/archive-check/
 pub async fn team_archive_check(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
     // 存在しないチームは、権限の有無を教えず 404
@@ -73,7 +96,8 @@ pub async fn team_archive_check(
         Ok(None) => return error(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_error(e),
     }
-    if let Err(resp) = authorize(&state, &auth, id).await {
+    if let Err(resp) = authorize(&state, &viewer, id, "GET /api/v1/teams/{id}/archive-check/").await
+    {
         return resp;
     }
     match team_archive_repo::blocking_projects(&state.pool, id).await {
@@ -88,7 +112,14 @@ pub async fn team_archive_check(
                     status: p.status,
                 })
                 .collect();
-            (StatusCode::OK, Json(TeamArchiveCheckOut { can_archive, blocking_projects })).into_response()
+            (
+                StatusCode::OK,
+                Json(TeamArchiveCheckOut {
+                    can_archive,
+                    blocking_projects,
+                }),
+            )
+                .into_response()
         }
         Err(e) => server_error(e),
     }
@@ -97,7 +128,7 @@ pub async fn team_archive_check(
 /// チームのアーカイブ POST /api/v1/teams/{id}/archive/
 pub async fn team_archive(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
     // 存在しないチームは、権限の有無を教えず 404
@@ -106,9 +137,10 @@ pub async fn team_archive(
         Ok(None) => return error(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_error(e),
     }
-    if let Err(resp) = authorize(&state, &auth, id).await {
-        return resp;
-    }
+    let auth = match authorize(&state, &viewer, id, "POST /api/v1/teams/{id}/archive/").await {
+        Ok(a) => a,
+        Err(resp) => return resp,
+    };
     match team_archive_repo::archive(&state.pool, id, auth.user_id).await {
         Ok(true) => team_response(&state, id).await,
         Ok(false) => error(StatusCode::NOT_FOUND, "見つかりません"),
@@ -122,7 +154,7 @@ pub async fn team_archive(
 /// チームの復元 POST /api/v1/teams/{id}/unarchive/
 pub async fn team_unarchive(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> Response {
     match team_repo::find_team_by_id(&state.pool, id).await {
@@ -130,7 +162,7 @@ pub async fn team_unarchive(
         Ok(None) => return error(StatusCode::NOT_FOUND, "見つかりません"),
         Err(e) => return server_error(e),
     }
-    if let Err(resp) = authorize(&state, &auth, id).await {
+    if let Err(resp) = authorize(&state, &viewer, id, "POST /api/v1/teams/{id}/unarchive/").await {
         return resp;
     }
     match team_archive_repo::unarchive(&state.pool, id).await {
@@ -144,7 +176,10 @@ pub async fn team_unarchive(
 /// 500 ではなく 409 と理由を返すためのレスポンスを作る。
 pub fn archived_conflict(e: &anyhow::Error) -> Option<Response> {
     if team_archive_repo::is_team_archived_error(e.as_ref()) {
-        Some(error(StatusCode::CONFLICT, team_archive_repo::ARCHIVED_READ_ONLY_MESSAGE))
+        Some(error(
+            StatusCode::CONFLICT,
+            team_archive_repo::ARCHIVED_READ_ONLY_MESSAGE,
+        ))
     } else {
         None
     }

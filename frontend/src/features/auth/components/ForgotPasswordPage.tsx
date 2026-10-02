@@ -26,7 +26,7 @@ export function ForgotPasswordPage() {
 
     const trimmed = identifier.trim();
     if (!trimmed) {
-      setError(t('auth.resetIdentifierRequired', 'メールアドレスまたはユーザー名を入力してください'));
+      setError(t('auth.resetIdentifierRequired'));
       return;
     }
 
@@ -38,7 +38,7 @@ export function ForgotPasswordPage() {
       );
       setSuccessMessage(
         res.data.message
-          || t('auth.resetRequestSent', '登録されている場合、パスワードリセット用のメールを送信しました。'),
+          || t('auth.resetRequestSent'),
       );
       if (res.data.reset_url) {
         setResetUrl(res.data.reset_url);
@@ -50,10 +50,7 @@ export function ForgotPasswordPage() {
         axiosErr.response?.data?.detail
         || axiosErr.response?.data?.message
         || (typeof axiosErr.response?.data === 'string' ? axiosErr.response.data : undefined);
-      const fallback = t(
-        'auth.resetRequestFailed',
-        'リクエストに失敗しました。しばらくしてから再度お試しください。',
-      );
+      const fallback = t('auth.resetRequestFailed');
       if (detail) {
         setError(status ? `${detail} (HTTP ${status})` : detail);
       } else if (status) {
@@ -75,7 +72,7 @@ export function ForgotPasswordPage() {
         <div className="login__header">
           <h1 className="login__logo">SENN</h1>
           <p className="login__tagline">
-            {t('auth.forgotPasswordTitle', 'パスワードをリセット')}
+            {t('auth.forgotPasswordTitle')}
           </p>
         </div>
 
@@ -85,12 +82,12 @@ export function ForgotPasswordPage() {
             {resetUrl && (
               <p className="login__hint" style={{ marginTop: 'var(--space-3)' }}>
                 <a href={resetUrl} className="login__forgot" data-testid="reset-url-link">
-                  {t('auth.openResetLink', 'パスワード再設定リンクを開く')}
+                  {t('auth.openResetLink')}
                 </a>
               </p>
             )}
             <Link to="/login" className="login__back-link">
-              {t('auth.backToLogin', 'ログイン画面に戻る')}
+              {t('auth.backToLogin')}
             </Link>
           </div>
         ) : (
@@ -102,15 +99,12 @@ export function ForgotPasswordPage() {
             )}
 
             <p className="login__hint">
-              {t(
-                'auth.forgotPasswordHint',
-                '登録済みのメールアドレスまたはユーザー名を入力してください。リセット用リンクをお送りします。',
-              )}
+              {t('auth.forgotPasswordHint')}
             </p>
 
             <div className="login__field">
               <label htmlFor="reset-identifier" className="login__label">
-                {t('auth.resetIdentifier', 'メールアドレスまたはユーザー名')}
+                {t('auth.resetIdentifier')}
               </label>
               <input
                 id="reset-identifier"
@@ -130,11 +124,11 @@ export function ForgotPasswordPage() {
               disabled={isLoading}
               data-testid="reset-request-submit"
             >
-              {isLoading ? t('common.loading') : t('auth.sendResetLink', 'リセットリンクを送信')}
+              {isLoading ? t('common.loading') : t('auth.sendResetLink')}
             </button>
 
             <p className="login__signup">
-              <Link to="/login">{t('auth.backToLogin', 'ログイン画面に戻る')}</Link>
+              <Link to="/login">{t('auth.backToLogin')}</Link>
             </p>
           </form>
         )}

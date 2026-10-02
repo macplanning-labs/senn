@@ -69,7 +69,10 @@ mod tests {
     fn parse_key_accepts_uuid_and_rejects_garbage() {
         let mut h = HeaderMap::new();
         assert!(matches!(parse_key(&h), Ok(None)));
-        h.insert(HEADER, "3f2b0c8e-6f2a-4a4e-9a55-2b1a3f9d7c10".parse().unwrap());
+        h.insert(
+            HEADER,
+            "3f2b0c8e-6f2a-4a4e-9a55-2b1a3f9d7c10".parse().unwrap(),
+        );
         assert!(matches!(parse_key(&h), Ok(Some(_))));
         h.insert(HEADER, "not-a-uuid".parse().unwrap());
         assert!(parse_key(&h).is_err());

@@ -6,8 +6,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 // Re-export common types
-pub use crate::domain::models::ticket_api::TicketListOut;
 pub use crate::domain::models::resource_api::ProjectOut;
+pub use crate::domain::models::ticket_api::TicketListOut;
 
 // ---------------------------------------------------------------------------
 // Sync Data Transfer Objects
@@ -27,6 +27,41 @@ pub struct TicketSyncOut {
     pub ai_prompt_updated_at: Option<DateTime<Utc>>,
     #[serde(rename = "aiPromptGenerationMode")]
     pub ai_prompt_generation_mode: Option<String>,
+    /// 行の版番号（sync_version）。端末は手元より新しい版のときだけ上書きする
+    pub v: i64,
+}
+
+/// コメントの同期用 DTO。閲覧者に依存する値（canEdit 等）と、他の行から導ける値（replyCount）は持たない。
+/// 端末が「本人か」「担当者か」から編集可否を導き、返信数は端末内の子コメントから数える。
+#[derive(Debug, Clone, Serialize)]
+pub struct CommentSyncOut {
+    pub id: i32,
+    #[serde(rename = "ticketId")]
+    pub ticket_id: i32,
+    /// 論理削除済みは空文字
+    pub body: String,
+    pub author: crate::domain::models::ticket_api::UserSummaryOut,
+    #[serde(rename = "actingUser")]
+    pub acting_user: Option<crate::domain::models::ticket_api::UserSummaryOut>,
+    #[serde(rename = "createdAt")]
+    pub created_at: DateTime<Utc>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(rename = "anchorStart")]
+    pub anchor_start: Option<i32>,
+    #[serde(rename = "anchorEnd")]
+    pub anchor_end: Option<i32>,
+    #[serde(rename = "anchorQuote")]
+    pub anchor_quote: Option<String>,
+    #[serde(rename = "parentCommentId")]
+    pub parent_comment_id: Option<i32>,
+    #[serde(rename = "isDeleted")]
+    pub is_deleted: bool,
+    /// 投稿者が AI エージェントか（編集可否の導出に使う）
+    #[serde(rename = "isAiAgentAuthor")]
+    pub is_ai_agent_author: bool,
+    /// 行の版番号（sync_version）
+    pub v: i64,
 }
 
 /// Extended project data for sync (ProjectOut + updatedAt)
@@ -36,6 +71,8 @@ pub struct ProjectSyncOut {
     pub base: ProjectOut,
     #[serde(rename = "updatedAt")]
     pub updated_at: DateTime<Utc>,
+    /// 行の版番号（sync_version）
+    pub v: i64,
 }
 
 /// Deleted entity record in sync response
@@ -44,6 +81,8 @@ pub struct SyncDeletedOut {
     pub id: i64,
     /// 見られないチケットは null（キーを漏らさない）
     pub key: Option<String>,
+    /// 削除（または見られなくなった）時点の版番号
+    pub v: i64,
 }
 
 /// User's access rights

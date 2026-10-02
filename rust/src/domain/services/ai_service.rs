@@ -4,7 +4,6 @@
 /// Ollama(ローカル推論)をプライマリ、OpenAI APIをフォールバックとして使用する
 /// 三層防御: 1. Ollama → 2. OpenAI → 3. 安全なデフォルト値。
 /// AIが落ちてもアプリは止まらない設計をそのまま踏襲する。
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,7 +16,6 @@ fn in_flight_set() -> &'static Mutex<HashSet<i32>> {
     static SET: OnceLock<Mutex<HashSet<i32>>> = OnceLock::new();
     SET.get_or_init(|| Mutex::new(HashSet::new()))
 }
-
 
 // =============================================================================
 // レスポンス型 + デフォルト値(AI障害時のフォールバック)
@@ -176,38 +174,36 @@ async fn call_ollama_generate(
         .await;
 
     match result {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<Value>().await {
-                Ok(data) => match data.get("response").and_then(|v| v.as_str()) {
-                    Some(text) if !text.trim().is_empty() => Ok(text.to_string()),
-                    _ => Err(ollama_error(
-                        "ollama_empty_response",
-                        format!(
-                            "Ollama の応答が空です（モデル: {}、{}秒）",
-                            model,
-                            format_elapsed_secs(elapsed_ms())
-                        ),
-                        &model,
-                        elapsed_ms(),
-                        Some(timeout_secs),
-                    )),
-                },
-                Err(e) => {
-                    tracing::warn!("Ollama response parse failed: {:?}", e);
-                    Err(ollama_error(
-                        "ollama_parse_failed",
-                        format!(
-                            "Ollama の応答を解釈できません（モデル: {}、{}秒）",
-                            model,
-                            format_elapsed_secs(elapsed_ms())
-                        ),
-                        &model,
-                        elapsed_ms(),
-                        Some(timeout_secs),
-                    ))
-                }
+        Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
+            Ok(data) => match data.get("response").and_then(|v| v.as_str()) {
+                Some(text) if !text.trim().is_empty() => Ok(text.to_string()),
+                _ => Err(ollama_error(
+                    "ollama_empty_response",
+                    format!(
+                        "Ollama の応答が空です（モデル: {}、{}秒）",
+                        model,
+                        format_elapsed_secs(elapsed_ms())
+                    ),
+                    &model,
+                    elapsed_ms(),
+                    Some(timeout_secs),
+                )),
+            },
+            Err(e) => {
+                tracing::warn!("Ollama response parse failed: {:?}", e);
+                Err(ollama_error(
+                    "ollama_parse_failed",
+                    format!(
+                        "Ollama の応答を解釈できません（モデル: {}、{}秒）",
+                        model,
+                        format_elapsed_secs(elapsed_ms())
+                    ),
+                    &model,
+                    elapsed_ms(),
+                    Some(timeout_secs),
+                ))
             }
-        }
+        },
         Ok(resp) => {
             let status = resp.status();
             let body_text = resp.text().await.unwrap_or_default();
@@ -232,8 +228,18 @@ async fn call_ollama_generate(
                     format_elapsed_secs(elapsed_ms())
                 )
             };
-            tracing::warn!("Ollama call failed with status: {} body: {}", status, &body_text[..body_text.len().min(200)]);
-            Err(ollama_error(code, message, &model, elapsed_ms(), Some(timeout_secs)))
+            tracing::warn!(
+                "Ollama call failed with status: {} body: {}",
+                status,
+                &body_text[..body_text.len().min(200)]
+            );
+            Err(ollama_error(
+                code,
+                message,
+                &model,
+                elapsed_ms(),
+                Some(timeout_secs),
+            ))
         }
         Err(e) => {
             if e.is_timeout() {
@@ -301,21 +307,19 @@ async fn call_openai(config: &AppConfig, prompt: &str) -> Option<String> {
         .await;
 
     match result {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<Value>().await {
-                Ok(data) => data
-                    .get("choices")
-                    .and_then(|c| c.get(0))
-                    .and_then(|c| c.get("message"))
-                    .and_then(|m| m.get("content"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                Err(e) => {
-                    tracing::warn!("OpenAI response parse failed: {:?}", e);
-                    None
-                }
+        Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
+            Ok(data) => data
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            Err(e) => {
+                tracing::warn!("OpenAI response parse failed: {:?}", e);
+                None
             }
-        }
+        },
         Ok(resp) => {
             tracing::warn!("OpenAI call failed with status: {}", resp.status());
             None
@@ -340,7 +344,11 @@ fn parse_json(raw: Option<String>) -> Option<Value> {
     match serde_json::from_str(&cleaned) {
         Ok(v) => Some(v),
         Err(e) => {
-            tracing::warn!("Failed to parse AI JSON response: {:?} (raw: {})", e, &raw[..raw.len().min(200)]);
+            tracing::warn!(
+                "Failed to parse AI JSON response: {:?} (raw: {})",
+                e,
+                &raw[..raw.len().min(200)]
+            );
             None
         }
     }
@@ -403,17 +411,38 @@ Analyze the user's task title and description to estimate the implementation com
 "#,
         language = language,
         title = title,
-        description = if description.is_empty() { "(no description)" } else { description },
-        team_rules = if team_rules.is_empty() { "(no team rules)" } else { team_rules },
+        description = if description.is_empty() {
+            "(no description)"
+        } else {
+            description
+        },
+        team_rules = if team_rules.is_empty() {
+            "(no team rules)"
+        } else {
+            team_rules
+        },
     );
 
     let parsed = parse_json(call_with_fallback(config, &prompt).await);
 
-    if let Some(p) = parsed.as_ref().filter(|p| p.get("suggested_points").is_some()) {
+    if let Some(p) = parsed
+        .as_ref()
+        .filter(|p| p.get("suggested_points").is_some())
+    {
         StoryPointResult {
-            suggested_points: p.get("suggested_points").and_then(|v| v.as_i64()).unwrap_or(2) as i32,
-            confidence_score: p.get("confidence_score").and_then(|v| v.as_f64()).unwrap_or(0.5),
-            reason: p.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            suggested_points: p
+                .get("suggested_points")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(2) as i32,
+            confidence_score: p
+                .get("confidence_score")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.5),
+            reason: p
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         }
     } else {
         default_story_point()
@@ -429,7 +458,8 @@ pub async fn analyze_sprint_health(
     tasks_json: &Value,
     language: &str,
 ) -> SprintHealthResult {
-    let tasks_json_data = serde_json::to_string_pretty(tasks_json).unwrap_or_else(|_| "[]".to_string());
+    let tasks_json_data =
+        serde_json::to_string_pretty(tasks_json).unwrap_or_else(|_| "[]".to_string());
 
     let prompt = format!(
         r#"
@@ -485,10 +515,26 @@ Return your analysis strictly in the following JSON structure. All text fields i
 
     if let Some(p) = parsed.as_ref().filter(|p| p.get("risk_level").is_some()) {
         SprintHealthResult {
-            risk_level: p.get("risk_level").and_then(|v| v.as_str()).unwrap_or("medium").to_string(),
-            summary: p.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            alerts: p.get("alerts").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
-            suggested_actions: p.get("suggested_actions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+            risk_level: p
+                .get("risk_level")
+                .and_then(|v| v.as_str())
+                .unwrap_or("medium")
+                .to_string(),
+            summary: p
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            alerts: p
+                .get("alerts")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default(),
+            suggested_actions: p
+                .get("suggested_actions")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default(),
         }
     } else {
         default_sprint_health()
@@ -507,7 +553,11 @@ pub async fn analyze_ticket_context(
     associated_rules_text: &str,
     language: &str,
 ) -> ContextAnalysisResult {
-    let user_language = if language == "ja" { "Japanese" } else { "English" };
+    let user_language = if language == "ja" {
+        "Japanese"
+    } else {
+        "English"
+    };
 
     let prompt = format!(
         r#"
@@ -546,20 +596,44 @@ Return your analysis strictly in the following JSON structure:
         ticket_id = ticket_id,
         project_prefix = project_prefix,
         ticket_status = ticket_status,
-        story_points = story_points.map(|p| p.to_string()).unwrap_or_else(|| "Not set".to_string()),
+        story_points = story_points
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "Not set".to_string()),
         ticket_title = ticket_title,
-        ticket_description = if ticket_description.is_empty() { "(no description)" } else { ticket_description },
-        associated_rules_text = if associated_rules_text.is_empty() { "(no rules linked)" } else { associated_rules_text },
+        ticket_description = if ticket_description.is_empty() {
+            "(no description)"
+        } else {
+            ticket_description
+        },
+        associated_rules_text = if associated_rules_text.is_empty() {
+            "(no rules linked)"
+        } else {
+            associated_rules_text
+        },
         user_language = user_language,
     );
 
     let parsed = parse_json(call_with_fallback(config, &prompt).await);
 
-    if let Some(p) = parsed.as_ref().filter(|p| p.get("context_loaded").is_some()) {
+    if let Some(p) = parsed
+        .as_ref()
+        .filter(|p| p.get("context_loaded").is_some())
+    {
         ContextAnalysisResult {
-            context_loaded: p.get("context_loaded").and_then(|v| v.as_bool()).unwrap_or(false),
-            rule_violations: p.get("rule_violations").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
-            implementation_hint: p.get("implementation_hint").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            context_loaded: p
+                .get("context_loaded")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            rule_violations: p
+                .get("rule_violations")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default(),
+            implementation_hint: p
+                .get("implementation_hint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
         }
     } else {
         default_context_analysis()
@@ -573,7 +647,11 @@ pub async fn analyze_ticket_close(
     comments_text: &str,
     language: &str,
 ) -> CloseAnalysisResult {
-    let user_language = if language == "ja" { "Japanese" } else { "English" };
+    let user_language = if language == "ja" {
+        "Japanese"
+    } else {
+        "English"
+    };
 
     let prompt = format!(
         r#"
@@ -612,18 +690,36 @@ Return strictly in JSON format:
 }}
 "#,
         ticket_title = ticket_title,
-        ticket_description = if ticket_description.is_empty() { "(no description)" } else { ticket_description },
-        comments_text = if comments_text.is_empty() { "(no comments)" } else { comments_text },
+        ticket_description = if ticket_description.is_empty() {
+            "(no description)"
+        } else {
+            ticket_description
+        },
+        comments_text = if comments_text.is_empty() {
+            "(no comments)"
+        } else {
+            comments_text
+        },
         user_language = user_language,
     );
 
     let parsed = parse_json(call_with_fallback(config, &prompt).await);
 
-    if let Some(p) = parsed.as_ref().filter(|p| p.get("has_future_challenges").is_some()) {
+    if let Some(p) = parsed
+        .as_ref()
+        .filter(|p| p.get("has_future_challenges").is_some())
+    {
         CloseAnalysisResult {
-            has_future_challenges: p.get("has_future_challenges").and_then(|v| v.as_bool()).unwrap_or(false),
+            has_future_challenges: p
+                .get("has_future_challenges")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             wiki_draft: p.get("wiki_draft").cloned().filter(|v| !v.is_null()),
-            suggested_backlog_tickets: p.get("suggested_backlog_tickets").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+            suggested_backlog_tickets: p
+                .get("suggested_backlog_tickets")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default(),
         }
     } else {
         default_close_analysis()
@@ -1077,23 +1173,25 @@ pub async fn check_ai_status(config: &AppConfig) -> AiStatus {
         .await;
 
     let (connected, models) = match result {
-        Ok(resp) if resp.status().is_success() => {
-            match resp.json::<Value>().await {
-                Ok(data) => {
-                    let models = data
-                        .get("models")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    (true, models)
-                }
-                Err(_) => (false, vec![]),
+        Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
+            Ok(data) => {
+                let models = data
+                    .get("models")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| {
+                                m.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .map(|s| s.to_string())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (true, models)
             }
-        }
+            Err(_) => (false, vec![]),
+        },
         _ => (false, vec![]),
     };
 
@@ -1123,7 +1221,10 @@ pub async fn generate_and_cache_ai_prompt(
             .lock()
             .map_err(|e| anyhow::anyhow!("in_flight lock poisoned: {e}"))?;
         if !in_flight.insert(ticket_id) {
-            tracing::debug!(ticket_id, "generate_and_cache_ai_prompt skipped (in flight)");
+            tracing::debug!(
+                ticket_id,
+                "generate_and_cache_ai_prompt skipped (in flight)"
+            );
             return Ok(());
         }
     }
@@ -1181,8 +1282,8 @@ async fn generate_and_cache_ai_prompt_inner(
                         comments_text.chars().take(600).collect::<String>()
                     }
                 });
-            let situation_summary = extract_markdown_section(&cleaned, "状況サマリ")
-                .filter(|s| !s.is_empty());
+            let situation_summary =
+                extract_markdown_section(&cleaned, "状況サマリ").filter(|s| !s.is_empty());
 
             if let Some(situation_summary) = situation_summary {
                 (

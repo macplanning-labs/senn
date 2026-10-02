@@ -68,3 +68,19 @@ export function httpError(status: number, detail?: string): Error & { response: 
   e.response = { status, data: detail ? { detail } : {} };
   return e;
 }
+
+export function commentDto(id: number, ticketId: number, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    ticketId,
+    body: `comment-${id}`,
+    author: { id: 1, username: 'a', displayName: 'A' },
+    actingUser: null,
+    createdAt: `2026-09-01T00:00:${String(id).padStart(2, '0')}Z`,
+    updatedAt: null,
+    parentCommentId: null,
+    isDeleted: false,
+    isAiAgentAuthor: false,
+    ...over,
+  };
+}

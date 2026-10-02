@@ -3,7 +3,6 @@
 /// Django /api/v1/notifications/* と互換性のある構造。
 /// 既存の domain::models::notification::Notification (プロトタイプ) との
 /// 区別のため、このファイルで API 専用の型を定義。
-
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 

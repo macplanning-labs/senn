@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Extension, Json,
+    Json,
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -13,14 +13,14 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio_util::io::ReaderStream;
 
+use crate::domain::access::Viewer;
 use crate::infrastructure::encrypted_settings::{decrypt_value, encrypt_value, mask_secret_tail};
 use crate::infrastructure::repositories::{ai_agent_key_repo, system_settings_repo, user_repo};
-use crate::presentation::middleware::jwt_auth::AuthUser;
 use crate::presentation::state::AppState;
 
-async fn require_staff(
+fn require_staff(
     state: &AppState,
-    auth: &AuthUser,
+    viewer: &Viewer,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     // customer チャネルでは system-admin API を許さない
     if state.config.app_channel.to_lowercase() == "customer" {
@@ -30,23 +30,13 @@ async fn require_staff(
         ));
     }
 
-    match user_repo::find_by_id(&state.pool, auth.user_id).await {
-        Ok(Some(user)) if user.is_staff => Ok(()),
-        Ok(Some(_)) => Err((
+    if viewer.is_system_admin() {
+        Ok(())
+    } else {
+        Err((
             StatusCode::FORBIDDEN,
             Json(json!({ "error": "管理者のみアクセスできます" })),
-        )),
-        Ok(None) => Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "認証エラー" })),
-        )),
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "サーバーエラーが発生しました" })),
-            ))
-        }
+        ))
     }
 }
 
@@ -99,11 +89,8 @@ fn gmail_env_configured() -> bool {
 }
 
 /// GET /api/v1/system-admin/settings/
-pub async fn get_settings(
-    State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
-) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+pub async fn get_settings(State(state): State<AppState>, viewer: Viewer) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -149,10 +136,10 @@ pub async fn get_settings(
 /// PUT /api/v1/system-admin/settings/
 pub async fn update_settings(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<UpdateSystemAdminSettingsIn>,
 ) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -322,9 +309,7 @@ pub async fn update_settings(
         }
     }
 
-    get_settings(State(state), Extension(auth))
-        .await
-        .into_response()
+    get_settings(State(state), viewer).await.into_response()
 }
 
 #[derive(Serialize)]
@@ -359,11 +344,8 @@ pub async fn resolve_ai_agent_api_key(state: &AppState) -> Option<String> {
 }
 
 /// GET /api/v1/system-admin/ai-agent-key/
-pub async fn get_ai_agent_key(
-    State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
-) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+pub async fn get_ai_agent_key(State(state): State<AppState>, viewer: Viewer) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -403,10 +385,10 @@ pub async fn get_ai_agent_key(
 /// PUT /api/v1/system-admin/ai-agent-key/
 pub async fn update_ai_agent_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<UpdateAiAgentKeyIn>,
 ) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -449,9 +431,7 @@ pub async fn update_ai_agent_key(
             .into_response();
     }
 
-    get_ai_agent_key(State(state), Extension(auth))
-        .await
-        .into_response()
+    get_ai_agent_key(State(state), viewer).await.into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -481,9 +461,9 @@ pub struct CreateAiAgentPersonalKeyOut {
 /// GET /api/v1/system-admin/ai-agent-personal-keys/ — 発行済みキー一覧(staff限定、平文は含まない)
 pub async fn list_ai_agent_personal_keys(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
 ) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -504,10 +484,14 @@ pub async fn list_ai_agent_personal_keys(
 /// レスポンスに平文キーを含むのはこの一度きり。以後は取得不可(GitHub PAT等と同じUX)。
 pub async fn create_ai_agent_personal_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<CreateAiAgentPersonalKeyIn>,
 ) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+    let staff_id = match viewer.require_user_id() {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -541,7 +525,7 @@ pub async fn create_ai_agent_personal_key(
         &key_hash,
         &key_prefix,
         label,
-        auth.user_id,
+        staff_id,
     )
     .await
     {
@@ -568,10 +552,10 @@ pub async fn create_ai_agent_personal_key(
 /// DELETE /api/v1/system-admin/ai-agent-personal-keys/{id}/ — 失効(staff限定、ソフト削除・冪等)
 pub async fn revoke_ai_agent_personal_key(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(id): Path<i32>,
 ) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
@@ -627,16 +611,18 @@ fn parse_database_url(database_url: &str) -> Result<PgConnParams, String> {
 }
 
 /// POST /api/v1/system-admin/backup/export/
-pub async fn backup_export(
-    State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
-) -> impl IntoResponse {
-    if let Err(resp) = require_staff(&state, &auth).await {
+pub async fn backup_export(State(state): State<AppState>, viewer: Viewer) -> impl IntoResponse {
+    let user_id = match viewer.require_user_id() {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_staff(&state, &viewer) {
         return resp.into_response();
     }
 
-    let caller = match user_repo::find_by_id(&state.pool, auth.user_id).await {
-        Ok(Some(u)) => u,
+    // 監査ログには、誰が出力したかをユーザー名で残す(ID だけでは追いにくい)
+    let username = match user_repo::find_by_id(&state.pool, user_id).await {
+        Ok(Some(u)) => u.username,
         _ => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -645,11 +631,10 @@ pub async fn backup_export(
                 .into_response();
         }
     };
-
     tracing::info!(
         event = "system_admin_backup_export",
-        user_id = auth.user_id,
-        username = %caller.username,
+        user_id = user_id,
+        username = %username,
         "DB backup export requested"
     );
 
@@ -724,7 +709,7 @@ pub async fn backup_export(
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
 
-    let audit_user_id = auth.user_id;
+    let audit_user_id = user_id;
     tokio::spawn(async move {
         let status = child.wait().await;
         let mut err_buf = String::new();
@@ -761,4 +746,22 @@ pub async fn backup_export(
     });
 
     response
+}
+
+/// GET /api/v1/system-admin/realtime/stats/
+///
+/// リアルタイム同期の計測（接続数・部屋数・リングのメモリの目安・配信数・遅い接続の切断・再同期・死活確認の往復など）。
+/// 管理者のみ。数えた値を返すだけで、配信には影響しない。
+pub async fn get_realtime_stats(
+    State(state): State<AppState>,
+    viewer: Viewer,
+) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &viewer) {
+        return resp.into_response();
+    }
+    let mut body = serde_json::to_value(state.realtime.snapshot().await).unwrap_or_default();
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("enabled".to_string(), json!(state.realtime_enabled));
+    }
+    (StatusCode::OK, Json(body)).into_response()
 }

@@ -1,17 +1,13 @@
 /// domain/services/wiki_service.rs — Wiki ビジネスロジック
 ///
 /// Markdown → HTML 変換、[[Wikiリンク]] 解決、リビジョン管理。
-
 use sqlx::PgPool;
 
 use crate::infrastructure::repositories::wiki_repo;
 
 /// タイトルから slug を生成
 pub fn generate_slug(title: &str) -> String {
-    title
-        .to_lowercase()
-        .replace(' ', "-")
-        .replace('　', "-")
+    title.to_lowercase().replace(' ', "-").replace('　', "-")
 }
 
 /// Markdown を HTML に変換（pulldown-cmark）
@@ -79,14 +75,10 @@ pub async fn create_page(
     content: &str,
     author_id: i32,
 ) -> anyhow::Result<i32> {
-    let slug = title
-        .to_lowercase()
-        .replace(' ', "-")
-        .replace('　', "-");
+    let slug = title.to_lowercase().replace(' ', "-").replace('　', "-");
 
-    let page_id = wiki_repo::create(
-        pool, project_id, title, &slug, category, content, author_id,
-    ).await?;
+    let page_id =
+        wiki_repo::create(pool, project_id, title, &slug, category, content, author_id).await?;
 
     // 初回リビジョン保存
     wiki_repo::create_revision(pool, page_id, content, author_id, "初回作成").await?;
@@ -107,9 +99,7 @@ pub async fn update_page(
     wiki_repo::update(pool, page_id, title, category, content, editor_id).await?;
 
     // リビジョン保存
-    wiki_repo::create_revision(
-        pool, page_id, content, editor_id, revision_comment,
-    ).await?;
+    wiki_repo::create_revision(pool, page_id, content, editor_id, revision_comment).await?;
 
     Ok(())
 }

@@ -1,7 +1,6 @@
 /// infrastructure/repositories/team_rule_repo.rs — Team Rules 永続化
 ///
 /// m_team_rule テーブルの CRUD 操作。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::team_rule_api::*;
@@ -13,167 +12,29 @@ pub async fn find_all_team_rules(
     team: Option<i32>,
     category: Option<String>,
     is_active: Option<bool>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<Vec<TeamRuleOut>> {
     const PAGE_SIZE: i64 = 50;
     let page = page.max(1);
     let offset = (page - 1) * PAGE_SIZE;
 
-    let rows = if team.is_none() && category.is_none() && is_active.is_none() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $1 OFFSET $2"
-        )
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if team.is_some() && category.is_none() && is_active.is_none() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.team_id = $1
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $2 OFFSET $3"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if team.is_none() && category.is_some() && is_active.is_none() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.category = $1
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $2 OFFSET $3"
-        )
-        .bind(&category.unwrap())
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if team.is_none() && category.is_none() && is_active.is_some() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.is_active = $1
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $2 OFFSET $3"
-        )
-        .bind(is_active.unwrap())
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if team.is_some() && category.is_some() && is_active.is_none() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.team_id = $1 AND r.category = $2
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $3 OFFSET $4"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(&category.unwrap())
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if team.is_some() && category.is_none() && is_active.is_some() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.team_id = $1 AND r.is_active = $2
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $3 OFFSET $4"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(is_active.unwrap())
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else if team.is_none() && category.is_some() && is_active.is_some() {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.category = $1 AND r.is_active = $2
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $3 OFFSET $4"
-        )
-        .bind(&category.unwrap())
-        .bind(is_active.unwrap())
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query(
-            "SELECT
-                r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
-                r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
-                t.name as team_name,
-                u.id::int4 as user_id, u.username, u.email, u.display_name
-             FROM m_team_rule r
-             LEFT JOIN m_team t ON r.team_id = t.id
-             LEFT JOIN accounts_user u ON r.created_by_id = u.id
-             WHERE r.team_id = $1 AND r.category = $2 AND r.is_active = $3
-             ORDER BY r.sort_order ASC, r.id ASC
-             LIMIT $4 OFFSET $5"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(&category.unwrap())
-        .bind(is_active.unwrap())
-        .bind(PAGE_SIZE)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?
-    };
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT
+            r.id::int4, r.title, r.content, r.category, r.sort_order, r.is_active,
+            r.created_at, r.updated_at, r.team_id::int4, r.created_by_id::int4,
+            t.name as team_name,
+            u.id::int4 as user_id, u.username, u.email, u.display_name
+         FROM m_team_rule r
+         LEFT JOIN m_team t ON r.team_id = t.id
+         LEFT JOIN accounts_user u ON r.created_by_id = u.id
+         WHERE ",
+    );
+    push_list_filters(&mut qb, team, category, is_active, scope);
+    qb.push(" ORDER BY r.sort_order ASC, r.id ASC LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
+    let rows = qb.build().fetch_all(pool).await?;
 
     let rules = rows
         .into_iter()
@@ -205,66 +66,44 @@ pub async fn find_all_team_rules(
     Ok(rules)
 }
 
+/// 一覧・件数で共通の WHERE 句(別名 `r`)。`scope` があれば、新しい判定で見える物だけ(D-4。`on` のときだけ)
+fn push_list_filters(
+    qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    team: Option<i32>,
+    category: Option<String>,
+    is_active: Option<bool>,
+    scope: Option<&crate::domain::access::Scope>,
+) {
+    qb.push("TRUE");
+    if let Some(team) = team {
+        qb.push(" AND r.team_id = ").push_bind(team as i64);
+    }
+    if let Some(category) = category {
+        qb.push(" AND r.category = ").push_bind(category);
+    }
+    if let Some(is_active) = is_active {
+        qb.push(" AND r.is_active = ").push_bind(is_active);
+    }
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_team_or_global_visible(
+            qb,
+            "r.team_id",
+            scope,
+        );
+    }
+}
+
 pub async fn count_team_rules(
     pool: &PgPool,
     team: Option<i32>,
     category: Option<String>,
     is_active: Option<bool>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<i64> {
-    let count: i64 = if team.is_none() && category.is_none() && is_active.is_none() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM m_team_rule")
-            .fetch_one(pool)
-            .await?
-    } else if team.is_some() && category.is_none() && is_active.is_none() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM m_team_rule WHERE team_id = $1")
-            .bind(team.unwrap() as i64)
-            .fetch_one(pool)
-            .await?
-    } else if team.is_none() && category.is_some() && is_active.is_none() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM m_team_rule WHERE category = $1")
-            .bind(&category.unwrap())
-            .fetch_one(pool)
-            .await?
-    } else if team.is_none() && category.is_none() && is_active.is_some() {
-        sqlx::query_scalar("SELECT COUNT(*) FROM m_team_rule WHERE is_active = $1")
-            .bind(is_active.unwrap())
-            .fetch_one(pool)
-            .await?
-    } else if team.is_some() && category.is_some() && is_active.is_none() {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM m_team_rule WHERE team_id = $1 AND category = $2"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(&category.unwrap())
-        .fetch_one(pool)
-        .await?
-    } else if team.is_some() && category.is_none() && is_active.is_some() {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM m_team_rule WHERE team_id = $1 AND is_active = $2"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(is_active.unwrap())
-        .fetch_one(pool)
-        .await?
-    } else if team.is_none() && category.is_some() && is_active.is_some() {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM m_team_rule WHERE category = $1 AND is_active = $2"
-        )
-        .bind(&category.unwrap())
-        .bind(is_active.unwrap())
-        .fetch_one(pool)
-        .await?
-    } else {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM m_team_rule WHERE team_id = $1 AND category = $2 AND is_active = $3"
-        )
-        .bind(team.unwrap() as i64)
-        .bind(&category.unwrap())
-        .bind(is_active.unwrap())
-        .fetch_one(pool)
-        .await?
-    };
-
+    let mut qb = sqlx::QueryBuilder::new("SELECT COUNT(*) FROM m_team_rule r WHERE ");
+    push_list_filters(&mut qb, team, category, is_active, scope);
+    let count: i64 = qb.build_query_scalar().fetch_one(pool).await?;
     Ok(count)
 }
 
@@ -278,7 +117,7 @@ pub async fn find_team_rule_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Opti
          FROM m_team_rule r
          LEFT JOIN m_team t ON r.team_id = t.id
          LEFT JOIN accounts_user u ON r.created_by_id = u.id
-         WHERE r.id = $1"
+         WHERE r.id = $1",
     )
     .bind(id as i64)
     .fetch_optional(pool)
@@ -350,7 +189,11 @@ pub async fn partial_update_team_rule(
     // 更新値を決定（指定されない場合は既存値を使用）
     let title = input.title.as_ref().unwrap_or(&existing.title).clone();
     let content = input.content.as_ref().unwrap_or(&existing.content).clone();
-    let category = input.category.as_ref().unwrap_or(&existing.category).clone();
+    let category = input
+        .category
+        .as_ref()
+        .unwrap_or(&existing.category)
+        .clone();
     let sort_order = input.sort_order.unwrap_or(existing.sort_order);
     let is_active = input.is_active.unwrap_or(existing.is_active);
     let team = input.team.or(existing.team);
@@ -379,7 +222,9 @@ pub async fn delete_team_rule(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 
     // tickets_ticket_linked_rules はM2M中間テーブル(DjangoのManyToManyField削除はjoin行を自動除去)
     sqlx::query("DELETE FROM tickets_ticket_linked_rules WHERE teamrulemodel_id = $1")
-        .bind(id as i64).execute(&mut *tx).await?;
+        .bind(id as i64)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM m_team_rule WHERE id = $1")
         .bind(id as i64)

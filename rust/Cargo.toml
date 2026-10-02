@@ -13,7 +13,7 @@ members = ["auth-core", "google-auth"]
 
 [dependencies]
 # Web フレームワーク
-axum = { version = "0.8", features = ["macros", "multipart"] }
+axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 # Cookie の max_age() が time::Duration を要求するため直接依存として追加
 # (axum-extra/cookie crateの推移依存だが、crate名で直接参照するには明示宣言が必要)

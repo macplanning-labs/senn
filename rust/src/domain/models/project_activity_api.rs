@@ -1,8 +1,7 @@
 /// domain/models/project_activity_api.rs — プロジェクト Activity / 進捗報告 JSON API モデル
 ///
 /// project_activity(監査ログ)と project_updates(進捗報告)。
-/// 設計: docs/詳細設計書_プロジェクト詳細タブ.md
-
+/// 設計: docs/design/詳細設計書_プロジェクト詳細タブ.md
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;

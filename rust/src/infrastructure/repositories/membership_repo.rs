@@ -3,7 +3,6 @@
 /// L2②(2026-09-11)で旧 tickets_project_membership の CRUD を廃止。
 /// メンバーシップは m_team / t_team_membership(team_repo.rs)に一本化された。
 /// ここにはチケットへのアクセス可否判定(check_ticket_access)のみが残る。
-
 use chrono::NaiveDate;
 use sqlx::PgPool;
 
@@ -24,12 +23,11 @@ pub async fn check_ticket_access(
     }
 
     // project_id/team_idはDB上bigintなので、i32でdecodeするには::int4キャストが必須
-    let row_opt: Option<(Option<i32>, Option<i32>)> = sqlx::query_as(
-        "SELECT project_id::int4, team_id::int4 FROM tickets_ticket WHERE id = $1"
-    )
-    .bind(ticket_id)
-    .fetch_optional(pool)
-    .await?;
+    let row_opt: Option<(Option<i32>, Option<i32>)> =
+        sqlx::query_as("SELECT project_id::int4, team_id::int4 FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(pool)
+            .await?;
 
     if let Some((project_id, team_id)) = row_opt {
         if let Some(t_id) = team_id {
@@ -83,7 +81,7 @@ mod tests {
     async fn add_team_membership(pool: &sqlx::PgPool, team_id: i32, user_id: i32, role: &str) {
         sqlx::query(
             "INSERT INTO t_team_membership (team_id, user_id, role, joined_at)
-             VALUES ($1, $2, $3, NOW())"
+             VALUES ($1, $2, $3, NOW())",
         )
         .bind(team_id)
         .bind(user_id)
@@ -115,7 +113,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ticket_access_team_member_without_project() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "acc_author2").await;
         let team_user = test_support::create_test_user(&pool, "acc_tm").await;
         let outsider = test_support::create_test_user(&pool, "acc_out").await;
@@ -138,7 +138,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ticket_access_staff_bypass() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "acc_author4").await;
         let staff = test_support::create_test_user(&pool, "acc_staff").await;
         sqlx::query("UPDATE accounts_user SET is_staff = true WHERE id = $1")
@@ -175,7 +177,11 @@ mod tests {
         .expect("scoped team membership 作成失敗");
     }
 
-    async fn create_project_under_team(pool: &sqlx::PgPool, team_id: i32, prefix_base: &str) -> i32 {
+    async fn create_project_under_team(
+        pool: &sqlx::PgPool,
+        team_id: i32,
+        prefix_base: &str,
+    ) -> i32 {
         let prefix = format!("{prefix_base}{}", test_support::unique_suffix());
         let prefix = prefix[..prefix.len().min(20)].to_string();
         let project_id = sqlx::query_scalar::<_, i32>(
@@ -205,7 +211,9 @@ mod tests {
     #[tokio::test]
     async fn test_check_ticket_access_scoped_guest_within_project() {
         // L2: Projectゲスト(scoped_project_id)は、期限内なら該当Projectのチケットにアクセスできる
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "acc_author_l2a").await;
         let guest = test_support::create_test_user(&pool, "acc_guest_l2a").await;
         let project_id = test_support::create_test_project(&pool, "ACCL2A", author).await;
@@ -219,13 +227,18 @@ mod tests {
         let ok = check_ticket_access(&pool, ticket_id, guest)
             .await
             .expect("access check");
-        assert!(ok, "期限内のProjectゲストは該当Projectのチケットにアクセスできる");
+        assert!(
+            ok,
+            "期限内のProjectゲストは該当Projectのチケットにアクセスできる"
+        );
     }
 
     #[tokio::test]
     async fn test_check_ticket_access_scoped_guest_expired() {
         // L2: end_date + grace_period_days を過ぎたProjectゲストはアクセス不可
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "acc_author_l2b").await;
         let guest = test_support::create_test_user(&pool, "acc_guest_l2b").await;
         let project_id = test_support::create_test_project(&pool, "ACCL2B", author).await;
@@ -246,13 +259,16 @@ mod tests {
     #[tokio::test]
     async fn test_check_ticket_access_scoped_guest_wrong_project() {
         // L2: 同じチーム傘下でも、scoped_project_idと異なるProjectのチケットにはアクセスできない
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "acc_author_l2c").await;
         let guest = test_support::create_test_user(&pool, "acc_guest_l2c").await;
         let project_a = test_support::create_test_project(&pool, "ACCL2C", author).await;
         let team_id = get_project_team(&pool, project_a).await;
         let project_b = create_project_under_team(&pool, team_id, "ACCL2D").await;
-        let ticket_in_b = test_support::create_test_ticket(&pool, project_b, "ACCL2D", author).await;
+        let ticket_in_b =
+            test_support::create_test_ticket(&pool, project_b, "ACCL2D", author).await;
         set_ticket_team(&pool, ticket_in_b, team_id).await;
 
         // guestはproject_aにのみscoped
@@ -261,6 +277,9 @@ mod tests {
         let ok = check_ticket_access(&pool, ticket_in_b, guest)
             .await
             .expect("access check");
-        assert!(!ok, "別Projectに限定されたゲストは、同じチーム傘下の別Projectのチケットにアクセスできない");
+        assert!(
+            !ok,
+            "別Projectに限定されたゲストは、同じチーム傘下の別Projectのチケットにアクセスできない"
+        );
     }
 }

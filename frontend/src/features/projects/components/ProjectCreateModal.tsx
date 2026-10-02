@@ -43,7 +43,7 @@ export function ProjectCreateModal({ onClose, defaultTeamIds, onCreated }: Props
       return;
     }
     if (selectedTeamIds.length === 0) {
-      setError('参加チームを1つ以上選択してください');
+      setError(t('settings.teamSelectionRequired'));
       return;
     }
 
@@ -88,13 +88,13 @@ export function ProjectCreateModal({ onClose, defaultTeamIds, onCreated }: Props
               className="project-create-modal__input"
               value={prefix}
               onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-              placeholder="例: PRJ"
+              placeholder={t('settings.projectPrefixPlaceholder')}
               data-testid="project-prefix-input"
             />
           </div>
 
           <div className="project-create-modal__field">
-            <label className="project-create-modal__label">説明</label>
+            <label className="project-create-modal__label">{t('settings.description')}</label>
             <textarea
               className="project-create-modal__textarea"
               value={description}
@@ -138,7 +138,7 @@ export function ProjectCreateModal({ onClose, defaultTeamIds, onCreated }: Props
 
           <div className="project-create-modal__footer">
             <button type="button" className="project-create-modal__btn project-create-modal__btn--cancel" onClick={onClose}>
-              キャンセル
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
@@ -146,7 +146,7 @@ export function ProjectCreateModal({ onClose, defaultTeamIds, onCreated }: Props
               disabled={createProject.isPending}
               data-testid="project-create-submit-btn"
             >
-              {createProject.isPending ? '作成中...' : '作成'}
+              {createProject.isPending ? t('common.creating') : t('common.create')}
             </button>
           </div>
         </form>

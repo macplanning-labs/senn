@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
@@ -17,6 +18,7 @@ interface AiAgentKeySettings {
 }
 
 export function AdminAiSection() {
+  const { t } = useTranslation();
   const toast = useToast();
   const queryClient = useQueryClient();
   const [agentKey, setAgentKey] = useState('');
@@ -36,41 +38,42 @@ export function AdminAiSection() {
     onSuccess: (updated) => {
       queryClient.setQueryData(['system-admin-ai-agent-key'], updated);
       setAgentKey('');
-      toast.success('AIエージェントキーを保存しました');
+      toast.success(t('admin.keySaved'));
     },
     onError: () => {
-      toast.error('AIエージェントキーの保存に失敗しました');
+      toast.error(t('admin.keySaveFailed'));
     },
   });
 
   return (
     <div data-testid="admin-ai-section">
       <section className="settings__section">
-        <h2 className="settings__section-title">AI エージェント API キー</h2>
+        <h2 className="settings__section-title">{t('admin.aiAgentKeyTitle')}</h2>
         <div className="settings__card">
           <p className="admin__hint" style={{ marginBottom: '1rem' }}>
-            外部 MCP / Claude Code 等が SENN を操作する際の <code>X-AI-Api-Key</code> です。
-            DB に暗号化保存され、未設定時は従来の <code>SENN_AI_API_KEY</code> 環境変数にフォールバックします。
+            {t('admin.aiAgentKeyHint1Lead')} <code>X-AI-Api-Key</code> {t('admin.aiAgentKeyHint1Trail')}
+            {' '}
+            {t('admin.aiAgentKeyHint2Lead')} <code>SENN_AI_API_KEY</code> {t('admin.aiAgentKeyHint2Trail')}
           </p>
           <div className="admin__field">
-            <div className="admin__label">現在の状態</div>
+            <div className="admin__label">{t('admin.currentStatusLabel')}</div>
             {data?.configured ? (
               <span className="admin__status-badge admin__status-badge--ok">
-                設定済み {data.maskedTail ? `(${data.maskedTail})` : ''}
+                {t('admin.configuredStatus', { tail: data.maskedTail ? `(${data.maskedTail})` : '' })}
               </span>
             ) : (
-              <span className="admin__status-badge admin__status-badge--warn">未設定</span>
+              <span className="admin__status-badge admin__status-badge--warn">{t('admin.notConfigured')}</span>
             )}
           </div>
           <div className="admin__field">
-            <label className="admin__label" htmlFor="agent-key">新しいキー（上書き）</label>
+            <label className="admin__label" htmlFor="agent-key">{t('admin.newKeyLabel')}</label>
             <input
               id="agent-key"
               className="admin__input"
               type="password"
               value={agentKey}
               onChange={(e) => setAgentKey(e.target.value)}
-              placeholder="空欄のまま保存すると既存キーを維持"
+              placeholder={t('admin.keyPlaceholderKeepExisting')}
               autoComplete="new-password"
             />
           </div>
@@ -81,7 +84,7 @@ export function AdminAiSection() {
               disabled={saveMutation.isPending || !agentKey.trim()}
               onClick={() => saveMutation.mutate(agentKey.trim())}
             >
-              キーを保存
+              {t('admin.saveKey')}
             </button>
           </div>
         </div>

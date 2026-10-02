@@ -1,6 +1,7 @@
 /**
  * TaskNode.tsx — 依存関係フローのカスタムノード
  */
+import { useTranslation } from 'react-i18next';
 import { Handle, Position } from '@xyflow/react';
 import type { DependencyGraphNode } from '@/shared/api/types';
 import './TaskDependencyFlow.css';
@@ -23,6 +24,7 @@ export interface TaskNodeData extends DependencyGraphNode {
 }
 
 export function TaskNode({ data }: { data: TaskNodeData }) {
+  const { t } = useTranslation();
   const isDone = DONE_STATUSES.has(data.status);
   return (
     <div className={`task-node${isDone ? ' task-node--done' : ''}`}>
@@ -40,7 +42,7 @@ export function TaskNode({ data }: { data: TaskNodeData }) {
       <div className="task-node__title">{data.title}</div>
       <div className="task-node__footer">
         <span className="task-node__assignee">
-          {data.assignees[0]?.displayName ?? '未割当'}
+          {data.assignees[0]?.displayName ?? t('ticketDetail.unassigned')}
           {data.assignees.length > 1 ? ` +${data.assignees.length - 1}` : ''}
         </span>
         {data.storyPoints != null && (

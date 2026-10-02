@@ -79,7 +79,7 @@ export function AiSettings() {
       queryClient.setQueryData(['settings-ai'], updated);
       queryClient.invalidateQueries({ queryKey: ['settings-ai'] });
       setSelectedTimeout(updated.ollamaTimeoutSecs);
-      toast.success('タイムアウトを保存しました');
+      toast.success(t('settings.aiTimeoutSaved'));
     },
     onError: () => {
       toast.error(t('settings.updateFailed'));
@@ -95,7 +95,7 @@ export function AiSettings() {
       queryClient.setQueryData(['settings-ai'], updated);
       queryClient.invalidateQueries({ queryKey: ['settings-ai'] });
       setSelectedTimeout(updated.ollamaTimeoutSecs);
-      toast.success('タイムアウトを既定値に戻しました');
+      toast.success(t('settings.aiTimeoutResetDone'));
     },
     onError: () => {
       toast.error(t('settings.updateFailed'));
@@ -158,7 +158,7 @@ export function AiSettings() {
             <div className="settings__hint">
               {t('settings.aiTimeoutHint')}
               <br />
-              環境変数の既定値: {data.envDefaultTimeoutSecs}秒
+              {t('settings.envDefaultSeconds', { seconds: data.envDefaultTimeoutSecs })}
             </div>
             {data.canEdit ? (
               <input
@@ -173,7 +173,7 @@ export function AiSettings() {
                 disabled={saveTimeoutMutation.isPending || resetTimeoutMutation.isPending}
               />
             ) : (
-              <div className="settings__hint">{data.ollamaTimeoutSecs}秒</div>
+              <div className="settings__hint">{t('settings.secondsUnit', { seconds: data.ollamaTimeoutSecs })}</div>
             )}
           </div>
         </div>

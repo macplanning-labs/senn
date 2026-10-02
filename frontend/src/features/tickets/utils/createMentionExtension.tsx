@@ -16,6 +16,7 @@ import tippy from 'tippy.js';
 import type { Instance as TippyInstance, GetReferenceClientRect } from 'tippy.js';
 import { MentionList } from '../components/MentionList';
 import type { MentionListRef, MentionListItem } from '../components/MentionList';
+import i18n from '@/i18n';
 
 export interface MentionCandidate {
   id: number;
@@ -188,7 +189,7 @@ export function renderCommentBodyWithMentions(
     const user = userById.get(match.userId);
     parts.push(
       <span key={`mention-${idx}`} className="ticket-comment-mention" data-mention-id={match.userId}>
-        {`@${user?.displayName || user?.alias || user?.username || 'ユーザー'}`}
+        {`@${user?.displayName || user?.alias || user?.username || i18n.t('common.defaultUserName')}`}
       </span>,
     );
     cursor = match.end;

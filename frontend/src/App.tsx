@@ -13,6 +13,8 @@ import { LoginForm } from '@/features/auth/components/LoginForm';
 import { RegisterForm } from '@/features/auth/components/RegisterForm';
 import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
+import { InviteAcceptPage } from '@/features/auth/components/InviteAcceptPage';
+import { VerifyEmailPage } from '@/features/auth/components/VerifyEmailPage';
 import { DemoEntry } from '@/features/demo/DemoEntry';
 import { isDemoEntryEnabled, isInternalChannel } from '@/shared/config/appChannel';
 import { Dashboard } from '@/features/dashboard/components/Dashboard';
@@ -31,6 +33,7 @@ import { ProjectSettingsPage } from '@/features/settings/components/ProjectSetti
 import { TeamSettingsPage } from '@/features/settings/components/TeamSettingsPage';
 import { NotificationsPage } from '@/features/notifications/components/NotificationsPage';
 import { TeamsPage } from '@/features/teams/components/TeamsPage';
+import { NotFoundPage } from '@/shared/components/NotFound/NotFoundPage';
 import { TeamProjectsPage } from '@/features/teams/components/TeamProjectsPage';
 import { ProjectsPage } from '@/features/projects/components/ProjectsPage';
 import { ProjectLayout } from '@/features/projects/components/ProjectLayout';
@@ -55,6 +58,7 @@ import { registerSyncQueryClient } from '@/shared/sync/pull';
 import { useEffect } from 'react';
 import type { AxiosError } from 'axios';
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
+import i18n from '@/i18n';
 
 // customer ビルドでは lazy ファクトリ自体を作らない（チャンク参照を減らす）
 const AdminPage: LazyExoticComponent<ComponentType> | null = isInternalChannel()
@@ -71,7 +75,7 @@ const mutationCache = new MutationCache({
     const detail =
       axiosError.response?.data?.detail ??
       axiosError.message ??
-      'エラーが発生しました';
+      i18n.t('common.error');
     useToastStore.getState().addToast({ type: 'error', message: detail });
   },
 });
@@ -188,6 +192,8 @@ export default function App() {
           />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/invite/:token" element={<InviteAcceptPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/register" element={<RegisterForm />} />
 
           {/* メインアプリ（サイドバー付きレイアウト） */}
@@ -286,7 +292,7 @@ export default function App() {
           />
 
           {/* 404 */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
         <CommandPalette />
         <TicketFormModal />

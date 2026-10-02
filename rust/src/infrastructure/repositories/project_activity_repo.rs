@@ -4,7 +4,6 @@
 ///   DB トリガー(20260919100001_project_activity_and_updates.sql)が記録し、
 ///   それ以外(プロジェクト更新・チーム・マイルストーン・進捗投稿)はここの `record` で記録する。
 /// - project_updates: 進捗報告(構造化データ。project_activity の payload には丸め込まない)
-
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 
@@ -101,7 +100,14 @@ pub async fn record_project_changes(
     if changes.is_empty() {
         return;
     }
-    record_best_effort(pool, new.id, actor_id, "project_updated", json!({"changes": changes})).await;
+    record_best_effort(
+        pool,
+        new.id,
+        actor_id,
+        "project_updated",
+        json!({"changes": changes}),
+    )
+    .await;
 }
 
 /// Activity を新しい順に返す。`before` を渡すと、その id より古いものだけを返す。
@@ -134,15 +140,17 @@ pub async fn list_activity(
     } else {
         None
     };
-    Ok(ProjectActivityPage { results: rows, next })
+    Ok(ProjectActivityPage {
+        results: rows,
+        next,
+    })
 }
 
 // =============================================================================
 // 進捗報告(project_updates)
 // =============================================================================
 
-const UPDATE_SELECT: &str =
-    "SELECT p.id, p.project_id, p.health, p.body, p.author_id,
+const UPDATE_SELECT: &str = "SELECT p.id, p.project_id, p.health, p.body, p.author_id,
             COALESCE(NULLIF(u.display_name, ''), u.username) AS author_name,
             p.created_at, p.updated_at
      FROM project_updates p
@@ -213,7 +221,10 @@ pub async fn list_updates(
     } else {
         None
     };
-    Ok(ProjectUpdatePage { results: rows, next })
+    Ok(ProjectUpdatePage {
+        results: rows,
+        next,
+    })
 }
 
 /// 更新。対象が無ければ `None`。
@@ -270,6 +281,7 @@ mod tests {
             member_count: 0,
             is_member: false,
             teams: vec![],
+            hidden_team_count: 0,
             owner_id: None,
             created_at: chrono::Utc::now(),
             cycle_auto_complete: true,
@@ -295,7 +307,10 @@ mod tests {
         new.target_end_date = NaiveDate::from_ymd_opt(2026, 10, 31);
         new.description = "long text changed".to_string();
         let changes = diff_project(&old, &new);
-        let fields: Vec<&str> = changes.iter().map(|c| c["field"].as_str().unwrap()).collect();
+        let fields: Vec<&str> = changes
+            .iter()
+            .map(|c| c["field"].as_str().unwrap())
+            .collect();
         assert_eq!(fields, vec!["description", "status", "targetEndDate"]);
         // 説明文は本文を持たない
         assert!(changes[0].get("from").is_none() && changes[0].get("to").is_none());
@@ -306,19 +321,33 @@ mod tests {
 
     #[tokio::test]
     async fn record_and_list_activity_with_cursor() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "act").await;
         let project = test_support::create_test_project(&pool, "ACT", user).await;
         for i in 0..5 {
-            record(&pool, project, Some(user), "project_updated", json!({"i": i})).await.unwrap();
+            record(
+                &pool,
+                project,
+                Some(user),
+                "project_updated",
+                json!({"i": i}),
+            )
+            .await
+            .unwrap();
         }
         let p1 = list_activity(&pool, project, Some(2), None).await.unwrap();
         assert_eq!(p1.results.len(), 2);
         assert_eq!(p1.results[0].payload["i"], 4, "新しい順");
         assert!(p1.next.is_some());
-        let p2 = list_activity(&pool, project, Some(2), p1.next).await.unwrap();
+        let p2 = list_activity(&pool, project, Some(2), p1.next)
+            .await
+            .unwrap();
         assert_eq!(p2.results[0].payload["i"], 2);
-        let p3 = list_activity(&pool, project, Some(2), p2.next).await.unwrap();
+        let p3 = list_activity(&pool, project, Some(2), p2.next)
+            .await
+            .unwrap();
         assert_eq!(p3.results.len(), 1);
         assert!(p3.next.is_none(), "最後のページは next が無い");
     }
@@ -326,7 +355,9 @@ mod tests {
     /// トリガー: チケットの追加・完了・プロジェクト付け替え・除外が、書き込み経路によらず記録される
     #[tokio::test]
     async fn ticket_events_are_recorded_by_trigger() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "trg").await;
         let p1 = test_support::create_test_project(&pool, "TRA", user).await;
         let p2 = test_support::create_test_project(&pool, "TRB", user).await;
@@ -337,14 +368,23 @@ mod tests {
         };
         let a1 = list_activity(&pool, p1, None, None).await.unwrap();
         assert_eq!(kinds(&a1), vec!["ticket_added"]);
-        assert!(a1.results[0].payload["ticket_key"].as_str().unwrap().starts_with("TRG"));
+        assert!(a1.results[0].payload["ticket_key"]
+            .as_str()
+            .unwrap()
+            .starts_with("TRG"));
 
         // 完了
         sqlx::query("UPDATE tickets_ticket SET status = 'closed' WHERE id = $1")
-            .bind(ticket).execute(&pool).await.unwrap();
+            .bind(ticket)
+            .execute(&pool)
+            .await
+            .unwrap();
         // 完了済みの再更新では増えない
         sqlx::query("UPDATE tickets_ticket SET status = 'closed', title = title WHERE id = $1")
-            .bind(ticket).execute(&pool).await.unwrap();
+            .bind(ticket)
+            .execute(&pool)
+            .await
+            .unwrap();
         let a1 = list_activity(&pool, p1, None, None).await.unwrap();
         assert_eq!(kinds(&a1), vec!["ticket_completed", "ticket_added"]);
 
@@ -356,9 +396,17 @@ mod tests {
              SELECT $2, team_id, NOW() FROM tickets_project_teams WHERE project_id = $1
              ON CONFLICT DO NOTHING",
         )
-        .bind(p1 as i64).bind(p2 as i64).execute(&pool).await.unwrap();
+        .bind(p1 as i64)
+        .bind(p2 as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query("UPDATE tickets_ticket SET project_id = $2 WHERE id = $1")
-            .bind(ticket).bind(p2 as i64).execute(&pool).await.unwrap();
+            .bind(ticket)
+            .bind(p2 as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
         let a1 = list_activity(&pool, p1, None, None).await.unwrap();
         assert_eq!(kinds(&a1)[0], "ticket_removed");
         let a2 = list_activity(&pool, p2, None, None).await.unwrap();
@@ -367,25 +415,44 @@ mod tests {
 
     #[tokio::test]
     async fn project_updates_crud_and_health_filter() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "upd").await;
         let project = test_support::create_test_project(&pool, "UPD", user).await;
 
-        let a = create_update(&pool, project, user, "on_track", "順調").await.unwrap();
-        let b = create_update(&pool, project, user, "at_risk", "遅れ気味").await.unwrap();
+        let a = create_update(&pool, project, user, "on_track", "順調")
+            .await
+            .unwrap();
+        let b = create_update(&pool, project, user, "at_risk", "遅れ気味")
+            .await
+            .unwrap();
         assert_eq!(a.health, "on_track");
         assert!(a.author_name.is_some());
 
-        let all = list_updates(&pool, project, None, None, None).await.unwrap();
-        assert_eq!(all.results.iter().map(|u| u.id).collect::<Vec<_>>(), vec![b.id, a.id]);
-        let risky = list_updates(&pool, project, None, None, Some("at_risk")).await.unwrap();
+        let all = list_updates(&pool, project, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            all.results.iter().map(|u| u.id).collect::<Vec<_>>(),
+            vec![b.id, a.id]
+        );
+        let risky = list_updates(&pool, project, None, None, Some("at_risk"))
+            .await
+            .unwrap();
         assert_eq!(risky.results.len(), 1);
 
-        let edited = edit_update(&pool, project, a.id, "off_track", "止まった").await.unwrap().unwrap();
+        let edited = edit_update(&pool, project, a.id, "off_track", "止まった")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(edited.health, "off_track");
         assert!(edited.updated_at >= a.updated_at);
         // 他プロジェクトの id では編集できない
-        assert!(edit_update(&pool, project + 999_999, a.id, "on_track", "x").await.unwrap().is_none());
+        assert!(edit_update(&pool, project + 999_999, a.id, "on_track", "x")
+            .await
+            .unwrap()
+            .is_none());
 
         assert!(delete_update(&pool, project, a.id).await.unwrap());
         assert!(!delete_update(&pool, project, a.id).await.unwrap());
@@ -393,9 +460,13 @@ mod tests {
 
     #[tokio::test]
     async fn project_updates_reject_invalid_health_at_db_level() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "upd2").await;
         let project = test_support::create_test_project(&pool, "UPE", user).await;
-        assert!(create_update(&pool, project, user, "great", "x").await.is_err());
+        assert!(create_update(&pool, project, user, "great", "x")
+            .await
+            .is_err());
     }
 }

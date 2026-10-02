@@ -192,7 +192,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      setError('ラベル名を入力してください');
+      setError(t('settings.labelNameRequired'));
       return;
     }
     if (editingLabel) {
@@ -221,7 +221,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
           onClick={openCreateModal}
           data-testid="add-label-btn"
         >
-          + 追加
+          {t('settings.addNew')}
         </button>
       </div>
 
@@ -230,11 +230,11 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
         <table className="settings-table">
           <thead>
             <tr>
-              <th>ラベル</th>
-              <th>カテゴリ</th>
-              <th>カラー</th>
+              <th>{t('settings.labels')}</th>
+              <th>{t('settings.categoryCol')}</th>
+              <th>{t('settings.color')}</th>
               <th style={{ width: 60, textAlign: 'center' }}>AI</th>
-              <th style={{ width: 100, textAlign: 'right' }}>アクション</th>
+              <th style={{ width: 100, textAlign: 'right' }}>{t('common.action')}</th>
             </tr>
           </thead>
           <tbody>
@@ -272,7 +272,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
                     <button
                       className="settings-table__action-btn settings-table__action-btn--danger"
                       onClick={(e) => { e.stopPropagation(); setDeleteConfirm(label); }}
-                      title="削除"
+                      title={t('common.delete')}
                     >
                       🗑
                     </button>
@@ -286,7 +286,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
         <div className="settings-empty">
           <div className="settings-empty__icon">🏷️</div>
           <div className="settings-empty__text">
-            ラベルがまだありません。「＋追加」ボタンで作成してください。
+            {t('settings.noLabelsHint', { button: t('settings.addNew') })}
           </div>
         </div>
       )}
@@ -297,21 +297,21 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
           <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings-modal__header">
               <h3 className="settings-modal__title">
-                {editingLabel ? 'ラベルを編集' : '新しいラベル'}
+                {editingLabel ? t('settings.editLabel') : t('settings.newLabel')}
               </h3>
               <button className="settings-modal__close" onClick={closeModal}>×</button>
             </div>
 
             <form onSubmit={handleSubmit}>
               <div className="settings-form__group">
-                <label className="settings-form__label">カテゴリ</label>
+                <label className="settings-form__label">{t('settings.categoryCol')}</label>
                 <select
                   className="settings-form__input"
                   value={formData.category}
                   onChange={(e) => handleCategoryChange(e.target.value as LabelCategory | '')}
                   data-testid="label-category-select"
                 >
-                  <option value="">— 未設定</option>
+                  <option value="">{t('settings.noCategorySet')}</option>
                   {CATEGORY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
@@ -319,25 +319,25 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
               </div>
 
               <div className="settings-form__group">
-                <label className="settings-form__label">ラベル名</label>
+                <label className="settings-form__label">{t('settings.name')}</label>
                 <input
                   className="settings-form__input"
                   value={formData.name}
                   onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="例: bug, feature, urgent"
+                  placeholder={t('settings.labelNamePlaceholder')}
                   autoFocus
                   data-testid="label-name-input"
                 />
               </div>
 
               <div className="settings-form__group">
-                <label className="settings-form__label">説明 / AI判定ルール</label>
+                <label className="settings-form__label">{t('settings.labelDescLabel')}</label>
                 <textarea
                   className="settings-form__input"
                   rows={3}
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="このラベルの概要と、AIが自動付与する際の判定基準を記述してください"
+                  placeholder={t('settings.labelDescPlaceholder')}
                   data-testid="label-description-input"
                 />
               </div>
@@ -350,12 +350,12 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
                     onChange={(e) => setFormData(prev => ({ ...prev, isAiEnabled: e.target.checked }))}
                     data-testid="label-ai-enabled-checkbox"
                   />
-                  AI自動ラベリング対象にする
+                  {t('settings.aiAutoLabelTarget')}
                 </label>
               </div>
 
               <div className="settings-form__group">
-                <label className="settings-form__label">カラー</label>
+                <label className="settings-form__label">{t('settings.color')}</label>
                 <div className="settings-color-picker">
                   {COLOR_PRESETS.map((color) => (
                     <button
@@ -388,7 +388,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
                       color: getTextColor(formData.color),
                     }}
                   >
-                    {formData.name || 'プレビュー'}
+                    {formData.name || t('settings.preview')}
                   </span>
                 </div>
               </div>
@@ -401,7 +401,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
                   className="settings-form__btn settings-form__btn--secondary"
                   onClick={closeModal}
                 >
-                  キャンセル
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
@@ -409,7 +409,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
                   disabled={isSaving}
                   data-testid="label-save-btn"
                 >
-                  {isSaving ? '保存中...' : editingLabel ? '更新' : '作成'}
+                  {isSaving ? t('common.saving') : editingLabel ? t('common.update') : t('common.create')}
                 </button>
               </div>
             </form>
@@ -426,17 +426,17 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
               <button className="settings-modal__close" onClick={() => setDeleteConfirm(null)}>×</button>
             </div>
             <div className="confirm-dialog__message">
-              ラベル「<strong>{deleteConfirm.name}</strong>」を削除しますか？
+              {t('common.deleteConfirm', { name: deleteConfirm.name })}
             </div>
             <div className="confirm-dialog__warning">
-              このラベルが付いているチケットからラベルが除去されます。
+              {t('settings.deleteLabelWarning')}
             </div>
             <div className="settings-form__actions">
               <button
                 className="settings-form__btn settings-form__btn--secondary"
                 onClick={() => setDeleteConfirm(null)}
               >
-                キャンセル
+                {t('common.cancel')}
               </button>
               <button
                 className="settings-form__btn settings-form__btn--danger"
@@ -444,7 +444,7 @@ export function LabelSettings({ projectId, teamId }: LabelSettingsProps) {
                 disabled={deleteMutation.isPending}
                 data-testid="label-delete-confirm-btn"
               >
-                {deleteMutation.isPending ? '削除中...' : '削除'}
+                {deleteMutation.isPending ? t('common.deleting') : t('common.delete')}
               </button>
             </div>
           </div>

@@ -11,6 +11,10 @@ node_modules
 dist
 dist-staging
 dist-production
+# デプロイの切り戻し用・入れ替え前のビルド(scripts/lib/deploy_safety.sh が作る)。
+# 共有のランナーに残るため、lint・ビルドの対象にしない
+dist-*.rollback
+dist-*.next
 dist-ssr
 *.local
 

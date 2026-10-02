@@ -18,16 +18,18 @@ interface ChatIntegrationSettingsProps {
   teamId?: number;
 }
 
-const CATEGORY_META: { key: string; icon: string; labelKey: string; fallback: string }[] = [
-  { key: 'assigned', icon: '👤', labelKey: 'settings.assignedToMe', fallback: '担当設定' },
-  { key: 'commented', icon: '💬', labelKey: 'settings.commentsOnTickets', fallback: 'コメント' },
-  { key: 'status_changed', icon: '🔄', labelKey: 'settings.statusChanges', fallback: 'ステータス変更' },
-  { key: 'updated', icon: '📝', labelKey: 'settings.ticketUpdated', fallback: '更新' },
-  { key: 'mentioned', icon: '📢', labelKey: 'settings.mentioned', fallback: 'メンション' },
-  { key: 'review_requested', icon: '👁️', labelKey: 'settings.reviewRequested', fallback: 'レビュー依頼' },
-  { key: 'due_soon', icon: '⏰', labelKey: 'settings.dueReminders', fallback: '期限間近' },
-  { key: 'overdue', icon: '🔥', labelKey: 'settings.overdue', fallback: '期限超過' },
-];
+function getEventCategories(t: (key: string) => string): { key: string; icon: string; label: string }[] {
+  return [
+    { key: 'assigned', icon: '👤', label: t('notifications.eventAssigned') },
+    { key: 'commented', icon: '💬', label: t('notifications.eventCommented') },
+    { key: 'status_changed', icon: '🔄', label: t('notifications.eventStatusChanged') },
+    { key: 'updated', icon: '📝', label: t('notifications.eventUpdated') },
+    { key: 'mentioned', icon: '📢', label: t('notifications.eventMentioned') },
+    { key: 'review_requested', icon: '👁️', label: t('notifications.eventReviewRequested') },
+    { key: 'due_soon', icon: '⏰', label: t('notifications.eventDueSoon') },
+    { key: 'overdue', icon: '🔥', label: t('notifications.eventOverdue') },
+  ];
+}
 
 export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSettingsProps) {
   const { t } = useTranslation();
@@ -193,9 +195,9 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
 
           {/* カテゴリ選択 */}
           <div className="integration-form__field">
-            <label>通知対象イベント</label>
+            <label>{t('notifications.eventsLabel')}</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
-              {CATEGORY_META.map((cat) => (
+              {getEventCategories(t).map((cat) => (
                 <label key={cat.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -203,7 +205,7 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
                     onChange={() => toggleCategory(cat.key)}
                     style={{ width: 18, height: 18, cursor: 'pointer' }}
                   />
-                  <span>{cat.icon} {t(cat.labelKey, cat.fallback)}</span>
+                  <span>{cat.icon} {cat.label}</span>
                 </label>
               ))}
             </div>
@@ -225,7 +227,7 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
           <div className="integration-empty__icon">💬</div>
           <p>{t('integration.noIntegrations')}</p>
           <p className="integration-empty__hint">
-            Slack、Google Chat、Chatwork、Microsoft Teamsへの通知設定
+            {t('settings.chatIntegrationDesc')}
           </p>
         </div>
       ) : (
@@ -311,16 +313,16 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
               {/* 通知対象イベント */}
               <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
                 <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)', marginBottom: 'var(--space-2)' }}>
-                  通知対象イベント
+                  {t('notifications.eventsLabel')}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)' }}>
-                  {CATEGORY_META.map((cat) => (
+                  {getEventCategories(t).map((cat) => (
                     <div key={cat.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                       <span style={{ opacity: integration.enabledCategories.includes(cat.key) ? 1 : 0.5 }}>
                         {integration.enabledCategories.includes(cat.key) ? '☑️' : '☐'}
                       </span>
                       <span style={{ opacity: integration.enabledCategories.includes(cat.key) ? 1 : 0.5 }}>
-                        {cat.icon} {t(cat.labelKey, cat.fallback)}
+                        {cat.icon} {cat.label}
                       </span>
                     </div>
                   ))}

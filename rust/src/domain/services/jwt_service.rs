@@ -21,6 +21,8 @@ pub enum TokenType {
     Access,
     Refresh,
     Mfa,
+    /// /media(添付ファイル)の配信専用。API の認証には使えない(Access ではない)。
+    Media,
 }
 
 /// WIP統一JWTクレーム。access/refresh/MFAチャレンジの全トークン種別を
@@ -103,7 +105,11 @@ pub fn issue_token_pair(
 }
 
 /// アクセストークンのみを新規発行する（サイレントリフレッシュ用）
-pub fn issue_access_token(user_id: i32, secret: &str, access_ttl_minutes: i64) -> Result<String, AuthError> {
+pub fn issue_access_token(
+    user_id: i32,
+    secret: &str,
+    access_ttl_minutes: i64,
+) -> Result<String, AuthError> {
     let claims = build_claims(
         user_id,
         TokenType::Access,
@@ -128,6 +134,30 @@ pub fn issue_mfa_token(user_id: i32, secret: &str, ttl_seconds: i64) -> Result<S
         None,
     );
     encode_claims(&claims, secret)
+}
+
+/// /media 配信専用トークンを発行する(Cookie に入れる。ユーザーIDだけを持つ)
+pub fn issue_media_token(
+    user_id: i32,
+    secret: &str,
+    ttl_minutes: i64,
+) -> Result<String, AuthError> {
+    let claims = build_claims(
+        user_id,
+        TokenType::Media,
+        Duration::minutes(ttl_minutes),
+        None,
+    );
+    encode_claims(&claims, secret)
+}
+
+/// /media 配信専用トークンをデコードする。token_type 不一致(access/refresh など)はエラー。
+pub fn decode_media_token(token: &str, secret: &str) -> Result<Claims, AuthError> {
+    let claims = decode_claims::<Claims>(token, secret)?;
+    if claims.token_type != TokenType::Media {
+        return Err(AuthError::InvalidToken("invalid token purpose".to_string()));
+    }
+    Ok(claims)
 }
 
 /// MFAチャレンジトークンをデコードする。token_type不一致はエラーとする。
@@ -180,5 +210,30 @@ mod tests {
         let secret = "test-secret";
         let pair = issue_token_pair(1, secret, 30, 7).unwrap();
         assert!(decode_mfa_token(&pair.access, secret).is_err());
+    }
+
+    #[test]
+    fn media_token_is_not_an_access_token_and_vice_versa() {
+        let secret = "test-secret";
+        let media = issue_media_token(5, secret, 60).unwrap();
+        assert_eq!(
+            decode_media_token(&media, secret)
+                .unwrap()
+                .user_id()
+                .unwrap(),
+            5
+        );
+        // Media は Access として通らない
+        assert_ne!(
+            decode_token(&media, secret).unwrap().token_type,
+            TokenType::Access
+        );
+        // Access / Refresh / MFA は Media として通らない
+        let pair = issue_token_pair(5, secret, 30, 7).unwrap();
+        assert!(decode_media_token(&pair.access, secret).is_err());
+        assert!(decode_media_token(&pair.refresh, secret).is_err());
+        assert!(decode_media_token(&issue_mfa_token(5, secret, 300).unwrap(), secret).is_err());
+        // 別の鍵では通らない
+        assert!(decode_media_token(&media, "other-secret").is_err());
     }
 }

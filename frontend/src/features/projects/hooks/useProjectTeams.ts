@@ -23,6 +23,8 @@ export interface ProjectTeams {
   canManage: boolean;
   teams: ParticipatingTeam[];
   addableTeams: TeamSummary[];
+  /** 参加チームのうち、閲覧できないため一覧から除かれた数 */
+  hiddenTeamCount?: number;
 }
 
 export const projectTeamsKey = (projectId: number) => ['project-teams', projectId] as const;

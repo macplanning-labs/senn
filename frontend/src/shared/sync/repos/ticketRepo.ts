@@ -6,8 +6,10 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuthStore } from '../../stores/authStore';
 import { apiClient } from '../../api/client';
-import { db, type LocalTicket } from '../db';
+import { db, type LocalComment, type LocalTicket } from '../db';
+import { deriveComments } from '../commentView';
 import { toLocalTicket } from '../ticketMapping';
 import { useSyncStatus } from '../syncStatusStore';
 import { isTempTicketKey } from '../ticketWrites';
@@ -18,6 +20,7 @@ import { useLiveRows } from './useLiveRows';
 export type { TicketListParams };
 
 const EMPTY: LocalTicket[] = [];
+const EMPTY_COMMENTS: LocalComment[] = [];
 
 /** 初回のフル同期が済んだか（済むまでは「行が無い」を「存在しない」と扱わない） */
 export function useInitialSyncDone(): boolean {
@@ -121,19 +124,42 @@ export function useTicketDetail(ticketKey: string | null | undefined): {
     enabled: extrasEnabled,
     staleTime: 30_000,
   });
+  // コメントは端末内 DB から読む（リアルタイムで届いた変更がそのまま画面に出る）。
+  // コメントの初回同期が済むまでは、従来どおりサーバーの付随データを使う。
+  const ticketDbId = row?.id;
+  const { data: localComments } = useLiveRows<LocalComment[]>(
+    async () =>
+      ticketDbId === undefined
+        ? EMPTY_COMMENTS
+        : db.comments.where('[ticketId+createdAt]').between([ticketDbId, ''], [ticketDbId, '\uffff']).toArray(),
+    [ticketDbId],
+    EMPTY_COMMENTS,
+  );
+  const { data: commentsSynced } = useLiveRows<boolean>(
+    async () => !!(await db.syncMeta.get('comments'))?.lastFullSyncAt,
+    [],
+    false,
+  );
+  const viewerId = useAuthStore((s) => s.user?.id ?? null);
+  const viewerIsAssignee = viewerId !== null && !!row?.assignees?.some((a) => a.id === viewerId);
+  const derivedComments = useMemo(
+    () => (commentsSynced ? deriveComments(localComments, viewerId, viewerIsAssignee) : null),
+    [commentsSynced, localComments, viewerId, viewerIsAssignee],
+  );
+
   const data = useMemo<TicketDetailData | undefined>(() => {
     if (!row) return undefined;
     const e = extras.data ?? {};
     return {
       ...row,
-      comments: e.comments ?? EMPTY_EXTRAS.comments,
+      comments: derivedComments ?? e.comments ?? EMPTY_EXTRAS.comments,
       attachments: e.attachments ?? EMPTY_EXTRAS.attachments,
       links: e.links ?? EMPTY_EXTRAS.links,
       linkedRules: e.linkedRules ?? EMPTY_EXTRAS.linkedRules,
       linkedWikiPages: e.linkedWikiPages ?? EMPTY_EXTRAS.linkedWikiPages,
       isWatching: e.isWatching ?? EMPTY_EXTRAS.isWatching,
     };
-  }, [row, extras.data]);
+  }, [row, extras.data, derivedComments]);
   return { data, isLoading, isError: notFound, extrasLoading: extrasEnabled && extras.isLoading };
 }
 

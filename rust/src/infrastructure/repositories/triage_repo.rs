@@ -1,7 +1,6 @@
 /// infrastructure/repositories/triage_repo.rs — トリアージ依頼永続化
 ///
 /// t_triage_request テーブルの CRUD + approve/reject 操作。
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::triage_api::*;
@@ -98,7 +97,7 @@ pub async fn count_all(
         "SELECT COUNT(*) FROM t_triage_request
          WHERE ($1::int4 IS NULL OR team_id = $1)
            AND ($2::text IS NULL OR status = $2)
-           AND ($3::text IS NULL OR change_type = $3)"
+           AND ($3::text IS NULL OR change_type = $3)",
     )
     .bind(team_id)
     .bind(status)
@@ -111,15 +110,16 @@ pub async fn count_all(
 
 pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<TriageRequestOut>> {
     let query = format!("{SELECT_BASE} WHERE tr.id = $1");
-    let row = sqlx::query(&query)
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(&query).bind(id).fetch_optional(pool).await?;
 
     Ok(row.map(|r| row_to_triage(&r)))
 }
 
-pub async fn create(pool: &PgPool, input: &TriageRequestWriteIn, requested_by: i32) -> anyhow::Result<i32> {
+pub async fn create(
+    pool: &PgPool,
+    input: &TriageRequestWriteIn,
+    requested_by: i32,
+) -> anyhow::Result<i32> {
     let id: i32 = sqlx::query_scalar(
         "INSERT INTO t_triage_request
             (title, description, change_type, change_payload, status, project_id, team_id, ticket_id, requested_by_id, review_comment, created_at)
@@ -148,9 +148,21 @@ pub async fn update(pool: &PgPool, id: i32, input: &TriageRequestUpdateIn) -> an
     };
 
     let title = input.title.as_ref().unwrap_or(&existing.title).clone();
-    let description = input.description.as_ref().unwrap_or(&existing.description).clone();
-    let change_type = input.change_type.as_ref().unwrap_or(&existing.change_type).clone();
-    let change_payload = input.change_payload.as_ref().unwrap_or(&existing.change_payload).clone();
+    let description = input
+        .description
+        .as_ref()
+        .unwrap_or(&existing.description)
+        .clone();
+    let change_type = input
+        .change_type
+        .as_ref()
+        .unwrap_or(&existing.change_type)
+        .clone();
+    let change_payload = input
+        .change_payload
+        .as_ref()
+        .unwrap_or(&existing.change_payload)
+        .clone();
     let project = input.project.or(existing.project);
     let team = input.team.or(existing.team);
     let ticket = input.ticket.or(existing.ticket);
@@ -159,7 +171,7 @@ pub async fn update(pool: &PgPool, id: i32, input: &TriageRequestUpdateIn) -> an
         "UPDATE t_triage_request
          SET title = $1, description = $2, change_type = $3, change_payload = $4,
              project_id = $5, team_id = $6, ticket_id = $7
-         WHERE id = $8"
+         WHERE id = $8",
     )
     .bind(&title)
     .bind(&description)
@@ -187,20 +199,26 @@ pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 }
 
 pub async fn get_status(pool: &PgPool, id: i32) -> anyhow::Result<Option<String>> {
-    let status: Option<String> = sqlx::query_scalar("SELECT status FROM t_triage_request WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM t_triage_request WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(status)
 }
 
 /// 却下: ステータスをrejectedにし、レビュー情報を記録する。
-pub async fn reject(pool: &PgPool, id: i32, reviewed_by: i32, comment: &str) -> anyhow::Result<bool> {
+pub async fn reject(
+    pool: &PgPool,
+    id: i32,
+    reviewed_by: i32,
+    comment: &str,
+) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "UPDATE t_triage_request
          SET status = 'rejected', reviewed_by_id = $1, reviewed_at = NOW(), review_comment = $2
-         WHERE id = $3"
+         WHERE id = $3",
     )
     .bind(reviewed_by)
     .bind(comment)
@@ -218,7 +236,7 @@ async fn resolve_team_from_project(
     project_id: i32,
 ) -> anyhow::Result<i32> {
     let participating_teams: Vec<i32> = sqlx::query_scalar(
-        "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id"
+        "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 ORDER BY team_id",
     )
     .bind(project_id)
     .fetch_all(&mut **tx)
@@ -227,7 +245,9 @@ async fn resolve_team_from_project(
     match participating_teams.as_slice() {
         [single_team] => Ok(*single_team),
         [] => Err(anyhow::anyhow!("project has no participating teams")),
-        _ => Err(anyhow::anyhow!("teamId is required when project has multiple teams")),
+        _ => Err(anyhow::anyhow!(
+            "teamId is required when project has multiple teams"
+        )),
     }
 }
 
@@ -248,7 +268,7 @@ pub async fn approve(
 
     let row = sqlx::query(
         "SELECT title, description, change_type, project_id::int4, team_id::int4, ticket_id::int4
-         FROM t_triage_request WHERE id = $1 FOR UPDATE"
+         FROM t_triage_request WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(&mut *tx)
@@ -277,7 +297,7 @@ pub async fn approve(
             let requested_by_username: Option<String> = sqlx::query_scalar(
                 "SELECT rb.username FROM t_triage_request tr
                  JOIN accounts_user rb ON tr.requested_by_id = rb.id
-                 WHERE tr.id = $1"
+                 WHERE tr.id = $1",
             )
             .bind(id)
             .fetch_optional(&mut *tx)
@@ -306,7 +326,7 @@ pub async fn approve(
                 let is_linked: bool = sqlx::query_scalar(
                     "SELECT EXISTS(
                         SELECT 1 FROM tickets_project_teams WHERE project_id = $1 AND team_id = $2
-                    )"
+                    )",
                 )
                 .bind(project_id)
                 .bind(req_team)
@@ -322,14 +342,18 @@ pub async fn approve(
                 resolve_team_from_project(&mut tx, project_id).await?
             };
 
-            let ticket_key = crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(&mut tx, team_id).await?;
+            let ticket_key =
+                crate::infrastructure::repositories::ticket_repo::api_generate_ticket_key(
+                    &mut tx, team_id,
+                )
+                .await?;
 
             let new_ticket_id: i32 = sqlx::query_scalar(
                 "INSERT INTO tickets_ticket
                     (ticket_key, title, description, status, priority, ticket_type,
                      author_id, project_id, gantt_order, team_id, created_at, updated_at)
                  VALUES ($1, $2, $3, 'open', 'medium', 'issue', $4, $5, $6, $7, NOW(), NOW())
-                 RETURNING id::int4"
+                 RETURNING id::int4",
             )
             .bind(&ticket_key)
             .bind(format!("[Triage] {}", title))
@@ -342,7 +366,7 @@ pub async fn approve(
             .await?;
 
             sqlx::query(
-                "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)"
+                "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)",
             )
             .bind(new_ticket_id)
             .bind(reviewed_by)
@@ -359,7 +383,7 @@ pub async fn approve(
         "UPDATE t_triage_request
          SET status = 'approved', reviewed_by_id = $1, reviewed_at = NOW(), review_comment = $2,
              ticket_id = $3, project_id = $4
-         WHERE id = $5"
+         WHERE id = $5",
     )
     .bind(reviewed_by)
     .bind(comment)

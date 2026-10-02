@@ -12,9 +12,138 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::domain::access::{Action, Principal, Viewer};
 use crate::domain::services::ai_service;
-use crate::infrastructure::repositories::{ticket_repo, user_repo};
+use crate::infrastructure::access::{
+    facts_repo,
+    shadow::{self, Mode, Resource},
+    viewer_repo,
+};
+use crate::infrastructure::repositories::{ai_agent_key_repo, ticket_repo, user_repo};
+use crate::presentation::extractors::authorize;
 use crate::presentation::state::AppState;
+
+/// 外部 API の呼び出し元(アクセス制御の再設計 F-7。詳細設計書 §10.6・§12.3)
+///
+/// - 連携のキー(`access_integration` に登録したキー): 許可したチームだけで動く(`Principal::Integration`)。
+///   作成者を持つ操作は、今までどおり外部 API 用のユーザー(`SENN_API_USER`)で記録する。
+/// - 今の共有キー(`SENN_API_KEY`): 移行期間は今のまま使える(切り替えたら環境変数から外して無効にする)。
+///   新しい判定(on)では「最初のシステム管理者」への退避をやめる。
+///
+/// 切り替えは `ACCESS_ENFORCE_KEY`。
+#[derive(Debug, Clone)]
+pub struct ExternalCaller {
+    /// 作成者として記録するユーザー
+    pub author_id: i32,
+    /// 連携のキーなら、その閲覧者(許可したチームだけ)。今の共有キーは None
+    pub viewer: Option<Viewer>,
+}
+
+impl axum::extract::FromRequestParts<AppState> for ExternalCaller {
+    type Rejection = axum::response::Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let reject = |status: StatusCode, payload: serde_json::Value| {
+            (status, Json(payload)).into_response()
+        };
+        let key = parts
+            .headers
+            .get("X-API-Key")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        // 連携のキー(登録済みのキーのハッシュと照合)
+        if !key.is_empty() {
+            let integration: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM access_integration WHERE key_hash = $1 AND is_active",
+            )
+            .bind(ai_agent_key_repo::hash_key(key))
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("DB operation failed: {:?}", e);
+                reject(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({"error": "サーバーエラーが発生しました"}),
+                )
+            })?;
+            if let Some(integration_id) = integration {
+                let viewer = viewer_repo::load(
+                    &state.pool,
+                    Principal::Integration { integration_id },
+                    viewer_repo::today_utc(),
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    reject(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        json!({"error": "サーバーエラーが発生しました"}),
+                    )
+                })?
+                .ok_or_else(|| {
+                    reject(
+                        StatusCode::UNAUTHORIZED,
+                        json!({"error": "APIキーが無効です"}),
+                    )
+                })?;
+                let author_id = match user_repo::find_by_username(
+                    &state.pool,
+                    &state.config.wip_api_user,
+                )
+                .await
+                {
+                    Ok(Some(u)) => u.id,
+                    Ok(None) => {
+                        return Err(reject(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            json!({"error": "外部 API の記録用ユーザー(SENN_API_USER)がありません"}),
+                        ))
+                    }
+                    Err(e) => {
+                        tracing::error!("DB operation failed: {:?}", e);
+                        return Err(reject(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            json!({"error": "サーバーエラーが発生しました"}),
+                        ));
+                    }
+                };
+                return Ok(ExternalCaller {
+                    author_id,
+                    viewer: Some(viewer),
+                });
+            }
+        }
+        // 今の共有キー
+        let author_id = authenticate(state, &parts.headers)
+            .await
+            .map_err(|(status, payload)| reject(status, payload))?;
+        Ok(ExternalCaller {
+            author_id,
+            viewer: None,
+        })
+    }
+}
+
+impl ExternalCaller {
+    /// 操作の判定。連携のキーは許可したチームだけ。今の共有キーは今のまま(確認なし)
+    #[allow(clippy::result_large_err)]
+    fn gate(
+        &self,
+        pool: &sqlx::PgPool,
+        facts: Option<&crate::domain::access::ResourceRef>,
+        action: Action,
+        id: i64,
+        route: &'static str,
+    ) -> Result<(), axum::response::Response> {
+        match &self.viewer {
+            Some(v) => authorize::gate(pool, v, facts, action, Resource::Key, id, Ok(()), route),
+            None => Ok(()),
+        }
+    }
+}
 
 /// APIキーを検証し、成功時は操作主体のuser_idを返す。
 async fn authenticate(
@@ -55,6 +184,13 @@ async fn authenticate(
 
     let user = match user {
         Some(u) => u,
+        // 新しい判定(on)では、最初のシステム管理者への退避をしない(人の権限を借りない。F-7)
+        None if shadow::mode(Resource::Key) == Mode::On => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                json!({"error": "APIユーザーが見つかりません"}),
+            ));
+        }
         None => {
             let fallback = user_repo::find_first_staff_user(&state.pool)
                 .await
@@ -113,13 +249,10 @@ fn default_ticket_type() -> String {
 /// POST /api/v1/external/tickets/
 pub async fn create_ticket(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    caller: ExternalCaller,
     Json(body): Json<CreateExternalTicketIn>,
 ) -> impl IntoResponse {
-    let author_id = match authenticate(&state, &headers).await {
-        Ok(id) => id,
-        Err((status, payload)) => return (status, Json(payload)).into_response(),
-    };
+    let author_id = caller.author_id;
 
     let project_prefix = match &body.project_prefix {
         Some(p) if !p.is_empty() => p,
@@ -141,6 +274,45 @@ pub async fn create_ticket(
                 .into_response();
         }
     };
+
+    // 連携のキー: 作成先のプロジェクトが、許可したチームのものであること
+    if caller.viewer.is_some() {
+        let project_id =
+            match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "サーバーエラーが発生しました"})),
+                    )
+                        .into_response();
+                }
+            };
+        let facts = match project_id {
+            Some(pid) => match facts_repo::facts_for_project(&state.pool, pid).await {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": "サーバーエラーが発生しました"})),
+                    )
+                        .into_response();
+                }
+            },
+            None => None,
+        };
+        if let Err(resp) = caller.gate(
+            &state.pool,
+            facts.as_ref(),
+            Action::Read,
+            project_id.unwrap_or(0) as i64,
+            "POST /api/v1/external/tickets/",
+        ) {
+            return resp;
+        }
+    }
 
     match ticket_repo::api_create_external(
         &state.pool,
@@ -164,6 +336,12 @@ pub async fn create_ticket(
                 "status": r.status,
                 "url": format!("/tickets/{}/", r.ticket_key),
             })),
+        )
+            .into_response(),
+        // 新しい判定(on)・連携のキーでは、ほかのプロジェクトの Prefix を一覧しない(F-4)
+        Ok(None) if caller.viewer.is_some() || shadow::mode(Resource::Key) == Mode::On => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("プロジェクト '{}' が見つかりません", project_prefix)})),
         )
             .into_response(),
         Ok(None) => {
@@ -198,14 +376,34 @@ pub struct CreateExternalCommentIn {
 /// POST /api/v1/external/tickets/{ticket_key}/comments/
 pub async fn create_comment(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    caller: ExternalCaller,
     Path(ticket_key): Path<String>,
     Json(body): Json<CreateExternalCommentIn>,
 ) -> impl IntoResponse {
-    let author_id = match authenticate(&state, &headers).await {
-        Ok(id) => id,
-        Err((status, payload)) => return (status, Json(payload)).into_response(),
-    };
+    let author_id = caller.author_id;
+    // 連携のキー: コメントするチケットが、許可したチームのものであること
+    if caller.viewer.is_some() {
+        let facts = match facts_repo::facts_for_ticket_key(&state.pool, &ticket_key).await {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "サーバーエラーが発生しました"})),
+                )
+                    .into_response();
+            }
+        };
+        if let Err(resp) = caller.gate(
+            &state.pool,
+            facts.as_ref().map(|(_, f)| f),
+            Action::Write,
+            facts.as_ref().map_or(0, |(id, _)| *id as i64),
+            "POST /api/v1/external/tickets/{ticket_key}/comments/",
+        ) {
+            return resp;
+        }
+    }
 
     let comment_body = match &body.comment {
         Some(c) if !c.is_empty() => c,
@@ -255,10 +453,7 @@ pub async fn create_comment(
                 if let Err(e) =
                     ai_service::generate_and_cache_ai_prompt(ticket_id, &pool, &ai_config).await
                 {
-                    tracing::warn!(
-                        ticket_id,
-                        "generate_and_cache_ai_prompt failed: {e:#}"
-                    );
+                    tracing::warn!(ticket_id, "generate_and_cache_ai_prompt failed: {e:#}");
                 }
             });
             (

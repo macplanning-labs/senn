@@ -8,6 +8,12 @@
 import { create } from 'zustand';
 import { apiClient, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/shared/api/client';
 import { enableDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
+import {
+  ensureMediaSession,
+  ensureMediaSessionWithin,
+  startMediaSessionKeepAlive,
+  stopMediaSessionKeepAlive,
+} from '@/shared/api/mediaSession';
 
 interface User {
   id: number;
@@ -17,7 +23,8 @@ interface User {
   lastName: string;
   displayName: string;
   alias?: string | null;
-  isStaff: boolean;
+  isSystemAdmin: boolean;
+  isGuest: boolean;
   emailNotificationsEnabled: boolean;
 }
 
@@ -49,8 +56,16 @@ async function completeLogin(
   access: string,
   refresh: string,
 ) {
+  // 前のアカウントの画面のキャッシュを残さない(DEMO-000166)
+  const { clearCachedQueries } = await import('@/shared/sync/pull');
+  clearCachedQueries();
   setTokens(access, refresh);
   set({ isAuthenticated: true });
+
+  // 添付画像用のCookieを確保し、以降も定期的に更新する(失敗しても画像が読めないだけで続行)
+  await ensureMediaSession();
+  startMediaSessionKeepAlive();
+
   const userRes = await apiClient.get<User>('/auth/me/');
   set({ user: userRes.data, isLoading: false });
 }
@@ -125,8 +140,16 @@ export const useAuthStore = create<AuthState>()((set) => ({
     } catch (err) {
       console.warn('[auth] cleanup failed:', err);
     }
+    // 画面のキャッシュも消す(端末の DB だけ消すと、チーム一覧などが次の利用者に見える。DEMO-000166)
+    try {
+      const { clearCachedQueries } = await import('@/shared/sync/pull');
+      clearCachedQueries();
+    } catch (err) {
+      console.warn('[auth] cache cleanup failed:', err);
+    }
 
     clearTokens();
+    stopMediaSessionKeepAlive();
     const { clearDemoMode } = await import('@/features/demo/demoMode');
     clearDemoMode();
     set({ user: null, isAuthenticated: false, isLoading: false });
@@ -139,8 +162,14 @@ export const useAuthStore = create<AuthState>()((set) => ({
       return;
     }
     try {
-      const { data } = await apiClient.get<User>('/auth/me/');
+      // 添付画像用のCookieは /auth/me/ と並行して確保する(isLoading が外れて最初の画面が描画される前に間に合わせる。
+      // 最大3秒。遅くても待ちきらず先へ進む)
+      const [{ data }] = await Promise.all([
+        apiClient.get<User>('/auth/me/'),
+        ensureMediaSessionWithin(3000),
+      ]);
       set({ user: data, isAuthenticated: true, isLoading: false });
+      startMediaSessionKeepAlive();
     } catch {
       clearTokens();
       set({ user: null, isAuthenticated: false, isLoading: false });
@@ -153,6 +182,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
     enableDemoMode();
     setTokens(DEMO_ACCESS_TOKEN, DEMO_ACCESS_TOKEN);
     set({ isAuthenticated: true });
+
+    // メディアセッション確保（デモモードではスキップされる）
+    await ensureMediaSession();
+
     try {
       const userRes = await apiClient.get<User>('/auth/me/');
       set({ user: userRes.data, isLoading: false });

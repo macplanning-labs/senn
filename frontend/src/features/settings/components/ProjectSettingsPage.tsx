@@ -14,6 +14,7 @@ import { useNavigate, Link, useParams } from 'react-router-dom';
 import { useProjectByPrefix } from '@/shared/sync/repos/projectRepo';
 import { ProjectTeamsSection } from '@/features/projects/components/ProjectTeamsSection';
 import { useUIStore } from '@/shared/stores/uiStore';
+import { userInitial, userLabel } from '@/shared/utils/userLabel';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
@@ -59,7 +60,13 @@ const LANGUAGES = [
 ] as const;
 
 /** General タブ — 言語・テーマ・プロフィール（旧 SettingsPage の内容を統合） */
-function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof useProjectByPrefix> }) {
+function GeneralSettings({
+  currentProject,
+  readOnly,
+}: {
+  currentProject: ReturnType<typeof useProjectByPrefix>;
+  readOnly: boolean;
+}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useUIStore();
@@ -73,7 +80,7 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
 
   const canDeleteProject =
     !!user &&
-    (user.isStaff || currentProject?.ownerId === user.id);
+    (user.isSystemAdmin || currentProject?.ownerId === user.id);
 
 
   const updateDescription = useMutation({
@@ -95,10 +102,10 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
     onSuccess: () => {
       // 端末内 DB へ即時反映、送信はキュー経由
       setDescriptionEdit(false);
-      addToast({ message: '説明を更新しました', type: 'success' });
+      addToast({ message: t('settings.descriptionUpdated'), type: 'success' });
     },
     onError: () => {
-      addToast({ message: '説明の更新に失敗しました', type: 'error' });
+      addToast({ message: t('settings.descriptionUpdateFailed'), type: 'error' });
     },
   });
 
@@ -110,10 +117,10 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
       await localUpdateProject(currentProject!.id, payload, payload);
     },
     onSuccess: () => {
-      addToast({ message: 'サイクル設定を更新しました', type: 'success' });
+      addToast({ message: t('settings.cycleSettingsUpdated'), type: 'success' });
     },
     onError: () => {
-      addToast({ message: 'サイクル設定の更新に失敗しました', type: 'error' });
+      addToast({ message: t('settings.cycleSettingsUpdateFailed'), type: 'error' });
     },
   });
 
@@ -135,7 +142,7 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
       if (detail) {
         addToast({ message: detail, type: 'error' });
       } else if (axiosErr.response?.status === 409) {
-        addToast({ message: 'チケットが存在するプロジェクトは削除できません', type: 'error' });
+        addToast({ message: t('settings.projectHasTicketsCannotDelete'), type: 'error' });
       } else {
         addToast({ message: t('settings.deleteProjectFailed'), type: 'error' });
       }
@@ -144,6 +151,8 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
 
   return (
     <div>
+      {/* プロジェクトの設定。Guest は閲覧のみ(入力欄・ボタンをまとめて無効にする。サーバーも 403) */}
+      <fieldset className="project-settings__fieldset" disabled={readOnly}>
       {/* 参加チーム(追加・外す) */}
       {currentProject && <ProjectTeamsSection projectId={currentProject.id} />}
 
@@ -289,6 +298,7 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
           </div>
         </>
       )}
+      </fieldset>
 
       {/* プロフィール */}
       <div className="settings-section__header">
@@ -308,11 +318,11 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
               color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 'var(--font-size-lg)', fontWeight: 'var(--font-weight-bold)',
             }}>
-              {(user?.firstName || user?.username || '?')[0]?.toUpperCase()}
+              {userInitial(user)}
             </span>
             <div>
               <div style={{ fontWeight: 'var(--font-weight-semibold)', color: 'var(--color-text-primary)' }}>
-                {user?.firstName ? `${user.firstName} ${user.lastName}` : user?.username}
+                {userLabel(user)}
               </div>
               <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>
                 {user?.email}
@@ -420,9 +430,9 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
                   {t('settings.deleteProject')}
                 </h3>
                 <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)' }}>
-                  プロジェクトを完全に削除します。この操作は取り消せません。
-                  {user?.isStaff && currentProject.ownerId !== user.id && (
-                    <> 管理者権限で削除します。</>
+                  {t('settings.deleteProjectWarningFull')}
+                  {user?.isSystemAdmin && currentProject.ownerId !== user.id && (
+                    <> {t('settings.deleteProjectAdminNote')}</>
                   )}
                 </p>
               </div>
@@ -441,7 +451,7 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
                   opacity: deleteProject.isPending ? 0.6 : 1,
                 }}
               >
-                {deleteProject.isPending ? '削除中...' : t('settings.deleteProject')}
+                {deleteProject.isPending ? t('common.deleting') : t('settings.deleteProject')}
               </button>
             </div>
           </div>
@@ -475,7 +485,7 @@ function GeneralSettings({ currentProject }: { currentProject: ReturnType<typeof
                 disabled={deleteProject.isPending}
                 data-testid="delete-project-confirm-btn"
               >
-                {deleteProject.isPending ? '削除中...' : t('settings.deleteProject')}
+                {deleteProject.isPending ? t('common.deleting') : t('settings.deleteProject')}
               </button>
             </div>
           </div>
@@ -490,7 +500,9 @@ export function ProjectSettingsPage() {
   const { projectKey } = useParams<{ projectKey: string }>();
   const [activeTab, setActiveTab] = useState<TabKey>('general');
   const currentProject = useProjectByPrefix(projectKey);
-  const tabs = getTabs(t);
+  // Guest はプロジェクトの設定を変更できない(サーバーも 403)。閲覧のみにし、連携の設定は出さない
+  const readOnly = useAuthStore((s) => s.user?.isGuest ?? false);
+  const tabs = getTabs(t).filter((tab) => !(readOnly && tab.key === 'integrations'));
 
   if (!currentProject) {
     return (
@@ -531,33 +543,39 @@ export function ProjectSettingsPage() {
         ))}
       </div>
 
+      {readOnly && (
+        <p className="project-settings__readonly-note" data-testid="project-settings-readonly">
+          {t('settings.guestReadOnly')}
+        </p>
+      )}
+
       {/* タブコンテンツ */}
       <div role="tabpanel">
-        {activeTab === 'general' && <GeneralSettings currentProject={currentProject} />}
-        {activeTab === 'workflow' && <WorkflowSettings />}
-        {activeTab === 'labels' && (
-          <LabelSettings projectId={currentProject.id} />
-        )}
-        {activeTab === 'categories' && (
-          <CategorySettings projectId={currentProject.id} />
-        )}
-        {activeTab === 'milestones' && (
-          <MilestoneSettings projectId={currentProject.id} />
-        )}
-        {activeTab === 'holidays' && (
-          <HolidaySettings />
-        )}
+        {activeTab === 'general' && <GeneralSettings currentProject={currentProject} readOnly={readOnly} />}
+        <fieldset className="project-settings__fieldset" disabled={readOnly}>
+          {activeTab === 'workflow' && <WorkflowSettings />}
+          {activeTab === 'labels' && (
+            <LabelSettings projectId={currentProject.id} />
+          )}
+          {activeTab === 'categories' && (
+            <CategorySettings projectId={currentProject.id} />
+          )}
+          {activeTab === 'milestones' && (
+            <MilestoneSettings projectId={currentProject.id} />
+          )}
+          {activeTab === 'holidays' && (
+            <HolidaySettings />
+          )}
+        </fieldset>
         {activeTab === 'members' && (
           <div className="settings-empty">
             <div className="settings-empty__icon">👥</div>
             <div className="settings-empty__text">
-              メンバー管理は Team 設定に統合されました。所属 Team のメンバー・
-              Project 限定ゲストは<Link to="/teams">チーム設定</Link>
-              から管理してください。
+              {t('settings.membersMovedToTeamLead')} <Link to="/teams">{t('settings.membersMovedToTeamLink')}</Link>{t('settings.membersMovedToTeamTrail')}
             </div>
           </div>
         )}
-        {activeTab === 'integrations' && (
+        {activeTab === 'integrations' && !readOnly && (
           <div>
             <IntegrationSettings projectId={currentProject.id} />
             <ChatIntegrationSettings projectId={currentProject.id} />

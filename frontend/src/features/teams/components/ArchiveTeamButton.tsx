@@ -15,7 +15,8 @@ interface ArchiveTeamButtonProps {
   team: {
     id: number;
     name: string;
-    viewerCanManage?: boolean;
+    /** Owner の操作ができるか(サーバーの判定。DEMO-000170) */
+    viewerCanManageOwners?: boolean;
     archivedAt?: string | null;
   };
 }
@@ -28,7 +29,7 @@ export function ArchiveTeamButton({ team }: ArchiveTeamButtonProps) {
   const [phase, setPhase] = useState<'idle' | 'confirm' | 'blocked'>('idle');
   const [blockedNames, setBlockedNames] = useState<string[]>([]);
 
-  if (!team.viewerCanManage || team.archivedAt) {
+  if (!team.viewerCanManageOwners || team.archivedAt) {
     return null;
   }
 

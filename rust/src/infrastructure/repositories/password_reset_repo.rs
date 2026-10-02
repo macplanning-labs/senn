@@ -1,7 +1,6 @@
 /// infrastructure/repositories/password_reset_repo.rs — パスワードリセットトークン永続化
 ///
 /// auth-core の `OneTimeTokenStore` トレイトを sqlx で実装する。
-
 use auth_core::domain::one_time_token::{OneTimeToken, OneTimeTokenStore};
 use auth_core::error::AuthError;
 use sqlx::PgPool;
@@ -130,10 +129,7 @@ mod tests {
         let old = store.consume(&old_token.token).await.expect("old consume");
         assert!(old.is_none());
 
-        let new = store
-            .consume(&new_token.token)
-            .await
-            .expect("new consume");
+        let new = store.consume(&new_token.token).await.expect("new consume");
         assert_eq!(new, Some(user_id.to_string()));
     }
 

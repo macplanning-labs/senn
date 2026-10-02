@@ -100,7 +100,7 @@ export function NotificationDropdown() {
       };
     },
     invalidateKeys: [['unread-count']],
-    errorMessage: '既読マークに失敗しました。',
+    errorMessage: t('notifications.markReadFailed'),
   });
 
   // 楽観的一括既読 — ボタン押下で全通知が即既読化 + バッジが0に
@@ -118,7 +118,7 @@ export function NotificationDropdown() {
       };
     },
     invalidateKeys: [['unread-count']],
-    errorMessage: '一括既読に失敗しました。',
+    errorMessage: t('notifications.markAllReadFailed'),
   });
 
   // 楽観的dismiss（単一）— クリックの瞬間にリストから除去
@@ -136,7 +136,7 @@ export function NotificationDropdown() {
       };
     },
     invalidateKeys: [['unread-count']],
-    errorMessage: '削除に失敗しました。',
+    errorMessage: t('notifications.dismissFailed'),
   });
 
   // 楽観的dismiss_all_read — クリックの瞬間に既読通知がリストから除去
@@ -154,7 +154,7 @@ export function NotificationDropdown() {
       };
     },
     invalidateKeys: [['unread-count']],
-    errorMessage: '既読の削除に失敗しました。',
+    errorMessage: t('notifications.dismissAllReadFailed'),
   });
 
   // ドロップダウンを開いた時、ベルボタン基準で位置を計算する(document.bodyへポータルするため)

@@ -1,7 +1,6 @@
 /// domain/models/triage_api.rs — トリアージ依頼リソース表現
 ///
 /// t_triage_request テーブル用の JSON API モデル。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;

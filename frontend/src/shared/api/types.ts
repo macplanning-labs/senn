@@ -444,7 +444,22 @@ export interface Team {
   archivedAt?: string | null;
   /** 閲覧者が、このチームをアーカイブ・復元できるか(システム管理者 / そのチームの管理者)。チーム一覧の応答でだけ付く */
   viewerCanManage?: boolean;
+  /**
+   * 閲覧者が、このチームで Owner の操作(Owner の指名・解除、方針・公開区分の変更、招待、Guest の追加、
+   * 削除・アーカイブ)ができるか。サーバーが判定の関数から計算する。これらのボタンは、この値だけで出し分ける
+   * (画面で権限を計算しない。DEMO-000170)
+   */
+  viewerCanManageOwners?: boolean;
+  /** 公開区分(アクセス制御の再設計)。Private はメンバーにだけ見える */
+  visibility?: TeamVisibility;
+  /** 設定の方針。members = メンバー全員が設定できる / owners = Owner だけ */
+  settingsPolicy?: TeamSettingsPolicy;
+  /** 閲覧者がこのチームに参加しているか(サイドバーは参加済みのチームだけを出す) */
+  viewerIsMember?: boolean;
 }
+
+export type TeamVisibility = 'public' | 'private';
+export type TeamSettingsPolicy = 'members' | 'owners';
 
 export type TeamRole = 'admin' | 'member';
 

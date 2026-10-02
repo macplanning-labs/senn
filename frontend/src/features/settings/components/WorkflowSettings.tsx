@@ -16,13 +16,15 @@ import type { WorkflowStatus, StatusCategory } from '@/shared/api/types';
 import './WorkflowSettings.css';
 import { useTranslation } from 'react-i18next';
 
-const CATEGORY_OPTIONS: { value: StatusCategory; label: string; color: string }[] = [
-  { value: 'backlog', label: 'バックログ', color: '#666666' },
-  { value: 'unstarted', label: '未着手', color: '#a0a0a0' },
-  { value: 'started', label: '進行中', color: '#f5a623' },
-  { value: 'completed', label: '完了', color: '#50e3c2' },
-  { value: 'cancelled', label: 'キャンセル', color: '#ff4d4f' },
-];
+function getCategoryOptions(t: (key: string) => string): { value: StatusCategory; label: string; color: string }[] {
+  return [
+    { value: 'backlog', label: t('settings.statusPresetBacklog'), color: '#666666' },
+    { value: 'unstarted', label: t('settings.statusPresetUnstarted'), color: '#a0a0a0' },
+    { value: 'started', label: t('settings.statusPresetStarted'), color: '#f5a623' },
+    { value: 'completed', label: t('settings.statusPresetCompleted'), color: '#50e3c2' },
+    { value: 'cancelled', label: t('settings.statusPresetCancelled'), color: '#ff4d4f' },
+  ];
+}
 
 export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
   const { t } = useTranslation();
@@ -81,11 +83,11 @@ export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
   return (
     <div className="workflow-settings">
       <div className="workflow-settings__header">
-        <h3 className="workflow-settings__title">ワークフローステータス</h3>
+        <h3 className="workflow-settings__title">{t('settings.workflowStatusTitle')}</h3>
         <p className="workflow-settings__desc">
           {teamId
-            ? 'チーム固有のステータスを定義します。Team だけのチケットはこのマスタを使います。'
-            : 'プロジェクト固有のステータスを定義します。カンバンカラムはこの順序で表示されます。'}
+            ? t('settings.workflowStatusHintTeam')
+            : t('settings.workflowStatusHintProject')}
         </p>
       </div>
 
@@ -119,7 +121,7 @@ export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
               value={status.category}
               onChange={(e) => handleUpdate(status, 'category', e.target.value)}
             >
-              {CATEGORY_OPTIONS.map(opt => (
+              {getCategoryOptions(t).map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
@@ -136,7 +138,7 @@ export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
               <button
                 className="workflow-status-row__delete"
                 onClick={() => handleDelete(status)}
-                title="削除"
+                title={t('common.delete')}
               >
                 ×
               </button>
@@ -149,7 +151,7 @@ export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
       <div className="workflow-settings__add">
         <input
           className="workflow-settings__add-input"
-          placeholder="ステータス名"
+          placeholder={t('settings.statusNamePlaceholder')}
           value={newName}
           onChange={(e) => {
             setNewName(e.target.value);
@@ -167,7 +169,7 @@ export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
           value={newCategory}
           onChange={(e) => setNewCategory(e.target.value as StatusCategory)}
         >
-          {CATEGORY_OPTIONS.map(opt => (
+          {getCategoryOptions(t).map(opt => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
@@ -182,7 +184,7 @@ export function WorkflowSettings({ teamId }: { teamId?: number } = {}) {
           onClick={handleCreate}
           disabled={!newName.trim() || !newSlug.trim() || createMutation.isPending}
         >
-          + 追加
+          {t('settings.addStatus')}
         </button>
       </div>
     </div>

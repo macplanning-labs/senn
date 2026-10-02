@@ -104,7 +104,7 @@ export function LoginForm() {
         // 出さない。静かにローディング状態を解除するのみ。
       } else {
         const detail = err?.response?.data?.detail;
-        setError(detail || 'パスキー認証に失敗しました');
+        setError(detail || t('auth.passkeyAuthFailed'));
       }
     } finally {
       setIsLoading(false);

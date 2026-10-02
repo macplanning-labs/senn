@@ -20,7 +20,7 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
   if (points.length === 0) {
     return (
       <div className="burndown-chart burndown-chart--empty">
-        <h3 className="burndown-chart__title">バーンダウン</h3>
+        <h3 className="burndown-chart__title">{t('cycle.burndownTitle')}</h3>
         <p className="burndown-chart__hint">
           {t('cycle.burndownEmpty')}
         </p>
@@ -84,7 +84,7 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
 
   return (
     <div className="burndown-chart">
-      <h3 className="burndown-chart__title">バーンダウン</h3>
+      <h3 className="burndown-chart__title">{t('cycle.burndownTitle')}</h3>
       <svg
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
         className="burndown-chart__svg"
@@ -184,11 +184,11 @@ export function BurndownChart({ cycleId }: { cycleId: number }) {
         {/* 凡例 */}
         <g transform={`translate(${CHART_WIDTH - PADDING.right - 210}, ${PADDING.top})`}>
           <line x1="0" y1="4" x2="15" y2="4" stroke="var(--color-text-tertiary)" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.6" />
-          <text x="18" y="8" fill="var(--color-text-tertiary)" fontSize="9">理想</text>
+          <text x="18" y="8" fill="var(--color-text-tertiary)" fontSize="9">{t('cycle.idealLineLabel')}</text>
           <line x1="50" y1="4" x2="65" y2="4" stroke="var(--color-warning)" strokeWidth="1.5" strokeDasharray="4 4" opacity="0.7" />
-          <text x="68" y="8" fill="var(--color-text-tertiary)" fontSize="9">スコープ</text>
+          <text x="68" y="8" fill="var(--color-text-tertiary)" fontSize="9">{t('cycle.scopeLineLabel')}</text>
           <line x1="120" y1="4" x2="135" y2="4" stroke="var(--color-accent)" strokeWidth="2" />
-          <text x="138" y="8" fill="var(--color-text-secondary)" fontSize="9">実績</text>
+          <text x="138" y="8" fill="var(--color-text-secondary)" fontSize="9">{t('cycle.actualLineLabel')}</text>
         </g>
       </svg>
       <p className="burndown-chart__hint burndown-chart__hint--caption">

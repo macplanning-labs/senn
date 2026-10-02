@@ -3,22 +3,21 @@
 /// POST   /api/v1/tickets/{ticket_key}/attachments/   → アップロード
 /// GET    /api/v1/tickets/{ticket_key}/attachments/   → 一覧
 /// DELETE /api/v1/tickets/{ticket_key}/attachments/{attachment_id}/ → 削除
-
 use axum::{
-    extract::{State, Path, Multipart},
-    response::{IntoResponse, Response},
+    extract::{Multipart, Path, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
-    Extension,
 };
 use serde::Serialize;
-use uuid::Uuid;
 use std::path::PathBuf;
 use tokio::fs;
+use uuid::Uuid;
 
-use crate::presentation::state::AppState;
+use crate::domain::access::Viewer;
+use crate::infrastructure::repositories::{attachment_repo, ticket_repo};
 use crate::presentation::middleware::jwt_auth::AuthUser;
-use crate::infrastructure::repositories::{ticket_repo, attachment_repo};
+use crate::presentation::state::AppState;
 
 // =============================================================================
 // レスポンス構造体
@@ -63,10 +62,16 @@ pub struct ErrorResponse {
 /// POST /api/v1/tickets/{ticket_key}/attachments/ — 添付ファイルアップロード
 pub async fn upload_attachment(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
     mut multipart: Multipart,
 ) -> Response {
+    let auth = AuthUser {
+        user_id: match viewer.require_user_id() {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        },
+    };
     // チケットをキーまたはIDで検索
     let ticket = match resolve_ticket(&state, &ticket_key).await {
         Ok(Some(t)) => t,
@@ -92,6 +97,18 @@ pub async fn upload_attachment(
     };
 
     let ticket_id = ticket.base.id;
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "POST /api/v1/tickets/{ticket_key}/attachments/",
+    )
+    .await
+    {
+        return resp;
+    }
 
     // マルチパートから file / commentId フィールドを抽出
     let mut file_field = None;
@@ -138,7 +155,7 @@ pub async fn upload_attachment(
     // commentId が指定された場合、チケットに属するコメントか検証
     if let Some(cid) = comment_id {
         match sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM tickets_comment WHERE id = $1 AND ticket_id = $2)"
+            "SELECT EXISTS(SELECT 1 FROM tickets_comment WHERE id = $1 AND ticket_id = $2)",
         )
         .bind(cid)
         .bind(ticket_id)
@@ -225,23 +242,22 @@ pub async fn upload_attachment(
     };
 
     // ユーザー情報を取得
-    let username = match sqlx::query_scalar::<_, String>(
-        "SELECT username FROM accounts_user WHERE id = $1"
-    )
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await
-    {
-        Ok(Some(u)) => u,
-        Ok(None) => "unknown".to_string(),
-        Err(e) => {
-            tracing::error!("Failed to fetch uploader username: {}", e);
-            "unknown".to_string()
-        }
-    };
+    let username =
+        match sqlx::query_scalar::<_, String>("SELECT username FROM accounts_user WHERE id = $1")
+            .bind(auth.user_id)
+            .fetch_optional(&state.pool)
+            .await
+        {
+            Ok(Some(u)) => u,
+            Ok(None) => "unknown".to_string(),
+            Err(e) => {
+                tracing::error!("Failed to fetch uploader username: {}", e);
+                "unknown".to_string()
+            }
+        };
 
     let display_name = match sqlx::query_scalar::<_, String>(
-        "SELECT display_name FROM accounts_user WHERE id = $1"
+        "SELECT display_name FROM accounts_user WHERE id = $1",
     )
     .bind(auth.user_id)
     .fetch_optional(&state.pool)
@@ -278,7 +294,7 @@ pub async fn upload_attachment(
 /// GET /api/v1/tickets/{ticket_key}/attachments/ — 添付ファイル一覧
 pub async fn list_attachments(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path(ticket_key): Path<String>,
 ) -> Response {
     // チケットをキーまたはIDで検索
@@ -305,8 +321,22 @@ pub async fn list_attachments(
         }
     };
 
+    let ticket_id = ticket.base.id;
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Read,
+        "GET /api/v1/tickets/{ticket_key}/attachments/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     // チケットの添付ファイルを取得
-    let attachments = match attachment_repo::find_by_ticket(&state.pool, ticket.base.id).await {
+    let attachments = match attachment_repo::find_by_ticket(&state.pool, ticket_id).await {
         Ok(atts) => atts,
         Err(e) => {
             tracing::error!("Failed to find attachments: {}", e);
@@ -325,7 +355,7 @@ pub async fn list_attachments(
     for att in attachments {
         // ユーザー情報を取得
         let username = match sqlx::query_scalar::<_, String>(
-            "SELECT username FROM accounts_user WHERE id = $1"
+            "SELECT username FROM accounts_user WHERE id = $1",
         )
         .bind(att.uploader_id)
         .fetch_optional(&state.pool)
@@ -340,7 +370,7 @@ pub async fn list_attachments(
         };
 
         let display_name = match sqlx::query_scalar::<_, String>(
-            "SELECT display_name FROM accounts_user WHERE id = $1"
+            "SELECT display_name FROM accounts_user WHERE id = $1",
         )
         .bind(att.uploader_id)
         .fetch_optional(&state.pool)
@@ -360,7 +390,9 @@ pub async fn list_attachments(
             file_size: att.file_size,
             size_display: format_file_size(att.file_size),
             is_image: att.is_image(),
-            created_at: att.created_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            created_at: att
+                .created_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             uploader: UploaderInfo {
                 id: att.uploader_id,
                 username,
@@ -377,7 +409,7 @@ pub async fn list_attachments(
 /// DELETE /api/v1/tickets/{ticket_key}/attachments/{attachment_id}/ — 添付ファイル削除
 pub async fn delete_attachment(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthUser>,
+    viewer: Viewer,
     Path((ticket_key, attachment_id)): Path<(String, i32)>,
 ) -> Response {
     // チケットをキーまたはIDで検索
@@ -404,6 +436,20 @@ pub async fn delete_attachment(
         }
     };
 
+    let ticket_id = ticket.base.id;
+
+    if let Err(resp) = crate::presentation::extractors::authorize::authorize_ticket(
+        &state,
+        &viewer,
+        ticket_id,
+        crate::domain::access::Action::Write,
+        "DELETE /api/v1/tickets/{ticket_key}/attachments/{attachment_id}/",
+    )
+    .await
+    {
+        return resp;
+    }
+
     // 添付ファイルを検索
     let attachment = match attachment_repo::find_by_id(&state.pool, attachment_id).await {
         Ok(Some(att)) => att,
@@ -429,7 +475,7 @@ pub async fn delete_attachment(
     };
 
     // チケットIDが一致するか確認
-    if attachment.ticket_id != ticket.base.id {
+    if attachment.ticket_id != ticket_id {
         return (
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {
@@ -443,7 +489,11 @@ pub async fn delete_attachment(
     let media_dir = PathBuf::from(&state.config.media_dir);
     let file_path = media_dir.join(&attachment.file_path);
     if let Err(e) = fs::remove_file(&file_path).await {
-        tracing::warn!("Failed to delete attachment file {}: {}", file_path.display(), e);
+        tracing::warn!(
+            "Failed to delete attachment file {}: {}",
+            file_path.display(),
+            e
+        );
         // ファイルが存在しない場合は警告のみ、エラーではない
     }
 
@@ -473,22 +523,34 @@ async fn resolve_ticket(
     ticket_key_or_id: &str,
 ) -> anyhow::Result<Option<crate::domain::models::ticket_api::TicketDetailOut>> {
     // 最初にキーで検索
-    if let Some(ticket) = ticket_repo::api_find_by_key(&state.pool, ticket_key_or_id, None, &state.config.wip_ai_api_user).await? {
+    if let Some(ticket) = ticket_repo::api_find_by_key(
+        &state.pool,
+        ticket_key_or_id,
+        None,
+        &state.config.wip_ai_api_user,
+    )
+    .await?
+    {
         return Ok(Some(ticket));
     }
 
     // キーでの検索に失敗した場合、数値IDで検索
     if let Ok(id) = ticket_key_or_id.parse::<i32>() {
         // IDから ticket_key を取得
-        if let Some(ticket_key) = sqlx::query_scalar::<_, String>(
-            "SELECT ticket_key FROM tickets_ticket WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
+        if let Some(ticket_key) =
+            sqlx::query_scalar::<_, String>("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&state.pool)
+                .await?
         {
             // ticket_key で検索
-            return ticket_repo::api_find_by_key(&state.pool, &ticket_key, None, &state.config.wip_ai_api_user).await;
+            return ticket_repo::api_find_by_key(
+                &state.pool,
+                &ticket_key,
+                None,
+                &state.config.wip_ai_api_user,
+            )
+            .await;
         }
     }
 

@@ -141,6 +141,9 @@ pub struct TicketListOut {
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
     pub updated_at: DateTime<Utc>,
+    /// AI 経由で作られたか(アクセス制御の再設計 F-3。個人キーでは作成者が持ち主本人になるため、印で残す)
+    #[serde(rename = "createdViaAi")]
+    pub created_via_ai: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

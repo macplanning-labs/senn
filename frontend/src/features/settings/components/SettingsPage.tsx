@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
+import { userInitial, userLabel } from '@/shared/utils/userLabel';
 import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
@@ -33,11 +34,11 @@ interface TabDef {
 
 function getTabs(t: ReturnType<typeof useTranslation>['t']): TabDef[] {
   return [
-    { key: 'profile', label: t('settings.tabProfile', 'プロフィール'), icon: '👤' },
-    { key: 'notifications', label: t('settings.tabNotifications', '通知'), icon: '🔔' },
-    { key: 'security', label: t('settings.tabSecurity', 'セキュリティ'), icon: '🔒' },
-    { key: 'ai', label: t('settings.tabAi', 'AI'), icon: '🤖' },
-    { key: 'shortcuts', label: t('settings.tabShortcuts', 'ショートカット'), icon: '⌨️' },
+    { key: 'profile', label: t('settings.tabProfile'), icon: '👤' },
+    { key: 'notifications', label: t('settings.tabNotifications'), icon: '🔔' },
+    { key: 'security', label: t('settings.tabSecurity'), icon: '🔒' },
+    { key: 'ai', label: t('settings.tabAi'), icon: '🤖' },
+    { key: 'shortcuts', label: t('settings.tabShortcuts'), icon: '⌨️' },
   ];
 }
 
@@ -81,7 +82,7 @@ export function SettingsPage() {
         });
       }
       setIsEditingProfile(false);
-      toast.success(t('settings.profileUpdated', 'プロフィール更新完了'));
+      toast.success(t('settings.profileUpdated'));
     },
     onError: (error: any) => {
       const errorMessage = error?.response?.data?.detail || t('settings.updateFailed');
@@ -97,7 +98,7 @@ export function SettingsPage() {
       return data;
     },
     onSuccess: () => {
-      toast.success(t('settings.accountDeactivated', 'アカウントを削除しました'));
+      toast.success(t('settings.accountDeactivated'));
       setShowDeactivateModal(false);
       setDeactivatePassword('');
       // ログアウトして、ログイン画面に遷移
@@ -105,7 +106,7 @@ export function SettingsPage() {
       navigate('/');
     },
     onError: (error: any) => {
-      const errorMessage = error?.response?.data?.detail || t('settings.deactivateFailed', 'アカウント削除に失敗しました');
+      const errorMessage = error?.response?.data?.detail || t('settings.deactivateFailed');
       toast.error(errorMessage);
     },
   });
@@ -188,16 +189,16 @@ export function SettingsPage() {
                 />
               </div>
               <div className="settings__form-group">
-                <label className="settings__form-label">{t('common.alias', 'ニックネーム（エイリアス）')}</label>
+                <label className="settings__form-label">{t('common.alias')}</label>
                 <input
                   type="text"
                   className="settings__form-input"
                   value={profileFormData.alias}
                   onChange={(e) => setProfileFormData({ ...profileFormData, alias: e.target.value })}
-                  placeholder="未設定"
+                  placeholder={t('common.notSet')}
                 />
                 <small style={{ marginTop: 'var(--space-1)', color: 'var(--color-text-tertiary)', display: 'block' }}>
-                  コメント欄の@メンションで、表示名・ログイン名に加えてこのニックネームでも指定できます
+                  {t('settings.aliasHint')}
                 </small>
               </div>
               <div className="settings__form-actions">
@@ -231,11 +232,11 @@ export function SettingsPage() {
             <>
               <div className="settings__profile">
                 <span className="settings__avatar">
-                  {(user?.firstName || user?.username || '?')[0]?.toUpperCase()}
+                  {userInitial(user)}
                 </span>
                 <div className="settings__profile-info">
                   <span className="settings__profile-name">
-                    {user?.firstName ? `${user.firstName} ${user.lastName}` : user?.username}
+                    {userLabel(user)}
                   </span>
                   <span className="settings__profile-email">{user?.email}</span>
                 </div>
@@ -260,10 +261,10 @@ export function SettingsPage() {
           <div className="settings__danger-content">
             <div>
               <h3 className="settings__danger-title">
-                {t('settings.deleteAccount', 'アカウントを削除')}
+                {t('settings.deleteAccount')}
               </h3>
               <p className="settings__danger-description">
-                {t('settings.deleteAccountWarning', 'このアクションは取り消せません。あなたのアカウントは論理削除され、ログインできなくなります。')}
+                {t('settings.deleteAccountWarning')}
               </p>
             </div>
             <button
@@ -271,7 +272,7 @@ export function SettingsPage() {
               onClick={() => setShowDeactivateModal(true)}
               disabled={deactivateAccountMutation.isPending}
             >
-              {t('settings.deleteMyAccount', 'アカウントを削除する')}
+              {t('settings.deleteMyAccount')}
             </button>
           </div>
         </div>
@@ -283,7 +284,7 @@ export function SettingsPage() {
           <div className="settings__modal" onClick={(e) => e.stopPropagation()}>
             <div className="settings__modal-header">
               <h3 className="settings__modal-title">
-                {t('settings.confirmDelete', 'アカウント削除の確認')}
+                {t('settings.confirmDelete')}
               </h3>
               <button
                 className="settings__modal-close"
@@ -296,16 +297,16 @@ export function SettingsPage() {
             </div>
             <div className="settings__modal-body">
               <p className="settings__modal-warning">
-                {t('settings.deleteWarningFinal', '本当にアカウントを削除しますか？このアクションは取り消せません。')}
+                {t('settings.deleteWarningFinal')}
               </p>
               <div className="settings__form-group">
                 <label className="settings__form-label">
-                  {t('settings.currentPassword', '現在のパスワード')}
+                  {t('settings.currentPassword')}
                 </label>
                 <input
                   type="password"
                   className="settings__form-input"
-                  placeholder={t('settings.enterPassword', 'パスワードを入力してください')}
+                  placeholder={t('settings.enterPassword')}
                   value={deactivatePassword}
                   onChange={(e) => setDeactivatePassword(e.target.value)}
                   disabled={deactivateAccountMutation.isPending}
@@ -318,7 +319,7 @@ export function SettingsPage() {
                 onClick={() => setShowDeactivateModal(false)}
                 disabled={deactivateAccountMutation.isPending}
               >
-                {t('common.cancel', 'キャンセル')}
+                {t('common.cancel')}
               </button>
               <button
                 className="settings__btn settings__btn--danger"
@@ -326,8 +327,8 @@ export function SettingsPage() {
                 disabled={!deactivatePassword || deactivateAccountMutation.isPending}
               >
                 {deactivateAccountMutation.isPending
-                  ? t('common.deleting', '削除中...')
-                  : t('settings.deleteMyAccount', 'アカウントを削除する')}
+                  ? t('common.deleting')
+                  : t('settings.deleteMyAccount')}
               </button>
             </div>
           </div>

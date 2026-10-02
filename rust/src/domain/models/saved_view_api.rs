@@ -1,7 +1,6 @@
 /// domain/models/saved_view_api.rs — Saved View JSON API モデル
 ///
 /// t_saved_view テーブル用。個人用チケット一覧フィルタ。
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;

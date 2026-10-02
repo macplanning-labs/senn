@@ -1,10 +1,9 @@
 /// infrastructure/repositories/workload_report_repo.rs — 稼働レポート集計
 ///
 /// Django apps/api/views/workload_report.py の移植。
-
 use chrono::NaiveDate;
-use sqlx::{PgPool, Row};
 use serde_json::{json, Value};
+use sqlx::{PgPool, Row};
 
 pub struct WorkloadReport {
     pub start_date: NaiveDate,
@@ -17,32 +16,53 @@ pub struct WorkloadReport {
     pub by_project: Vec<Value>,
 }
 
+/// 集計の条件(時間記録の別名 `te`、チケットの別名 `t`)。`scope` があれば、閲覧者が見えるチームの
+/// チケットの時間記録だけを集計する(設計書 §5.2。プロジェクト単位の所属・チームの無いチケットは含めない)
+fn push_filters(
+    qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    start_date: NaiveDate,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
+) {
+    qb.push("DATE(te.created_at) >= ").push_bind(start_date);
+    if let Some(p) = project_id {
+        qb.push(" AND t.project_id = ").push_bind(p as i64);
+    }
+    if let Some(t) = team_id {
+        qb.push(" AND t.team_id = ").push_bind(t as i64);
+    }
+    if let Some(scope) = scope {
+        qb.push(" AND ");
+        crate::infrastructure::access::scope_sql::push_team_visible(qb, "t.team_id", scope);
+    }
+}
+
 pub async fn get_workload_report(
     pool: &PgPool,
     start_date: NaiveDate,
     end_date: NaiveDate,
     project_id: Option<i32>,
     team_id: Option<i32>,
+    scope: Option<&crate::domain::access::Scope>,
 ) -> anyhow::Result<WorkloadReport> {
+    let filters = |qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>| {
+        push_filters(qb, start_date, project_id, team_id, scope)
+    };
+
     // 日別集計
-    let daily_rows = sqlx::query(
+    let mut qb = sqlx::QueryBuilder::new(
         "SELECT
             DATE(te.created_at) AS d,
             COALESCE(SUM(te.duration_minutes), 0)::int8 AS total_minutes,
             COUNT(*)::int8 AS entry_count
          FROM t_time_entry te
          JOIN tickets_ticket t ON te.ticket_id = t.id
-         WHERE DATE(te.created_at) >= $1
-           AND ($2::int4 IS NULL OR t.project_id = $2)
-           AND ($3::int4 IS NULL OR t.team_id = $3)
-         GROUP BY DATE(te.created_at)
-         ORDER BY d"
-    )
-    .bind(start_date)
-    .bind(project_id)
-    .bind(team_id)
-    .fetch_all(pool)
-    .await?;
+         WHERE ",
+    );
+    filters(&mut qb);
+    qb.push(" GROUP BY DATE(te.created_at) ORDER BY d");
+    let daily_rows = qb.build().fetch_all(pool).await?;
 
     let mut daily = Vec::new();
     let mut total_minutes: i64 = 0;
@@ -62,7 +82,7 @@ pub async fn get_workload_report(
     }
 
     // ユーザー別集計
-    let user_rows = sqlx::query(
+    let mut qb = sqlx::QueryBuilder::new(
         "SELECT
             u.id::int4 AS user_id, u.username,
             COALESCE(u.first_name, u.username) AS display_name,
@@ -71,17 +91,11 @@ pub async fn get_workload_report(
          FROM t_time_entry te
          JOIN tickets_ticket t ON te.ticket_id = t.id
          JOIN accounts_user u ON te.user_id = u.id
-         WHERE DATE(te.created_at) >= $1
-           AND ($2::int4 IS NULL OR t.project_id = $2)
-           AND ($3::int4 IS NULL OR t.team_id = $3)
-         GROUP BY u.id, u.username, u.first_name
-         ORDER BY total_minutes DESC"
-    )
-    .bind(start_date)
-    .bind(project_id)
-    .bind(team_id)
-    .fetch_all(pool)
-    .await?;
+         WHERE ",
+    );
+    filters(&mut qb);
+    qb.push(" GROUP BY u.id, u.username, u.first_name ORDER BY total_minutes DESC");
+    let user_rows = qb.build().fetch_all(pool).await?;
 
     let by_user: Vec<Value> = user_rows
         .iter()
@@ -97,7 +111,7 @@ pub async fn get_workload_report(
         .collect();
 
     // プロジェクト別集計
-    let project_rows = sqlx::query(
+    let mut qb = sqlx::QueryBuilder::new(
         "SELECT
             p.id::int4 AS project_id, p.name AS project_name, p.prefix AS project_prefix,
             COALESCE(SUM(te.duration_minutes), 0)::int8 AS total_minutes,
@@ -105,17 +119,11 @@ pub async fn get_workload_report(
          FROM t_time_entry te
          JOIN tickets_ticket t ON te.ticket_id = t.id
          JOIN tickets_project p ON t.project_id = p.id
-         WHERE DATE(te.created_at) >= $1
-           AND ($2::int4 IS NULL OR t.project_id = $2)
-           AND ($3::int4 IS NULL OR t.team_id = $3)
-         GROUP BY p.id, p.name, p.prefix
-         ORDER BY total_minutes DESC"
-    )
-    .bind(start_date)
-    .bind(project_id)
-    .bind(team_id)
-    .fetch_all(pool)
-    .await?;
+         WHERE ",
+    );
+    filters(&mut qb);
+    qb.push(" GROUP BY p.id, p.name, p.prefix ORDER BY total_minutes DESC");
+    let project_rows = qb.build().fetch_all(pool).await?;
 
     let by_project: Vec<Value> = project_rows
         .iter()

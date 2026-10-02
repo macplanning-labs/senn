@@ -6,17 +6,18 @@ mod routes;
 #[cfg(test)]
 mod test_support;
 
-use std::net::SocketAddr;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::infrastructure::mail::MailSender;
 use crate::presentation::state::AppState;
+use std::net::SocketAddr;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ログ初期化
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -55,7 +56,21 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(pool, config, Some(mail_sender)).await?;
 
     // 期限到来/超過リマインダースケジューラを起動
-    infrastructure::scheduler::spawn_due_date_reminders(state.pool.clone(), state.mail_sender.clone());
+    infrastructure::scheduler::spawn_due_date_reminders(
+        state.pool.clone(),
+        state.mail_sender.clone(),
+    );
+
+    // リアルタイム同期の配信役（DB の変更通知 → 部屋ごとの差分パケット）
+    if state.realtime_enabled {
+        infrastructure::realtime::dispatcher::spawn(
+            state.pool.clone(),
+            state.realtime.clone(),
+            state.config.wip_ai_api_user.clone(),
+        );
+    } else {
+        tracing::warn!("REALTIME_ENABLED=false — リアルタイム同期は無効です");
+    }
 
     // ルーター構築
     let app = routes::create_router(state);

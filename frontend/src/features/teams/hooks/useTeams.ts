@@ -97,6 +97,8 @@ export interface TeamFormData {
   slackWebhookUrl?: string;
   isActive?: boolean;
   prefix?: string;
+  /** 作成時の公開区分(省略時は public。変更は useUpdateTeamAccess で行う) */
+  visibility?: import('@/shared/api/types').TeamVisibility;
 }
 
 /** チーム作成 */

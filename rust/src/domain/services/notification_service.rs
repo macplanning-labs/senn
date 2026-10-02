@@ -2,14 +2,16 @@
 ///
 /// In-app 通知（ベル通知）の生成とメール送信トリガー。
 /// メール重複防止ロジック含む。
-
 use sqlx::PgPool;
 
 use crate::domain::models::notification::NotificationCategory;
 use crate::domain::models::user::User;
-use crate::infrastructure::mail::MailSender;
-use crate::infrastructure::repositories::{notification_preference_repo, notification_repo, ticket_repo, user_repo};
+use crate::infrastructure::access::recipients::may_notify;
 use crate::infrastructure::chat_notifier;
+use crate::infrastructure::mail::MailSender;
+use crate::infrastructure::repositories::{
+    notification_preference_repo, notification_repo, ticket_repo, user_repo,
+};
 
 /// メール通知を送ってよいか判定する(マスタースイッチ + カテゴリ別設定の両方を見る)。
 /// カテゴリ別設定の取得に失敗した場合は、通知を握りつぶさないようフェイルオープン(true)にする。
@@ -81,18 +83,32 @@ pub async fn notify_ticket_event(
         if watcher_id == actor_id {
             continue;
         }
+        // 送る時点で、宛先がこのチケットを見られること(アクセス制御の再設計 C-5)
+        if !may_notify(pool, ticket_id, watcher_id, "notify:ticket_event").await? {
+            continue;
+        }
 
         // In-app 通知作成
         notification_repo::create(
-            pool, watcher_id, Some(ticket_id),
-            category.as_db_str(), &title, &message,
-        ).await?;
+            pool,
+            watcher_id,
+            Some(ticket_id),
+            category.as_db_str(),
+            &title,
+            &message,
+        )
+        .await?;
 
         // メール送信（重複防止チェック）
         if let Some(sender) = mail_sender {
             let already_sent = notification_repo::has_recent_log(
-                pool, ticket_id, watcher_id, category.as_db_str(), 60,
-            ).await?;
+                pool,
+                ticket_id,
+                watcher_id,
+                category.as_db_str(),
+                60,
+            )
+            .await?;
 
             if !already_sent {
                 // ユーザーのメール通知設定確認
@@ -109,8 +125,12 @@ pub async fn notify_ticket_event(
                         }
 
                         notification_repo::create_log(
-                            pool, ticket_id, watcher_id, category.as_db_str(),
-                        ).await?;
+                            pool,
+                            ticket_id,
+                            watcher_id,
+                            category.as_db_str(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -136,9 +156,14 @@ pub async fn notify_comment(
     };
 
     notify_ticket_event(
-        pool, mail_sender, ticket_id, author_id,
-        NotificationCategory::Commented, &preview,
-    ).await
+        pool,
+        mail_sender,
+        ticket_id,
+        author_id,
+        NotificationCategory::Commented,
+        &preview,
+    )
+    .await
 }
 
 /// チケットの一般的なフィールド変更時の通知(ステータス変更・担当設定は別カテゴリのため対象外)
@@ -150,9 +175,14 @@ pub async fn notify_updated(
     changed_fields: &str,
 ) -> anyhow::Result<()> {
     notify_ticket_event(
-        pool, mail_sender, ticket_id, actor_id,
-        NotificationCategory::Updated, changed_fields,
-    ).await
+        pool,
+        mail_sender,
+        ticket_id,
+        actor_id,
+        NotificationCategory::Updated,
+        changed_fields,
+    )
+    .await
 }
 
 /// ステータス変更時の通知
@@ -166,9 +196,14 @@ pub async fn notify_status_change(
 ) -> anyhow::Result<()> {
     let msg = format!("{} → {}", old_status, new_status);
     notify_ticket_event(
-        pool, mail_sender, ticket_id, actor_id,
-        NotificationCategory::StatusChanged, &msg,
-    ).await
+        pool,
+        mail_sender,
+        ticket_id,
+        actor_id,
+        NotificationCategory::StatusChanged,
+        &msg,
+    )
+    .await
 }
 
 /// Cycle 自動完了時の通知
@@ -194,7 +229,7 @@ pub async fn notify_cycle_auto_completed(
              WHERE m.team_id = $1::int4
                AND (m.scoped_project_id IS NULL OR m.scoped_project_id = $2::int4)
              ORDER BY 1 ASC
-             LIMIT 100"
+             LIMIT 100",
         )
         .bind(tid)
         .bind(project_id)
@@ -212,20 +247,21 @@ pub async fn notify_cycle_auto_completed(
     if member_ids.is_empty() {
         tracing::warn!(
             "[Cycle自動完了通知] 通知先なし cycle_id={} project_id={:?} team_id={:?}",
-            cycle_id, project_id, team_id
+            cycle_id,
+            project_id,
+            team_id
         );
         return Ok(());
     }
 
     // target_cycle の名前を取得（あれば）
     let target_name = if let Some(target_id) = target_cycle_id {
-        let name: Option<String> = sqlx::query_scalar(
-            "SELECT name FROM t_cycle WHERE id = $1::int4"
-        )
-        .bind(target_id)
-        .fetch_optional(pool)
-        .await?
-        .flatten();
+        let name: Option<String> =
+            sqlx::query_scalar("SELECT name FROM t_cycle WHERE id = $1::int4")
+                .bind(target_id)
+                .fetch_optional(pool)
+                .await?
+                .flatten();
         name
     } else {
         None
@@ -233,21 +269,32 @@ pub async fn notify_cycle_auto_completed(
 
     let title = format!("📅 Cycle自動完了 — {}", cycle_name);
     let message = if let Some(tname) = target_name {
-        format!("未完了 {} 件を次 Cycle「{}」へ持ち越しました", carried_over, tname)
+        format!(
+            "未完了 {} 件を次 Cycle「{}」へ持ち越しました",
+            carried_over, tname
+        )
     } else {
         format!("未完了 {} 件を次 Cycle へ持ち越しました", carried_over)
     };
 
     for user_id in member_ids {
         if let Err(e) = notification_repo::create(
-            pool, user_id, None,
+            pool,
+            user_id,
+            None,
             NotificationCategory::CycleAutoCompleted.as_db_str(),
             &title,
             &message,
-        ).await {
+        )
+        .await
+        {
             tracing::error!(
                 "[Cycle自動完了通知] 失敗 user_id={} cycle_id={} project_id={:?} team_id={:?}: {}",
-                user_id, cycle_id, project_id, team_id, e
+                user_id,
+                cycle_id,
+                project_id,
+                team_id,
+                e
             );
         }
     }
@@ -265,9 +312,14 @@ pub async fn notify_assigned(
 ) -> anyhow::Result<()> {
     let msg = format!("担当者: {}", assignee_name);
     notify_ticket_event(
-        pool, mail_sender, ticket_id, actor_id,
-        NotificationCategory::Assigned, &msg,
-    ).await
+        pool,
+        mail_sender,
+        ticket_id,
+        actor_id,
+        NotificationCategory::Assigned,
+        &msg,
+    )
+    .await
 }
 
 /// レビュー依頼通知
@@ -280,9 +332,14 @@ pub async fn notify_review_requested(
 ) -> anyhow::Result<()> {
     let msg = format!("レビュアー: {}", reviewer_name);
     notify_ticket_event(
-        pool, mail_sender, ticket_id, actor_id,
-        NotificationCategory::ReviewRequested, &msg,
-    ).await
+        pool,
+        mail_sender,
+        ticket_id,
+        actor_id,
+        NotificationCategory::ReviewRequested,
+        &msg,
+    )
+    .await
 }
 
 /// @ユーザー名メンション通知
@@ -308,17 +365,32 @@ pub async fn notify_mentioned(
 
     let message = format!("コメントでメンションされました: {}", ticket.title);
 
+    // 送る時点で、宛先がこのチケットを見られること(アクセス制御の再設計 C-5)
+    if !may_notify(pool, ticket_id, mentioned_user_id, "notify:mentioned").await? {
+        return Ok(());
+    }
+
     // In-app 通知作成
     notification_repo::create(
-        pool, mentioned_user_id, Some(ticket_id),
-        NotificationCategory::Mentioned.as_db_str(), &title, &message,
-    ).await?;
+        pool,
+        mentioned_user_id,
+        Some(ticket_id),
+        NotificationCategory::Mentioned.as_db_str(),
+        &title,
+        &message,
+    )
+    .await?;
 
     // メール送信（重複防止チェック）
     if let Some(sender) = mail_sender {
         let already_sent = notification_repo::has_recent_log(
-            pool, ticket_id, mentioned_user_id, NotificationCategory::Mentioned.as_db_str(), 60,
-        ).await?;
+            pool,
+            ticket_id,
+            mentioned_user_id,
+            NotificationCategory::Mentioned.as_db_str(),
+            60,
+        )
+        .await?;
 
         if !already_sent {
             // ユーザーのメール通知設定確認
@@ -335,8 +407,12 @@ pub async fn notify_mentioned(
                     }
 
                     notification_repo::create_log(
-                        pool, ticket_id, mentioned_user_id, NotificationCategory::Mentioned.as_db_str(),
-                    ).await?;
+                        pool,
+                        ticket_id,
+                        mentioned_user_id,
+                        NotificationCategory::Mentioned.as_db_str(),
+                    )
+                    .await?;
                 }
             }
         }
@@ -358,7 +434,13 @@ async fn notify_due_reminder(
     user_id: i32,
     category: NotificationCategory,
 ) -> anyhow::Result<()> {
-    if notification_repo::has_recent_log(pool, ticket_id, user_id, category.as_db_str(), 1380).await? {
+    if notification_repo::has_recent_log(pool, ticket_id, user_id, category.as_db_str(), 1380)
+        .await?
+    {
+        return Ok(());
+    }
+    // 送る時点で、宛先がこのチケットを見られること(アクセス制御の再設計 C-5)
+    if !may_notify(pool, ticket_id, user_id, "notify:due_reminder").await? {
         return Ok(());
     }
 
@@ -366,8 +448,14 @@ async fn notify_due_reminder(
     let message = ticket_title.to_string();
 
     notification_repo::create(
-        pool, user_id, Some(ticket_id), category.as_db_str(), &title, &message,
-    ).await?;
+        pool,
+        user_id,
+        Some(ticket_id),
+        category.as_db_str(),
+        &title,
+        &message,
+    )
+    .await?;
     notification_repo::create_log(pool, ticket_id, user_id, category.as_db_str()).await?;
 
     if let Some(sender) = mail_sender {
@@ -406,11 +494,21 @@ pub async fn run_due_date_reminders(
         };
 
         if let Err(e) = notify_due_reminder(
-            pool, mail_sender, t.ticket_id, &t.ticket_key, &t.title, t.user_id, category,
-        ).await {
+            pool,
+            mail_sender,
+            t.ticket_id,
+            &t.ticket_key,
+            &t.title,
+            t.user_id,
+            category,
+        )
+        .await
+        {
             tracing::error!(
                 "notify_due_reminder failed ticket_id={} user_id={}: {:?}",
-                t.ticket_id, t.user_id, e
+                t.ticket_id,
+                t.user_id,
+                e
             );
         }
     }
@@ -429,7 +527,9 @@ mod tests {
     /// ウォッチャーへ通知が作成され、投稿者自身には作成されないことを確認する。
     #[tokio::test]
     async fn notify_comment_creates_notification_for_watcher_but_not_author() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "notif-author").await;
         let watcher = test_support::create_test_user(&pool, "notif-watcher").await;
         let project = test_support::create_test_project(&pool, "NTF", author).await;
@@ -442,7 +542,9 @@ mod tests {
             .await
             .unwrap();
 
-        notify_comment(&pool, &None, ticket_id, author, "テストコメント").await.unwrap();
+        notify_comment(&pool, &None, ticket_id, author, "テストコメント")
+            .await
+            .unwrap();
 
         let watcher_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM notifications_notification WHERE user_id = $1 AND ticket_id = $2 AND category = 'commented'"
@@ -455,37 +557,46 @@ mod tests {
         assert_eq!(watcher_count, 1, "ウォッチャーには通知が作成されるはず");
 
         let author_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM notifications_notification WHERE user_id = $1 AND ticket_id = $2"
+            "SELECT COUNT(*) FROM notifications_notification WHERE user_id = $1 AND ticket_id = $2",
         )
         .bind(author)
         .bind(ticket_id)
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(author_count, 0, "コメント投稿者自身には通知を作成しないはず");
+        assert_eq!(
+            author_count, 0,
+            "コメント投稿者自身には通知を作成しないはず"
+        );
     }
 
     /// 期限超過チケットの担当者に overdue 通知が作成され、
     /// 同一バッチを2回実行しても1日以内は重複作成されないことを確認する。
     #[tokio::test]
     async fn run_due_date_reminders_notifies_assignee_once_per_day() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let author = test_support::create_test_user(&pool, "due-author").await;
         let assignee = test_support::create_test_user(&pool, "due-assignee").await;
         let project = test_support::create_test_project(&pool, "DUE", author).await;
         let ticket_id = test_support::create_test_ticket(&pool, project, "DUE-T", author).await;
 
-        sqlx::query("UPDATE tickets_ticket SET due_date = CURRENT_DATE - INTERVAL '1 day' WHERE id = $1")
-            .bind(ticket_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)")
-            .bind(ticket_id)
-            .bind(assignee)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE tickets_ticket SET due_date = CURRENT_DATE - INTERVAL '1 day' WHERE id = $1",
+        )
+        .bind(ticket_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)",
+        )
+        .bind(ticket_id)
+        .bind(assignee)
+        .execute(&pool)
+        .await
+        .unwrap();
 
         run_due_date_reminders(&pool, &None).await.unwrap();
         run_due_date_reminders(&pool, &None).await.unwrap();
@@ -508,7 +619,9 @@ mod tests {
     /// チーム外のユーザーには作られないことを確認する。
     #[tokio::test]
     async fn notify_cycle_auto_completed_creates_notifications_for_eligible_members() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let owner = test_support::create_test_user(&pool, "cyc-owner").await;
         let member = test_support::create_test_user(&pool, "cyc-member").await;
         let guest_this = test_support::create_test_user(&pool, "cyc-guest-this").await;
@@ -536,9 +649,17 @@ mod tests {
                 .unwrap();
         }
 
-        notify_cycle_auto_completed(&pool, Some(project), Some(team), 0, "テストサイクル", 3, None)
-            .await
-            .expect("通知の作成でエラーになってはいけない");
+        notify_cycle_auto_completed(
+            &pool,
+            Some(project),
+            Some(team),
+            0,
+            "テストサイクル",
+            3,
+            None,
+        )
+        .await
+        .expect("通知の作成でエラーになってはいけない");
 
         let count_for = |user: i32| {
             let pool = pool.clone();
@@ -552,10 +673,30 @@ mod tests {
                 .unwrap()
             }
         };
-        assert_eq!(count_for(owner).await, 1, "チーム全体メンバーに通知が作られるはず");
-        assert_eq!(count_for(member).await, 1, "チーム全体メンバーに通知が作られるはず");
-        assert_eq!(count_for(guest_this).await, 1, "このプロジェクトに限定されたゲストにも通知が作られるはず");
-        assert_eq!(count_for(guest_other).await, 0, "別プロジェクトに限定されたゲストには作られないはず");
-        assert_eq!(count_for(outsider).await, 0, "チーム外のユーザーには作られないはず");
+        assert_eq!(
+            count_for(owner).await,
+            1,
+            "チーム全体メンバーに通知が作られるはず"
+        );
+        assert_eq!(
+            count_for(member).await,
+            1,
+            "チーム全体メンバーに通知が作られるはず"
+        );
+        assert_eq!(
+            count_for(guest_this).await,
+            1,
+            "このプロジェクトに限定されたゲストにも通知が作られるはず"
+        );
+        assert_eq!(
+            count_for(guest_other).await,
+            0,
+            "別プロジェクトに限定されたゲストには作られないはず"
+        );
+        assert_eq!(
+            count_for(outsider).await,
+            0,
+            "チーム外のユーザーには作られないはず"
+        );
     }
 }

@@ -27,6 +27,8 @@ export interface Project {
   cycleAutoComplete?: boolean;
   cycleAutoCreateNext?: boolean;
   teams?: { id: number; name: string; slug: string; icon: string; color: string; archived?: boolean }[];
+  /** 参加チームのうち、閲覧できないため `teams` から除かれた数 */
+  hiddenTeamCount?: number;
   // 階層・ロードマップ関連（後方互換: 任意）
   parentProjectId?: number | null;
   childCount?: number;

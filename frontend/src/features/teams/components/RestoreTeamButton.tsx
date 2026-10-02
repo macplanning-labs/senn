@@ -8,7 +8,8 @@ interface RestoreTeamButtonProps {
   team: {
     id: number;
     name: string;
-    viewerCanManage?: boolean;
+    /** Owner の操作ができるか(サーバーの判定。DEMO-000170) */
+    viewerCanManageOwners?: boolean;
     archivedAt?: string | null;
   };
 }
@@ -23,7 +24,7 @@ export function RestoreTeamButton({ team }: RestoreTeamButtonProps) {
   // (既に呼んでいるので問題ない)
 
   // アーカイブ済みで、かつ管理者のみ表示
-  if (!team.viewerCanManage || !team.archivedAt) {
+  if (!team.viewerCanManageOwners || !team.archivedAt) {
     return null;
   }
 

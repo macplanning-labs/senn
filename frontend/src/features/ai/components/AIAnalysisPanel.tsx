@@ -5,6 +5,7 @@
  * ルール違反の検出と実装アドバイスを表示する。
  */
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useContextAnalysis } from '../useAIAnalysis';
 import type { ContextAnalysisResult } from '@/shared/api/types';
 
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function AIAnalysisPanel({ ticketId }: Props) {
+  const { t } = useTranslation();
   const [result, setResult] = useState<ContextAnalysisResult | null>(null);
   const mutation = useContextAnalysis();
 
@@ -32,7 +34,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
-          🤖 AI コンテキスト分析
+          🤖 {t('ai.aiContextAnalysisTitle')}
         </h4>
         <button
           onClick={handleAnalyze}
@@ -49,13 +51,13 @@ export function AIAnalysisPanel({ ticketId }: Props) {
             opacity: mutation.isPending ? 0.7 : 1,
           }}
         >
-          {mutation.isPending ? '分析中...' : '分析する'}
+          {mutation.isPending ? t('ai.analyzing') : t('ai.analyzeButton')}
         </button>
       </div>
 
       {mutation.isError && (
         <p style={{ color: 'var(--color-error, #ff4d4f)', marginTop: '0.5rem', fontSize: '0.8125rem' }}>
-          AI分析に失敗しました。再試行してください。
+          {t('ai.analysisFailedRetry')}
         </p>
       )}
 
@@ -65,7 +67,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
           {result.rule_violations.length > 0 && (
             <div style={{ marginBottom: '0.75rem' }}>
               <h5 style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--color-warning, #f5a623)' }}>
-                ⚠️ ルール違反 ({result.rule_violations.length}件)
+                ⚠️ {t('ai.ruleViolationsTitle', { count: result.rule_violations.length })}
               </h5>
               {result.rule_violations.map((v, i) => (
                 <div
@@ -88,7 +90,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
 
           {result.rule_violations.length === 0 && (
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-success, #50e3c2)', marginBottom: '0.5rem' }}>
-              ✅ ルール違反はありません
+              ✅ {t('ai.noRuleViolations')}
             </p>
           )}
 
@@ -100,7 +102,7 @@ export function AIAnalysisPanel({ ticketId }: Props) {
             fontSize: '0.8125rem',
             color: 'var(--color-text-primary)',
           }}>
-            <strong>💡 実装アドバイス</strong>
+            💡 <strong>{t('ai.implementationAdviceLabel')}</strong>
             <p style={{ margin: '0.25rem 0 0', whiteSpace: 'pre-wrap' }}>
               {result.implementation_hint}
             </p>

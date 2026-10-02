@@ -138,3 +138,13 @@
 .teams-table__action-btn:hover {
   background: var(--color-bg-tertiary);
 }
+
+/* アクセス制御の再設計 G-2: Private の印・参加ボタン */
+.teams-table__badge--private {
+  color: var(--color-text-secondary);
+}
+
+.teams-table__action-btn--primary {
+  border-color: var(--color-accent-primary);
+  color: var(--color-accent-primary);
+}

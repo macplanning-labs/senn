@@ -11,7 +11,7 @@ vi.mock('../api/client', () => {
 
 import { apiClient } from '../api/client';
 import { db, openUserDb } from './db';
-import { accessExpanded, isAccessible, pullEntity } from './pull';
+import { accessChanged, accessExpanded, isAccessible, pullEntity } from './pull';
 import { httpError, nextUserId, page, ticketDto, ticketRow } from './__tests__/testUtils';
 
 const get = apiClient.get as unknown as ReturnType<typeof vi.fn>;
@@ -146,5 +146,21 @@ describe('isAccessible / accessExpanded', () => {
     expect(accessExpanded(a, { ...a, scopedProjects: [{ teamId: 3, projectId: 4 }] })).toBe(true);
     expect(accessExpanded(a, { all: true, teamIds: [], scopedProjects: [] })).toBe(true);
     expect(accessExpanded(null, a)).toBe(false);
+  });
+});
+
+describe('accessChanged', () => {
+  const a = { all: false, teamIds: [1, 2], scopedProjects: [{ teamId: 3, projectId: 4 }] };
+  it('順序が違うだけなら変わっていない', () => {
+    expect(accessChanged(a, { ...a, teamIds: [2, 1] })).toBe(false);
+  });
+  it('チームの増減・all の変化・プロジェクト単位の所属の変化を検出する', () => {
+    expect(accessChanged(a, { ...a, teamIds: [1] })).toBe(true);
+    expect(accessChanged(a, { ...a, all: true })).toBe(true);
+    expect(accessChanged(a, { ...a, scopedProjects: [] })).toBe(true);
+  });
+  it('どちらかが無い場合は変わっていない扱い', () => {
+    expect(accessChanged(null, a)).toBe(false);
+    expect(accessChanged(a, undefined)).toBe(false);
   });
 });

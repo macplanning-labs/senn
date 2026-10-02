@@ -22,5 +22,6 @@ export interface User {
   readonly firstName: string;
   readonly lastName: string;
   readonly displayName: string;
-  readonly isStaff: boolean;
+  readonly isSystemAdmin: boolean;
+  readonly isGuest: boolean;
 }

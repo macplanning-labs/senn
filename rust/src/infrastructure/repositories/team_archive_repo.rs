@@ -6,7 +6,6 @@
 /// - アーカイブ・復元できる人: システム管理者 / そのチームの管理者(role='admin')
 /// - アーカイブできない条件: そのチームを外すと、担当チームが1つも(アーカイブされていない
 ///   チームが)無くなる「進行中・計画中」のプロジェクトがある場合
-
 use sqlx::PgPool;
 
 /// アーカイブを止めているプロジェクト
@@ -26,7 +25,11 @@ pub struct TeamArchiveBlocked {
 
 impl std::fmt::Display for TeamArchiveBlocked {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "team archive blocked: {} project(s) would have no active team", self.projects.len())
+        write!(
+            f,
+            "team archive blocked: {} project(s) would have no active team",
+            self.projects.len()
+        )
     }
 }
 
@@ -55,7 +58,12 @@ impl TeamArchiveBlocked {
 }
 
 /// アーカイブ・復元できるか(システム管理者 / そのチームの管理者)。
-pub async fn can_manage(pool: &PgPool, team_id: i32, user_id: i32, is_staff: bool) -> anyhow::Result<bool> {
+pub async fn can_manage(
+    pool: &PgPool,
+    team_id: i32,
+    user_id: i32,
+    is_staff: bool,
+) -> anyhow::Result<bool> {
     if is_staff {
         return Ok(true);
     }
@@ -73,9 +81,15 @@ pub async fn can_manage(pool: &PgPool, team_id: i32, user_id: i32, is_staff: boo
 }
 
 /// 閲覧者が、アーカイブ・復元できるチームの id(システム管理者は全チーム / それ以外は、自分が管理者のチーム)。
-pub async fn manageable_team_ids(pool: &PgPool, user_id: i32, is_staff: bool) -> anyhow::Result<std::collections::HashSet<i32>> {
+pub async fn manageable_team_ids(
+    pool: &PgPool,
+    user_id: i32,
+    is_staff: bool,
+) -> anyhow::Result<std::collections::HashSet<i32>> {
     let ids: Vec<i32> = if is_staff {
-        sqlx::query_scalar("SELECT id::int4 FROM m_team").fetch_all(pool).await?
+        sqlx::query_scalar("SELECT id::int4 FROM m_team")
+            .fetch_all(pool)
+            .await?
     } else {
         sqlx::query_scalar(
             "SELECT DISTINCT team_id::int4 FROM t_team_membership
@@ -89,7 +103,10 @@ pub async fn manageable_team_ids(pool: &PgPool, user_id: i32, is_staff: bool) ->
 }
 
 /// このチームをアーカイブすると、担当チームが不在になる「進行中・計画中」のプロジェクト。
-pub async fn blocking_projects(pool: &PgPool, team_id: i32) -> anyhow::Result<Vec<BlockingProject>> {
+pub async fn blocking_projects(
+    pool: &PgPool,
+    team_id: i32,
+) -> anyhow::Result<Vec<BlockingProject>> {
     let rows = sqlx::query_as::<_, (i32, String, String, String)>(
         "SELECT p.id::int4, p.prefix, p.name, p.status
          FROM tickets_project_teams pt
@@ -106,7 +123,15 @@ pub async fn blocking_projects(pool: &PgPool, team_id: i32) -> anyhow::Result<Ve
     .bind(team_id as i64)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|(id, prefix, name, status)| BlockingProject { id, prefix, name, status }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|(id, prefix, name, status)| BlockingProject {
+            id,
+            prefix,
+            name,
+            status,
+        })
+        .collect())
 }
 
 /// チームをアーカイブする。すでにアーカイブ済みなら何もしない(冪等)。
@@ -136,13 +161,12 @@ pub async fn archive(pool: &PgPool, team_id: i32, actor_id: i32) -> anyhow::Resu
 
 /// チームを復元する(冪等)。チームが無ければ `Ok(false)`。
 pub async fn unarchive(pool: &PgPool, team_id: i32) -> anyhow::Result<bool> {
-    let affected = sqlx::query(
-        "UPDATE m_team SET archived_at = NULL, archived_by = NULL WHERE id = $1",
-    )
-    .bind(team_id as i64)
-    .execute(pool)
-    .await?
-    .rows_affected();
+    let affected =
+        sqlx::query("UPDATE m_team SET archived_at = NULL, archived_by = NULL WHERE id = $1")
+            .bind(team_id as i64)
+            .execute(pool)
+            .await?
+            .rows_affected();
     Ok(affected > 0)
 }
 
@@ -188,14 +212,26 @@ mod tests {
     use crate::test_support;
 
     async fn project_of(pool: &PgPool, project_id: i32) -> i32 {
-        sqlx::query_scalar::<_, i32>("SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1")
-            .bind(project_id as i64).fetch_one(pool).await.unwrap()
+        sqlx::query_scalar::<_, i32>(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1 LIMIT 1",
+        )
+        .bind(project_id as i64)
+        .fetch_one(pool)
+        .await
+        .unwrap()
     }
 
     #[test]
     fn blocked_message_lists_projects_and_truncates() {
         let blocked = TeamArchiveBlocked {
-            projects: (1..=7).map(|i| BlockingProject { id: i as i32, prefix: format!("P{i}"), name: format!("案件{i}"), status: "in_progress".to_string() }).collect(),
+            projects: (1..=7)
+                .map(|i| BlockingProject {
+                    id: i as i32,
+                    prefix: format!("P{i}"),
+                    name: format!("案件{i}"),
+                    status: "in_progress".to_string(),
+                })
+                .collect(),
         };
         let m = blocked.user_message();
         assert!(m.contains("案件1(P1)") && m.contains("案件5(P5)"));
@@ -213,29 +249,42 @@ mod tests {
 
     #[tokio::test]
     async fn archive_is_blocked_when_team_is_the_last_of_an_active_project() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "ar1").await;
         let project = test_support::create_test_project(&pool, "AR1", user).await;
         sqlx::query("UPDATE tickets_project SET status = 'in_progress' WHERE id = $1")
-            .bind(project as i64).execute(&pool).await.unwrap();
+            .bind(project as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
         let team = project_of(&pool, project).await;
 
         let err = archive(&pool, team, user).await.expect_err("blocked");
-        let blocked = err.downcast_ref::<TeamArchiveBlocked>().expect("TeamArchiveBlocked");
+        let blocked = err
+            .downcast_ref::<TeamArchiveBlocked>()
+            .expect("TeamArchiveBlocked");
         assert!(blocked.projects.iter().any(|p| p.prefix.starts_with("AR1")));
         assert!(blocked.projects.iter().any(|p| p.status == "in_progress"));
         assert!(!is_archived(&pool, team).await.unwrap());
 
         // 別のチームを追加すれば、アーカイブできる
         let other = test_support::create_test_team(&pool, "ar1b").await;
-        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, other).await.unwrap();
+        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, other)
+            .await
+            .unwrap();
         assert!(archive(&pool, team, user).await.unwrap());
         assert!(is_archived(&pool, team).await.unwrap());
         // 冪等
         assert!(archive(&pool, team, user).await.unwrap());
 
         // 「残っているチーム」がアーカイブ済みだと、今度はそちらがアーカイブできない
-        assert!(archive(&pool, other, user).await.unwrap_err().downcast_ref::<TeamArchiveBlocked>().is_some());
+        assert!(archive(&pool, other, user)
+            .await
+            .unwrap_err()
+            .downcast_ref::<TeamArchiveBlocked>()
+            .is_some());
 
         // 復元すれば戻る
         assert!(unarchive(&pool, team).await.unwrap());
@@ -244,31 +293,51 @@ mod tests {
 
     #[tokio::test]
     async fn archive_is_not_blocked_by_completed_or_paused_projects() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "ar2").await;
         let project = test_support::create_test_project(&pool, "AR2", user).await;
         let team = project_of(&pool, project).await;
         for status in ["completed", "paused"] {
             sqlx::query("UPDATE tickets_project SET status = $2 WHERE id = $1")
-                .bind(project as i64).bind(status).execute(&pool).await.unwrap();
-            assert!(blocking_projects(&pool, team).await.unwrap().is_empty(), "{status} は止めない");
+                .bind(project as i64)
+                .bind(status)
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert!(
+                blocking_projects(&pool, team).await.unwrap().is_empty(),
+                "{status} は止めない"
+            );
         }
         sqlx::query("UPDATE tickets_project SET status = 'planned' WHERE id = $1")
-            .bind(project as i64).execute(&pool).await.unwrap();
-        assert_eq!(blocking_projects(&pool, team).await.unwrap().len(), 1, "計画中は止める");
+            .bind(project as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            blocking_projects(&pool, team).await.unwrap().len(),
+            1,
+            "計画中は止める"
+        );
     }
 
     /// 閲覧専用: アーカイブ済みチームのチケット・サイクル・コメント・添付の書き込みを、DBが拒否する
     #[tokio::test]
     async fn archived_team_is_read_only_at_db_level_and_restorable() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "ro").await;
         let project = test_support::create_test_project(&pool, "RO", user).await;
         let team = project_of(&pool, project).await;
         let ticket = test_support::create_test_ticket(&pool, project, "RO", user).await;
         // 別チームを足して、アーカイブできる状態にする
         let other = test_support::create_test_team(&pool, "rob").await;
-        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, other).await.unwrap();
+        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, other)
+            .await
+            .unwrap();
 
         sqlx::query("INSERT INTO tickets_comment (ticket_id, author_id, body, created_at, updated_at) VALUES ($1, $2, 'before', NOW(), NOW())")
             .bind(ticket as i64).bind(user as i64).execute(&pool).await.expect("アーカイブ前は書ける");
@@ -281,8 +350,20 @@ mod tests {
             let err = r.expect_err(what);
             assert!(is_team_archived_error(&err), "{what}: {err}");
         };
-        blocked(sqlx::query("UPDATE tickets_ticket SET title = 'x' WHERE id = $1").bind(ticket as i64).execute(&pool).await, "チケット更新");
-        blocked(sqlx::query("DELETE FROM tickets_ticket WHERE id = $1").bind(ticket as i64).execute(&pool).await, "チケット削除");
+        blocked(
+            sqlx::query("UPDATE tickets_ticket SET title = 'x' WHERE id = $1")
+                .bind(ticket as i64)
+                .execute(&pool)
+                .await,
+            "チケット更新",
+        );
+        blocked(
+            sqlx::query("DELETE FROM tickets_ticket WHERE id = $1")
+                .bind(ticket as i64)
+                .execute(&pool)
+                .await,
+            "チケット削除",
+        );
         blocked(
             sqlx::query("INSERT INTO tickets_comment (ticket_id, author_id, body, created_at, updated_at) VALUES ($1, $2, 'after', NOW(), NOW())")
                 .bind(ticket as i64).bind(user as i64).execute(&pool).await,
@@ -301,21 +382,44 @@ mod tests {
             .bind(format!("RO3-{}", test_support::unique_suffix()))
             .fetch_one(&pool).await
             .expect("アーカイブされていないチームでは作成できる");
-        sqlx::query("UPDATE tickets_ticket SET title = 'live2' WHERE id = $1").bind(live_ticket).execute(&pool).await
+        sqlx::query("UPDATE tickets_ticket SET title = 'live2' WHERE id = $1")
+            .bind(live_ticket)
+            .execute(&pool)
+            .await
             .expect("アーカイブされていないチームのチケットは更新できる");
         // ただし、アーカイブ済みチームのチケットを、別の(アーカイブされていない)チームへ移すことも、元が閲覧専用なので拒否される
-        blocked(sqlx::query("UPDATE tickets_ticket SET team_id = $2 WHERE id = $1").bind(other_ticket as i64).bind(other as i64).execute(&pool).await, "アーカイブ済みチームのチケットの付け替え");
+        blocked(
+            sqlx::query("UPDATE tickets_ticket SET team_id = $2 WHERE id = $1")
+                .bind(other_ticket as i64)
+                .bind(other as i64)
+                .execute(&pool)
+                .await,
+            "アーカイブ済みチームのチケットの付け替え",
+        );
         // アーカイブ済みのチームへチケットを移す操作も拒否
-        blocked(sqlx::query("UPDATE tickets_ticket SET team_id = $2 WHERE id = $1").bind(live_ticket).bind(team as i64).execute(&pool).await, "アーカイブ済みチームへの移動");
+        blocked(
+            sqlx::query("UPDATE tickets_ticket SET team_id = $2 WHERE id = $1")
+                .bind(live_ticket)
+                .bind(team as i64)
+                .execute(&pool)
+                .await,
+            "アーカイブ済みチームへの移動",
+        );
 
         // 復元すれば、また書ける
         assert!(unarchive(&pool, team).await.unwrap());
-        sqlx::query("UPDATE tickets_ticket SET title = 'restored' WHERE id = $1").bind(ticket as i64).execute(&pool).await.expect("復元後は更新できる");
+        sqlx::query("UPDATE tickets_ticket SET title = 'restored' WHERE id = $1")
+            .bind(ticket as i64)
+            .execute(&pool)
+            .await
+            .expect("復元後は更新できる");
     }
 
     #[tokio::test]
     async fn can_manage_allows_staff_and_team_admin_only() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let team = test_support::create_test_team(&pool, "cm").await;
         let admin = test_support::create_test_user(&pool, "cma").await;
         let member = test_support::create_test_user(&pool, "cmm").await;
@@ -324,43 +428,82 @@ mod tests {
                 .bind(team as i64).bind(u as i64).bind(role).execute(&pool).await.unwrap();
         }
         assert!(can_manage(&pool, team, admin, false).await.unwrap());
-        assert!(can_manage(&pool, team, member, true).await.unwrap(), "システム管理者");
+        assert!(
+            can_manage(&pool, team, member, true).await.unwrap(),
+            "システム管理者"
+        );
         assert!(!can_manage(&pool, team, member, false).await.unwrap());
     }
 
     #[tokio::test]
     async fn manageable_team_ids_follow_staff_and_team_admin() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let mine = test_support::create_test_team(&pool, "mgA").await;
         let other = test_support::create_test_team(&pool, "mgB").await;
         let admin = test_support::create_test_user(&pool, "mga").await;
         let member = test_support::create_test_user(&pool, "mgm").await;
-        for (t, u, role) in [(mine, admin, "admin"), (mine, member, "member"), (other, member, "member")] {
+        for (t, u, role) in [
+            (mine, admin, "admin"),
+            (mine, member, "member"),
+            (other, member, "member"),
+        ] {
             sqlx::query("INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1, $2, $3, NOW())")
                 .bind(t as i64).bind(u as i64).bind(role).execute(&pool).await.unwrap();
         }
         let admin_ids = manageable_team_ids(&pool, admin, false).await.unwrap();
-        assert!(admin_ids.contains(&mine) && !admin_ids.contains(&other), "管理者は自分のチームだけ");
-        assert!(manageable_team_ids(&pool, member, false).await.unwrap().is_empty(), "一般メンバーは無し");
+        assert!(
+            admin_ids.contains(&mine) && !admin_ids.contains(&other),
+            "管理者は自分のチームだけ"
+        );
+        assert!(
+            manageable_team_ids(&pool, member, false)
+                .await
+                .unwrap()
+                .is_empty(),
+            "一般メンバーは無し"
+        );
         let staff_ids = manageable_team_ids(&pool, member, true).await.unwrap();
-        assert!(staff_ids.contains(&mine) && staff_ids.contains(&other), "システム管理者は全チーム");
+        assert!(
+            staff_ids.contains(&mine) && staff_ids.contains(&other),
+            "システム管理者は全チーム"
+        );
     }
 
     /// プロジェクトの担当チームに、アーカイブ済みかどうかが付く(Overview のバッジ用)
     #[tokio::test]
     async fn project_teams_carry_the_archived_flag() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user = test_support::create_test_user(&pool, "pf").await;
         let project = test_support::create_test_project(&pool, "PF", user).await;
-        sqlx::query("UPDATE tickets_project SET status = 'in_progress' WHERE id = $1").bind(project as i64).execute(&pool).await.unwrap();
+        sqlx::query("UPDATE tickets_project SET status = 'in_progress' WHERE id = $1")
+            .bind(project as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
         let team = project_of(&pool, project).await;
         let other = test_support::create_test_team(&pool, "pfb").await;
-        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, other).await.unwrap();
+        crate::infrastructure::repositories::resource_repo::add_project_team(&pool, project, other)
+            .await
+            .unwrap();
 
-        let before = crate::infrastructure::repositories::resource_repo::find_project_by_id(&pool, project, None).await.unwrap().unwrap();
+        let before = crate::infrastructure::repositories::resource_repo::find_project_by_id(
+            &pool, project, None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert!(before.teams.iter().all(|t| !t.archived));
         assert!(archive(&pool, team, user).await.unwrap());
-        let after = crate::infrastructure::repositories::resource_repo::find_project_by_id(&pool, project, None).await.unwrap().unwrap();
+        let after = crate::infrastructure::repositories::resource_repo::find_project_by_id(
+            &pool, project, None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert!(after.teams.iter().find(|t| t.id == team).unwrap().archived);
         assert!(!after.teams.iter().find(|t| t.id == other).unwrap().archived);
     }

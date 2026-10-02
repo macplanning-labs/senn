@@ -1,7 +1,6 @@
 /// domain/models/workflow_status_api.rs — Workflow Status リソース表現
 ///
 /// t_workflow_status テーブル用の JSON API モデル。
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]

@@ -299,12 +299,12 @@ export function WikiList() {
         <div className="wiki__import-toast">
           {importResult.success > 0 && (
             <span className="wiki__import-success">
-              ✅ {importResult.success}件のページをインポートしました
+              ✅ {t('wiki.importedSuccess', { count: importResult.success })}
             </span>
           )}
           {importResult.failed.length > 0 && (
             <span className="wiki__import-failed">
-              ❌ 失敗: {importResult.failed.join(', ')}
+              ❌ {t('wiki.importFailedPrefix')} {importResult.failed.join(', ')}
             </span>
           )}
         </div>
@@ -435,7 +435,7 @@ export function WikiList() {
                       setTimeout(() => setLinkCopied(false), 1500);
                     }}
                     aria-label="Copy wiki page link"
-                    title={linkCopied ? 'コピーしました' : 'リンクをコピー'}
+                    title={linkCopied ? t('common.linkCopied') : t('common.copyLink')}
                     data-testid="wiki-copy-link-btn"
                   >
                     {linkCopied ? '✅' : '🔗'}
@@ -473,7 +473,7 @@ export function WikiList() {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                   <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600 }}>
-                    🎫 紐付きチケット
+                    🎫 {t('wiki.linkedTicketsTitle')}
                     {selectedPage.linkedTickets && selectedPage.linkedTickets.length > 0
                       ? ` (${selectedPage.linkedTickets.length})`
                       : ''
@@ -481,10 +481,10 @@ export function WikiList() {
                   </h4>
                   <QuickCreateTicketButton
                     defaultTitle={`[Wiki] ${selectedPage.title}`}
-                    defaultDescription={`Wikiページ「${selectedPage.title}」から起票\n\n---\n\n${selectedPage.content?.slice(0, 500) ?? ''}`}
+                    defaultDescription={`${t('wiki.filedFromWikiPrefix', { title: selectedPage.title })}\n\n---\n\n${selectedPage.content?.slice(0, 500) ?? ''}`}
                     projectId={selectedPage.project ?? 0}
                     wikiPageId={selectedPage.id}
-                    label="⚡ チケット起票"
+                    label={`⚡ ${t('ticket.fileTicketButton')}`}
                   />
                 </div>
                 {selectedPage.linkedTickets && selectedPage.linkedTickets.length > 0 ? (
@@ -517,7 +517,7 @@ export function WikiList() {
                   </div>
                 ) : (
                   <p style={{ fontSize: '0.8125rem', opacity: 0.5, margin: 0 }}>
-                    紐付きチケットはありません
+                    {t('wiki.noLinkedTickets')}
                   </p>
                 )}
               </div>

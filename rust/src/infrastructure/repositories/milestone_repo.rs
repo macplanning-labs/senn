@@ -1,7 +1,6 @@
-/// infrastructure/repositories/milestone_repo.rs — マイルストーン永続化
-
-use sqlx::PgPool;
 use crate::domain::models::milestone::Milestone;
+/// infrastructure/repositories/milestone_repo.rs — マイルストーン永続化
+use sqlx::PgPool;
 
 pub async fn find_all(pool: &PgPool, project_id: Option<i32>) -> anyhow::Result<Vec<Milestone>> {
     let rows = if let Some(pid) = project_id {
@@ -34,20 +33,40 @@ pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Milesto
     Ok(row)
 }
 
-pub async fn create(pool: &PgPool, name: &str, due_date: Option<chrono::NaiveDate>, description: &str, project_id: Option<i32>) -> anyhow::Result<i32> {
+pub async fn create(
+    pool: &PgPool,
+    name: &str,
+    due_date: Option<chrono::NaiveDate>,
+    description: &str,
+    project_id: Option<i32>,
+) -> anyhow::Result<i32> {
     let id = sqlx::query_scalar::<_, i32>(
         "INSERT INTO milestones_milestone (name, due_date, description, project_id) VALUES ($1, $2, $3, $4) RETURNING id"
     ).bind(name).bind(due_date).bind(description).bind(project_id).fetch_one(pool).await?;
     Ok(id)
 }
 
-pub async fn update(pool: &PgPool, id: i32, name: &str, due_date: Option<chrono::NaiveDate>, description: &str) -> anyhow::Result<()> {
+pub async fn update(
+    pool: &PgPool,
+    id: i32,
+    name: &str,
+    due_date: Option<chrono::NaiveDate>,
+    description: &str,
+) -> anyhow::Result<()> {
     sqlx::query("UPDATE milestones_milestone SET name=$2, due_date=$3, description=$4 WHERE id=$1")
-        .bind(id).bind(name).bind(due_date).bind(description).execute(pool).await?;
+        .bind(id)
+        .bind(name)
+        .bind(due_date)
+        .bind(description)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 pub async fn delete(pool: &PgPool, id: i32) -> anyhow::Result<()> {
-    sqlx::query("DELETE FROM milestones_milestone WHERE id=$1").bind(id).execute(pool).await?;
+    sqlx::query("DELETE FROM milestones_milestone WHERE id=$1")
+        .bind(id)
+        .execute(pool)
+        .await?;
     Ok(())
 }

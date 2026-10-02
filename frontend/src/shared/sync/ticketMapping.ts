@@ -5,7 +5,7 @@
  * 付随データ（comments / attachments / links / linkedRules / linkedWikiPages / isWatching）は行ではないので捨てる。
  */
 
-import type { LocalProject, LocalTicket, SyncLabel, SyncTeam, SyncUser } from './db';
+import type { LocalComment, LocalCommentUser, LocalProject, LocalTicket, SyncLabel, SyncTeam, SyncUser } from './db';
 
 type RowMeta = Partial<Pick<LocalTicket, '_dirty' | '_syncedAt' | '_pendingCreate' | '_deleted' | '_syncError'>>;
 
@@ -31,6 +31,11 @@ function arr<T>(v: unknown): T[] {
 }
 function pick(dto: Dto, camel: string, snake: string): unknown {
   return dto[camel] !== undefined ? dto[camel] : dto[snake];
+}
+
+/** 版番号 v。差分同期・リアルタイムの応答にだけ入っている（PATCH の応答などには無い＝入れない） */
+function versionField(dto: Dto): { v?: number } {
+  return typeof dto.v === 'number' && Number.isFinite(dto.v) ? { v: dto.v } : {};
 }
 
 /** 索引用項目（teamId / projectId / cycleId / parentId / assigneeIds / labelIds）を作り直す */
@@ -66,6 +71,7 @@ export function toLocalTicket(input: Dto, meta?: RowMeta): LocalTicket {
     assignees: arr<SyncUser>(dto.assignees),
     reviewers: arr<SyncUser>(dto.reviewers),
     author: (dto.author as SyncUser | null | undefined) ?? null,
+    createdViaAi: dto.createdViaAi === true,
     category: (dto.category as LocalTicket['category'] | undefined) ?? null,
     milestone: (dto.milestone as LocalTicket['milestone'] | undefined) ?? null,
     project: numOrNull(dto.project),
@@ -89,6 +95,7 @@ export function toLocalTicket(input: Dto, meta?: RowMeta): LocalTicket {
     aiPrompt: strOrNull(pick(dto, 'aiPrompt', 'ai_prompt')),
     aiPromptUpdatedAt: strOrNull(pick(dto, 'aiPromptUpdatedAt', 'ai_prompt_updated_at')),
     aiPromptGenerationMode: strOrNull(pick(dto, 'aiPromptGenerationMode', 'ai_prompt_generation_mode')),
+    ...versionField(dto),
     _dirty: meta?._dirty ?? false,
     _syncedAt: meta?._syncedAt !== undefined ? meta._syncedAt : now,
     _syncError: meta?._syncError ?? null,
@@ -114,6 +121,7 @@ export function toLocalProject(dto: Dto, meta?: RowMeta): LocalProject {
     memberCount: num(dto.memberCount),
     isMember: dto.isMember === true,
     teams: arr<LocalProject['teams'][number]>(dto.teams),
+    hiddenTeamCount: num(dto.hiddenTeamCount),
     ownerId: numOrNull(dto.ownerId),
     createdAt,
     updatedAt: str(pick(dto, 'updatedAt', 'updated_at'), createdAt),
@@ -123,6 +131,7 @@ export function toLocalProject(dto: Dto, meta?: RowMeta): LocalProject {
     childCount: num(dto.childCount),
     roadmapIds: arr<number>(dto.roadmapIds),
     aiPromptTemplate: strOrNull(pick(dto, 'aiPromptTemplate', 'ai_prompt_template')),
+    ...versionField(dto),
     _dirty: meta?._dirty ?? false,
     _syncedAt: meta?._syncedAt !== undefined ? meta._syncedAt : now,
     _syncError: meta?._syncError ?? null,
@@ -137,4 +146,43 @@ export function syncStateOf(row: { _dirty?: boolean; _pendingCreate?: boolean; _
   if (row._syncError) return 'error';
   if (row._dirty || row._pendingCreate) return 'pending';
   return 'synced';
+}
+
+/** ユーザーオブジェクト（author/actingUser） をマッピング */
+function user(dto: unknown): LocalCommentUser {
+  if (typeof dto !== 'object' || dto === null) {
+    return { id: 0, username: '', displayName: '' };
+  }
+  const u = dto as Record<string, unknown>;
+  return {
+    id: num(u.id),
+    username: str(u.username),
+    displayName: str(pick(u as Dto, 'displayName', 'display_name')),
+  };
+}
+
+/** サーバーのコメント DTO → LocalComment */
+export function toLocalComment(dto: Dto): LocalComment {
+  const now = new Date().toISOString();
+  const author = user(dto.author);
+  const actingUserValue = pick(dto, 'actingUser', 'acting_user');
+  const actingUser = actingUserValue !== undefined && actingUserValue !== null ? user(actingUserValue) : null;
+
+  return {
+    id: num(dto.id),
+    ticketId: num(pick(dto, 'ticketId', 'ticket_id')),
+    body: str(dto.body),
+    author,
+    actingUser,
+    createdAt: str(pick(dto, 'createdAt', 'created_at'), now),
+    updatedAt: strOrNull(pick(dto, 'updatedAt', 'updated_at')),
+    anchorStart: numOrNull(pick(dto, 'anchorStart', 'anchor_start')),
+    anchorEnd: numOrNull(pick(dto, 'anchorEnd', 'anchor_end')),
+    anchorQuote: strOrNull(pick(dto, 'anchorQuote', 'anchor_quote')),
+    parentCommentId: numOrNull(pick(dto, 'parentCommentId', 'parent_comment_id')),
+    isDeleted: dto.isDeleted === true || (dto as Record<string, unknown>).is_deleted === true,
+    isAiAgentAuthor: dto.isAiAgentAuthor === true || (dto as Record<string, unknown>).is_ai_agent_author === true,
+    ...versionField(dto),
+    _syncedAt: now,
+  };
 }

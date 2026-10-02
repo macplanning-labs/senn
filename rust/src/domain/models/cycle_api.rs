@@ -1,10 +1,9 @@
+use crate::domain::models::ticket_api::{TeamSummaryOut, UserSummaryOut};
 /// domain/models/cycle_api.rs — JSON API 用サイクル表現
 ///
 /// Django /api/v1/cycles/* と互換性のある構造。
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use crate::domain::models::ticket_api::{UserSummaryOut, TeamSummaryOut};
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct CycleOut {

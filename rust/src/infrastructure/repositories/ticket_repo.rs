@@ -3,7 +3,10 @@ use chrono::{NaiveDate, Utc};
 ///
 /// sqlx を使用した t_tickets テーブルの CRUD 操作。
 /// JOINでユーザー名・カテゴリー名等を取得する。
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+
+use crate::domain::access::Scope;
+use crate::infrastructure::access::{scope_sql, shadow};
 
 use crate::domain::models::ticket::{Ticket, TicketStatusHistory};
 use crate::domain::models::ticket_api::*;
@@ -286,7 +289,7 @@ pub async fn find_due_or_overdue_with_assignees(
 // =============================================================================
 
 /// チケットフィルタ条件(JSON API用)
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ApiTicketFilter {
     pub status: Option<Vec<String>>,
     pub priority: Option<Vec<String>>,
@@ -302,34 +305,11 @@ pub struct ApiTicketFilter {
     pub due_date_gte: Option<NaiveDate>,
     pub due_date_lte: Option<NaiveDate>,
     pub due_date_isnull: Option<bool>,
+    /// 今の判定に使う閲覧者(フェーズ H で削除し、scope に一本化する)
     pub user_id: Option<i32>,
     pub team_slug: Option<String>,
-}
-
-/// 一覧・件数で詳細と同じ OR（staff / 有効 Project メンバー / 所属 Team メンバー）。
-/// `project` フィルタとは独立。両方あるときは AND する。
-/// L2②: チケットのアクセス可否をチームメンバーシップの1系統に統一(t_team_membership)。
-/// scoped_project_id IS NULL の行はチーム全体メンバーとして無条件許可、
-/// scoped_project_id が t.project_id と一致する行はProjectゲストとしてend_date/grace_period_daysで期限判定する。
-pub(crate) fn push_ticket_access_sql(query: &mut String, param_count: &mut usize) {
-    query.push_str(&format!(
-        " AND (
-                (SELECT is_staff FROM accounts_user WHERE id = ${}) OR
-                (t.team_id IS NOT NULL AND
-                    EXISTS(SELECT 1 FROM t_team_membership tm
-                        LEFT JOIN tickets_project p ON tm.scoped_project_id = p.id
-                        WHERE tm.team_id = t.team_id AND tm.user_id = ${} AND (
-                            tm.scoped_project_id IS NULL OR
-                            (t.project_id IS NOT NULL AND tm.scoped_project_id = t.project_id AND
-                                (tm.end_date IS NULL OR NOW()::date <= tm.end_date + (p.grace_period_days || ' days')::interval))
-                        )
-                    )
-                )
-            )",
-        *param_count,
-        *param_count + 1
-    ));
-    *param_count += 2;
+    /// 新しい判定の、閲覧者の見える範囲(アクセス制御の再設計 C-1)
+    pub scope: Option<Scope>,
 }
 
 fn push_team_slug_sql(query: &mut String, param_count: &mut usize) {
@@ -356,7 +336,8 @@ pub(crate) const API_TICKET_SELECT: &str = "SELECT
     (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
     COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
     proj.prefix as list_project_prefix,
-    proj.name as list_project_name
+    proj.name as list_project_name,
+    t.created_via_ai AS created_via_ai
  FROM tickets_ticket t
  LEFT JOIN accounts_user au ON t.author_id = au.id
  LEFT JOIN tickets_category cat ON t.category_id = cat.id
@@ -647,11 +628,212 @@ pub(crate) async fn hydrate_ticket_rows(
                 gantt_order,
                 created_at,
                 updated_at,
+                created_via_ai: row.get("created_via_ai"),
             }
         })
         .collect();
 
     Ok(result)
+}
+
+/// 一覧・件数の、アクセスの絞り込みの種類(アクセス制御の再設計 C-1)
+#[derive(Debug, Clone)]
+pub(crate) enum TicketAccessClause {
+    /// 絞り込まない(AI エージェント API。フェーズ F で閲覧者の絞り込みに移す)
+    None,
+    /// 今の判定(staff は全件 / チームの所属・有効なプロジェクト単位の所属)
+    Legacy(i32),
+    /// 新しい判定(scope_sql)
+    Scope(Scope),
+    /// 試運転の差分: `a` では見えて、`b` では見えない行(a, b は Legacy か Scope)
+    Diff(Box<TicketAccessClause>, Box<TicketAccessClause>),
+}
+
+/// 今の判定(staff は全件 / チームの所属・有効なプロジェクト単位の所属)を、式として足す。フェーズ H で削除する
+fn push_legacy_ticket_access_expr(qb: &mut QueryBuilder<'_, Postgres>, user_id: i32) {
+    qb.push("((SELECT is_staff FROM accounts_user WHERE id = ")
+        .push_bind(user_id)
+        .push(
+            ") OR (t.team_id IS NOT NULL AND EXISTS(SELECT 1 FROM t_team_membership tm
+                LEFT JOIN tickets_project p ON tm.scoped_project_id = p.id
+                WHERE tm.team_id = t.team_id AND tm.user_id = ",
+        )
+        .push_bind(user_id)
+        .push(
+            " AND (tm.scoped_project_id IS NULL OR
+                    (t.project_id IS NOT NULL AND tm.scoped_project_id = t.project_id AND
+                        (tm.end_date IS NULL OR NOW()::date <= tm.end_date + (p.grace_period_days || ' days')::interval))))))",
+        );
+}
+
+pub(crate) fn push_access_expr(qb: &mut QueryBuilder<'_, Postgres>, clause: &TicketAccessClause) {
+    match clause {
+        TicketAccessClause::None => {
+            qb.push("TRUE");
+        }
+        TicketAccessClause::Legacy(uid) => push_legacy_ticket_access_expr(qb, *uid),
+        TicketAccessClause::Scope(scope) => scope_sql::push_ticket_visible(qb, "t", scope),
+        TicketAccessClause::Diff(a, b) => {
+            // NULL を偽として扱う(NOT NULL が NULL になり、行が落ちるのを防ぐ)
+            qb.push("(COALESCE(");
+            push_access_expr(qb, a);
+            qb.push(", FALSE) AND NOT COALESCE(");
+            push_access_expr(qb, b);
+            qb.push(", FALSE))");
+        }
+    }
+}
+
+/// 一覧・件数・差分で共通の WHERE 句(" WHERE 1=1" の後ろに足す)
+fn push_ticket_list_filters(
+    qb: &mut QueryBuilder<'_, Postgres>,
+    filter: &ApiTicketFilter,
+    search: Option<&str>,
+    access: &TicketAccessClause,
+) {
+    if let Some(ref statuses) = filter.status {
+        if !statuses.is_empty() {
+            qb.push(" AND t.status = ANY(")
+                .push_bind(statuses.clone())
+                .push("::text[])");
+        }
+    }
+    if let Some(ref priorities) = filter.priority {
+        if !priorities.is_empty() {
+            qb.push(" AND t.priority = ANY(")
+                .push_bind(priorities.clone())
+                .push("::text[])");
+        }
+    }
+    if let Some(assignee_id) = filter.assignees {
+        qb.push(" AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ")
+            .push_bind(assignee_id)
+            .push(")");
+    }
+    if let Some(proj_id) = filter.project {
+        qb.push(" AND t.project_id = ").push_bind(proj_id);
+    }
+    if !matches!(access, TicketAccessClause::None) {
+        qb.push(" AND ");
+        push_access_expr(qb, access);
+    }
+    if let Some(ref prefix) = filter.project_prefix {
+        qb.push(" AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ")
+            .push_bind(prefix.clone())
+            .push(")");
+    }
+    if let Some(ref slug) = filter.team_slug {
+        qb.push(" AND EXISTS(SELECT 1 FROM m_team WHERE id = t.team_id AND lower(slug) = lower(")
+            .push_bind(slug.clone())
+            .push("))");
+    }
+    if let Some(ms_id) = filter.milestone {
+        qb.push(" AND t.milestone_id = ").push_bind(ms_id);
+    }
+    if let Some(cycle_id) = filter.cycle {
+        qb.push(" AND t.cycle_id = ").push_bind(cycle_id);
+    }
+    if let Some(cat_id) = filter.category {
+        qb.push(" AND t.category_id = ").push_bind(cat_id);
+    }
+    if let Some(label_id) = filter.labels {
+        qb.push(" AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ")
+            .push_bind(label_id)
+            .push(")");
+    }
+    if let Some(parent_id) = filter.parent {
+        qb.push(" AND t.parent_id = ").push_bind(parent_id);
+    }
+    if let Some(is_null) = filter.parent_isnull {
+        qb.push(if is_null {
+            " AND t.parent_id IS NULL"
+        } else {
+            " AND t.parent_id IS NOT NULL"
+        });
+    }
+    if let Some(due_gte) = filter.due_date_gte {
+        qb.push(" AND t.due_date >= ").push_bind(due_gte);
+    }
+    if let Some(due_lte) = filter.due_date_lte {
+        qb.push(" AND t.due_date <= ").push_bind(due_lte);
+    }
+    if let Some(is_null) = filter.due_date_isnull {
+        qb.push(if is_null {
+            " AND t.due_date IS NULL"
+        } else {
+            " AND t.due_date IS NOT NULL"
+        });
+    }
+    if let Some(search_term) = search {
+        if !search_term.is_empty() {
+            let pattern = format!("%{}%", search_term);
+            qb.push(" AND (t.title ILIKE ")
+                .push_bind(pattern.clone())
+                .push(" OR t.description ILIKE ")
+                .push_bind(pattern.clone())
+                .push(" OR t.ticket_key ILIKE ")
+                .push_bind(pattern)
+                .push(")");
+        }
+    }
+}
+
+/// フィルタの閲覧者の指定と、試運転のスイッチから、応答に使う絞り込みを決める
+fn response_access(filter: &ApiTicketFilter) -> TicketAccessClause {
+    match (&filter.scope, filter.user_id) {
+        // 利用者の無い呼び出し(AI キー。F-2)は、呼び出し側が on のときだけ scope を渡す
+        (Some(scope), None) => TicketAccessClause::Scope(scope.clone()),
+        (Some(scope), Some(uid)) => match shadow::mode(shadow::Resource::Ticket) {
+            shadow::Mode::On => TicketAccessClause::Scope(scope.clone()),
+            _ => TicketAccessClause::Legacy(uid),
+        },
+        (None, Some(uid)) => TicketAccessClause::Legacy(uid),
+        (None, None) => TicketAccessClause::None,
+    }
+}
+
+/// 試運転: 同じフィルタで、新旧の判定が食い違う行(最大 200 件ずつ)を、裏で記録する
+fn spawn_ticket_list_shadow(pool: &PgPool, filter: &ApiTicketFilter, search: Option<&str>) {
+    let (Some(scope), Some(uid)) = (filter.scope.clone(), filter.user_id) else {
+        return;
+    };
+    if shadow::mode(shadow::Resource::Ticket) != shadow::Mode::Shadow {
+        return;
+    }
+    let pool = pool.clone();
+    let filter = filter.clone();
+    let search = search.map(str::to_string);
+    tokio::spawn(async move {
+        let legacy = TicketAccessClause::Legacy(uid);
+        let new = TicketAccessClause::Scope(scope);
+        for (dir, clause) in [
+            (
+                shadow::Direction::NewlyHidden,
+                TicketAccessClause::Diff(Box::new(legacy.clone()), Box::new(new.clone())),
+            ),
+            (
+                shadow::Direction::NewlyVisible,
+                TicketAccessClause::Diff(Box::new(new.clone()), Box::new(legacy.clone())),
+            ),
+        ] {
+            let mut qb = QueryBuilder::new("SELECT t.id::int8 FROM tickets_ticket t WHERE 1=1");
+            push_ticket_list_filters(&mut qb, &filter, search.as_deref(), &clause);
+            qb.push(" LIMIT 200");
+            match qb.build_query_scalar::<i64>().fetch_all(&pool).await {
+                Ok(ids) => shadow::record(
+                    &pool,
+                    shadow::Resource::Ticket,
+                    Some(uid),
+                    "GET /api/v1/tickets/",
+                    ids.into_iter().map(|id| (dir, id)).collect(),
+                ),
+                Err(e) => tracing::warn!(
+                    "[認可/試運転] チケット一覧の差分の計算に失敗(操作は続行): {:?}",
+                    e
+                ),
+            }
+        }
+    });
 }
 
 /// チケット一覧取得(JSON API用)
@@ -681,228 +863,19 @@ pub async fn api_find_all(
         _ => "t.updated_at DESC, t.id DESC", // デフォルト
     };
 
-    // 基本クエリ：API_TICKET_SELECT を使用
-    let mut query = String::from(API_TICKET_SELECT);
-    query.push_str(" WHERE 1=1");
-
-    // フィルタ条件を動的に追加
-    let mut param_count = 1;
-
-    // status フィルタ
-    if let Some(ref statuses) = filter.status {
-        if !statuses.is_empty() {
-            if statuses.len() == 1 {
-                query.push_str(&format!(" AND t.status = ${}", param_count));
-                param_count += 1;
-            } else {
-                let placeholders = (0..statuses.len())
-                    .map(|i| format!("${}", param_count + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                query.push_str(&format!(
-                    " AND t.status = ANY(ARRAY[{}]::text[])",
-                    placeholders
-                ));
-                param_count += statuses.len();
-            }
-        }
-    }
-
-    // priority フィルタ
-    if let Some(ref priorities) = filter.priority {
-        if !priorities.is_empty() {
-            if priorities.len() == 1 {
-                query.push_str(&format!(" AND t.priority = ${}", param_count));
-                param_count += 1;
-            } else {
-                let placeholders = (0..priorities.len())
-                    .map(|i| format!("${}", param_count + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                query.push_str(&format!(
-                    " AND t.priority = ANY(ARRAY[{}]::text[])",
-                    placeholders
-                ));
-                param_count += priorities.len();
-            }
-        }
-    }
-
-    // assignees フィルタ (EXISTS)
-    if let Some(assignee_id) = filter.assignees {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-
-    // project フィルタ
-    if filter.project.is_some() {
-        query.push_str(&format!(" AND t.project_id = ${}", param_count));
-        param_count += 1;
-    }
-    if filter.user_id.is_some() {
-        push_ticket_access_sql(&mut query, &mut param_count);
-    }
-
-    // project__prefix フィルタ
-    if let Some(ref prefix) = filter.project_prefix {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-    if filter.team_slug.is_some() {
-        push_team_slug_sql(&mut query, &mut param_count);
-    }
-
-    // milestone フィルタ
-    if let Some(ms_id) = filter.milestone {
-        query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // cycle フィルタ
-    if let Some(cycle_id) = filter.cycle {
-        query.push_str(&format!(" AND t.cycle_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // category フィルタ
-    if let Some(cat_id) = filter.category {
-        query.push_str(&format!(" AND t.category_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // labels フィルタ (EXISTS)
-    if let Some(label_id) = filter.labels {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-
-    // parent フィルタ
-    if let Some(parent_id) = filter.parent {
-        query.push_str(&format!(" AND t.parent_id = ${}", param_count));
-        param_count += 1;
-    }
-
-    // parent_isnull フィルタ
-    if let Some(is_null) = filter.parent_isnull {
-        if is_null {
-            query.push_str(" AND t.parent_id IS NULL");
-        } else {
-            query.push_str(" AND t.parent_id IS NOT NULL");
-        }
-    }
-
-    // due_date gte
-    if let Some(due_gte) = filter.due_date_gte {
-        query.push_str(&format!(" AND t.due_date >= ${}", param_count));
-        param_count += 1;
-    }
-
-    // due_date lte
-    if let Some(due_lte) = filter.due_date_lte {
-        query.push_str(&format!(" AND t.due_date <= ${}", param_count));
-        param_count += 1;
-    }
-
-    // due_date_isnull
-    if let Some(is_null) = filter.due_date_isnull {
-        if is_null {
-            query.push_str(" AND t.due_date IS NULL");
-        } else {
-            query.push_str(" AND t.due_date IS NOT NULL");
-        }
-    }
-
-    // 全文検索
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            let search_pattern = format!("%{}%", search_term);
-            query.push_str(&format!(
-                " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
-                param_count,
-                param_count + 1,
-                param_count + 2
-            ));
-            param_count += 3;
-        }
-    }
-
+    let mut qb = QueryBuilder::new(API_TICKET_SELECT);
+    qb.push(" WHERE 1=1");
+    push_ticket_list_filters(&mut qb, filter, search, &response_access(filter));
     // ソート追加 + ページネーション(Django PageNumberPagination相当)
-    query.push_str(&format!(
-        " ORDER BY {} LIMIT ${} OFFSET ${}",
-        order_clause,
-        param_count,
-        param_count + 1
-    ));
+    qb.push(" ORDER BY ")
+        .push(order_clause)
+        .push(" LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
 
-    // パラメータをバインド
-    let mut sql_query = sqlx::query(&query);
-
-    if let Some(ref statuses) = filter.status {
-        for status in statuses {
-            sql_query = sql_query.bind(status.as_str());
-        }
-    }
-    if let Some(ref priorities) = filter.priority {
-        for priority in priorities {
-            sql_query = sql_query.bind(priority.as_str());
-        }
-    }
-    if let Some(assignee_id) = filter.assignees {
-        sql_query = sql_query.bind(assignee_id);
-    }
-    if let Some(proj_id) = filter.project {
-        sql_query = sql_query.bind(proj_id);
-    }
-    if let Some(user_id) = filter.user_id {
-        sql_query = sql_query.bind(user_id).bind(user_id);
-    }
-    if let Some(ref prefix) = filter.project_prefix {
-        sql_query = sql_query.bind(prefix.as_str());
-    }
-    if let Some(ref slug) = filter.team_slug {
-        sql_query = sql_query.bind(slug.as_str());
-    }
-    if let Some(ms_id) = filter.milestone {
-        sql_query = sql_query.bind(ms_id);
-    }
-    if let Some(cycle_id) = filter.cycle {
-        sql_query = sql_query.bind(cycle_id);
-    }
-    if let Some(cat_id) = filter.category {
-        sql_query = sql_query.bind(cat_id);
-    }
-    if let Some(label_id) = filter.labels {
-        sql_query = sql_query.bind(label_id);
-    }
-    if let Some(parent_id) = filter.parent {
-        sql_query = sql_query.bind(parent_id);
-    }
-    if let Some(due_gte) = filter.due_date_gte {
-        sql_query = sql_query.bind(due_gte);
-    }
-    if let Some(due_lte) = filter.due_date_lte {
-        sql_query = sql_query.bind(due_lte);
-    }
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            let pattern = format!("%{}%", search_term);
-            sql_query = sql_query.bind(pattern.clone());
-            sql_query = sql_query.bind(pattern.clone());
-            sql_query = sql_query.bind(pattern);
-        }
-    }
-    sql_query = sql_query.bind(PAGE_SIZE).bind(offset);
-
-    let rows = sql_query.fetch_all(pool).await?;
+    let rows = qb.build().fetch_all(pool).await?;
+    spawn_ticket_list_shadow(pool, filter, search);
 
     // Use extracted hydration function to build TicketListOut objects
     hydrate_ticket_rows(pool, rows).await
@@ -915,182 +888,9 @@ pub async fn api_count_all(
     filter: &ApiTicketFilter,
     search: Option<&str>,
 ) -> anyhow::Result<i64> {
-    let mut query = String::from("SELECT COUNT(*) FROM tickets_ticket t WHERE 1=1");
-    let mut param_count = 1;
-
-    if let Some(ref statuses) = filter.status {
-        if !statuses.is_empty() {
-            if statuses.len() == 1 {
-                query.push_str(&format!(" AND t.status = ${}", param_count));
-                param_count += 1;
-            } else {
-                let placeholders = (0..statuses.len())
-                    .map(|i| format!("${}", param_count + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                query.push_str(&format!(
-                    " AND t.status = ANY(ARRAY[{}]::text[])",
-                    placeholders
-                ));
-                param_count += statuses.len();
-            }
-        }
-    }
-    if let Some(ref priorities) = filter.priority {
-        if !priorities.is_empty() {
-            if priorities.len() == 1 {
-                query.push_str(&format!(" AND t.priority = ${}", param_count));
-                param_count += 1;
-            } else {
-                let placeholders = (0..priorities.len())
-                    .map(|i| format!("${}", param_count + i))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                query.push_str(&format!(
-                    " AND t.priority = ANY(ARRAY[{}]::text[])",
-                    placeholders
-                ));
-                param_count += priorities.len();
-            }
-        }
-    }
-    if filter.assignees.is_some() {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = t.id AND user_id = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-    if filter.project.is_some() {
-        query.push_str(&format!(" AND t.project_id = ${}", param_count));
-        param_count += 1;
-    }
-    if filter.user_id.is_some() {
-        push_ticket_access_sql(&mut query, &mut param_count);
-    }
-    if filter.project_prefix.is_some() {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_project WHERE id = t.project_id AND prefix = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-    if filter.team_slug.is_some() {
-        push_team_slug_sql(&mut query, &mut param_count);
-    }
-    if filter.milestone.is_some() {
-        query.push_str(&format!(" AND t.milestone_id = ${}", param_count));
-        param_count += 1;
-    }
-    if filter.cycle.is_some() {
-        query.push_str(&format!(" AND t.cycle_id = ${}", param_count));
-        param_count += 1;
-    }
-    if filter.category.is_some() {
-        query.push_str(&format!(" AND t.category_id = ${}", param_count));
-        param_count += 1;
-    }
-    if filter.labels.is_some() {
-        query.push_str(&format!(
-            " AND EXISTS(SELECT 1 FROM tickets_ticket_labels WHERE ticketmodel_id = t.id AND labelmodel_id = ${})",
-            param_count
-        ));
-        param_count += 1;
-    }
-    if filter.parent.is_some() {
-        query.push_str(&format!(" AND t.parent_id = ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(is_null) = filter.parent_isnull {
-        query.push_str(if is_null {
-            " AND t.parent_id IS NULL"
-        } else {
-            " AND t.parent_id IS NOT NULL"
-        });
-    }
-    if filter.due_date_gte.is_some() {
-        query.push_str(&format!(" AND t.due_date >= ${}", param_count));
-        param_count += 1;
-    }
-    if filter.due_date_lte.is_some() {
-        query.push_str(&format!(" AND t.due_date <= ${}", param_count));
-        param_count += 1;
-    }
-    if let Some(is_null) = filter.due_date_isnull {
-        query.push_str(if is_null {
-            " AND t.due_date IS NULL"
-        } else {
-            " AND t.due_date IS NOT NULL"
-        });
-    }
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            query.push_str(&format!(
-                " AND (t.title ILIKE ${} OR t.description ILIKE ${} OR t.ticket_key ILIKE ${})",
-                param_count,
-                param_count + 1,
-                param_count + 2
-            ));
-        }
-    }
-
-    let mut sql_query = sqlx::query_scalar::<_, i64>(&query);
-    if let Some(ref statuses) = filter.status {
-        for status in statuses {
-            sql_query = sql_query.bind(status.as_str());
-        }
-    }
-    if let Some(ref priorities) = filter.priority {
-        for priority in priorities {
-            sql_query = sql_query.bind(priority.as_str());
-        }
-    }
-    if let Some(assignee_id) = filter.assignees {
-        sql_query = sql_query.bind(assignee_id);
-    }
-    if let Some(proj_id) = filter.project {
-        sql_query = sql_query.bind(proj_id);
-    }
-    if let Some(user_id) = filter.user_id {
-        sql_query = sql_query.bind(user_id).bind(user_id);
-    }
-    if let Some(ref prefix) = filter.project_prefix {
-        sql_query = sql_query.bind(prefix.as_str());
-    }
-    if let Some(ref slug) = filter.team_slug {
-        sql_query = sql_query.bind(slug.as_str());
-    }
-    if let Some(ms_id) = filter.milestone {
-        sql_query = sql_query.bind(ms_id);
-    }
-    if let Some(cycle_id) = filter.cycle {
-        sql_query = sql_query.bind(cycle_id);
-    }
-    if let Some(cat_id) = filter.category {
-        sql_query = sql_query.bind(cat_id);
-    }
-    if let Some(label_id) = filter.labels {
-        sql_query = sql_query.bind(label_id);
-    }
-    if let Some(parent_id) = filter.parent {
-        sql_query = sql_query.bind(parent_id);
-    }
-    if let Some(due_gte) = filter.due_date_gte {
-        sql_query = sql_query.bind(due_gte);
-    }
-    if let Some(due_lte) = filter.due_date_lte {
-        sql_query = sql_query.bind(due_lte);
-    }
-    if let Some(search_term) = search {
-        if !search_term.is_empty() {
-            let pattern = format!("%{}%", search_term);
-            sql_query = sql_query.bind(pattern.clone());
-            sql_query = sql_query.bind(pattern.clone());
-            sql_query = sql_query.bind(pattern);
-        }
-    }
-
-    let count = sql_query.fetch_one(pool).await?;
+    let mut qb = QueryBuilder::new("SELECT COUNT(*) FROM tickets_ticket t WHERE 1=1");
+    push_ticket_list_filters(&mut qb, filter, search, &response_access(filter));
+    let count = qb.build_query_scalar::<i64>().fetch_one(pool).await?;
     Ok(count)
 }
 
@@ -1118,7 +918,8 @@ pub async fn api_find_by_key(
             (SELECT COUNT(*) FROM tickets_ticket WHERE parent_id = t.id) as child_count,
             COALESCE((SELECT COUNT(*) FROM t_time_entry WHERE ticket_id = t.id), 0) as time_spent,
             proj.name as detail_project_name, proj.prefix as detail_project_prefix,
-            t.ai_prompt, t.ai_prompt_updated_at, t.ai_prompt_generation_mode
+            t.ai_prompt, t.ai_prompt_updated_at, t.ai_prompt_generation_mode,
+            t.created_via_ai AS created_via_ai
          FROM tickets_ticket t
          LEFT JOIN accounts_user au ON t.author_id = au.id
          LEFT JOIN tickets_category cat ON t.category_id = cat.id
@@ -1258,7 +1059,6 @@ pub async fn api_find_by_key(
             let is_ai_agent_and_assignee = is_ai_agent_author && viewer_is_assignee;
             let can_edit = !is_deleted && (is_own || is_acting_user || is_ai_agent_and_assignee);
             let can_delete = can_edit;
-
 
             CommentOut {
                 id: r.get(0),
@@ -1473,6 +1273,7 @@ pub async fn api_find_by_key(
         gantt_order: row.get(16),
         created_at: row.get(17),
         updated_at: row.get(18),
+        created_via_ai: row.get("created_via_ai"),
     };
 
     let is_watching = match viewer_user_id {
@@ -1497,17 +1298,20 @@ pub async fn api_find_by_key(
 }
 
 pub async fn api_find_user_username(pool: &PgPool, user_id: i32) -> anyhow::Result<Option<String>> {
-    let username: Option<String> = sqlx::query_scalar(
-        "SELECT username FROM accounts_user WHERE id = $1"
-    )
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+    let username: Option<String> =
+        sqlx::query_scalar("SELECT username FROM accounts_user WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
 
     Ok(username)
 }
 
-pub async fn is_ticket_assignee(pool: &PgPool, ticket_id: i32, user_id: i32) -> anyhow::Result<bool> {
+pub async fn is_ticket_assignee(
+    pool: &PgPool,
+    ticket_id: i32,
+    user_id: i32,
+) -> anyhow::Result<bool> {
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM tickets_ticket_assignees WHERE ticketmodel_id = $1 AND user_id = $2)"
     )
@@ -2010,6 +1814,23 @@ pub async fn api_delete(pool: &PgPool, ticket_key: &str) -> anyhow::Result<bool>
     Ok(result.rows_affected() > 0)
 }
 
+/// AI 経由で作ったチケットに印を付ける(アクセス制御の再設計 F-3)。
+/// `key_id` は個人キーの ID(共有キーは None)。作成と同じトランザクションで呼ぶ
+pub async fn mark_created_via_ai(
+    conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ticket_id: i32,
+    key_id: Option<i32>,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE tickets_ticket SET created_via_ai = true, created_via_ai_key_id = $2 WHERE id = $1",
+    )
+    .bind(i64::from(ticket_id))
+    .bind(key_id.map(i64::from))
+    .execute(conn.as_mut())
+    .await?;
+    Ok(())
+}
+
 /// チケット作成(JSON API用、トランザクション必須)
 pub async fn api_create(
     conn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -2116,6 +1937,9 @@ pub async fn api_create(
     .fetch_one(conn.as_mut())
     .await?;
 
+    // 最初から完了のステータスで作ったときも、完了日時を入れる
+    sync_closed_at(conn.as_mut(), ticket_id, "").await?;
+
     // Assignees を追加
     for &assignee_id in &input.assignees {
         sqlx::query(
@@ -2178,6 +2002,53 @@ pub struct TicketChangeEvents {
     pub newly_reviewers: Vec<i32>,
     /// ステータス・担当者以外で変更されたフィールドの表示名(タイトルケース)一覧
     pub other_changed_fields: Vec<String>,
+}
+
+/// ステータスが「完了」かを判定する SQL の式(チケット `t` の範囲で、`slug` のステータスの分類を引く)。
+/// 範囲の決め方は `workflow_status_repo::lookup_status_category` と同じ(プロジェクト → チーム → 全体)。
+/// 分類が見つからなくても、`closed` / `resolved` は完了とみなす(Git 連携と同じ扱い)。
+fn completed_status_sql(slug: &str) -> String {
+    format!(
+        "({slug} IN ('closed', 'resolved') OR COALESCE(
+            CASE WHEN t.project_id IS NOT NULL THEN
+                (SELECT w.category FROM t_workflow_status w
+                  WHERE w.project_id = t.project_id AND w.slug = {slug} LIMIT 1)
+            ELSE COALESCE(
+                (SELECT w.category FROM t_workflow_status w
+                  WHERE w.team_id = t.team_id AND w.project_id IS NULL AND w.slug = {slug} LIMIT 1),
+                (SELECT w.category FROM t_workflow_status w
+                  WHERE w.project_id IS NULL AND w.team_id IS NULL AND w.slug = {slug} LIMIT 1))
+            END = 'completed', FALSE))"
+    )
+}
+
+/// ステータスを変えた後に呼び、完了日時(closed_at)をステータスに合わせる。
+/// - 完了でない → 完了: いまの時刻を入れる
+/// - 完了 → 完了(closed → resolved など): もとの完了日時を保つ
+/// - 完了 → 完了でない(再オープン): 空に戻す
+///
+/// `old_status` は変更前のステータス(新規作成なら空文字)。ステータスが変わっていなければ何もしない。
+/// ダッシュボードの「今週完了」は closed_at で数えるため、ステータスを変える経路は必ずこれを通す。
+pub async fn sync_closed_at(
+    conn: &mut sqlx::PgConnection,
+    ticket_id: i32,
+    old_status: &str,
+) -> anyhow::Result<()> {
+    let old_done = completed_status_sql("$2");
+    let new_done = completed_status_sql("t.status");
+    sqlx::query(&format!(
+        "UPDATE tickets_ticket t SET closed_at = CASE
+            WHEN {new_done} AND {old_done} THEN COALESCE(t.closed_at, NOW())
+            WHEN {new_done} THEN NOW()
+            ELSE NULL
+         END
+         WHERE t.id = $1 AND t.status IS DISTINCT FROM $2"
+    ))
+    .bind(ticket_id)
+    .bind(old_status)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 /// チケット更新(JSON API用、トランザクション必須)
@@ -2354,6 +2225,8 @@ pub async fn api_update(
         .execute(conn.as_mut())
         .await?;
     }
+
+    sync_closed_at(conn.as_mut(), ticket_id, &old_status).await?;
 
     // ステータス変更ログ
     let status_change = if old_status != input.status {
@@ -2813,6 +2686,7 @@ pub async fn api_patch(
     let mut status_change: Option<(String, String)> = None;
     if let Some(new_status) = &input.status {
         if &old_status != new_status {
+            sync_closed_at(conn.as_mut(), ticket_id, &old_status).await?;
             sqlx::query(
                 "INSERT INTO tickets_status_history (old_status, new_status, changed_by_id, changed_at, ticket_id)
                  VALUES ($1, $2, $3, NOW(), $4)"
@@ -3408,8 +3282,15 @@ pub async fn find_tickets_for_csv_export(
     pool: &PgPool,
     project_id: i32,
     user_id: i32,
+    scope: &Scope,
 ) -> anyhow::Result<Vec<TicketCsvRow>> {
-    let mut query = String::from(
+    // 絞り込みは一覧と同じ(今の判定 / 新しい判定を試運転のスイッチで切り替える。アクセス制御の再設計 C-1)
+    let filter = ApiTicketFilter {
+        user_id: Some(user_id),
+        scope: Some(scope.clone()),
+        ..Default::default()
+    };
+    let mut qb = QueryBuilder::new(
         "SELECT
             t.id::int4, t.ticket_key, t.title, t.status, t.priority, t.ticket_type,
             t.start_date, t.due_date, t.story_points, t.created_at, t.updated_at,
@@ -3418,18 +3299,12 @@ pub async fn find_tickets_for_csv_export(
          LEFT JOIN tickets_category cat ON t.category_id = cat.id
          LEFT JOIN milestones_milestone ms ON t.milestone_id = ms.id
          LEFT JOIN t_cycle cy ON t.cycle_id = cy.id
-         WHERE t.project_id = $1",
+         WHERE t.project_id = ",
     );
-    let mut param_count = 2;
-    push_ticket_access_sql(&mut query, &mut param_count);
-    query.push_str(" ORDER BY t.ticket_key");
-
-    let rows = sqlx::query(&query)
-        .bind(project_id)
-        .bind(user_id)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+    qb.push_bind(project_id).push(" AND ");
+    push_access_expr(&mut qb, &response_access(&filter));
+    qb.push(" ORDER BY t.ticket_key");
+    let rows = qb.build().fetch_all(pool).await?;
 
     let mut result = Vec::new();
     for row in &rows {
@@ -3572,6 +3447,66 @@ pub async fn validate_reviewers_are_members(
         .collect();
 
     Ok(non_members)
+}
+
+/// 依存グラフを、見える範囲(`scope`)に絞る(アクセス制御の再設計 D-3)。
+/// 見えないチケット(ノード)・それにつながる線(エッジ)・見えないサイクルを除く。
+/// 線には相手のチケットのキーと題名が入るため、両端が見えるものだけを残す
+pub async fn filter_dependency_graph(
+    pool: &PgPool,
+    mut graph: crate::domain::models::dependency_api::DependencyGraphOut,
+    scope: &crate::domain::access::Scope,
+) -> anyhow::Result<crate::domain::models::dependency_api::DependencyGraphOut> {
+    use crate::infrastructure::access::scope_sql;
+    let mut ticket_ids: Vec<i64> = graph.nodes.iter().map(|n| n.id as i64).collect();
+    for e in &graph.edges {
+        ticket_ids.push(e.from_task as i64);
+        ticket_ids.push(e.to_task as i64);
+    }
+    ticket_ids.sort_unstable();
+    ticket_ids.dedup();
+    let visible_tickets: std::collections::HashSet<i32> = if ticket_ids.is_empty() {
+        Default::default()
+    } else {
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT t.id::int4 FROM tickets_ticket t WHERE t.id = ANY(",
+        );
+        qb.push_bind(ticket_ids).push("::int8[]) AND ");
+        scope_sql::push_ticket_visible(&mut qb, "t", scope);
+        qb.build_query_scalar::<i32>()
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .collect()
+    };
+    let cycle_ids: Vec<i64> = graph.cycles.iter().map(|c| c.id as i64).collect();
+    let visible_cycles: std::collections::HashSet<i32> = if cycle_ids.is_empty() {
+        Default::default()
+    } else {
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT c.id::int4 FROM t_cycle c WHERE c.id = ANY(",
+        );
+        qb.push_bind(cycle_ids).push("::int8[]) AND ");
+        scope_sql::push_cycle_visible(&mut qb, "c", scope);
+        qb.build_query_scalar::<i32>()
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .collect()
+    };
+    graph.nodes.retain(|n| visible_tickets.contains(&n.id));
+    for n in &mut graph.nodes {
+        // 見えないサイクルの名前を出さない
+        if n.cycle.is_some_and(|c| !visible_cycles.contains(&c)) {
+            n.cycle = None;
+            n.cycle_name = None;
+        }
+    }
+    graph
+        .edges
+        .retain(|e| visible_tickets.contains(&e.from_task) && visible_tickets.contains(&e.to_task));
+    graph.cycles.retain(|c| visible_cycles.contains(&c.id));
+    Ok(graph)
 }
 
 /// プロジェクト単位で全チケット(ノード)+全依存関係(エッジ)を一括取得する。
@@ -3832,6 +3767,318 @@ mod tests {
     use super::*;
     use crate::test_support;
 
+    /// D-3: 依存グラフ・構造の集計は、見えるチケット・プロジェクトだけになる
+    /// (Public チーム A の Full Member から、同じプロジェクトに参加する Private チーム B の物が見えない)
+    #[tokio::test]
+    async fn dependency_graph_and_structure_hide_invisible_teams() {
+        use crate::domain::access::Principal;
+        use crate::infrastructure::access::viewer_repo;
+        use crate::infrastructure::repositories::project_hierarchy_repo;
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let viewer_id = test_support::create_test_user(&pool, "graph-v").await;
+        let project = test_support::create_test_project(&pool, "GR", viewer_id).await;
+        let team_a: i32 = sqlx::query_scalar(
+            "SELECT team_id::int4 FROM tickets_project_teams WHERE project_id = $1::int8",
+        )
+        .bind(i64::from(project))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let team_b = test_support::create_test_team(&pool, "graph-b").await;
+        sqlx::query("UPDATE m_team SET visibility = 'private' WHERE id = $1::int8")
+            .bind(i64::from(team_b))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO tickets_project_teams (project_id, team_id, joined_at) VALUES ($1::int8, $2::int8, NOW())",
+        )
+        .bind(i64::from(project))
+        .bind(i64::from(team_b))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO t_team_membership (team_id, user_id, role, joined_at) VALUES ($1::int8, $2::int8, 'member', NOW())",
+        )
+        .bind(i64::from(team_a))
+        .bind(i64::from(viewer_id))
+        .execute(&pool)
+        .await
+        .unwrap();
+        // 子プロジェクト: Private チーム B だけが参加(見えない)
+        let child = test_support::create_test_project(&pool, "GRC", viewer_id).await;
+        sqlx::query("UPDATE tickets_project SET parent_project_id = $1::int8 WHERE id = $2::int8")
+            .bind(i64::from(project))
+            .bind(i64::from(child))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE tickets_project_teams SET team_id = $1::int8 WHERE project_id = $2::int8",
+        )
+        .bind(i64::from(team_b))
+        .bind(i64::from(child))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ticket = |team: i32| {
+            let pool = pool.clone();
+            async move {
+                let input: TicketWriteIn = serde_json::from_value(serde_json::json!({
+                    "title": "依存", "teamId": team, "project": project, "ticket_type": "task"
+                }))
+                .unwrap();
+                let mut tx = pool.begin().await.unwrap();
+                let id = api_create(&mut tx, &input, viewer_id).await.unwrap();
+                tx.commit().await.unwrap();
+                id
+            }
+        };
+        let a1 = ticket(team_a).await;
+        let a2 = ticket(team_a).await;
+        let b1 = ticket(team_b).await;
+        for (from, to) in [(a1, a2), (a1, b1)] {
+            sqlx::query(
+                "INSERT INTO t_task_dependency (from_task_id, to_task_id, dependency_type, created_by_id, created_at)
+                 VALUES ($1::int8, $2::int8, 'blocks', $3::int8, NOW())",
+            )
+            .bind(i64::from(from))
+            .bind(i64::from(to))
+            .bind(i64::from(viewer_id))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let viewer = viewer_repo::load(
+            &pool,
+            Principal::Human { user_id: viewer_id },
+            viewer_repo::today_utc(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let scope = viewer.scope();
+
+        let all = find_dependency_graph_for_project(&pool, project)
+            .await
+            .unwrap();
+        assert!(
+            all.nodes.iter().any(|n| n.id == b1),
+            "絞る前は B のチケットも入る"
+        );
+        let graph = filter_dependency_graph(&pool, all, &scope).await.unwrap();
+        let ids: Vec<i32> = graph.nodes.iter().map(|n| n.id).collect();
+        assert!(ids.contains(&a1) && ids.contains(&a2));
+        assert!(!ids.contains(&b1), "見えないチームのチケットは出さない");
+        assert_eq!(graph.edges.len(), 1, "見えないチケットへの線も出さない");
+        assert_eq!((graph.edges[0].from_task, graph.edges[0].to_task), (a1, a2));
+
+        let rollup = project_hierarchy_repo::rollup_scoped(&pool, project, &scope)
+            .await
+            .unwrap();
+        assert_eq!(rollup.project_count, 1, "見えない子プロジェクトは数えない");
+        assert_eq!(rollup.ticket_count, 2, "見えないチケットは数えない");
+        let full = project_hierarchy_repo::rollup(&pool, project)
+            .await
+            .unwrap();
+        assert_eq!((full.project_count, full.ticket_count), (2, 3));
+
+        let visible = project_hierarchy_repo::visible_project_ids(&pool, &[project, child], &scope)
+            .await
+            .unwrap();
+        assert!(visible.contains(&project));
+        assert!(!visible.contains(&child));
+    }
+
+    /// F-3: AI 経由で作ったチケットには印が付き、一覧・詳細の応答に出る(普通の作成には付かない)
+    #[tokio::test]
+    async fn created_via_ai_is_recorded_and_returned() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let owner = test_support::create_test_user(&pool, "via-ai").await;
+        let team = test_support::create_test_team(&pool, "via-ai").await;
+        let input: TicketWriteIn = serde_json::from_value(
+            serde_json::json!({"title": "AI で作成", "teamId": team, "ticket_type": "task"}),
+        )
+        .unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        let by_ai = api_create(&mut tx, &input, owner).await.unwrap();
+        mark_created_via_ai(&mut tx, by_ai, None).await.unwrap();
+        let by_hand = api_create(&mut tx, &input, owner).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let key_of = |id: i32| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT ticket_key FROM tickets_ticket WHERE id = $1::int8",
+                )
+                .bind(i64::from(id))
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        let detail = |key: String| {
+            let pool = pool.clone();
+            async move {
+                api_find_by_key(&pool, &key, Some(owner), "ai_agent")
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        };
+        let ai_detail = detail(key_of(by_ai).await).await;
+        let hand_detail = detail(key_of(by_hand).await).await;
+        assert!(ai_detail.base.created_via_ai, "AI 経由の印が詳細に出る");
+        assert_eq!(ai_detail.base.author.id, owner);
+        assert!(!hand_detail.base.created_via_ai, "普通の作成には付かない");
+
+        // 一覧(同期と共通の SELECT)にも出る
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(API_TICKET_SELECT);
+        qb.push(" WHERE t.id = ANY(")
+            .push_bind(vec![by_ai, by_hand])
+            .push(")");
+        let rows = qb.build().fetch_all(&pool).await.unwrap();
+        let listed = hydrate_ticket_rows(&pool, rows).await.unwrap();
+        let flag = |id: i32| listed.iter().find(|t| t.id == id).unwrap().created_via_ai;
+        assert!(flag(by_ai));
+        assert!(!flag(by_hand));
+    }
+
+    /// 一覧の絞り込み(アクセス制御の再設計 C-1): 新しい判定と、試運転の差分の計算
+    #[tokio::test]
+    async fn ticket_list_access_clauses_scope_and_diff() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        use crate::domain::access::Principal;
+        use crate::infrastructure::access::viewer_repo;
+
+        let author = test_support::create_test_user(&pool, "acl-a").await;
+        let p_priv = test_support::create_test_project(&pool, "ACLV", author).await;
+        let p_pub = test_support::create_test_project(&pool, "ACLB", author).await;
+        let k_priv = test_support::create_test_ticket(&pool, p_priv, "ACLV", author).await;
+        let k_pub = test_support::create_test_ticket(&pool, p_pub, "ACLB", author).await;
+        sqlx::query("UPDATE m_team SET visibility = 'private' WHERE id = (SELECT tt.team_id FROM tickets_ticket tt WHERE tt.id = $1::int8)")
+            .bind(k_priv as i64).execute(&pool).await.unwrap();
+        let staff = test_support::create_test_user(&pool, "acl-s").await; // 今: 全件 / 新: Private は見えない
+        let fm = test_support::create_test_user(&pool, "acl-f").await; // 今: 所属なし=見えない / 新: Public は見える
+        sqlx::query("UPDATE accounts_user SET is_staff = true WHERE id = $1::int8")
+            .bind(staff as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        async fn ids(pool: &PgPool, clause: TicketAccessClause, only: &[i32]) -> Vec<i32> {
+            let filter = ApiTicketFilter::default();
+            let mut qb = QueryBuilder::new("SELECT t.id::int4 FROM tickets_ticket t WHERE 1=1");
+            push_ticket_list_filters(&mut qb, &filter, None, &clause);
+            qb.push(" AND t.id = ANY(")
+                .push_bind(only.iter().map(|&i| i as i64).collect::<Vec<_>>())
+                .push("::int8[]) ORDER BY t.id");
+            qb.build_query_scalar::<i32>()
+                .fetch_all(pool)
+                .await
+                .unwrap()
+        }
+        let both = [k_priv, k_pub];
+        let scope_of = |v: crate::domain::access::Viewer| v.scope();
+        let s_staff = scope_of(
+            viewer_repo::load(
+                &pool,
+                Principal::Human { user_id: staff },
+                test_support::db_today(),
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+        );
+        let s_fm = scope_of(
+            viewer_repo::load(
+                &pool,
+                Principal::Human { user_id: fm },
+                test_support::db_today(),
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+        );
+
+        // 今の判定
+        assert_eq!(
+            ids(&pool, TicketAccessClause::Legacy(staff), &both).await,
+            both.to_vec()
+        );
+        assert!(ids(&pool, TicketAccessClause::Legacy(fm), &both)
+            .await
+            .is_empty());
+        // 新しい判定
+        assert_eq!(
+            ids(&pool, TicketAccessClause::Scope(s_staff.clone()), &both).await,
+            vec![k_pub]
+        );
+        assert_eq!(
+            ids(&pool, TicketAccessClause::Scope(s_fm.clone()), &both).await,
+            vec![k_pub]
+        );
+        // 差分: 新しく見えなくなる(staff の Private)/ 新しく見える(未所属の Full Member の Public)
+        let d = |a: TicketAccessClause, b: TicketAccessClause| {
+            TicketAccessClause::Diff(Box::new(a), Box::new(b))
+        };
+        assert_eq!(
+            ids(
+                &pool,
+                d(
+                    TicketAccessClause::Legacy(staff),
+                    TicketAccessClause::Scope(s_staff.clone())
+                ),
+                &both
+            )
+            .await,
+            vec![k_priv]
+        );
+        assert!(ids(
+            &pool,
+            d(
+                TicketAccessClause::Scope(s_staff),
+                TicketAccessClause::Legacy(staff)
+            ),
+            &both
+        )
+        .await
+        .is_empty());
+        assert_eq!(
+            ids(
+                &pool,
+                d(
+                    TicketAccessClause::Scope(s_fm.clone()),
+                    TicketAccessClause::Legacy(fm)
+                ),
+                &both
+            )
+            .await,
+            vec![k_pub]
+        );
+        assert!(ids(
+            &pool,
+            d(
+                TicketAccessClause::Legacy(fm),
+                TicketAccessClause::Scope(s_fm)
+            ),
+            &both
+        )
+        .await
+        .is_empty());
+    }
+
     /// A→B, B→C が既存の状態で C→A を追加しようとすると
     /// 循環(A→B→C→A)になるため拒否されることを確認する。
     #[tokio::test]
@@ -3989,7 +4236,9 @@ mod tests {
         .await
         .unwrap();
 
-        let detail = api_find_by_key(&pool, &ticket_key, None, "ai_agent").await.unwrap();
+        let detail = api_find_by_key(&pool, &ticket_key, None, "ai_agent")
+            .await
+            .unwrap();
         assert!(detail.is_some());
         let detail = detail.unwrap();
         assert_eq!(detail.base.project, Some(project));
@@ -4120,13 +4369,13 @@ mod tests {
         .await
         .expect("failed to link project to team");
 
-        let ticket_id =
-            test_support::create_test_ticket(&pool, project, "TDG-T", author).await;
-        let ticket_key: String = sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
-            .bind(ticket_id)
-            .fetch_one(&pool)
-            .await
-            .expect("failed to fetch ticket_key");
+        let ticket_id = test_support::create_test_ticket(&pool, project, "TDG-T", author).await;
+        let ticket_key: String =
+            sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
+                .bind(ticket_id)
+                .fetch_one(&pool)
+                .await
+                .expect("failed to fetch ticket_key");
 
         let graph = find_dependency_graph_for_team(&pool, team_id)
             .await
@@ -4211,5 +4460,163 @@ mod tests {
             .expect("ticket with team");
         assert_eq!(with_team.team.as_ref().map(|t| t.id), Some(team_id));
         assert_eq!(with_team.comment_count, 0);
+    }
+
+    async fn closed_at_of(pool: &PgPool, id: i32) -> Option<chrono::DateTime<Utc>> {
+        sqlx::query_scalar("SELECT closed_at FROM tickets_ticket WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn key_of(pool: &PgPool, id: i32) -> String {
+        sqlx::query_scalar("SELECT ticket_key FROM tickets_ticket WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn patch(pool: &PgPool, id: i32, body: serde_json::Value, user: i32) {
+        let input: TicketPatchIn = serde_json::from_value(body).unwrap();
+        let key = key_of(pool, id).await;
+        let mut tx = pool.begin().await.unwrap();
+        api_patch(&mut tx, &key, &input, user)
+            .await
+            .unwrap()
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    /// 画面・MCP の部分更新で完了にすると完了日時が入り、再オープンで空に戻る(DEMO-000167)
+    #[tokio::test]
+    async fn patch_status_keeps_closed_at_in_step_with_completion() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let owner = test_support::create_test_user(&pool, "closed-at").await;
+        let team = test_support::create_test_team(&pool, "closed-at").await;
+        let input: TicketWriteIn = serde_json::from_value(
+            serde_json::json!({"title": "完了日時", "teamId": team, "ticket_type": "task"}),
+        )
+        .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let id = api_create(&mut tx, &input, owner).await.unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(closed_at_of(&pool, id).await, None, "未完了で作ったら空");
+
+        patch(&pool, id, serde_json::json!({"status": "closed"}), owner).await;
+        let closed = closed_at_of(&pool, id).await;
+        assert!(closed.is_some(), "完了にしたら完了日時が入る");
+
+        // 完了のまま別の完了ステータスへ移っても、最初に完了した日時を保つ
+        patch(&pool, id, serde_json::json!({"status": "resolved"}), owner).await;
+        assert_eq!(closed_at_of(&pool, id).await, closed);
+
+        // ステータス以外の変更では触らない
+        patch(
+            &pool,
+            id,
+            serde_json::json!({"title": "題名だけ変更"}),
+            owner,
+        )
+        .await;
+        assert_eq!(closed_at_of(&pool, id).await, closed);
+
+        patch(
+            &pool,
+            id,
+            serde_json::json!({"status": "in_progress"}),
+            owner,
+        )
+        .await;
+        assert_eq!(
+            closed_at_of(&pool, id).await,
+            None,
+            "再オープンしたら空に戻す"
+        );
+    }
+
+    /// 全体更新(PUT)と、最初から完了での作成でも完了日時が入る
+    #[tokio::test]
+    async fn full_update_and_create_as_closed_set_closed_at() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let owner = test_support::create_test_user(&pool, "closed-at-put").await;
+        let team = test_support::create_test_team(&pool, "closed-at-put").await;
+        let open: TicketWriteIn = serde_json::from_value(
+            serde_json::json!({"title": "全体更新", "teamId": team, "ticket_type": "task"}),
+        )
+        .unwrap();
+        let closed: TicketWriteIn = serde_json::from_value(
+            serde_json::json!({"title": "全体更新", "teamId": team, "ticket_type": "task", "status": "closed"}),
+        )
+        .unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        let created_closed = api_create(&mut tx, &closed, owner).await.unwrap();
+        let id = api_create(&mut tx, &open, owner).await.unwrap();
+        tx.commit().await.unwrap();
+        assert!(
+            closed_at_of(&pool, created_closed).await.is_some(),
+            "完了で作成"
+        );
+
+        let key = key_of(&pool, id).await;
+        let mut tx = pool.begin().await.unwrap();
+        api_update(&mut tx, &key, &closed, owner)
+            .await
+            .unwrap()
+            .unwrap();
+        tx.commit().await.unwrap();
+        let first = closed_at_of(&pool, id).await;
+        assert!(first.is_some(), "全体更新で完了にしたら入る");
+
+        // 同じ内容でもう一度保存しても、完了日時は変わらない(全体更新は毎回 status を送る)
+        let mut tx = pool.begin().await.unwrap();
+        api_update(&mut tx, &key, &closed, owner)
+            .await
+            .unwrap()
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(closed_at_of(&pool, id).await, first);
+    }
+
+    /// プロジェクト独自のステータスは、分類(completed かどうか)で判定する
+    #[tokio::test]
+    async fn custom_project_status_is_judged_by_its_category() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let owner = test_support::create_test_user(&pool, "closed-at-wf").await;
+        let project = test_support::create_test_project(&pool, "CAWF", owner).await;
+        for (slug, category, pos) in [("shipped", "completed", 90), ("qa_check", "started", 91)] {
+            sqlx::query(
+                "INSERT INTO t_workflow_status (slug, name, category, color, position, is_default, project_id)
+                 VALUES ($1, $1, $2, '#000000', $3, false, $4)",
+            )
+            .bind(slug)
+            .bind(category)
+            .bind(pos)
+            .bind(i64::from(project))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let id = test_support::create_test_ticket(&pool, project, "CAWF", owner).await;
+
+        patch(&pool, id, serde_json::json!({"status": "qa_check"}), owner).await;
+        assert_eq!(
+            closed_at_of(&pool, id).await,
+            None,
+            "進行中の分類では入らない"
+        );
+        patch(&pool, id, serde_json::json!({"status": "shipped"}), owner).await;
+        assert!(
+            closed_at_of(&pool, id).await.is_some(),
+            "完了の分類なら入る"
+        );
     }
 }

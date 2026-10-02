@@ -1,29 +1,12 @@
 /// presentation/handlers/settings_api.rs — インスタンス設定 API
-
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Extension, Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::domain::access::Viewer;
 use crate::domain::services::ai_service;
-use crate::infrastructure::repositories::{system_settings_repo, user_repo};
-use crate::presentation::middleware::jwt_auth::AuthUser;
+use crate::infrastructure::repositories::system_settings_repo;
 use crate::presentation::state::AppState;
-
-async fn caller_is_staff(state: &AppState, auth: &AuthUser) -> Result<bool, StatusCode> {
-    match user_repo::find_by_id(&state.pool, auth.user_id).await {
-        Ok(Some(user)) => Ok(user.is_staff),
-        Ok(None) => Err(StatusCode::UNAUTHORIZED),
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
-}
 
 #[derive(Serialize)]
 pub struct AiSettingsOut {
@@ -66,14 +49,8 @@ fn err(detail: &str) -> serde_json::Value {
 }
 
 /// GET /api/v1/settings/ai/
-pub async fn get_ai_settings(
-    State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
-) -> impl IntoResponse {
-    let can_edit = match caller_is_staff(&state, &auth).await {
-        Ok(v) => v,
-        Err(status) => return (status, Json(err("認証エラー"))).into_response(),
-    };
+pub async fn get_ai_settings(State(state): State<AppState>, viewer: Viewer) -> impl IntoResponse {
+    let can_edit = viewer.is_system_admin();
 
     let ai_config = state.ai_config().await;
     let status = ai_service::check_ai_status(&ai_config).await;
@@ -99,23 +76,18 @@ const MAX_OLLAMA_TIMEOUT_SECS: u64 = 300;
 /// PATCH /api/v1/settings/ai/
 pub async fn update_ai_settings(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthUser>,
+    viewer: Viewer,
     Json(body): Json<UpdateAiSettingsIn>,
 ) -> impl IntoResponse {
-    let can_edit = match caller_is_staff(&state, &auth).await {
-        Ok(v) => v,
-        Err(status) => return (status, Json(err("認証エラー"))).into_response(),
-    };
-    if !can_edit {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(err("管理者のみ変更できます")),
-        )
-            .into_response();
+    if !viewer.is_system_admin() {
+        return (StatusCode::FORBIDDEN, Json(err("管理者のみ変更できます"))).into_response();
     }
 
     if let Some(true) = body.reset_ollama_timeout {
-        if let Err(e) = system_settings_repo::delete(&state.pool, system_settings_repo::KEY_OLLAMA_TIMEOUT).await {
+        if let Err(e) =
+            system_settings_repo::delete(&state.pool, system_settings_repo::KEY_OLLAMA_TIMEOUT)
+                .await
+        {
             tracing::error!("system_settings delete failed: {:?}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -175,7 +147,12 @@ pub async fn update_ai_settings(
                         .into_response();
                 }
 
-                if let Err(e) = system_settings_repo::set(&state.pool, system_settings_repo::KEY_OLLAMA_MODEL, &model).await
+                if let Err(e) = system_settings_repo::set(
+                    &state.pool,
+                    system_settings_repo::KEY_OLLAMA_MODEL,
+                    &model,
+                )
+                .await
                 {
                     tracing::error!("system_settings save failed: {:?}", e);
                     return (
@@ -187,8 +164,11 @@ pub async fn update_ai_settings(
                 state.set_ollama_model_override(Some(model)).await;
             }
             Ok(None) => {
-                if let Err(e) =
-                    system_settings_repo::delete(&state.pool, system_settings_repo::KEY_OLLAMA_MODEL).await
+                if let Err(e) = system_settings_repo::delete(
+                    &state.pool,
+                    system_settings_repo::KEY_OLLAMA_MODEL,
+                )
+                .await
                 {
                     tracing::error!("system_settings delete failed: {:?}", e);
                     return (

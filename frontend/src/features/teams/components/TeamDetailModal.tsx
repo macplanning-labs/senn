@@ -5,6 +5,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import type { TeamVisibility } from '@/shared/api/types';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useCreateTeam, useUpdateTeam } from '../hooks/useTeams';
@@ -36,6 +37,7 @@ export function TeamDetailModal({ team = null, onClose, onCreated, onUpdated }: 
   const [color, setColor] = useState(team?.color || '#6366f1');
   const [slackWebhookUrl, setSlackWebhookUrl] = useState(team?.slackWebhookUrl ?? '');
   const [prefix, setPrefix] = useState(team?.prefix ?? '');
+  const [visibility, setVisibility] = useState<TeamVisibility>('public');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -99,6 +101,7 @@ export function TeamDetailModal({ team = null, onClose, onCreated, onUpdated }: 
         color,
         slackWebhookUrl: slackWebhookUrl.trim() || undefined,
         ...(trimmedPrefix ? { prefix: trimmedPrefix } : {}),
+        visibility,
       });
       addToast({ message: t('team.modal.created'), type: 'success' });
       onCreated?.(created);
@@ -156,6 +159,8 @@ export function TeamDetailModal({ team = null, onClose, onCreated, onUpdated }: 
             onSubmit={handleSubmit}
             onCancel={onClose}
             showActiveToggle={false}
+            visibility={visibility}
+            onVisibilityChange={setVisibility}
             submitLabel={
               isPending
                 ? t('team.modal.saving')

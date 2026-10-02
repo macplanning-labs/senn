@@ -1,7 +1,6 @@
 /// domain/models/team_api.rs — チームと メンバーシップの JSON API モデル
 ///
 /// m_team, t_team_membership テーブル対応
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +28,17 @@ pub struct TeamOut {
     /// 閲覧者が、このチームをアーカイブ・復元できるか(システム管理者 / そのチームの管理者)。
     /// チーム一覧(GET /teams/)の応答でだけ、閲覧者に合わせて設定される。それ以外は false
     pub viewer_can_manage: bool,
+    /// 閲覧者が、このチームで Owner の操作(Owner の指名・解除、方針・公開区分の変更、招待、Guest の追加、
+    /// 削除・アーカイブ)ができるか。判定の関数(`policy::can(ManageOwners)`)から計算する。画面は、これらの
+    /// ボタンをこの値だけで出し分ける(画面で権限を計算しない。DEMO-000170)。一覧・詳細・作成の応答で設定する
+    pub viewer_can_manage_owners: bool,
+    /// 公開区分(`public` / `private`)。アクセス制御の再設計 G-2
+    pub visibility: String,
+    /// 設定の方針(`members` / `owners`)
+    pub settings_policy: String,
+    /// 閲覧者が、このチームのチーム全体の所属を持つか(サイドバーは参加済みのチームだけを出す)。
+    /// 一覧・詳細の応答で、閲覧者に合わせて設定される。それ以外は false
+    pub viewer_is_member: bool,
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
@@ -52,6 +62,10 @@ pub struct TeamWriteIn {
     pub is_active: bool,
     #[serde(default)]
     pub prefix: Option<String>,
+    /// 作成時の公開区分(`public` / `private`。省略時は public)。更新(PUT)では使わない
+    /// (公開区分の変更は PATCH /teams/{id}/access/ で、確認と後始末を伴う)
+    #[serde(default)]
+    pub visibility: Option<String>,
 }
 
 // =============================================================================

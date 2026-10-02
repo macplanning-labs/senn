@@ -1,5 +1,4 @@
 /// domain/models/wiki_attachment.rs — Wiki添付ファイルモデル
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

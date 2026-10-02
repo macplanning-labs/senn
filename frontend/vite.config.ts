@@ -22,6 +22,12 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8151',
         changeOrigin: true,
+        ws: true, // リアルタイム同期の WebSocket
+      },
+      // 添付ファイル・絵文字(認証付きで Rust が配信する)
+      '/media': {
+        target: 'http://localhost:8151',
+        changeOrigin: true,
       },
     },
   },

@@ -1,7 +1,6 @@
 /// infrastructure/repositories/team_repo.rs — チーム永続化
 ///
 /// Teams (m_team) and Team Memberships (t_team_membership) の CRUD 操作
-
 use sqlx::{PgPool, Row};
 
 use crate::domain::models::team_api::*;
@@ -22,7 +21,9 @@ pub async fn find_all_teams(pool: &PgPool, page: i64) -> anyhow::Result<Vec<Team
             (SELECT COUNT(*)::int8 FROM t_team_membership WHERE team_id = t.id AND scoped_project_id IS NULL) as member_count,
             (SELECT COUNT(*)::int8 FROM tickets_project_teams WHERE team_id = t.id) as project_count,
             t.prefix,
-            t.archived_at
+            t.archived_at,
+            t.visibility,
+            t.settings_policy
          FROM m_team t
          ORDER BY t.name ASC
          LIMIT $1 OFFSET $2"
@@ -49,6 +50,10 @@ pub async fn find_all_teams(pool: &PgPool, page: i64) -> anyhow::Result<Vec<Team
             prefix: row.get(11),
             archived_at: row.get(12),
             viewer_can_manage: false,
+            viewer_can_manage_owners: false,
+            visibility: row.get(13),
+            settings_policy: row.get(14),
+            viewer_is_member: false,
         })
         .collect();
 
@@ -70,7 +75,9 @@ pub async fn find_team_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Te
             (SELECT COUNT(*)::int8 FROM t_team_membership WHERE team_id = t.id AND scoped_project_id IS NULL) as member_count,
             (SELECT COUNT(*)::int8 FROM tickets_project_teams WHERE team_id = t.id) as project_count,
             t.prefix,
-            t.archived_at
+            t.archived_at,
+            t.visibility,
+            t.settings_policy
          FROM m_team t
          WHERE t.id = $1"
     )
@@ -91,8 +98,12 @@ pub async fn find_team_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<Te
         member_count: row.get(9),
         project_count: row.get(10),
         prefix: row.get(11),
-            archived_at: row.get(12),
-            viewer_can_manage: false,
+        archived_at: row.get(12),
+        viewer_can_manage: false,
+        viewer_can_manage_owners: false,
+        visibility: row.get(13),
+        settings_policy: row.get(14),
+        viewer_is_member: false,
     });
 
     Ok(team)
@@ -127,11 +138,13 @@ pub async fn check_prefix_uniqueness(
     exclude_team_id: Option<i32>,
 ) -> anyhow::Result<bool> {
     let query = if let Some(id) = exclude_team_id {
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM m_team WHERE UPPER(prefix) = UPPER($1) AND id <> $2")
-            .bind(prefix)
-            .bind(id)
-            .fetch_one(pool)
-            .await?
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM m_team WHERE UPPER(prefix) = UPPER($1) AND id <> $2",
+        )
+        .bind(prefix)
+        .bind(id)
+        .fetch_one(pool)
+        .await?
     } else {
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM m_team WHERE UPPER(prefix) = UPPER($1)")
             .bind(prefix)
@@ -210,7 +223,11 @@ pub async fn create_team(pool: &PgPool, input: &TeamWriteIn) -> anyhow::Result<i
 
     // prefix が指定されていなければ slug から生成
     let final_prefix = prefix.or_else(|| {
-        let derived: String = slug.chars().filter(|c| c.is_ascii_alphanumeric()).take(20).collect();
+        let derived: String = slug
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(20)
+            .collect();
         if derived.is_empty() {
             None
         } else {
@@ -386,26 +403,22 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     let mut tx = pool.begin().await?;
 
     // 依存があるチームは削除しない（CASCADE で Cycle/Ticket を消さない: DEMO-000166）
-    let cycle_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM t_cycle WHERE team_id = $1"
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await?;
-    let ticket_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets_ticket WHERE team_id = $1"
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await?;
+    let cycle_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM t_cycle WHERE team_id = $1")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    let ticket_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets_ticket WHERE team_id = $1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
     // プロジェクトとチームは N:M（tickets_project_teams）。owner_team_id 列は
     // 20260914100001_project_team_nm で削除済みのため、参加関係のみを見る。
-    let participate_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM tickets_project_teams WHERE team_id = $1"
-    )
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await?;
+    let participate_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets_project_teams WHERE team_id = $1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
     if cycle_count > 0 || ticket_count > 0 || participate_count > 0 {
         return Err(TeamHasDependents {
             cycles: cycle_count,
@@ -419,10 +432,15 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     // linked_rules(M2M)も先に削除する必要がある
     sqlx::query(
         "DELETE FROM tickets_ticket_linked_rules WHERE teamrulemodel_id IN
-         (SELECT id FROM m_team_rule WHERE team_id = $1)"
-    ).bind(id).execute(&mut *tx).await?;
+         (SELECT id FROM m_team_rule WHERE team_id = $1)",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM m_team_rule WHERE team_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // t_workflow_status / m_label の team_id FK は ON DELETE SET NULL のため、放置すると
     // 「チーム専用」の行が「ワークスペース共通」の行に変わってしまう。その結果、
@@ -432,17 +450,26 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
     // ため、チーム専用の行(project_id IS NULL)を先に削除する。
     // (project_id を持つ行は、プロジェクト側の設定なので触らない)
     sqlx::query("DELETE FROM t_workflow_status WHERE team_id = $1 AND project_id IS NULL")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query(
         "DELETE FROM tickets_ticket_labels WHERE labelmodel_id IN
-         (SELECT id FROM m_label WHERE team_id = $1 AND project_id IS NULL)"
-    ).bind(id).execute(&mut *tx).await?;
+         (SELECT id FROM m_label WHERE team_id = $1 AND project_id IS NULL)",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM m_label WHERE team_id = $1 AND project_id IS NULL")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // t_team_membership は on_delete=CASCADE
     sqlx::query("DELETE FROM t_team_membership WHERE team_id = $1")
-        .bind(id).execute(&mut *tx).await?;
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     let rows_affected = sqlx::query("DELETE FROM m_team WHERE id = $1")
         .bind(id)
@@ -461,7 +488,10 @@ pub async fn delete_team(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
 /// チームの「本来のメンバー」一覧(L2: Projectゲスト限定の scoped_project_id 付き行は含めない。
 /// 現行のTeam設定画面はProjectゲストを表示・管理するUIを持たないため、当面は従来通りの
 /// 「チーム全体メンバー」のみを返す。ゲスト管理UIは別途 MemberSettings.tsx 側の対応が必要)
-pub async fn find_team_members(pool: &PgPool, team_id: i32) -> anyhow::Result<Vec<TeamMembershipOut>> {
+pub async fn find_team_members(
+    pool: &PgPool,
+    team_id: i32,
+) -> anyhow::Result<Vec<TeamMembershipOut>> {
     let rows = sqlx::query(
         "SELECT
             tm.id::int4, tm.team_id::int4, tm.user_id::int4, tm.role, tm.joined_at,
@@ -469,7 +499,7 @@ pub async fn find_team_members(pool: &PgPool, team_id: i32) -> anyhow::Result<Ve
          FROM t_team_membership tm
          JOIN accounts_user u ON tm.user_id = u.id
          WHERE tm.team_id = $1 AND tm.scoped_project_id IS NULL
-         ORDER BY u.username ASC"
+         ORDER BY u.username ASC",
     )
     .bind(team_id)
     .fetch_all(pool)
@@ -571,7 +601,11 @@ pub async fn check_team_scoped_access(
 /// L2②: Project単体からのアクセス可否判定(旧 membership_repo::check_membership_exists の後継)。
 /// ユーザーが project の参加チームのいずれかのメンバーか、
 /// または project-scoped ゲストであるかをチェック。
-pub async fn check_project_access(pool: &PgPool, project_id: i32, user_id: i32) -> anyhow::Result<bool> {
+pub async fn check_project_access(
+    pool: &PgPool,
+    project_id: i32,
+    user_id: i32,
+) -> anyhow::Result<bool> {
     let has_access: bool = sqlx::query_scalar(
         "SELECT EXISTS(
             SELECT 1
@@ -583,7 +617,7 @@ pub async fn check_project_access(pool: &PgPool, project_id: i32, user_id: i32) 
                 tm.scoped_project_id IS NULL
                 OR tm.scoped_project_id = $1
               )
-        )"
+        )",
     )
     .bind(project_id)
     .bind(user_id)
@@ -602,7 +636,7 @@ pub async fn add_team_member(
     let membership_id: i32 = sqlx::query_scalar(
         "INSERT INTO t_team_membership (team_id, user_id, role, joined_at)
          VALUES ($1, $2, $3, NOW())
-         RETURNING id::int4"
+         RETURNING id::int4",
     )
     .bind(team_id)
     .bind(user_id)
@@ -638,7 +672,7 @@ pub async fn get_team_member_by_id(
             u.id::int4 as user_id, u.username, u.email, u.display_name
          FROM t_team_membership tm
          JOIN accounts_user u ON tm.user_id = u.id
-         WHERE tm.id = $1"
+         WHERE tm.id = $1",
     )
     .bind(membership_id)
     .fetch_optional(pool)
@@ -697,7 +731,8 @@ pub async fn find_team_guests(pool: &PgPool, team_id: i32) -> anyhow::Result<Vec
             };
             let end_date: Option<chrono::NaiveDate> = row.get(2);
             let grace_period_days: i32 = row.get(11);
-            let (is_active, is_in_grace_period, _) = calculate_membership_status(end_date, grace_period_days);
+            let (is_active, is_in_grace_period, _) =
+                calculate_membership_status(end_date, grace_period_days);
             TeamGuestOut {
                 id: row.get(0),
                 team: row.get(1),
@@ -717,9 +752,13 @@ pub async fn find_team_guests(pool: &PgPool, team_id: i32) -> anyhow::Result<Vec
 }
 
 /// 指定Projectがそのチームの参加Projectであることを確認する
-pub async fn project_belongs_to_team(pool: &PgPool, project_id: i32, team_id: i32) -> anyhow::Result<bool> {
+pub async fn project_belongs_to_team(
+    pool: &PgPool,
+    project_id: i32,
+    team_id: i32,
+) -> anyhow::Result<bool> {
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM tickets_project_teams WHERE project_id = $1 AND team_id = $2)"
+        "SELECT EXISTS(SELECT 1 FROM tickets_project_teams WHERE project_id = $1 AND team_id = $2)",
     )
     .bind(project_id)
     .bind(team_id)
@@ -770,7 +809,11 @@ pub async fn add_team_guest(
 }
 
 /// Projectゲストの解除(scoped_project_id IS NOT NULL の行のみ対象。通常メンバー行は誤って消さない)
-pub async fn remove_team_guest(pool: &PgPool, team_id: i32, membership_id: i32) -> anyhow::Result<bool> {
+pub async fn remove_team_guest(
+    pool: &PgPool,
+    team_id: i32,
+    membership_id: i32,
+) -> anyhow::Result<bool> {
     let rows_affected = sqlx::query(
         "DELETE FROM t_team_membership WHERE id = $1 AND team_id = $2 AND scoped_project_id IS NOT NULL"
     )
@@ -798,6 +841,7 @@ mod tests {
             slack_webhook_url: None,
             is_active: true,
             prefix: None,
+            visibility: None,
         }
     }
 
@@ -806,14 +850,16 @@ mod tests {
     /// に「このチームに存在しないステータスです」で必ず失敗していた不具合の再発防止。
     #[tokio::test]
     async fn create_team_seeds_default_workflow_statuses() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let name = format!("テストチーム-{}", test_support::unique_suffix());
         let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
 
         let rows = sqlx::query(
             "SELECT slug, is_default FROM t_workflow_status
              WHERE team_id = $1 AND project_id IS NULL
-             ORDER BY position"
+             ORDER BY position",
         )
         .bind(team_id)
         .fetch_all(&pool)
@@ -825,7 +871,14 @@ mod tests {
         let slugs: Vec<String> = rows.iter().map(|r| r.get::<String, _>(0)).collect();
         assert_eq!(
             slugs,
-            vec!["backlog", "open", "in_progress", "resolved", "closed", "canceled"]
+            vec![
+                "backlog",
+                "open",
+                "in_progress",
+                "resolved",
+                "closed",
+                "canceled"
+            ]
         );
 
         let default_count = rows.iter().filter(|r| r.get::<bool, _>(1)).count();
@@ -834,7 +887,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete_team_succeeds_without_dependents() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let name = format!("削除可-{}", test_support::unique_suffix());
         let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
         let ok = delete_team(&pool, team_id).await.unwrap();
@@ -844,7 +899,9 @@ mod tests {
 
     #[tokio::test]
     async fn delete_team_rejects_when_cycle_exists() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user_id = test_support::create_test_user(&pool, "tdel").await;
         let name = format!("削除不可-{}", test_support::unique_suffix());
         let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
@@ -879,7 +936,9 @@ mod tests {
     async fn delete_team_rejects_when_participating_in_project() {
         use crate::domain::models::resource_api::ProjectWriteIn;
         use crate::infrastructure::repositories::resource_repo::create_project;
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let name = format!("参加中-{}", test_support::unique_suffix());
         let team_id = create_team(&pool, &write_in(&name)).await.unwrap();
         let prefix = format!("TD{}", &test_support::unique_suffix()[..6]).to_uppercase();
@@ -900,20 +959,30 @@ mod tests {
 
         let err = delete_team(&pool, team_id).await.expect_err("should block");
         assert!(err.to_string().contains("team has dependents"));
-        let dep = err.downcast_ref::<TeamHasDependents>().expect("TeamHasDependents");
+        let dep = err
+            .downcast_ref::<TeamHasDependents>()
+            .expect("TeamHasDependents");
         assert_eq!((dep.projects, dep.tickets, dep.cycles), (1, 0, 0));
         assert!(find_team_by_id(&pool, team_id).await.unwrap().is_some());
     }
 
     #[test]
     fn team_has_dependents_message_lists_only_remaining_items_with_counts() {
-        let only_projects = TeamHasDependents { cycles: 0, tickets: 0, projects: 2 };
+        let only_projects = TeamHasDependents {
+            cycles: 0,
+            tickets: 0,
+            projects: 2,
+        };
         let m = only_projects.user_message();
         assert!(m.contains("プロジェクト2件"));
         assert!(!m.contains("チケット") && !m.contains("サイクル"));
         assert!(m.contains("付け替えてください"));
 
-        let mixed = TeamHasDependents { cycles: 1, tickets: 3, projects: 0 };
+        let mixed = TeamHasDependents {
+            cycles: 1,
+            tickets: 3,
+            projects: 0,
+        };
         let m = mixed.user_message();
         assert!(m.contains("チケット3件・サイクル1件"));
         assert!(!m.contains("プロジェクト"));
@@ -924,7 +993,9 @@ mod tests {
     /// 何度チームを削除しても成功し、共通行が増えないこと。
     #[tokio::test]
     async fn delete_team_twice_does_not_leave_workspace_level_rows() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let workspace_rows = |table: &'static str| {
             let pool = pool.clone();
             async move {
@@ -948,7 +1019,10 @@ mod tests {
                 .execute(&pool)
                 .await
                 .unwrap();
-            assert!(delete_team(&pool, team_id).await.unwrap(), "{i}回目の削除に失敗");
+            assert!(
+                delete_team(&pool, team_id).await.unwrap(),
+                "{i}回目の削除に失敗"
+            );
         }
 
         assert_eq!(workspace_rows("t_workflow_status").await, before_wf);

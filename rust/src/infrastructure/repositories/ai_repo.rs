@@ -1,9 +1,8 @@
+use serde_json::{json, Value};
 /// infrastructure/repositories/ai_repo.rs — AI分析用データ取得
 ///
 /// apps/api/views/ai.py の各ビューがDBから組み立てているコンテキストデータの移植。
-
 use sqlx::{PgPool, Row};
-use serde_json::{json, Value};
 
 use super::ticket_link_repo;
 
@@ -20,13 +19,16 @@ pub struct TicketForAi {
     pub team_id: Option<i32>,
 }
 
-pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Option<TicketForAi>> {
+pub async fn find_ticket_for_ai(
+    pool: &PgPool,
+    ticket_id: i32,
+) -> anyhow::Result<Option<TicketForAi>> {
     let row = sqlx::query(
         "SELECT t.id::int4, t.ticket_key, t.title, t.description, t.status, t.story_points,
             t.project_id::int4, COALESCE(p.prefix, '') AS prefix, t.team_id::int4
          FROM tickets_ticket t
          LEFT JOIN tickets_project p ON t.project_id = p.id
-         WHERE t.id = $1"
+         WHERE t.id = $1",
     )
     .bind(ticket_id)
     .fetch_optional(pool)
@@ -47,7 +49,11 @@ pub async fn find_ticket_for_ai(pool: &PgPool, ticket_id: i32) -> anyhow::Result
 
 /// チケットに紐付くTeamRule(直接リンク + 所属チームのルール、重複除去)のテキストを
 /// Django側の context_analysis_view と同じ書式("## title (category)\ncontent\n")で組み立てる。
-pub async fn build_associated_rules_text(pool: &PgPool, ticket_id: i32, team_id: Option<i32>) -> anyhow::Result<String> {
+pub async fn build_associated_rules_text(
+    pool: &PgPool,
+    ticket_id: i32,
+    team_id: Option<i32>,
+) -> anyhow::Result<String> {
     let mut text = String::new();
     let mut seen_ids: std::collections::HashSet<i32> = std::collections::HashSet::new();
 
@@ -55,7 +61,7 @@ pub async fn build_associated_rules_text(pool: &PgPool, ticket_id: i32, team_id:
         "SELECT r.id::int4, r.title, r.category, r.content
          FROM m_team_rule r
          JOIN tickets_ticket_linked_rules lr ON lr.teamrulemodel_id = r.id
-         WHERE lr.ticketmodel_id = $1 AND r.is_active = true"
+         WHERE lr.ticketmodel_id = $1 AND r.is_active = true",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -104,7 +110,7 @@ pub async fn build_comments_text(pool: &PgPool, ticket_id: i32) -> anyhow::Resul
          FROM tickets_comment c
          LEFT JOIN accounts_user u ON c.author_id = u.id
          WHERE c.ticket_id = $1
-         ORDER BY c.created_at ASC"
+         ORDER BY c.created_at ASC",
     )
     .bind(ticket_id)
     .fetch_all(pool)
@@ -125,15 +131,19 @@ pub async fn build_comments_text(pool: &PgPool, ticket_id: i32) -> anyhow::Resul
 
 /// プロジェクトのprefixを取得する。
 pub async fn find_project_prefix(pool: &PgPool, project_id: i32) -> anyhow::Result<Option<String>> {
-    let prefix: Option<String> = sqlx::query_scalar("SELECT prefix FROM tickets_project WHERE id = $1")
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
+    let prefix: Option<String> =
+        sqlx::query_scalar("SELECT prefix FROM tickets_project WHERE id = $1")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(prefix)
 }
 
 /// サイクルの開始日・終了日を取得する。
-pub async fn find_cycle_dates(pool: &PgPool, cycle_id: i32) -> anyhow::Result<Option<(chrono::NaiveDate, chrono::NaiveDate)>> {
+pub async fn find_cycle_dates(
+    pool: &PgPool,
+    cycle_id: i32,
+) -> anyhow::Result<Option<(chrono::NaiveDate, chrono::NaiveDate)>> {
     let row = sqlx::query("SELECT start_date, end_date FROM t_cycle WHERE id = $1")
         .bind(cycle_id)
         .fetch_optional(pool)
@@ -217,12 +227,11 @@ pub async fn save_ticket_ai_prompt(
 /// チケットの生成済み AI プロンプトを取得する
 pub async fn get_ticket_ai_prompt(pool: &PgPool, ticket_id: i32) -> anyhow::Result<Option<String>> {
     // ai_prompt は未生成だと NULL。要素型を Option<String> にしないとデコードエラーになる
-    let ai_prompt: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT ai_prompt FROM tickets_ticket WHERE id = $1"
-    )
-    .bind(ticket_id)
-    .fetch_optional(pool)
-    .await?;
+    let ai_prompt: Option<Option<String>> =
+        sqlx::query_scalar("SELECT ai_prompt FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(pool)
+            .await?;
     Ok(ai_prompt.flatten())
 }
 
@@ -234,12 +243,20 @@ mod null_column_tests {
     /// 未生成(NULL)のチケットでも、キャッシュ取得がエラーにならず None を返す
     #[tokio::test]
     async fn get_ticket_ai_prompt_handles_null_and_saved() {
-        let Some(pool) = test_support::test_pool().await else { return; };
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
         let user_id = test_support::create_test_user(&pool, "ai_null").await;
         let project_id = test_support::create_test_project(&pool, "AINULL", user_id).await;
-        let ticket_id = test_support::create_test_ticket(&pool, project_id, "AINULL", user_id).await;
+        let ticket_id =
+            test_support::create_test_ticket(&pool, project_id, "AINULL", user_id).await;
         assert_eq!(get_ticket_ai_prompt(&pool, ticket_id).await.unwrap(), None);
-        save_ticket_ai_prompt(&pool, ticket_id, "cached", "hybrid").await.unwrap();
-        assert_eq!(get_ticket_ai_prompt(&pool, ticket_id).await.unwrap(), Some("cached".to_string()));
+        save_ticket_ai_prompt(&pool, ticket_id, "cached", "hybrid")
+            .await
+            .unwrap();
+        assert_eq!(
+            get_ticket_ai_prompt(&pool, ticket_id).await.unwrap(),
+            Some("cached".to_string())
+        );
     }
 }

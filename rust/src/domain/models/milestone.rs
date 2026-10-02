@@ -1,5 +1,4 @@
 /// domain/models/milestone.rs — マイルストーンモデル
-
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '@/shared/api/client';
+import i18n from '@/i18n';
 
 type PromptGenerationPhase = 'idle' | 'generating' | 'success' | 'error';
 
@@ -47,7 +48,7 @@ export const usePromptGenerationStore = create<PromptGenerationState>((set, get)
         ticketKey: ticket.ticketKey,
         ticketTitle: ticket.title,
         promptText: '',
-        errorMessage: `「${state.ticketKey}」のプロンプトを生成中です。完了後に再度お試しください。`,
+        errorMessage: i18n.t('ai.promptGenerationBusy', { ticketKey: state.ticketKey }),
       });
       return;
     }
@@ -129,7 +130,7 @@ async function generatePrompt(ticketId: number, timeoutSecs: number, abortContro
       setPromptText(data.prompt_text);
       setPhase('success');
     } else {
-      setErrorMessage(data.error ?? 'プロンプトの生成に失敗しました。');
+      setErrorMessage(data.error ?? i18n.t('ai.promptGenerationFailedPlain'));
       setPhase('error');
     }
   } catch (error) {
@@ -142,13 +143,13 @@ async function generatePrompt(ticketId: number, timeoutSecs: number, abortContro
 
     const axiosError = error as { response?: { status?: number; data?: { error?: string } }; code?: string; message?: string };
     if (axiosError.response?.status === 504) {
-      setErrorMessage('リバースプロキシがタイムアウトしました（約120〜300秒）。設定のタイムアウトを確認してください。');
+      setErrorMessage(i18n.t('ai.promptProxyTimeout'));
     } else if (axiosError.response?.data?.error) {
       setErrorMessage(axiosError.response.data.error);
     } else if (axiosError.code === 'ECONNABORTED') {
-      setErrorMessage(`クライアント待機がタイムアウトしました（${timeoutSecs}秒）。`);
+      setErrorMessage(i18n.t('ai.promptClientTimeout', { seconds: timeoutSecs }));
     } else {
-      setErrorMessage('プロンプトの生成に失敗しました。');
+      setErrorMessage(i18n.t('ai.promptGenerationFailedPlain'));
     }
     setPhase('error');
   } finally {

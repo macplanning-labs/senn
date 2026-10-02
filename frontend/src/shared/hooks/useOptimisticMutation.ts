@@ -14,6 +14,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryKey } from '@tanstack/react-query';
 import { useToastStore } from '@/shared/stores/toastStore';
+import i18n from '@/i18n';
 
 // ── 型定義 ──
 
@@ -34,8 +35,15 @@ interface OptimisticMutationOptions<TData, TVariables> {
     variables: TVariables,
   ) => unknown;
 
-  /** 成功時のコールバック */
-  onSuccessCallback?: (data: TData, variables: TVariables) => void;
+  /**
+   * 端末内 DB への楽観更新（キャッシュの楽観更新と同時に行う）。
+   * 戻り値の rollback は失敗時に呼ばれる。result は onSuccessCallback の第3引数に渡る。
+   * undefined を返すと何もしない（対象の行が端末に無い場合など）。
+   */
+  localOptimistic?: (variables: TVariables) => Promise<{ rollback: () => Promise<void>; result?: unknown } | undefined>;
+
+  /** 成功時のコールバック（第3引数は localOptimistic の result） */
+  onSuccessCallback?: (data: TData, variables: TVariables, localResult?: unknown) => void;
 
   /** 成功時のトーストメッセージ（省略可） */
   successMessage?: string;
@@ -116,8 +124,11 @@ export function useOptimisticMutation<TData = unknown, TVariables = unknown>(
         }
       }
 
+      // 端末内 DB の楽観更新
+      const local = await options.localOptimistic?.(variables);
+
       // context としてスナップショットを返す（onError で使用）
-      return { previousData, previousAdditionalData };
+      return { previousData, previousAdditionalData, local };
     },
 
     // ③-b エラー時: ロールバック + トースト通知
@@ -134,18 +145,21 @@ export function useOptimisticMutation<TData = unknown, TVariables = unknown>(
         }
       }
 
+      // 端末内 DB を元に戻す
+      void context?.local?.rollback();
+
       addToast({
         type: 'error',
-        message: options.errorMessage ?? '操作に失敗しました。変更を元に戻しました。',
+        message: options.errorMessage ?? i18n.t('common.operationFailedReverted'),
       });
     },
 
     // ③-a 成功時: サーバーの真値でキャッシュを上書き
-    onSuccess: (data, variables) => {
+    onSuccess: (data, variables, context) => {
       if (options.successMessage) {
         addToast({ type: 'success', message: options.successMessage });
       }
-      options.onSuccessCallback?.(data, variables);
+      options.onSuccessCallback?.(data, variables, context?.local?.result);
     },
 
     // 成功・失敗に関わらず、キャッシュを最新化
