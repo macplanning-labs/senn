@@ -2,6 +2,8 @@ English | [日本語 (Japanese)](./README_JA.md)
 
 # SENN — Project Management Tool
 
+> **Public Beta** — SENN is usable, but bugs and missing features remain, and behavior may change between updates. **Back up your data before updating** (a database upgraded to a newer version cannot be used with an older version again). Older releases stay available as [tags](https://github.com/macplanning-labs/senn/tags) — for example, `v0.1.1` is the last release before the access-control redesign; run it with `git checkout v0.1.1`, or set `SENN_IMAGE_TAG=sha-6ebc8da` in `.env` to use its pre-built images.
+
 A lightweight, fast project management tool with ticketing, Gantt charts, a wiki, and notifications. The backend is built with Rust (Axum), and the frontend with React (TypeScript).
 
 ## Getting Started (OSS / Self-host)
@@ -36,6 +38,17 @@ When you see `listening on 0.0.0.0:8151`, open **http://localhost:8151**
 1. Click **Sign up** and enter username / email / password (8+ characters). You are signed in automatically.
 2. Create a **Team**: click the **+** next to **Teams** in the sidebar (or **Create your first team**). Teams are required before tickets.
 3. Click **Create a ticket** and enter a title. Your new team is already selected.
+
+### Adding people
+Only the **first** account can sign up freely (that person sets up the server). Everyone after that joins **by invitation**:
+
+1. Open the team's member settings and use **Invite**: enter the person's email and click **Send invitation**.
+2. If email is not configured (the default), SENN shows a link instead. Send that link to the person yourself — it works once and expires after 7 days.
+3. The person opens the link, chooses a username and password, and joins the team.
+
+To change this, set these in `.env` and restart:
+- `SENN_INTERNAL_EMAIL_DOMAINS=example.com` — people with these email domains can sign up themselves after verifying their address by email. **Configure email (`EMAIL_*` in `.env`) first**: without email, the verification link is shown on the sign-up screen, so anyone could claim an address in that domain.
+- `SENN_REGISTRATION_MODE=open` — anyone who can reach the server can sign up. Use this only on a private network.
 
 ### Stop, restart, reset
 - **Stop**: press `Ctrl+C` **once** in the terminal, then `docker compose down`. Your data is kept.
@@ -120,7 +133,7 @@ docker compose up
 
 `DB_PASSWORD` and `JWT_SECRET_KEY` must be set in `.env` before the first run — the one-line `sed` in [Start](#start) does it for you.
 
-Open http://localhost:8151 in your browser. Database tables are created automatically on first start (`RUST_RUN_MIGRATIONS=true`). No seed users are bundled — create your first account from the in-app registration screen at http://localhost:8151/register, then log in at http://localhost:8151/login.
+Open http://localhost:8151 in your browser. Database tables are created automatically on first start (`RUST_RUN_MIGRATIONS=true`). No seed users are bundled — create your first account from the in-app registration screen at http://localhost:8151/register, then log in at http://localhost:8151/login. Further accounts join by invitation (see [Adding people](#adding-people)).
 
 To reset the database and start clean:
 
