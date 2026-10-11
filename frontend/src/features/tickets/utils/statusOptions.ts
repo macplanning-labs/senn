@@ -35,6 +35,30 @@ export function buildStatusOptions(workflowStatuses: readonly Pick<WorkflowStatu
   return [...DEFAULT_STATUS_OPTIONS];
 }
 
+/**
+ * 複数プロジェクトの選択肢の和集合。value で重複排除（最初の出現の名前・色を採用）。
+ * 標準の slug を標準の順で先に、その他は初出順。すべて空なら標準の選択肢。
+ */
+export function mergeStatusOptions(lists: readonly (readonly StatusOption[])[]): StatusOption[] {
+  const seen = new Map<string, StatusOption>();
+  for (const list of lists) {
+    for (const o of list) {
+      if (!seen.has(o.value)) seen.set(o.value, o);
+    }
+  }
+  if (seen.size === 0) return [...DEFAULT_STATUS_OPTIONS];
+  const result: StatusOption[] = [];
+  for (const d of DEFAULT_STATUS_OPTIONS) {
+    const o = seen.get(d.value);
+    if (o) {
+      result.push(o);
+      seen.delete(d.value);
+    }
+  }
+  result.push(...seen.values());
+  return result;
+}
+
 /** 内部値（slug）→ 表示名。選択肢に無い値は標準名、それも無ければ内部値のまま */
 export function statusLabelOf(slug: string | null | undefined, options: readonly StatusOption[]): string {
   if (!slug) return '—';

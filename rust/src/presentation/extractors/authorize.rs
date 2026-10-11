@@ -498,11 +498,14 @@ mod tests {
         // チーム 1 は Public、2 は Private(未所属)、3 は Private(所属)
         let v = fm_viewer(vec![1], vec![3]);
         let items = vec![(101_i64, 1), (102, 2), (103, 3)];
+        // 記録は DB に残るので、実行ごとに別の route 名で数える(同じ DB で繰り返しても数がずれない)
+        let route: &'static str =
+            Box::leak(format!("test-filter-{}", uuid::Uuid::new_v4().simple()).into_boxed_str());
         let got = filter_list(
             &pool,
             &v,
             Resource::Cycle,
-            "test-filter",
+            route,
             items.clone(),
             |t| t.0,
             |t| ResourceRef::Cycle {
@@ -512,10 +515,13 @@ mod tests {
         assert_eq!(got, items, "試運転では、今と同じ一覧を返す");
         let mut n = 0i64;
         for _ in 0..50 {
-            n = sqlx::query_scalar("SELECT count(*) FROM access_shadow_diff WHERE route = 'test-filter' AND resource_id = 102")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+            n = sqlx::query_scalar(
+                "SELECT count(*) FROM access_shadow_diff WHERE route = $1 AND resource_id = 102",
+            )
+            .bind(route)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
             if n > 0 {
                 break;
             }

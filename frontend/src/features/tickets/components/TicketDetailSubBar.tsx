@@ -7,6 +7,11 @@ import { buildCopyPrompt } from '../utils/buildCopyPrompt';
 import { generateAndCopyAiPrompt } from '../utils/generateAndCopyAiPrompt';
 import { useAiPromptTemplates } from '../../../features/settings/hooks/useAiPromptTemplates';
 import type { TicketDetailView } from '../types/ticketDetailView';
+import { useQuery } from '@tanstack/react-query';
+import { useAuthStore } from '../../../shared/stores/authStore';
+import { AiKickButton } from '../../ai-kick/components/AiKickButton';
+import { AiKickStatus } from '../../ai-kick/components/AiKickStatus';
+import { getProjectAiKick } from '../../ai-kick/api';
 
 interface TicketDetailSubBarProps {
   ticket: TicketDetailView;
@@ -20,6 +25,14 @@ export function TicketDetailSubBar({ ticket }: TicketDetailSubBarProps) {
     () => (localStorage.getItem('senn.codingTool') as 'Cursor' | 'Claude Code') || 'Cursor',
   );
   const isGeneratingRef = useRef(false);
+  const currentUser = useAuthStore((s) => s.user);
+  // プロジェクトの AI 自動実行の設定(許可されているときだけ、ボタンを出す)
+  const { data: projectKick } = useQuery({
+    queryKey: ['project-ai-kick', ticket.project],
+    queryFn: () => getProjectAiKick(ticket.project as number),
+    enabled: ticket.project != null,
+    staleTime: 60_000,
+  });
   const { templates: userTemplates } = useAiPromptTemplates();
 
   const shareCtx = buildTicketPathContextFromPathname(pathname, ticket);
@@ -115,6 +128,14 @@ export function TicketDetailSubBar({ ticket }: TicketDetailSubBarProps) {
           <option value="Claude Code">Claude Code</option>
         </select>
       </div>
+      <AiKickButton
+        variant="subbar"
+        ticketKey={ticket.ticketKey}
+        projectId={ticket.project}
+        projectKick={projectKick ?? null}
+        isGuest={currentUser?.isGuest ?? false}
+      />
+      <AiKickStatus ticketKey={ticket.ticketKey} />
     </div>
   );
 }

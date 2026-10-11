@@ -126,6 +126,22 @@ export function buildTicketShareUrl(
   return `${origin}${path}${hash ? `#${hash}` : ''}`;
 }
 
+/**
+ * 他の画面(Wiki など)に出すチケットへのリンク先。
+ * いまの画面のチーム/プロジェクトを優先し、どちらでもない画面ではチケット自身の所属を使う。
+ * 所属が分からなければ null(存在しない URL を作らない)。
+ */
+export function buildTicketLinkPath(
+  pathname: string,
+  ticketKey: string,
+  ticket: { projectPrefix?: string | null; team?: { slug?: string } | null } | null | undefined,
+): string | null {
+  const ctx = buildTicketPathContextFromPathname(pathname, ticket ?? {});
+  const { projectKey, teamSlug } = resolveTicketScope(ctx);
+  if (!projectKey && !teamSlug) return null;
+  return buildTicketDetailPath(projectKey, ticketKey, undefined, teamSlug);
+}
+
 /** 編集画面へのパス。プロジェクトもチームも分からないときは null。 */
 export function buildTicketEditPath(ticketKey: string, ctx: TicketPathContext): string | null {
   const { projectKey, teamSlug } = resolveTicketScope(ctx);

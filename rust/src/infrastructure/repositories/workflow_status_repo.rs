@@ -292,6 +292,47 @@ pub async fn resolve_status_slug_by_scope(
     Ok(slug)
 }
 
+/// 規則の「動かす先」の選択肢: そのスコープの流れ(ワークフロー)のステータス一覧 (slug, name, category)。
+/// プロジェクトならプロジェクトのもの。チームならチームのもの(無ければワークスペースの既定)。
+pub async fn list_statuses_for_scope(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+) -> anyhow::Result<Vec<(String, String, String)>> {
+    let rows: Vec<(String, String, String)> = if let Some(pid) = project_id {
+        sqlx::query_as(
+            "SELECT slug, name, category FROM t_workflow_status
+             WHERE project_id = $1 ORDER BY position ASC, id ASC",
+        )
+        .bind(pid as i64)
+        .fetch_all(pool)
+        .await?
+    } else {
+        let team_rows: Vec<(String, String, String)> = if let Some(tid) = team_id {
+            sqlx::query_as(
+                "SELECT slug, name, category FROM t_workflow_status
+                 WHERE team_id = $1 AND project_id IS NULL ORDER BY position ASC, id ASC",
+            )
+            .bind(tid as i64)
+            .fetch_all(pool)
+            .await?
+        } else {
+            Vec::new()
+        };
+        if team_rows.is_empty() {
+            sqlx::query_as(
+                "SELECT slug, name, category FROM t_workflow_status
+                 WHERE project_id IS NULL AND team_id IS NULL ORDER BY position ASC, id ASC",
+            )
+            .fetch_all(pool)
+            .await?
+        } else {
+            team_rows
+        }
+    };
+    Ok(rows)
+}
+
 pub async fn lookup_status_category(
     pool: &PgPool,
     project_id: Option<i32>,
@@ -329,6 +370,45 @@ pub async fn lookup_status_category(
     .fetch_optional(pool)
     .await?;
     Ok(cat)
+}
+
+/// その範囲で使える状態の slug(並び順)。プロジェクト → チーム → 全体の順に、最初に登録のある範囲のもの。
+/// どこにも登録が無ければ空(呼び出し側は、確かめずに通す)。AI の入力の確認と、エラーでの候補の提示に使う
+pub async fn list_status_slugs_for_scope(
+    pool: &PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+) -> anyhow::Result<Vec<String>> {
+    if let Some(pid) = project_id {
+        let slugs: Vec<String> = sqlx::query_scalar(
+            "SELECT slug FROM t_workflow_status WHERE project_id = $1 ORDER BY position ASC, id ASC",
+        )
+        .bind(pid as i64)
+        .fetch_all(pool)
+        .await?;
+        if !slugs.is_empty() {
+            return Ok(slugs);
+        }
+    }
+    if let Some(tid) = team_id {
+        let slugs: Vec<String> = sqlx::query_scalar(
+            "SELECT slug FROM t_workflow_status
+             WHERE team_id = $1 AND project_id IS NULL ORDER BY position ASC, id ASC",
+        )
+        .bind(tid as i64)
+        .fetch_all(pool)
+        .await?;
+        if !slugs.is_empty() {
+            return Ok(slugs);
+        }
+    }
+    let slugs: Vec<String> = sqlx::query_scalar(
+        "SELECT slug FROM t_workflow_status
+         WHERE project_id IS NULL AND team_id IS NULL ORDER BY position ASC, id ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(slugs)
 }
 
 pub async fn status_slug_exists_for_scope(

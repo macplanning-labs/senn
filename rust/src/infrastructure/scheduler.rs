@@ -1,6 +1,13 @@
+use crate::domain::services::ai_kick_service;
+use crate::domain::services::ai_mcp_request_service;
+use crate::domain::services::ai_run_service;
 use crate::domain::services::notification_service;
 use crate::infrastructure::mail::MailSender;
+use crate::infrastructure::repositories::ai_mcp_request_repo;
 use crate::infrastructure::repositories::cycle_repo;
+use crate::infrastructure::repositories::notification_repo;
+use crate::infrastructure::repositories::user_repo;
+use chrono::Utc;
 use sqlx::PgPool;
 use std::time::Duration;
 
@@ -61,6 +68,220 @@ pub fn spawn_due_date_reminders(pool: PgPool, mail_sender: Option<MailSender>) {
                     "[スケジューラ/期限通知] 処理=期限リマインダー 結果=失敗 影響=期限到来/超過チケットの通知が送信されない可能性 | {}",
                     e
                 );
+            }
+        }
+    });
+}
+
+/// AI実行履歴の見張りジョブ（未着手/未完了の長時間放置を検知して通知）。
+pub fn spawn_ai_run_watchdog(pool: PgPool, ai_username: String) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(600)); // 10分ごと
+        loop {
+            interval.tick().await;
+
+            // AI ユーザーを取得
+            let ai_user = match user_repo::find_by_username(&pool, &ai_username).await {
+                Ok(Some(u)) => u,
+                Ok(None) => {
+                    tracing::warn!(
+                        "[スケジューラ/AI実行] AI ユーザー '{}' が見つかりません。スキップ",
+                        ai_username
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::error!("[スケジューラ/AI実行] AI ユーザー取得失敗 | {}", e);
+                    continue;
+                }
+            };
+
+            let ai_user_id = ai_user.id as i32;
+            let start_timeout = std::env::var("SENN_AI_RUN_START_TIMEOUT_MIN")
+                .ok()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(120);
+            let finish_timeout = std::env::var("SENN_AI_RUN_FINISH_TIMEOUT_MIN")
+                .ok()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(1440);
+
+            // 「AIに対応させる」(社内ランナー方式)の見張り: ランナーが止まっている・報告が途絶えた・待たせすぎ
+            let env_i64 = |k: &str, d: i64| {
+                std::env::var(k)
+                    .ok()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .filter(|v| *v > 0)
+                    .unwrap_or(d)
+            };
+            match ai_kick_service::kick_watchdog_once(
+                &pool,
+                ai_user_id,
+                env_i64("SENN_AI_KICK_UNCLAIMED_MIN", 30),
+                env_i64("SENN_AI_KICK_HEARTBEAT_LOST_MIN", 5),
+                env_i64("SENN_AI_KICK_EXPIRE_HOURS", 24),
+            )
+            .await
+            {
+                Ok(n) if n > 0 => tracing::info!("[スケジューラ/AI実行] 処理=AI 自動実行の見張り 件数={}", n),
+                Ok(_) => {}
+                Err(e) => tracing::error!(
+                    "[スケジューラ/AI実行] 処理=AI 自動実行の見張り 結果=失敗 影響=ランナーの停止が検知されない可能性 | {}",
+                    e
+                ),
+            }
+
+            match ai_run_service::run_watchdog_once(
+                &pool,
+                ai_user_id,
+                start_timeout,
+                finish_timeout,
+            )
+            .await
+            {
+                Ok(count) if count > 0 => {
+                    tracing::info!(
+                        "[スケジューラ/AI実行] 見張り実行 処理=AI実行監視 件数={} 未着手タイムアウト={}分 未完了タイムアウト={}分",
+                        count, start_timeout, finish_timeout
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!(
+                        "[スケジューラ/AI実行] 処理=AI実行監視 結果=失敗 影響=AI実行の放置が検知されない可能性 | {}",
+                        e
+                    );
+                }
+            }
+        }
+    });
+}
+
+/// AI MCP 申請が 3日以上 pending のままの場合、管理者へ再通知を1回だけ送る(1時間ごと)。
+pub fn spawn_ai_mcp_request_reminder(
+    pool: PgPool,
+    mail_sender: Option<MailSender>,
+    base_url: String,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600)); // 1時間ごと
+        loop {
+            interval.tick().await;
+
+            let now = Utc::now();
+            // 再通知が必要な申請の ID リストを取得
+            let reminding_requests = match ai_mcp_request_repo::find_pending_needing_reminder(
+                &pool, now,
+            )
+            .await
+            {
+                Ok(ids) => ids,
+                Err(e) => {
+                    tracing::error!(
+                        "[スケジューラ/AI MCP] 処理=再通知対象の取得 結果=失敗 影響=3日以上pending の申請の再通知が送信されない可能性 | {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            if reminding_requests.is_empty() {
+                continue;
+            }
+
+            for request_id in reminding_requests {
+                // 申請の詳細を取得
+                let req = match ai_mcp_request_repo::find_by_id(&pool, request_id).await {
+                    Ok(Some(r)) => r,
+                    Ok(None) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            "[スケジューラ/AI MCP] 申請 ID={} の詳細取得失敗: {}",
+                            request_id,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                // 申請者の情報を取得
+                let requester = match user_repo::find_by_id(&pool, req.user.id).await {
+                    Ok(Some(u)) => u,
+                    Ok(None) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            "[スケジューラ/AI MCP] 申請者 ID={} の取得失敗: {}",
+                            req.user.id,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                // mark_reminded で再通知済みマークを付ける（失敗したら通知を送らない）
+                match ai_mcp_request_repo::mark_reminded(&pool, request_id).await {
+                    Ok(true) => {
+                        // 再通知済みマークに成功したら、通知を送る
+                        let title = "AI Agent を利用した MCP 操作の申請: (再通知)";
+                        let message = format!(
+                            "{} さんの申請がまだ処理されていません(3日以上経過)。",
+                            if requester.display_name.is_empty() {
+                                requester.username.clone()
+                            } else {
+                                requester.display_name.clone()
+                            }
+                        );
+
+                        // 管理者全員に In-app 通知を送る
+                        if let Ok(admin_ids) =
+                            ai_mcp_request_repo::active_system_admin_ids(&pool).await
+                        {
+                            for admin_id in admin_ids {
+                                if let Err(e) = notification_repo::create(
+                                    &pool,
+                                    admin_id,
+                                    None,
+                                    "ai_mcp_request",
+                                    title,
+                                    &message,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        "[スケジューラ/AI MCP] 再通知の In-app 通知作成に失敗 (admin_id={}): {}",
+                                        admin_id, e
+                                    );
+                                }
+                            }
+                        }
+
+                        // メール通知を送る
+                        if let Err(e) = ai_mcp_request_service::send_email_on_reminder(
+                            &mail_sender,
+                            &pool,
+                            &requester,
+                            &base_url,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "[スケジューラ/AI MCP] 再通知のメール送信に失敗 (user_id={}): {}",
+                                req.user.id,
+                                e
+                            );
+                        }
+                    }
+                    Ok(false) => {
+                        // 既に再通知済み(二重送信を防ぐ)
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "[スケジューラ/AI MCP] 再通知マークの設定に失敗 (request_id={}): {}",
+                            request_id,
+                            e
+                        );
+                    }
+                }
             }
         }
     });

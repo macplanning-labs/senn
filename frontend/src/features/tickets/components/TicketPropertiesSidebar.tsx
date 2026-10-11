@@ -8,6 +8,8 @@ import { useStatusOptions } from '../hooks/useStatusOptions';
 import type { TicketDetailView } from '../types/ticketDetailView';
 import { fetchTicketUserOptions, ticketUserOptionsEnabled } from '../utils/ticketUserOptions';
 import { useTicketPropertyMutations } from '../hooks/useTicketPropertyMutations';
+import { useCloseGuard } from '../hooks/useCloseGuard';
+import { CloseCheckDialog } from './CloseCheckDialog';
 import { useTicketDetailHotkeys, type TicketHotkeyAction } from '../hooks/useTicketDetailHotkeys';
 import type { RelationCreateKind } from '../utils/classifyDependencies';
 import { DateInput } from '@/shared/components/ui/DateInput';
@@ -57,6 +59,8 @@ export function TicketPropertiesSidebar({
   const { addToast } = useToastStore();
   const { projectList } = useProject();
   const mutations = useTicketPropertyMutations(ticketId);
+  // 「完了」にするときだけ、先にクローズ可否を確認する(助言のみ。続行できる)
+  const closeGuard = useCloseGuard(ticket.ticketKey, (status: string) => mutations.status.mutate(status));
 
   const [openField, setOpenField] = useState<TicketPickerField | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
@@ -284,7 +288,7 @@ export function TicketPropertiesSidebar({
     switch (openField) {
       case 'status': {
         const slug = ids[0];
-        if (slug) mutations.status.mutate(slug);
+        if (slug) void closeGuard.request(slug);
         break;
       }
       case 'priority': {
@@ -508,6 +512,14 @@ export function TicketPropertiesSidebar({
           }
           emptyLabel="Unassigned"
           title={PICKER_FIELD_TITLES[openField]}
+        />
+      )}
+      {closeGuard.pending && (
+        <CloseCheckDialog
+          isOpen
+          closeCheckResult={closeGuard.pending.result}
+          onConfirm={closeGuard.confirm}
+          onCancel={closeGuard.dismiss}
         />
       )}
     </>

@@ -156,20 +156,37 @@ pub async fn create_test_team(pool: &PgPool, name_prefix: &str) -> i32 {
 /// 使い捨てのテスト用プロジェクトを作成し、その `id` を返す。
 /// (`tickets_project` に author_id は存在しない。呼び出し側の引数は
 /// 他のヘルパーとシグネチャを揃えるため受け取るが未使用)
-pub async fn create_test_project(pool: &PgPool, prefix_base: &str, _author_id: i32) -> i32 {
+pub async fn create_test_project(pool: &PgPool, prefix_base: &str, author_id: i32) -> i32 {
+    create_test_project_with_visibility(pool, prefix_base, author_id, "public").await
+}
+
+/// 参加チームを非公開(private)で作るプロジェクト。
+/// 公開で作ってから非公開に直すと、その間に並行する他のテストが「見えるチーム」を読み取り、
+/// あとから作ったチケットがそのテストの集計に混ざる(Full Member には公開チームが全部見えるため)。
+pub async fn create_test_private_project(pool: &PgPool, prefix_base: &str, author_id: i32) -> i32 {
+    create_test_project_with_visibility(pool, prefix_base, author_id, "private").await
+}
+
+async fn create_test_project_with_visibility(
+    pool: &PgPool,
+    prefix_base: &str,
+    _author_id: i32,
+    visibility: &str,
+) -> i32 {
     let prefix = format!("{prefix_base}{}", unique_suffix());
     let prefix = &prefix[..prefix.len().min(20)];
     let slug = format!("t{}", unique_suffix());
     let team_id: i32 = sqlx::query_scalar::<_, i32>(
         r#"
-        INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, prefix, created_at)
-        VALUES ($1, $2, '', '', '#6366f1', '', true, $3, NOW())
+        INSERT INTO m_team (name, slug, description, icon, color, slack_webhook_url, is_active, prefix, created_at, visibility)
+        VALUES ($1, $2, '', '', '#6366f1', '', true, $3, NOW(), $4)
         RETURNING id::int4
         "#,
     )
     .bind(format!("テストチーム-{prefix}"))
     .bind(&slug)
     .bind(prefix)
+    .bind(visibility)
     .fetch_one(pool)
     .await
     .expect("テストチーム作成に失敗");
@@ -268,6 +285,11 @@ pub fn test_config() -> crate::config::AppConfig {
         openai_model: String::new(),
         openai_timeout_secs: 1,
         app_channel: "internal".to_string(),
+        kb_engine: crate::domain::services::kb::config::KbEngine::Off,
+        kb_scryer_bin: "scryer-prolog".to_string(),
+        kb_timeout_ms: 5000,
+        kb_max_procs: 2,
+        kb_close_mode: crate::domain::services::kb::config::KbCloseMode::Warn,
     }
 }
 

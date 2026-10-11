@@ -12,7 +12,9 @@ use serde_json::json;
 
 use crate::domain::access::Viewer;
 use crate::domain::models::integration_api::*;
-use crate::domain::services::git_webhook_service;
+use crate::domain::services::git_key_scan;
+use crate::domain::services::git_webhook_service::{self, GitTrigger, RuleResolution};
+use crate::infrastructure::repositories::git_status_rule_repo;
 use crate::infrastructure::repositories::integration_repo;
 use crate::presentation::state::AppState;
 
@@ -228,6 +230,56 @@ pub async fn delete(
     }
 }
 
+/// GET /api/v1/integrations/{id}/deliveries/ — 受信履歴(新しい順、直近 20 件)
+pub async fn deliveries(
+    State(state): State<AppState>,
+    viewer: Viewer,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    let existing = match integration_repo::find_by_id(&state.pool, id).await {
+        Ok(Some(item)) => item,
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(err("見つかりません"))).into_response(),
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response();
+        }
+    };
+    if let Err(r) = crate::presentation::handlers::access_guard::require_scope_manager_v(
+        &state.pool,
+        &viewer,
+        existing.project,
+        existing.team,
+        "GET /api/v1/integrations/{id}/deliveries/",
+    )
+    .await
+    {
+        return r;
+    }
+    match crate::infrastructure::github_app::store::list_history(&state.pool, id, 20).await {
+        Ok(rows) => {
+            let out: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|(event, result, note, received_at)| {
+                    json!({"event": event, "result": result, "note": note, "receivedAt": received_at})
+                })
+                .collect();
+            (StatusCode::OK, Json(out)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("DB operation failed: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(err("サーバーエラーが発生しました")),
+            )
+                .into_response()
+        }
+    }
+}
+
 // =============================================================================
 // GitHub Webhook 受信(認証不要)
 // =============================================================================
@@ -305,13 +357,16 @@ pub async fn github_webhook(
         }
     };
 
-    let mut created_count = 0;
-
-    if event_type == "push" {
-        created_count = process_push_event(&state, &integration, &payload).await;
-    } else if event_type == "pull_request" {
-        created_count = process_pull_request_event(&state, &integration, &payload).await;
-    }
+    let created_count = dispatch_git_event(&state, &integration, event_type, &payload).await;
+    let (result, note) = delivery_outcome(&state, event_type, &payload, created_count).await;
+    crate::infrastructure::github_app::store::record_delivery(
+        &state.pool,
+        integration.id,
+        event_type,
+        result,
+        &note,
+    )
+    .await;
 
     tracing::info!(
         "Processed {} event: {} events linked",
@@ -323,6 +378,63 @@ pub async fn github_webhook(
         format!("OK: {} events linked", created_count),
     )
         .into_response()
+}
+
+/// イベント種別に応じて紐付け・ステータス遷移を行う(手動 Webhook と App Webhook で共通)。
+/// 戻り値は、紐付けたイベント数。
+pub(crate) async fn dispatch_git_event(
+    state: &AppState,
+    integration: &crate::domain::models::integration_api::GitIntegrationOut,
+    event_type: &str,
+    payload: &serde_json::Value,
+) -> i32 {
+    match event_type {
+        "push" => process_push_event(state, integration, payload).await,
+        "pull_request" => process_pull_request_event(state, integration, payload).await,
+        _ => 0,
+    }
+}
+
+/// 処理結果の診断(画面に出す「最後に何が起きたか」)。(result, note) を返す。
+/// result: "ok" | "no_ticket" | "ignored"
+pub(crate) async fn delivery_outcome(
+    state: &AppState,
+    event_type: &str,
+    payload: &serde_json::Value,
+    created: i32,
+) -> (&'static str, String) {
+    if !matches!(event_type, "push" | "pull_request") {
+        return ("ignored", format!("{event_type} は連携の対象外です"));
+    }
+    if created > 0 {
+        return ("ok", String::new());
+    }
+    let known_prefixes = known_prefixes_or_empty(state).await;
+    let keys: Vec<String> =
+        git_webhook_service::scan_payload_keys(event_type, payload, &known_prefixes)
+            .into_iter()
+            .map(|f| f.key)
+            .collect();
+    if keys.is_empty() {
+        // 番号が無いのが正常なもの(タグ・main/develop などへの push・それらから出た PR)は、警告にしない
+        if let Some(note) = git_webhook_service::untracked_source_note(event_type, payload) {
+            return ("ignored", note);
+        }
+        return (
+            "no_ticket",
+            "コミット・PRタイトル・ブランチ名にチケット番号(例: SENN-123)が含まれていません"
+                .to_string(),
+        );
+    }
+    for key in &keys {
+        if let Ok(Some(_)) = integration_repo::find_ticket_id_by_key(&state.pool, key).await {
+            return ("ok", "記録済みです".to_string());
+        }
+    }
+    (
+        "no_ticket",
+        format!("チケット {} が見つかりません", keys[0]),
+    )
 }
 
 async fn process_push_event(
@@ -344,6 +456,7 @@ async fn process_push_event(
 
     // 同一 push 全体で ticket ごとの status 遷移は1回
     let mut processed_tickets = std::collections::HashSet::new();
+    let known_prefixes = known_prefixes_or_empty(state).await;
 
     for commit in &commits {
         let message = commit.get("message").and_then(|v| v.as_str()).unwrap_or("");
@@ -355,10 +468,16 @@ async fn process_push_event(
             .unwrap_or("");
         let commit_url = commit.get("url").and_then(|v| v.as_str()).unwrap_or("");
 
-        let mut ticket_keys = git_webhook_service::extract_ticket_keys(message);
-        ticket_keys.extend(git_webhook_service::extract_ticket_keys(&branch));
-        let mut seen = std::collections::HashSet::new();
-        ticket_keys.retain(|k| seen.insert(k.clone()));
+        // ブランチ名とコミットメッセージからキーを拾う(小文字ブランチ名・Closes/Refs に対応。設計 §4)
+        let found_keys = git_key_scan::scan_keys(
+            &git_key_scan::KeySources {
+                branch: &branch,
+                title: "",
+                body: "",
+                commit_messages: &[message],
+            },
+            &known_prefixes,
+        );
 
         let title: String = message
             .lines()
@@ -368,7 +487,8 @@ async fn process_push_event(
             .take(500)
             .collect();
 
-        for key in &ticket_keys {
+        for found in &found_keys {
+            let key = &found.key;
             let ticket_id = match integration_repo::find_ticket_id_by_key(&state.pool, key).await {
                 Ok(Some(id)) => id,
                 Ok(None) => continue,
@@ -401,28 +521,71 @@ async fn process_push_event(
                 }
             }
 
-            // Status 遷移（フラグ ON・同一 push 内 ticket 1回）
-            if !integration.auto_status_transition {
+            // Status 遷移（フラグ ON・同一 push 内 ticket 1回）。Refs のキーは紐付けのみで、遷移しない
+            if !integration.auto_status_transition || !git_key_scan::allows_transition(found.intent)
+            {
                 continue;
             }
             if !processed_tickets.insert(ticket_id) {
                 continue;
             }
 
-            try_auto_status_for_ticket(state, integration, ticket_id, "started", "push").await;
+            try_auto_status_for_ticket(state, integration, ticket_id, GitTrigger::BranchPushed)
+                .await;
         }
     }
 
     created
 }
 
-/// チケット単位で slug 解決→遷移。失敗しても他チケットへ影響しない。
+/// PR の状態が変わった(レビュー結果・CI)とき、その PR に紐付いたチケットでトリガーを動かす。
+/// 連携の自動遷移が OFF のとき、Refs(紐付けのみ)のチケットは動かさない。動かしたチケットの数を返す。
+pub(crate) async fn fire_pr_trigger(
+    state: &AppState,
+    integration: &crate::domain::models::integration_api::GitIntegrationOut,
+    pr_number: i32,
+    trigger: GitTrigger,
+) -> usize {
+    if !integration.auto_status_transition {
+        return 0;
+    }
+    let tickets =
+        match integration_repo::pr_event_tickets(&state.pool, integration.id, pr_number).await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("DB operation failed: {:?}", e);
+                return 0;
+            }
+        };
+    let mut fired = 0;
+    for (ticket_id, intent) in tickets {
+        if intent == git_key_scan::KeyIntent::Reference.as_str() {
+            continue;
+        }
+        try_auto_status_for_ticket(state, integration, ticket_id, trigger).await;
+        fired += 1;
+    }
+    fired
+}
+
+/// 既存のプロジェクト/チームの prefix(小文字ブランチ名からキーを拾うときの検証用)。取れなければ空。
+async fn known_prefixes_or_empty(state: &AppState) -> std::collections::HashSet<String> {
+    match git_status_rule_repo::known_ticket_prefixes(&state.pool).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("known prefixes load failed: {:?}", e);
+            std::collections::HashSet::new()
+        }
+    }
+}
+
+/// チケット単位で、トリガーに対する規則(プロジェクト → チーム → 標準)を解決して遷移する。
+/// 失敗しても他チケットへ影響しない。
 async fn try_auto_status_for_ticket(
     state: &AppState,
     integration: &crate::domain::models::integration_api::GitIntegrationOut,
     ticket_id: i32,
-    category_or_review: &str,
-    trigger: &str,
+    trigger: GitTrigger,
 ) {
     let actor_user_id = match git_webhook_service::resolve_git_actor(
         &state.pool,
@@ -453,63 +616,83 @@ async fn try_auto_status_for_ticket(
         }
     };
 
-    let target_slug = if category_or_review == "review" {
-        match git_webhook_service::resolve_review_slug_for_ticket(&state.pool, ticket_id).await {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(
-                    "git auto-status: resolve review slug failed for ticket {}: {:?}",
-                    ticket_id,
-                    e
-                );
-                return;
-            }
-        }
-    } else {
-        match git_webhook_service::resolve_target_slug_for_ticket(
-            &state.pool,
-            ticket_id,
-            category_or_review,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(
-                    "git auto-status: resolve {} slug failed for ticket {}: {:?}",
-                    category_or_review,
-                    ticket_id,
-                    e
-                );
-                return;
-            }
-        }
-    };
-
-    let Some(target_slug) = target_slug else {
-        tracing::info!(
-            "git auto-status: no target slug for ticket {} (trigger={} category={}); skip",
-            ticket_id,
-            trigger,
-            category_or_review
-        );
-        return;
-    };
-
-    if let Err(e) = git_webhook_service::apply_git_status_transition(
+    let target_slug = match git_webhook_service::resolve_trigger_target(
         &state.pool,
         ticket_id,
-        &target_slug,
-        actor_user_id,
         trigger,
     )
     .await
     {
-        tracing::error!(
-            "git auto-status: apply failed for ticket {}: {:?}",
-            ticket_id,
-            e
-        );
+        Ok(RuleResolution::Set(slug)) => slug,
+        // 「何もしない」(標準で何もしない、または規則で選んだ)
+        Ok(RuleResolution::Nothing) => return,
+        Ok(RuleResolution::MissingStatus(what)) => {
+            tracing::info!(
+                "git auto-status: target status {:?} is not in the workflow of ticket {} (trigger={}); skip",
+                what,
+                ticket_id,
+                trigger.as_str()
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::error!(
+                "git auto-status: resolve rule failed for ticket {} (trigger={}): {:?}",
+                ticket_id,
+                trigger.as_str(),
+                e
+            );
+            return;
+        }
+    };
+
+    // 通知に載せる「変更前のステータス」
+    let old_status: Option<String> =
+        sqlx::query_scalar("SELECT status FROM tickets_ticket WHERE id = $1")
+            .bind(ticket_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+
+    match git_webhook_service::apply_git_status_transition(
+        &state.pool,
+        ticket_id,
+        &target_slug,
+        actor_user_id,
+        trigger.as_str(),
+    )
+    .await
+    {
+        Ok(git_webhook_service::StatusTransitionResult::Applied) => {
+            // 自動で進んだ変更も、ウォッチャーとチャット連携に知らせる。失敗しても遷移は成功のまま
+            if let Err(e) =
+                crate::domain::services::notification_service::notify_status_change_from_git(
+                    &state.pool,
+                    &state.mail_sender,
+                    ticket_id,
+                    actor_user_id,
+                    old_status.as_deref().unwrap_or(""),
+                    &target_slug,
+                    &format!("GitHub: {}", trigger.label_ja()),
+                )
+                .await
+            {
+                tracing::warn!(
+                    "git auto-status: notify failed for ticket {}: {:?}",
+                    ticket_id,
+                    e
+                );
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!(
+                "git auto-status: apply failed for ticket {}: {:?}",
+                ticket_id,
+                e
+            );
+        }
     }
 }
 
@@ -557,12 +740,55 @@ async fn process_pull_request_event(
         "open"
     };
 
-    let mut ticket_keys = git_webhook_service::extract_ticket_keys(&title);
-    ticket_keys.extend(git_webhook_service::extract_ticket_keys(head_branch));
-    let mut seen = std::collections::HashSet::new();
-    ticket_keys.retain(|k| seen.insert(k.clone()));
+    // タイトル・本文・ブランチ名からキーを拾う(小文字ブランチ名・PR 本文・Closes/Refs に対応。設計 §4)
+    let body = pr.get("body").and_then(|v| v.as_str()).unwrap_or("");
+    let known_prefixes = known_prefixes_or_empty(state).await;
+    let found_keys = git_key_scan::scan_keys(
+        &git_key_scan::KeySources {
+            branch: head_branch,
+            title: &title,
+            body,
+            commit_messages: &[],
+        },
+        &known_prefixes,
+    );
+    let triggers = git_webhook_service::pr_triggers(action, draft, pr_state);
+    let details = integration_repo::PrDetails {
+        is_draft: draft,
+        reviewers: pr
+            .get("requested_reviewers")
+            .and_then(|v| v.as_array())
+            .map(|rs| {
+                rs.iter()
+                    .filter_map(|r| r.get("login").and_then(|v| v.as_str()))
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        additions: pr
+            .get("additions")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+        deletions: pr
+            .get("deletions")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+        changed_files: pr
+            .get("changed_files")
+            .and_then(|v| v.as_i64())
+            .map(|n| n as i32),
+        base_branch: pr
+            .get("base")
+            .and_then(|b| b.get("ref"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .chars()
+            .take(200)
+            .collect(),
+    };
 
-    for key in &ticket_keys {
+    for found in &found_keys {
+        let key = &found.key;
         let ticket_id = match integration_repo::find_ticket_id_by_key(&state.pool, key).await {
             Ok(Some(id)) => id,
             Ok(None) => continue,
@@ -583,6 +809,8 @@ async fn process_pull_request_event(
             author_name,
             author_avatar,
             pr_state,
+            &details,
+            found.intent.as_str(),
         )
         .await
         {
@@ -590,31 +818,14 @@ async fn process_pull_request_event(
                 created += 1;
                 tracing::info!("Linked PR #{} to {}", pr_number, key);
 
-                // PR opened/reopened/ready_for_review (かつ draft=false) の場合に in_review 相当へ遷移を試みる
+                // トリガーごとに、規則(プロジェクト → チーム → 標準)で遷移させる。
+                // Refs のキーは紐付けのみで、遷移しない
                 if integration.auto_status_transition
-                    && matches!(action, "opened" | "reopened" | "ready_for_review")
-                    && !draft
+                    && git_key_scan::allows_transition(found.intent)
                 {
-                    try_auto_status_for_ticket(
-                        state,
-                        integration,
-                        ticket_id,
-                        "review",
-                        "pr_opened",
-                    )
-                    .await;
-                }
-
-                // PR merged の場合だけ status 遷移を試みる（チケット単位・slug 無はスキップ）
-                if integration.auto_status_transition && pr_state == "merged" {
-                    try_auto_status_for_ticket(
-                        state,
-                        integration,
-                        ticket_id,
-                        "completed",
-                        "pr_merged",
-                    )
-                    .await;
+                    for trigger in &triggers {
+                        try_auto_status_for_ticket(state, integration, ticket_id, *trigger).await;
+                    }
                 }
             }
             Err(e) => tracing::error!("DB operation failed: {:?}", e),
@@ -728,5 +939,52 @@ mod tests {
             StatusCode::OK
         );
         assert_eq!(scope_of(&pool, id).await, (None, Some(b)));
+    }
+
+    /// 受信履歴は、その連携を管理できる人だけが見られる
+    #[tokio::test]
+    async fn deliveries_are_visible_to_managers_only() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let state = test_state(&pool).await;
+        let admin = create_test_user(&pool, "dl-admin").await;
+        let outsider = create_test_user(&pool, "dl-out").await;
+        let team = create_test_team(&pool, "dl-team").await;
+        add_test_team_member(&pool, team, admin, "admin").await;
+        let id = integration_on_team(&pool, team, admin).await;
+        crate::infrastructure::github_app::store::record_delivery(&pool, id, "push", "ok", "確認")
+            .await;
+
+        let r = deliveries(
+            State(state.clone()),
+            test_viewer(&pool, admin).await,
+            Path(id),
+        )
+        .await
+        .into_response();
+        assert_eq!(r.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!(v[0]["event"], "push");
+        assert_eq!(v[0]["note"], "確認");
+
+        let r = deliveries(
+            State(state.clone()),
+            test_viewer(&pool, outsider).await,
+            Path(id),
+        )
+        .await
+        .into_response();
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        let r = deliveries(
+            State(state),
+            test_viewer(&pool, admin).await,
+            Path(2_000_000_000),
+        )
+        .await
+        .into_response();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 }

@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ForbiddenNotice, isForbiddenError } from './ForbiddenNotice';
 import { apiClient } from '@/shared/api/client';
 import type { ChatIntegration, ChatProvider } from '@/shared/api/types';
 import { useToast } from '@/shared/stores/toastStore';
@@ -51,7 +52,7 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
       ? `/chat-integrations/?project=${projectId}`
       : `/chat-integrations/?team=${teamId}`;
 
-  const { data: integrations = [], isLoading } = useQuery<ChatIntegration[]>({
+  const { data: integrations = [], isLoading, error: listError } = useQuery<ChatIntegration[]>({
     queryKey: ['chat-integrations', scopeKey],
     queryFn: async () => {
       const res = await apiClient.get(listQuery);
@@ -123,6 +124,10 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
       return { ...prev, enabled_categories: updated };
     });
   };
+
+  if (isForbiddenError(listError)) {
+    return <ForbiddenNotice />;
+  }
 
   if (isLoading) {
     return <div className="integration-loading">Loading...</div>;
@@ -225,7 +230,7 @@ export function ChatIntegrationSettings({ projectId, teamId }: ChatIntegrationSe
       {integrations.length === 0 && !showAddForm ? (
         <div className="integration-empty">
           <div className="integration-empty__icon">💬</div>
-          <p>{t('integration.noIntegrations')}</p>
+          <p>{t('settings.chatIntegrationEmpty')}</p>
           <p className="integration-empty__hint">
             {t('settings.chatIntegrationDesc')}
           </p>

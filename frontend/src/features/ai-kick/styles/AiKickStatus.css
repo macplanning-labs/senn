@@ -1,0 +1,389 @@
+/* AI Kick Status Styles */
+
+.ai-kick-status {
+  padding: 12px;
+  background-color: var(--color-bg-secondary, #f9f9f9);
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status {
+    background-color: var(--color-bg-secondary, #2a2a2a);
+    border-color: var(--color-border, #333333);
+  }
+}
+
+.ai-kick-status__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-kick-status__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1a1a2e);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__title {
+    color: var(--color-text-primary, #ffffff);
+  }
+}
+
+.ai-kick-status__run {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background-color: var(--color-bg-primary, #ffffff);
+  border-radius: 4px;
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__run {
+    background-color: var(--color-bg-primary, #1e1e1e);
+    border-color: var(--color-border, #333333);
+  }
+}
+
+.ai-kick-status__badge-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ai-kick-status__status-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-kick-status__status-badge--queued {
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__status-badge--queued {
+    background-color: #4b5563;
+    color: #e5e7eb;
+  }
+}
+
+.ai-kick-status__status-badge--running {
+  background-color: #dbeafe;
+  color: #1e40af;
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__status-badge--running {
+    background-color: #1e3a8a;
+    color: #93c5fd;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.ai-kick-status__status-badge--stopping {
+  background-color: #fed7aa;
+  color: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__status-badge--stopping {
+    background-color: #78350f;
+    color: #fcd34d;
+  }
+}
+
+.ai-kick-status__status-badge--finished {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__status-badge--finished {
+    background-color: #064e3b;
+    color: #6ee7b7;
+  }
+}
+
+.ai-kick-status__info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 12px;
+  border-top: 1px solid var(--color-border, #e0e0e0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__info-row {
+    border-top-color: var(--color-border, #333333);
+  }
+}
+
+.ai-kick-status__info-label {
+  font-weight: 500;
+  color: var(--color-text-secondary, #666666);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__info-label {
+    color: var(--color-text-secondary, #cccccc);
+  }
+}
+
+.ai-kick-status__info-value {
+  color: var(--color-text-primary, #1a1a2e);
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__info-value {
+    color: var(--color-text-primary, #ffffff);
+  }
+}
+
+.ai-kick-status__summary-details,
+.ai-kick-status__error-details {
+  margin-top: 4px;
+}
+
+.ai-kick-status__summary-summary,
+.ai-kick-status__error-summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-primary, #3b82f6);
+  padding: 6px;
+  margin: -6px;
+  border-radius: 3px;
+  user-select: none;
+}
+
+.ai-kick-status__summary-summary:hover,
+.ai-kick-status__error-summary:hover {
+  background-color: var(--color-bg-secondary, #f9f9f9);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__summary-summary:hover,
+  .ai-kick-status__error-summary:hover {
+    background-color: var(--color-bg-secondary, #2a2a2a);
+  }
+}
+
+.ai-kick-status__summary-content,
+.ai-kick-status__error-content {
+  padding: 8px;
+  margin-top: 6px;
+  background-color: var(--color-bg-secondary, #f9f9f9);
+  border-radius: 3px;
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__summary-content,
+  .ai-kick-status__error-content {
+    background-color: var(--color-bg-secondary, #2a2a2a);
+    border-color: var(--color-border, #333333);
+  }
+}
+
+.ai-kick-status__summary-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary, #666666);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__summary-text {
+    color: var(--color-text-secondary, #cccccc);
+  }
+}
+
+.ai-kick-status__error-text {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-error, #dc2626);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__error-text {
+    color: var(--color-error, #ff6b6b);
+  }
+}
+
+.ai-kick-status__cancel-btn {
+  margin-top: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-error, #dc2626);
+  border-radius: 3px;
+  background-color: var(--color-error, #dc2626);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ai-kick-status__cancel-btn:hover:not(:disabled) {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.ai-kick-status__cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-kick-status__history {
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border, #e0e0e0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history {
+    border-top-color: var(--color-border, #333333);
+  }
+}
+
+.ai-kick-status__history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px;
+  margin: 0 -6px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--color-text-secondary, #666666);
+  text-align: left;
+  user-select: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-toggle {
+    color: var(--color-text-secondary, #cccccc);
+  }
+}
+
+.ai-kick-status__history-toggle:hover {
+  background-color: var(--color-bg-secondary, #f9f9f9);
+  border-radius: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-toggle:hover {
+    background-color: var(--color-bg-secondary, #2a2a2a);
+  }
+}
+
+.ai-kick-status__history-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-kick-status__history-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+  background-color: var(--color-bg-secondary, #f9f9f9);
+  border-radius: 3px;
+  border: 1px solid var(--color-border, #e0e0e0);
+  font-size: 11px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-item {
+    background-color: var(--color-bg-secondary, #2a2a2a);
+    border-color: var(--color-border, #333333);
+  }
+}
+
+.ai-kick-status__history-status {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-status {
+    background-color: #4b5563;
+    color: #e5e7eb;
+  }
+}
+
+.ai-kick-status__history-status--finished {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-status--finished {
+    background-color: #064e3b;
+    color: #6ee7b7;
+  }
+}
+
+.ai-kick-status__history-time {
+  flex: 1;
+  color: var(--color-text-secondary, #666666);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-time {
+    color: var(--color-text-secondary, #cccccc);
+  }
+}
+
+.ai-kick-status__history-tokens {
+  color: var(--color-text-secondary, #666666);
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ai-kick-status__history-tokens {
+    color: var(--color-text-secondary, #cccccc);
+  }
+}

@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { isAxiosError } from 'axios';
 import { apiClient, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/shared/api/client';
 import { enableDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
 import {
@@ -33,6 +34,21 @@ export type LoginResult =
   | { mfaRequired: false }
   | { mfaRequired: true; mfaToken: string };
 
+/** SSO ログインで複数アカウントがある場合の選択肢 */
+export interface SsoAccount {
+  id: number;
+  username: string;
+  displayName: string;
+  isSystemAdmin: boolean;
+}
+
+/** SSO ログインの結果 */
+export type SsoResult =
+  | { status: 'loggedIn' }
+  | { status: 'choose'; accounts: SsoAccount[] }
+  | { status: 'disabled' }
+  | { status: 'failed'; detail: string };
+
 interface AuthState {
   /** 現在のユーザー（未認証時はnull） */
   user: User | null;
@@ -45,6 +61,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<LoginResult>;
   verifyMfa: (mfaToken: string, totpCode: string) => Promise<void>;
   loginWithPasskey: (access: string, refresh: string) => Promise<void>;
+  loginWithSso: (userId?: number) => Promise<SsoResult>;
   logout: (opts?: { force?: boolean }) => Promise<void>;
   fetchUser: () => Promise<void>;
   setUser: (user: User | null) => void;
@@ -100,6 +117,33 @@ export const useAuthStore = create<AuthState>()((set) => ({
     await completeLogin(set, access, refresh);
   },
 
+  loginWithSso: async (userId) => {
+    try {
+      const { data } = await apiClient.post<
+        | { access: string; refresh: string }
+        | { chooseAccount: true; accounts: SsoAccount[] }
+      >('/auth/sso/login/', userId ? { userId } : {});
+
+      if ('chooseAccount' in data) {
+        return { status: 'choose', accounts: data.accounts };
+      }
+
+      await completeLogin(set, data.access, data.refresh);
+      return { status: 'loggedIn' };
+    } catch (error) {
+      const i18n = (await import('@/i18n')).default;
+      const fallback = i18n.t('auth.ssoFailed', 'Could not sign in with the company account');
+      if (isAxiosError<{ detail?: string }>(error) && error.response) {
+        // 404 = このサーバーでは SSO が無効(画面に SSO を出さない)
+        if (error.response.status === 404) {
+          return { status: 'disabled' };
+        }
+        return { status: 'failed', detail: error.response.data?.detail || fallback };
+      }
+      return { status: 'failed', detail: fallback };
+    }
+  },
+
   logout: async (opts) => {
     const force = opts?.force ?? false;
 
@@ -146,6 +190,13 @@ export const useAuthStore = create<AuthState>()((set) => ({
       clearCachedQueries();
     } catch (err) {
       console.warn('[auth] cache cleanup failed:', err);
+    }
+
+    // SSO 自動試行をスキップするフラグを設定
+    try {
+      sessionStorage.setItem('senn_sso_skip_auto', '1');
+    } catch (err) {
+      console.warn('[auth] failed to set sso_skip_auto flag:', err);
     }
 
     clearTokens();

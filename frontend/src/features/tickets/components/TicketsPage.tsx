@@ -5,7 +5,7 @@
  * チケット一覧。Filter + Saved View(★)機能を持つ。
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,11 +17,11 @@ import { useToastStore } from '@/shared/stores/toastStore';
 import { useTicketList, type TicketListParams } from '@/shared/sync/repos/ticketRepo';
 import { syncStateOf } from '@/shared/sync/ticketMapping';
 import { isTempTicketKey } from '@/shared/sync/ticketWrites';
+import { useStatusOptionsForProjects } from '../hooks/useStatusOptionsForProjects';
 import { buildTicketDetailPath } from '../utils/ticketNavigation';
 import '@/shared/sync/syncState.css';
 import './TicketsPage.css';
 
-const STATUS_KEYS = ['backlog', 'open', 'in_progress', 'resolved', 'closed', 'canceled'] as const;
 const PRIORITY_KEYS = ['urgent', 'high', 'medium', 'low'] as const;
 
 interface TicketViewFilters {
@@ -45,7 +45,6 @@ interface TicketSavedView {
 
 export function TicketsPage() {
   const { t } = useTranslation();
-  const statusLabel = (v: string) => t(`ticket.status.${v}`, { defaultValue: v });
   const priorityLabel = (v: string) => t(`ticket.priority_label.${v}`, { defaultValue: v });
   const navigate = useNavigate();
   const { user } = useAuthStore();
@@ -73,6 +72,17 @@ export function TicketsPage() {
   };
 
   const { tickets, isLoading } = useTicketList(buildListParams());
+
+  const selectedProjectId = projectFilter ? projectList.find((p) => p.prefix === projectFilter)?.id : undefined;
+  const statusProjectIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const tk of tickets) if (tk.project != null) ids.add(tk.project);
+    if (selectedProjectId != null) ids.add(selectedProjectId);
+    return [...ids];
+  }, [tickets, selectedProjectId]);
+  const { union: statusUnion, optionsFor: statusOptionsFor, labelOf: statusLabelOf } =
+    useStatusOptionsForProjects(statusProjectIds);
+  const statusFilterOptions = selectedProjectId != null ? statusOptionsFor(selectedProjectId) : statusUnion;
 
   const savedViewsQueryKey = ['saved-views', 'tickets'];
   const { data: savedViewsData = [] } = useQuery<TicketSavedView[]>({
@@ -170,8 +180,8 @@ export function TicketsPage() {
       <div className="tickets-page__filter-row">
         <select className="tickets-page__filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} data-testid="tickets-page-status-filter">
           <option value="">{t('ticketTable.allStatus')}</option>
-          {STATUS_KEYS.map((value) => (
-            <option key={value} value={value}>{statusLabel(value)}</option>
+          {statusFilterOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
 
@@ -294,7 +304,7 @@ export function TicketsPage() {
                       {ticket.title}
                     </Link>
                   </td>
-                  <td className="tickets-page__td">{statusLabel(ticket.status)}</td>
+                  <td className="tickets-page__td">{statusLabelOf(ticket.status, ticket.project)}</td>
                   <td className="tickets-page__td">{priorityLabel(ticket.priority)}</td>
                   <td className="tickets-page__td">{ticket.projectPrefix ?? ticket.team?.name ?? '—'}</td>
                   <td className="tickets-page__td">

@@ -149,6 +149,46 @@ pub async fn count_all(
     Ok(count)
 }
 
+/// 全体 Wiki(どのプロジェクト・チームにも属さないページ)だけの一覧(AI用API)。
+pub async fn find_all_global(
+    pool: &PgPool,
+    category: Option<&str>,
+    search: Option<&str>,
+    page: i64,
+    scope: Option<&crate::domain::access::Scope>,
+) -> anyhow::Result<Vec<WikiPageListOut>> {
+    const PAGE_SIZE: i64 = 50;
+    let page = page.max(1);
+    let offset = (page - 1) * PAGE_SIZE;
+
+    let mut qb = sqlx::QueryBuilder::new(LIST_SELECT);
+    qb.push(" WHERE w.project_id IS NULL AND w.team_id IS NULL AND ");
+    push_list_filters(&mut qb, None, None, category, search, scope);
+    qb.push(" ORDER BY w.updated_at DESC LIMIT ")
+        .push_bind(PAGE_SIZE)
+        .push(" OFFSET ")
+        .push_bind(offset);
+    let rows = qb.build().fetch_all(pool).await?;
+
+    Ok(rows.iter().map(row_to_list).collect())
+}
+
+/// 全体 Wiki だけの件数(AI用API)。
+pub async fn count_all_global(
+    pool: &PgPool,
+    category: Option<&str>,
+    search: Option<&str>,
+    scope: Option<&crate::domain::access::Scope>,
+) -> anyhow::Result<i64> {
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT COUNT(*) FROM wiki_page w WHERE w.project_id IS NULL AND w.team_id IS NULL AND ",
+    );
+    push_list_filters(&mut qb, None, None, category, search, scope);
+    let count: i64 = qb.build_query_scalar().fetch_one(pool).await?;
+
+    Ok(count)
+}
+
 pub async fn find_by_id(pool: &PgPool, id: i32) -> anyhow::Result<Option<WikiPageDetailOut>> {
     let row = sqlx::query(
         "SELECT
@@ -411,6 +451,31 @@ pub async fn find_revisions(pool: &PgPool, page_id: i32) -> anyhow::Result<Vec<W
             }
         })
         .collect())
+}
+
+/// プロジェクト内のslugからページIDを引く（AI用API）。
+pub async fn find_id_by_project_slug(
+    pool: &PgPool,
+    project_id: i32,
+    slug: &str,
+) -> anyhow::Result<Option<i32>> {
+    Ok(
+        sqlx::query_scalar("SELECT id::int4 FROM wiki_page WHERE project_id = $1 AND slug = $2")
+            .bind(project_id as i64)
+            .bind(slug)
+            .fetch_optional(pool)
+            .await?,
+    )
+}
+
+/// 全体 Wiki(どのプロジェクト・チームにも属さないページ)の slug からページIDを引く（AI用API）。
+pub async fn find_id_by_global_slug(pool: &PgPool, slug: &str) -> anyhow::Result<Option<i32>> {
+    Ok(sqlx::query_scalar(
+        "SELECT id::int4 FROM wiki_page WHERE project_id IS NULL AND team_id IS NULL AND slug = $1",
+    )
+    .bind(slug)
+    .fetch_optional(pool)
+    .await?)
 }
 
 pub async fn page_exists(pool: &PgPool, id: i32) -> anyhow::Result<bool> {
@@ -840,5 +905,112 @@ mod tests {
 
         // nonexistent page returns None
         assert!(find_scope(&pool, i32::MAX).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn find_id_by_project_slug_is_scoped_to_project() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let user_id = test_support::create_test_user(&pool, "slugu").await;
+        let project_a = test_support::create_test_project(&pool, "slugp", user_id).await;
+        let project_b = test_support::create_test_project(&pool, "slugp", user_id).await;
+        let page = create_wiki_page(&pool, Some(project_a), None, user_id).await;
+        let slug: String = sqlx::query_scalar("SELECT slug FROM wiki_page WHERE id = $1")
+            .bind(page)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            find_id_by_project_slug(&pool, project_a, &slug)
+                .await
+                .unwrap(),
+            Some(page)
+        );
+        assert_eq!(
+            find_id_by_project_slug(&pool, project_b, &slug)
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    async fn slug_of(pool: &PgPool, id: i32) -> String {
+        sqlx::query_scalar("SELECT slug FROM wiki_page WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn title_of(pool: &PgPool, id: i32) -> String {
+        sqlx::query_scalar("SELECT title FROM wiki_page WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn find_id_by_global_slug_finds_only_global_pages() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let user_id = test_support::create_test_user(&pool, "gslug").await;
+        let project = test_support::create_test_project(&pool, "gslugp", user_id).await;
+        let team = test_support::create_test_team(&pool, "GSLUGT").await;
+        let global = create_wiki_page(&pool, None, None, user_id).await;
+        let in_project = create_wiki_page(&pool, Some(project), None, user_id).await;
+        let in_team = create_wiki_page(&pool, None, Some(team), user_id).await;
+
+        let slug = slug_of(&pool, global).await;
+        assert_eq!(
+            find_id_by_global_slug(&pool, &slug).await.unwrap(),
+            Some(global)
+        );
+        // プロジェクト・チームのページは、slug が分かっても全体 Wiki としては引けない
+        for id in [in_project, in_team] {
+            let slug = slug_of(&pool, id).await;
+            assert_eq!(find_id_by_global_slug(&pool, &slug).await.unwrap(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn find_all_global_lists_only_global_pages() {
+        let Some(pool) = test_support::test_pool().await else {
+            return;
+        };
+        let user_id = test_support::create_test_user(&pool, "glist").await;
+        let project = test_support::create_test_project(&pool, "glistp", user_id).await;
+        let team = test_support::create_test_team(&pool, "GLISTT").await;
+        let global = create_wiki_page(&pool, None, None, user_id).await;
+        let in_project = create_wiki_page(&pool, Some(project), None, user_id).await;
+        let in_team = create_wiki_page(&pool, None, Some(team), user_id).await;
+
+        // 他のテストのページと混ざらないよう、タイトル(検索の対象)で絞る
+        let title = title_of(&pool, global).await;
+        let rows = find_all_global(&pool, None, Some(&title), 1, None)
+            .await
+            .unwrap();
+        assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![global]);
+        assert_eq!(
+            count_all_global(&pool, None, Some(&title), None)
+                .await
+                .unwrap(),
+            1
+        );
+        for id in [in_project, in_team] {
+            let title = title_of(&pool, id).await;
+            assert!(find_all_global(&pool, None, Some(&title), 1, None)
+                .await
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                count_all_global(&pool, None, Some(&title), None)
+                    .await
+                    .unwrap(),
+                0
+            );
+        }
     }
 }

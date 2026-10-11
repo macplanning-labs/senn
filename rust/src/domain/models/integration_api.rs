@@ -26,6 +26,16 @@ pub struct GitIntegrationOut {
     pub created_at: DateTime<Utc>,
     #[serde(rename = "eventCount")]
     pub event_count: i64,
+    #[serde(rename = "installationId")]
+    pub installation_id: Option<i64>,
+    #[serde(rename = "lastDeliveryAt")]
+    pub last_delivery_at: Option<DateTime<Utc>>,
+    #[serde(rename = "lastDeliveryEvent")]
+    pub last_delivery_event: Option<String>,
+    #[serde(rename = "lastDeliveryResult")]
+    pub last_delivery_result: Option<String>,
+    #[serde(rename = "lastDeliveryNote")]
+    pub last_delivery_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,4 +100,20 @@ pub struct GitEventOut {
     pub pr_state: String,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime<Utc>,
+    // ── Phase 2: PR の詳細(追加のみ) ──
+    #[serde(rename = "isDraft")]
+    pub is_draft: bool,
+    /// none | approved | changes_requested
+    #[serde(rename = "reviewState")]
+    pub review_state: String,
+    /// none | pending | success | failure
+    #[serde(rename = "ciState")]
+    pub ci_state: String,
+    pub reviewers: Vec<String>,
+    pub additions: Option<i32>,
+    pub deletions: Option<i32>,
+    #[serde(rename = "changedFiles")]
+    pub changed_files: Option<i32>,
+    #[serde(rename = "baseBranch")]
+    pub base_branch: String,
 }

@@ -1077,11 +1077,13 @@ pub async fn find_or_create_label(
     project_id: i32,
     name: &str,
 ) -> anyhow::Result<i32> {
-    find_or_create_label_for_scope(pool, Some(project_id), None, name).await
+    let mut conn = pool.acquire().await?;
+    find_or_create_label_for_scope_conn(&mut conn, Some(project_id), None, name).await
 }
 
-pub async fn find_or_create_label_for_scope(
-    pool: &PgPool,
+/// 同じ。ただし、呼び出し側の接続(トランザクション)の中で行う(AI の一括登録で、取り消せるように)
+pub async fn find_or_create_label_for_scope_conn(
+    conn: &mut sqlx::PgConnection,
     project_id: Option<i32>,
     team_id: Option<i32>,
     name: &str,
@@ -1094,7 +1096,7 @@ pub async fn find_or_create_label_for_scope(
         )
         .bind(name)
         .bind(pid)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?
         {
             return Ok(id);
@@ -1107,7 +1109,7 @@ pub async fn find_or_create_label_for_scope(
         .bind(name)
         .bind(DEFAULT_LABEL_COLOR)
         .bind(pid)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
         return Ok(label_id);
     }
@@ -1120,7 +1122,7 @@ pub async fn find_or_create_label_for_scope(
         )
         .bind(name)
         .bind(tid)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?
         {
             return Ok(id);
@@ -1131,7 +1133,7 @@ pub async fn find_or_create_label_for_scope(
              LIMIT 1",
         )
         .bind(name)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?
         {
             return Ok(id);
@@ -1144,7 +1146,7 @@ pub async fn find_or_create_label_for_scope(
         .bind(name)
         .bind(DEFAULT_LABEL_COLOR)
         .bind(tid)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
         return Ok(label_id);
     }

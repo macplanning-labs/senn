@@ -10,8 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useTeam } from '@/shared/hooks/useTeam';
 import { WorkflowSettings } from './WorkflowSettings';
 import { LabelSettings } from './LabelSettings';
-import { IntegrationSettings } from './IntegrationSettings';
-import { ChatIntegrationSettings } from './ChatIntegrationSettings';
+import { IntegrationsTab } from './IntegrationsTab';
 import { TeamMembersSection } from '@/features/teams/components/TeamMembersSection';
 import { TeamGuestsSection } from '@/features/teams/components/TeamGuestsSection';
 import { TeamRulesSection } from '@/features/teams/components/TeamRulesSection';
@@ -25,7 +24,12 @@ type TabKey = 'general' | 'members' | 'guests' | 'rules' | 'workflow' | 'labels'
 export function TeamSettingsPage() {
   const { t } = useTranslation();
   const { currentTeam, isLoading } = useTeam();
-  const [activeTab, setActiveTab] = useState<TabKey>('general');
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    // GitHub 連携の設定から戻ってきたときは、連携タブを開く
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('githubApp')
+      ? 'integrations'
+      : 'general',
+  );
 
   if (isLoading) {
     return <p className="project-settings__empty">Loading...</p>;
@@ -107,8 +111,7 @@ export function TeamSettingsPage() {
         {activeTab === 'labels' && <LabelSettings teamId={currentTeam.id} />}
         {activeTab === 'integrations' && (
           <div>
-            <IntegrationSettings teamId={currentTeam.id} />
-            <ChatIntegrationSettings teamId={currentTeam.id} />
+            <IntegrationsTab teamId={currentTeam.id} />
           </div>
         )}
       </div>

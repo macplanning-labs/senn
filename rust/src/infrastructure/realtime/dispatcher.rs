@@ -64,12 +64,19 @@ pub struct Merged {
     pub v: i64,
     /// この行が過去〜現在にいた（チーム, プロジェクト）。移動前の部屋への evict に使う
     pub places: BTreeSet<(Option<i32>, Option<i32>)>,
-    /// 合図（signal）の流し先。端末内 DB に表を持たない対象（添付・リアクション・サイクル・通知・Wiki）で使う
+    /// 合図（signal）の流し先。端末内 DB に表を持たない対象（添付・リアクション・サイクル・通知・Wiki・Git の履歴）で使う
     pub signal_rooms: BTreeSet<RoomId>,
 }
 
 /// 実データではなく「変わった」という合図だけを流す種別
-pub const SIGNAL_ENTITIES: [&str; 5] = ["attachment", "reaction", "cycle", "notification", "wiki"];
+pub const SIGNAL_ENTITIES: [&str; 6] = [
+    "attachment",
+    "reaction",
+    "cycle",
+    "notification",
+    "wiki",
+    "git_event",
+];
 
 fn is_signal(entity: &str) -> bool {
     SIGNAL_ENTITIES.contains(&entity)
@@ -79,7 +86,8 @@ fn is_signal(entity: &str) -> bool {
 fn signal_rooms_of(n: &Notice) -> BTreeSet<RoomId> {
     match n.e.as_str() {
         // 添付・リアクションは親チケット、サイクルはチームに属する（プロジェクトは任意）。どれもチケットと同じ規則
-        "attachment" | "reaction" | "cycle" => rooms_for_ticket(n.t, n.p),
+        // Git の履歴(コミット・PR)も、親チケットに属する
+        "attachment" | "reaction" | "cycle" | "git_event" => rooms_for_ticket(n.t, n.p),
         // Wiki: チーム指定があればチケットと同じ規則、なければプロジェクト（所属チーム）、どちらも無ければ全員
         "wiki" if n.t.is_some() => rooms_for_ticket(n.t, n.p),
         "wiki" => rooms_for_project(n.p, &n.teams),

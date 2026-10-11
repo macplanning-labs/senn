@@ -1,7 +1,13 @@
+pub mod ai_kick_policy;
+pub mod ai_kick_service;
+pub mod ai_mcp_request_service;
+pub mod ai_run_service;
 pub mod ai_service;
 pub mod auth_service;
+pub mod git_key_scan;
 pub mod git_webhook_service;
 pub mod jwt_service;
+pub mod kb;
 pub mod notification_service;
 pub mod ticket_service;
 pub mod wiki_service;

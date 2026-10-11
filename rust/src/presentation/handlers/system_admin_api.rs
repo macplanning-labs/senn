@@ -18,7 +18,7 @@ use crate::infrastructure::encrypted_settings::{decrypt_value, encrypt_value, ma
 use crate::infrastructure::repositories::{ai_agent_key_repo, system_settings_repo, user_repo};
 use crate::presentation::state::AppState;
 
-fn require_staff(
+pub(crate) fn require_staff(
     state: &AppState,
     viewer: &Viewer,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {

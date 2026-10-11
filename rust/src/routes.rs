@@ -16,13 +16,17 @@ use utoipa_swagger_ui::SwaggerUi;
 // Step 2: レート制限(IPトークンバケット)は auth-core::infrastructure::rate_limit へ移行済み。
 use crate::presentation::{
     handlers::{
-        access_report_api, ai_agent_api, ai_api, api_doc, attachment_api, auth, auth_api,
-        chat_integration_api, cycle_api, dashboard_api, external_api, health, integration_api,
-        invitation_api, media_api, notification_api2, password_reset_api, project_activity_api,
-        project_structure_api, project_team_api, reaction_api, realtime_api, reports_api,
-        resource_api, roadmap_api, saved_view_api, search_api, security_api, settings_api,
-        sync_api, system_admin_api, team_access_api, team_api, team_archive_api, team_rule_api,
-        ticket_link_api, tickets_api, time_entry_api, triage_api, wiki_api, workflow_status_api,
+        access_report_api, ai_agent_api, ai_agent_bulk_api, ai_agent_wiki_api, ai_api,
+        ai_kick_admin_api, ai_kick_api, ai_mcp_pairing_api, ai_mcp_request_api, ai_run_api,
+        ai_run_issue_api, ai_runner_api, api_doc, attachment_api, auth, auth_api,
+        chat_integration_api, cycle_api, dashboard_api, external_api, git_status_rule_api,
+        github_app_link_api, github_app_setup, github_app_webhook, health, insights_api,
+        integration_api, invitation_api, kb_api, media_api, notification_api2, password_reset_api,
+        project_activity_api, project_structure_api, project_team_api, reaction_api, realtime_api,
+        reports_api, resource_api, roadmap_api, saved_view_api, search_api, security_api,
+        settings_api, sso_api, sync_api, system_admin_api, team_access_api, team_api,
+        team_archive_api, team_rule_api, ticket_link_api, tickets_api, time_entry_api, triage_api,
+        wiki_api, workflow_status_api,
     },
     middleware::{auth::require_auth, jwt_auth},
     state::AppState,
@@ -82,6 +86,8 @@ pub fn create_router(state: AppState) -> Router {
     let login_routes = Router::new()
         .route("/api/v1/auth/login/", post(auth_api::login))
         .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
+        // 社内 SSO(Cloudflare Access の JWT を署名検証してログイン。無効なら 404)
+        .route("/api/v1/auth/sso/login/", post(sso_api::login))
         .route(
             "/api/v1/auth/passkey/login/begin/",
             post(security_api::passkey_login_begin),
@@ -108,6 +114,16 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/auth/verify-email/",
             post(invitation_api::verify_email),
         )
+        // GitHub App の作成・インストールの戻り先。GitHub からのブラウザ遷移で来るため認証ヘッダは付かない。
+        // 本人確認は使い捨ての state で行う(github_app_setup.rs 冒頭の説明を参照)
+        .route(
+            "/api/v1/github-app/manifest/callback",
+            get(github_app_setup::manifest_callback),
+        )
+        .route(
+            "/api/v1/github-app/install/callback",
+            get(github_app_setup::install_callback),
+        )
         .layer(ip_rate_limit_layer(IpRateLimitConfig::login_preset()));
 
     // GitHub Webhook: 60 requests/min per IP
@@ -115,6 +131,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/webhooks/github/",
             post(integration_api::github_webhook),
+        )
+        .route(
+            "/api/v1/webhooks/github-app/",
+            post(github_app_webhook::github_app_webhook),
         )
         .layer(ip_rate_limit_layer(IpRateLimitConfig::webhook_preset()));
 
@@ -137,12 +157,32 @@ pub fn create_router(state: AppState) -> Router {
     // AI専用外部API: 300 requests/min per IP
     let ai_agent_routes = Router::new()
         .route(
+            "/api/v1/ai-agent/similar-incidents/",
+            get(kb_api::agent_similar_incidents),
+        )
+        .route(
             "/api/v1/ai-agent/projects/",
             post(ai_agent_api::create_project).get(ai_agent_api::list_projects),
         )
         .route(
+            "/api/v1/ai-agent/runs/{run_uuid}/start/",
+            post(ai_run_api::start_run),
+        )
+        .route(
+            "/api/v1/ai-agent/runs/{run_uuid}/finish/",
+            post(ai_run_api::finish_run),
+        )
+        .route(
+            "/api/v1/ai-agent/runs/{run_uuid}/error/",
+            post(ai_run_api::error_run),
+        )
+        .route(
             "/api/v1/ai-agent/tickets/{ticket_key}/comments/",
             post(ai_agent_api::add_comment),
+        )
+        .route(
+            "/api/v1/ai-agent/tickets/{ticket_key}/comments/{comment_id}/",
+            axum::routing::patch(ai_agent_api::update_comment),
         )
         .route(
             "/api/v1/ai-agent/tickets/{ticket_key}/",
@@ -153,6 +193,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/ai-agent/tickets/",
             post(ai_agent_api::create_ticket).get(ai_agent_api::list_tickets),
+        )
+        .route(
+            "/api/v1/ai-agent/tickets/bulk/",
+            post(ai_agent_bulk_api::bulk_create),
         )
         .route(
             "/api/v1/ai-agent/tickets/{ticket_key}/dependencies/",
@@ -172,7 +216,26 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/ai-agent/wiki-pages/",
-            get(ai_agent_api::list_wiki_pages),
+            get(ai_agent_api::list_wiki_pages).post(ai_agent_wiki_api::create),
+        )
+        .route("/api/v1/ai-agent/pairing/", post(ai_mcp_pairing_api::start))
+        .route(
+            "/api/v1/ai-agent/pairing/status/",
+            post(ai_mcp_pairing_api::status),
+        )
+        .route(
+            "/api/v1/ai-agent/wiki-search/",
+            get(ai_agent_wiki_api::search),
+        )
+        .route(
+            "/api/v1/ai-agent/wiki-pages/{slug}/",
+            get(ai_agent_wiki_api::get_page)
+                .patch(ai_agent_wiki_api::update)
+                .delete(ai_agent_wiki_api::delete),
+        )
+        .route(
+            "/api/v1/ai-agent/wiki-pages/{slug}/revisions/",
+            get(ai_agent_wiki_api::revisions),
         )
         .route(
             "/api/v1/ai-agent/wiki-pages/{slug}/attachments/",
@@ -201,6 +264,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/ai-agent/teams/",
             post(ai_agent_api::create_team).get(ai_agent_api::list_teams),
         )
+        .route(
+            "/api/v1/ai-agent/teams/{team}/",
+            axum::routing::patch(ai_agent_api::patch_team),
+        )
         // 共有の AI キーへの廃止予定の警告(アクセス制御の再設計 F-8)
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
@@ -212,12 +279,35 @@ pub fn create_router(state: AppState) -> Router {
         ))
         .layer(ip_rate_limit_layer(IpRateLimitConfig::external_api_preset()));
 
+    // AI ランナー(AI を実行する社内マシン)の入口。認証はランナー専用のトークン(`X-Runner-Token`)で、
+    // ハンドラ内(`RunnerCaller`)で行う。パスは ai-agent の範囲に置き、nginx・Cloudflare Access の変更を不要にしている。
+    let ai_runner_routes = Router::new()
+        .route("/api/v1/ai-agent/runner/claim/", post(ai_runner_api::claim))
+        .route(
+            "/api/v1/ai-agent/runner/runs/{run_uuid}/start/",
+            post(ai_runner_api::start),
+        )
+        .route(
+            "/api/v1/ai-agent/runner/runs/{run_uuid}/heartbeat/",
+            post(ai_runner_api::heartbeat),
+        )
+        .route(
+            "/api/v1/ai-agent/runner/runs/{run_uuid}/finish/",
+            post(ai_runner_api::finish),
+        )
+        .route(
+            "/api/v1/ai-agent/runner/runs/{run_uuid}/error/",
+            post(ai_runner_api::error),
+        )
+        .layer(ip_rate_limit_layer(IpRateLimitConfig::external_api_preset()));
+
     // 認証不要ルート（すべてのサブルーターを統合）
     let public_routes = basic_public_routes
         .merge(login_routes)
         .merge(webhook_routes)
         .merge(external_routes)
-        .merge(ai_agent_routes);
+        .merge(ai_agent_routes)
+        .merge(ai_runner_routes);
 
     // 認証必須ルート
     let protected_routes = Router::new()
@@ -255,6 +345,30 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/auth/me/ai-prompt-templates/",
             get(auth_api::get_ai_prompt_templates).put(auth_api::update_ai_prompt_templates),
+        )
+        .route(
+            "/api/v1/ai-mcp/requests/",
+            get(ai_mcp_request_api::list_mine).post(ai_mcp_request_api::create_request),
+        )
+        .route(
+            "/api/v1/ai-mcp/requests/{id}/cancel/",
+            post(ai_mcp_request_api::cancel_request),
+        )
+        .route(
+            "/api/v1/ai-mcp/requests/{id}/issue/",
+            post(ai_mcp_request_api::issue_key),
+        )
+        .route(
+            "/api/v1/ai-mcp/pairings/{code}/",
+            get(ai_mcp_pairing_api::info),
+        )
+        .route(
+            "/api/v1/ai-mcp/pairings/{code}/apply/",
+            post(ai_mcp_pairing_api::apply),
+        )
+        .route(
+            "/api/v1/ai-mcp/keys/{id}/",
+            axum::routing::delete(ai_mcp_request_api::revoke_my_key),
         )
         .route(
             "/api/v1/auth/me/deactivate/",
@@ -310,6 +424,31 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/tickets/{ticket_key}/ai-prompt/",
             axum::routing::post(tickets_api::generate_ticket_ai_prompt),
         )
+        // 「AIに対応させる」(人が使う側)。起動できるのは、ログインした人だけ
+        .route(
+            "/api/v1/tickets/{ticket_key}/ai-kick/preview/",
+            post(ai_kick_api::preview),
+        )
+        .route(
+            "/api/v1/tickets/{ticket_key}/ai-kick/",
+            post(ai_kick_api::kick),
+        )
+        .route(
+            "/api/v1/tickets/{ticket_key}/ai-kick/{run_uuid}/cancel/",
+            post(ai_kick_api::cancel),
+        )
+        .route(
+            "/api/v1/tickets/{ticket_key}/ai-runs/",
+            get(ai_kick_api::list_runs),
+        )
+        .route(
+            "/api/v1/projects/{id}/ai-kick/",
+            get(ai_kick_api::get_project_settings).put(ai_kick_api::put_project_settings),
+        )
+        .route(
+            "/api/v1/tickets/{ticket_key}/ai-run/",
+            axum::routing::post(ai_run_issue_api::issue_ai_run),
+        )
         .route(
             "/api/v1/tickets/{ticket_key}/change-logs/",
             get(tickets_api::change_logs),
@@ -345,6 +484,14 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/tickets/{ticket_key}/reactions/{id}/",
             axum::routing::delete(reaction_api::delete_reaction),
+        )
+        .route(
+            "/api/v1/tickets/{ticket_key}/close-check/",
+            get(kb_api::close_check),
+        )
+        .route(
+            "/api/v1/ai/similar-incidents/",
+            post(kb_api::similar_incidents),
         )
         .route(
             "/api/v1/projects/{prefix}/custom-emojis/",
@@ -694,6 +841,19 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/v1/search/", get(search_api::search))
         .route("/api/v1/reports/workload/", get(reports_api::workload))
+        .route(
+            "/api/v1/insights/cycle-time/",
+            get(insights_api::cycle_time),
+        )
+        .route(
+            "/api/v1/insights/triage-time/",
+            get(insights_api::triage_time),
+        )
+        .route(
+            "/api/v1/insights/throughput/",
+            get(insights_api::throughput),
+        )
+        .route("/api/v1/insights/ai-usage/", get(insights_api::ai_usage))
         .route("/api/v1/dashboard/stats/", get(dashboard_api::stats))
         .route(
             "/api/v1/dashboard/my-tickets/",
@@ -749,12 +909,42 @@ pub fn create_router(state: AppState) -> Router {
             axum::routing::patch(integration_api::update).delete(integration_api::delete),
         )
         .route(
+            "/api/v1/integrations/{id}/deliveries/",
+            get(integration_api::deliveries),
+        )
+        .route(
             "/api/v1/chat-integrations/",
             get(chat_integration_api::list).post(chat_integration_api::create),
         )
         .route(
             "/api/v1/chat-integrations/{id}/",
             axum::routing::patch(chat_integration_api::update).delete(chat_integration_api::delete),
+        )
+        // GitHub 連携: トリガーごとのステータス設定(Phase 2)
+        .route(
+            "/api/v1/git-status-rules/",
+            get(git_status_rule_api::get_rules).put(git_status_rule_api::put_rules),
+        )
+        // GitHub App 連携
+        .route(
+            "/api/v1/github-app/manifest/",
+            post(github_app_setup::start_manifest),
+        )
+        .route(
+            "/api/v1/github-app/install/",
+            post(github_app_setup::start_install),
+        )
+        .route(
+            "/api/v1/github-app/status/",
+            get(github_app_link_api::status),
+        )
+        .route(
+            "/api/v1/github-app/repositories/",
+            get(github_app_link_api::repositories),
+        )
+        .route(
+            "/api/v1/github-app/integrations/",
+            post(github_app_link_api::create_integrations),
         )
         // セキュリティ設定（TOTP）
         .route(
@@ -799,6 +989,18 @@ pub fn create_router(state: AppState) -> Router {
             get(system_admin_api::get_realtime_stats),
         )
         .route(
+            "/api/v1/system-admin/ai-kick/",
+            get(ai_kick_admin_api::get_settings).put(ai_kick_admin_api::put_settings),
+        )
+        .route(
+            "/api/v1/system-admin/ai-kick/runners/",
+            post(ai_kick_admin_api::create_runner),
+        )
+        .route(
+            "/api/v1/system-admin/ai-kick/runners/{id}/",
+            axum::routing::delete(ai_kick_admin_api::revoke_runner),
+        )
+        .route(
             "/api/v1/system-admin/ai-agent-key/",
             get(system_admin_api::get_ai_agent_key).put(system_admin_api::update_ai_agent_key),
         )
@@ -806,6 +1008,18 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/system-admin/ai-agent-personal-keys/",
             get(system_admin_api::list_ai_agent_personal_keys)
                 .post(system_admin_api::create_ai_agent_personal_key),
+        )
+        .route(
+            "/api/v1/system-admin/ai-mcp-requests/",
+            get(ai_mcp_request_api::admin_list),
+        )
+        .route(
+            "/api/v1/system-admin/ai-mcp-requests/{id}/approve/",
+            post(ai_mcp_request_api::admin_approve),
+        )
+        .route(
+            "/api/v1/system-admin/ai-mcp-requests/{id}/reject/",
+            post(ai_mcp_request_api::admin_reject),
         )
         .route(
             "/api/v1/system-admin/ai-agent-personal-keys/{id}/",
@@ -1031,17 +1245,41 @@ mod access_route_tests {
         ("auth_api::login", "ログイン(認証前)"),
         ("auth_api::login_verify", "二要素認証(認証の途中)"),
         (
+            "sso_api::login",
+            "社内 SSO(Cloudflare Access の JWT を署名検証。無効なら 404)",
+        ),
+        (
             "auth_api::register",
             "登録(認証前。既定は社内ドメインだけ・メール確認つき。DEMO-000085)",
         ),
         ("invitation_api::preview", "招待の確認(招待のトークン)"),
         ("invitation_api::accept", "招待の受諾(招待のトークン)"),
         ("invitation_api::verify_email", "メール確認(確認のトークン)"),
+        (
+            "github_app_setup::manifest_callback",
+            "GitHub App 作成後の戻り先(使い捨ての state で本人確認)",
+        ),
+        (
+            "github_app_setup::install_callback",
+            "GitHub App インストール後の戻り先(使い捨ての state で本人確認)",
+        ),
         ("auth_api::token_refresh", "リフレッシュトークンの検証"),
+        (
+            "ai_mcp_pairing_api::start",
+            "端末の接続の開始(AIキーを使わない)。本番では Cloudflare Access のサービストークンを持つ社内エージェントだけが届く。キーの平文は受け取らず、指紋だけを預かる。確認コードは15分・一回限り・開始は1時間60件まで。承認がなければキーは登録されない",
+        ),
+        (
+            "ai_mcp_pairing_api::status",
+            "端末の接続の状態。確認コードと、開始時に一度だけ返した秘密(deviceSecret)の両方が合うときだけ返す(合わなければ、理由を区別せず 404)",
+        ),
         ("health::check", "ヘルスチェック"),
         (
             "integration_api::github_webhook",
             "GitHub からの受信。HMAC 署名で検証",
+        ),
+        (
+            "github_app_webhook::github_app_webhook",
+            "GitHub App からの受信。App 共通のシークレットで HMAC 署名を検証",
         ),
         (
             "password_reset_api::password_reset_request",
@@ -1088,7 +1326,9 @@ mod access_route_tests {
         out
     }
 
-    /// ハンドラの引数に `: Viewer`(AI エージェント API は `: AiCaller`)があるか(関数の定義を、ソースから探す)
+    /// ハンドラの引数に `: Viewer`(AI エージェント API は `: AiCaller`、AI ランナーの入口は `: RunnerCaller`)があるか
+    /// (関数の定義を、ソースから探す)。`RunnerCaller` は、ランナー専用のトークンで認証する(無い・不正・失効は 401。
+    /// `ai_kick_http_tests` の `runner_endpoints_reject_...` で、全ての入口が拒否することを確かめている)
     fn takes_viewer(handler: &str) -> bool {
         let (module, func) = handler.split_once("::").expect("module::fn の形");
         let path = format!(
@@ -1111,7 +1351,7 @@ mod access_route_tests {
             .flatten()
             .min()
             .unwrap_or(rest.len());
-        Regex::new(r":\s*(Viewer|AiCaller|ExternalCaller)\b")
+        Regex::new(r":\s*(Viewer|AiCaller|ExternalCaller|RunnerCaller)\b")
             .unwrap()
             .is_match(&rest[..end])
     }
@@ -1361,6 +1601,47 @@ mod enforced_handler_tests {
                     "{handler}: テスト `{t}` が {module}.rs にありません"
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod registered_routes_tests {
+    //! ハンドラを書いても、ルートの登録を忘れると、画面だけが 404 になる(単体テストはハンドラを直接呼ぶので気づけない。
+    //! 2026-10-06: 規則の API で実際に起きた)。認証なしで叩いて、404 ではなく 401 が返ること(= ルートがある)を確かめる。
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn github_integration_routes_are_registered() {
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
+        let state = crate::test_support::test_state(&pool).await;
+        let app = create_router(state);
+        for (method, path) in [
+            ("GET", "/api/v1/git-status-rules/?project=1"),
+            ("PUT", "/api/v1/git-status-rules/"),
+            ("GET", "/api/v1/integrations/1/deliveries/"),
+            ("GET", "/api/v1/github-app/status/"),
+            ("GET", "/api/v1/github-app/repositories/?project=1"),
+            ("POST", "/api/v1/github-app/integrations/"),
+            ("POST", "/api/v1/github-app/manifest/"),
+            ("POST", "/api/v1/github-app/install/"),
+        ] {
+            let req = Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            let status = app.clone().oneshot(req).await.unwrap().status();
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "{method} {path} は、認証なしで 401 になるはず(404 ならルートが登録されていない)"
+            );
         }
     }
 }

@@ -25,10 +25,10 @@ import { LabelSettings } from './LabelSettings';
 import { CategorySettings } from './CategorySettings';
 import { MilestoneSettings } from './MilestoneSettings';
 import { WorkflowSettings } from './WorkflowSettings';
-import { IntegrationSettings } from './IntegrationSettings';
-import { ChatIntegrationSettings } from './ChatIntegrationSettings';
+import { IntegrationsTab } from './IntegrationsTab';
 import { SecuritySettings } from './SecuritySettings';
 import { HolidaySettings } from './HolidaySettings';
+import { ProjectAiKickSettings } from './ProjectAiKickSettings';
 import './ProjectSettings.css';
 
 type TabKey = 'general' | 'workflow' | 'labels' | 'categories' | 'milestones' | 'holidays' | 'members' | 'integrations' | 'security';
@@ -220,6 +220,9 @@ function GeneralSettings({
           </div>
         </>
       )}
+
+      {/* AI 自動実行 */}
+      {currentProject && <ProjectAiKickSettings projectId={currentProject.id} />}
 
       {/* プロジェクト説明 */}
       {currentProject && (
@@ -498,7 +501,12 @@ function GeneralSettings({
 export function ProjectSettingsPage() {
   const { t } = useTranslation();
   const { projectKey } = useParams<{ projectKey: string }>();
-  const [activeTab, setActiveTab] = useState<TabKey>('general');
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    // GitHub 連携の設定から戻ってきたときは、連携タブを開く
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('githubApp')
+      ? 'integrations'
+      : 'general',
+  );
   const currentProject = useProjectByPrefix(projectKey);
   // Guest はプロジェクトの設定を変更できない(サーバーも 403)。閲覧のみにし、連携の設定は出さない
   const readOnly = useAuthStore((s) => s.user?.isGuest ?? false);
@@ -577,8 +585,7 @@ export function ProjectSettingsPage() {
         )}
         {activeTab === 'integrations' && !readOnly && (
           <div>
-            <IntegrationSettings projectId={currentProject.id} />
-            <ChatIntegrationSettings projectId={currentProject.id} />
+            <IntegrationsTab projectId={currentProject.id} />
           </div>
         )}
         {activeTab === 'security' && <SecuritySettings />}

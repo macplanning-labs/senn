@@ -1,0 +1,143 @@
+/**
+ * GitStatusRules.css — ステータスの自動更新の規則(表)
+ *
+ * 外側の枠・見出し・説明・ボタンは GitHubConnectCard.css の `.github-card*` と同じ。ここは表の中身だけ。
+ * 色・余白・文字の大きさは、アプリ共通の CSS 変数(--color-*、--space-*、--font-size-*)を使う。
+ */
+
+.git-rules-table {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+}
+
+.git-rules-table-header,
+.git-rules-table-row {
+  display: grid;
+  /* きっかけ(アイコン + 名前) ➔ 動かす先 */
+  grid-template-columns: minmax(0, 1.1fr) 24px minmax(0, 1.5fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  align-items: center;
+}
+
+.git-rules-table-header {
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border-default);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.git-rules-table-row {
+  position: relative;
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+/* 開発が進む順につなぐ、うっすらした縦線(タイムライン)。アイコンの後ろを通る */
+.git-rules-table-row::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-3) + 13px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-border-default);
+}
+
+.git-rules-table-row:first-of-type::before {
+  top: 50%;
+}
+
+.git-rules-table-row:last-child::before {
+  bottom: 50%;
+}
+
+.git-rules-trigger-col {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  position: relative;
+}
+
+.git-rules-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  font-size: 14px;
+  position: relative;
+}
+
+.git-rules-arrow {
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.git-rules-preview {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-tertiary);
+}
+
+.git-rules-table-row:last-child {
+  border-bottom: none;
+}
+
+.git-rules-trigger-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.git-rules-select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.git-rules-select:hover,
+.git-rules-select:focus {
+  border-color: var(--color-accent-primary);
+}
+
+.git-rules-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.git-rules-loading {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 640px) {
+  .git-rules-table-header {
+    display: none;
+  }
+
+  .git-rules-table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .git-rules-arrow,
+  .git-rules-table-row::before {
+    display: none;
+  }
+}

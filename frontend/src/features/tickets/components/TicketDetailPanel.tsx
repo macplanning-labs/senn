@@ -32,6 +32,11 @@ import { GitActivity } from './GitActivity';
 import ChangeLogTimeline from './ChangeLogTimeline';
 import { AIAnalysisPanel } from '@/features/ai/components/AIAnalysisPanel';
 import { CloseAnalysisDialog } from '@/features/ai/components/CloseAnalysisDialog';
+import { CloseCheckDialog } from './CloseCheckDialog';
+import { useCloseGuard } from '../hooks/useCloseGuard';
+import { AiKickButton } from '@/features/ai-kick/components/AiKickButton';
+import { AiKickStatus } from '@/features/ai-kick/components/AiKickStatus';
+import { getProjectAiKick, type ProjectAiKick } from '@/features/ai-kick/api';
 import { ReactionBar } from './ReactionBar';
 import { buildTicketShareUrl, buildTicketEditPath } from '../utils/ticketNavigation';
 import { buildCopyPrompt } from '../utils/buildCopyPrompt';
@@ -187,6 +192,7 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   const [inlineCommentAnchor, setInlineCommentAnchor] = useState<{ start: number; end: number; quote: string } | null>(null);
   const [inlineCommentText, setInlineCommentText] = useState('');
   const [inlineCommentFloatingPos, setInlineCommentFloatingPos] = useState<{ x: number; y: number } | null>(null);
+  const [projectAiKick, setProjectAiKick] = useState<ProjectAiKick | null>(null);
   const descriptionRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const currentUser = useAuthStore((s) => s.user);
@@ -242,6 +248,26 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
   useEffect(() => {
     userOptionsRef.current = userOptions;
   }, [userOptions]);
+
+  // プロジェクトの AI Kick 設定を取得
+  useEffect(() => {
+    if (!ticket?.project) {
+      setProjectAiKick(null);
+      return;
+    }
+
+    const fetchAiKick = async () => {
+      try {
+        const data = await getProjectAiKick(ticket.project as number);
+        setProjectAiKick(data);
+      } catch (error) {
+        console.debug('Failed to fetch AI Kick settings:', error);
+        setProjectAiKick(null);
+      }
+    };
+
+    fetchAiKick();
+  }, [ticket?.project]);
 
   // AI プロンプト生成中フラグ
   const isGeneratingRef = useRef(false);
@@ -383,12 +409,16 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
     selector: ({ editor }) => !editor || editor.isEmpty,
   });
 
-  // ステータス変更ハンドラ — closed/resolved 時にクローズ分析を起動
-  const handleStatusChange = (newStatus: string) => {
-    void localUpdateTicket(ticketId, { status: newStatus }, { status: newStatus });
-    if (newStatus === 'closed' || newStatus === 'resolved') {
+  // ステータス変更ハンドラ — closed/resolved 時にクローズ分析を起動。
+  // 「完了」にするときだけ、先にクローズ可否を確認する(useCloseGuard。助言のみで、続行できる)
+  const closeGuard = useCloseGuard(ticket?.ticketKey, (status: string) => {
+    void localUpdateTicket(ticketId, { status }, { status });
+    if (status === 'closed' || status === 'resolved') {
       setShowCloseAnalysis(true);
     }
+  });
+  const handleStatusChange = (newStatus: string) => {
+    void closeGuard.request(newStatus);
   };
 
   // ローカル更新ヘルパー
@@ -1149,6 +1179,12 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
           >
             📋
           </button>
+          <AiKickButton
+            ticketKey={ticket.ticketKey}
+            projectId={ticket.project}
+            projectKick={projectAiKick}
+            isGuest={currentUser?.isGuest ?? false}
+          />
           <button
             className="detail-panel__edit-btn"
             onClick={() => {
@@ -1182,6 +1218,9 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
 
       {/* タイトル */}
       <h2 className="detail-panel__title">{ticket.title}</h2>
+
+      {/* AI Kick ステータス */}
+      <AiKickStatus ticketKey={ticket.ticketKey} />
 
       {/* メタ情報 */}
       <div className="detail-panel__meta">
@@ -1996,6 +2035,14 @@ export function TicketDetailPanel({ ticketId, onClose }: Props) {
         isOpen={showCloseAnalysis}
         onClose={() => setShowCloseAnalysis(false)}
       />
+      {closeGuard.pending && (
+        <CloseCheckDialog
+          isOpen
+          closeCheckResult={closeGuard.pending.result}
+          onConfirm={closeGuard.confirm}
+          onCancel={closeGuard.dismiss}
+        />
+      )}
     </div>
   );
 }

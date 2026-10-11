@@ -165,3 +165,45 @@
   font-family: var(--font-family-mono);
   font-size: 11px;
 }
+
+/* PR の詳細(Phase 2): Draft・レビュー結果・CI のバッジ、変更量、レビュアー */
+.git-event__detail-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-left: 4px;
+  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.15));
+  color: var(--color-text-secondary, #888);
+}
+
+.git-event__detail-badge--good {
+  background: rgba(46, 160, 67, 0.15);
+  color: #3fb950;
+}
+
+.git-event__detail-badge--bad {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+.git-event__detail-badge--warn {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+}
+
+.git-event__stats,
+.git-event__reviewers {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #888);
+}
+
+.git-event__stats-add {
+  color: #3fb950;
+}
+
+.git-event__stats-del {
+  color: #f85149;
+}

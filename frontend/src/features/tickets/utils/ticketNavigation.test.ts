@@ -11,6 +11,7 @@ import {
   buildTicketPathContextFromPathname,
   buildTicketShareUrl,
   buildTicketEditPath,
+  buildTicketLinkPath,
   detectTicketDetailOrigin,
   resolveTicketScopeFromPathname,
 } from './ticketNavigation';
@@ -267,5 +268,21 @@ describe('detectTicketDetailOrigin（詳細を開いた入口）', () => {
   it('一覧そのもの（詳細でない）は一覧扱い', () => {
     expect(detectTicketDetailOrigin('/my-issues')).toEqual({ kind: 'list' });
     expect(detectTicketDetailOrigin('/team/demo-app-dev/board')).toEqual({ kind: 'list' });
+  });
+});
+
+describe('buildTicketLinkPath', () => {
+  const ticket = { projectPrefix: 'WAPP', team: { slug: 'wip-app-dev' } };
+  it('チームの画面ではチームのURLにする', () => {
+    expect(buildTicketLinkPath('/team/wip-app-dev/wiki', 'DEMO-000045', ticket)).toBe('/team/wip-app-dev/tickets/DEMO-000045');
+  });
+  it('プロジェクトの画面ではプロジェクトのURLにする', () => {
+    expect(buildTicketLinkPath('/project/WAPP/wiki', 'DEMO-000045', ticket)).toBe('/project/WAPP/tickets/DEMO-000045');
+  });
+  it('全体Wikiではチケット自身の所属を使う', () => {
+    expect(buildTicketLinkPath('/wiki', 'DEMO-000045', ticket)).toBe('/project/WAPP/tickets/DEMO-000045');
+  });
+  it('所属が分からなければ null(存在しないURLを作らない)', () => {
+    expect(buildTicketLinkPath('/wiki', 'X-1', undefined)).toBeNull();
   });
 });

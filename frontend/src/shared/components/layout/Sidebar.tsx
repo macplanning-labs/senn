@@ -15,6 +15,7 @@ import { userInitial, userLabel } from '@/shared/utils/userLabel';
 import { useTeam, getLastTeamSlug } from '@/shared/hooks/useTeam';
 import { isPrivateTeam, joinedTeams } from '@/features/teams/utils/teamAccess';
 import { isInternalChannel } from '@/shared/config/appChannel';
+import { usePendingAiMcpCount } from '@/features/aiMcp/usePendingAiMcpCount';
 import { TeamDetailModal } from '@/features/teams/components/TeamDetailModal';
 import {
   readPinnedSlugs,
@@ -216,43 +217,12 @@ function clampSidebarWidth(width: number): number {
   return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
 }
 
-/** チーム／プロジェクト共通: 行クリックでネスト開閉＋チームへ */
-export function handleAxisNestToggle(args: {
-  key: string;
-  isExpanded: boolean;
-  axisPathPrefix: string;
-  ticketsPath: string;
-  storageKey: string;
-  pathname: string;
-  teamSlug: string;
-  setFocused: (key: string) => void;
-  setExpanded: (key: string | null) => void;
-  navigate: (to: string) => void;
-}) {
-  try {
-    localStorage.setItem(args.storageKey, args.key);
-  } catch {
-    /* ignore */
-  }
-  args.setFocused(args.key);
-  if (args.isExpanded) {
-    // 別軸にいるときは閉じずにその対象のチームへ戻る
-    if (!args.pathname.startsWith(args.axisPathPrefix)) {
-      args.navigate(args.ticketsPath);
-      return;
-    }
-    args.setExpanded(null);
-    return;
-  }
-  args.setExpanded(args.key);
-  args.navigate(args.ticketsPath);
-}
-
 export function Sidebar() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { sidebarOpen, toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
+  const pendingAiMcp = usePendingAiMcpCount(!!user?.isSystemAdmin && isInternalChannel());
   const { teamList, activeTeams: allActiveTeams, isLoading } = useTeam();
   // サイドバーには参加しているチームだけを出す(ほかのチームは「チーム」のページで探して参加する)
   const activeTeamList = useMemo(() => joinedTeams(allActiveTeams), [allActiveTeams]);
@@ -383,6 +353,7 @@ export function Sidebar() {
 
   const moreGlobalItems: NavItem[] = [
     { path: '/reports', icon: IconDashboard, label: t('nav.reports'), testId: 'nav-reports' },
+    { path: '/insights', icon: IconDashboard, label: t('insights.nav'), testId: 'nav-insights' },
     { path: '/wiki', icon: IconWiki, label: t('nav.wiki'), testId: 'nav-wiki' },
   ];
 
@@ -518,9 +489,7 @@ export function Sidebar() {
           }
 
           const renderTeamItem = (team: (typeof activeTeamList)[number]) => {
-            const isExpanded = expandedTeam?.toLowerCase() === team.slug.toLowerCase();
             const teamPath = `/team/${team.slug}`;
-            const teamTicketsPath = `/team/${team.slug}/tickets`;
             return (
               <div key={team.id} className="sidebar__team-block" data-testid={`team-nav-${team.slug}`}>
                 <div className="sidebar__team-row">
@@ -529,20 +498,16 @@ export function Sidebar() {
                     className={`sidebar__team-toggle ${
                       location.pathname.startsWith(`/team/${team.slug}/`) ? 'sidebar__team-toggle--active' : ''
                     }`}
-                    aria-expanded={isExpanded}
                     onClick={() => {
-                      handleAxisNestToggle({
-                        key: team.slug,
-                        isExpanded,
-                        axisPathPrefix: `/team/${team.slug}/`,
-                        ticketsPath: teamPath,
-                        storageKey: 'wip-last-team-slug',
-                        pathname: location.pathname,
-                        teamSlug: team.slug,
-                        setFocused: setFocusedTeamSlug,
-                        setExpanded: setExpandedTeam,
-                        navigate,
-                      });
+                      // 開閉はしない。チーム名を押すと、そのチームのページへ移る(各画面は、ページ上部のタブで切り替える)
+                      try {
+                        localStorage.setItem('wip-last-team-slug', team.slug);
+                      } catch {
+                        /* ignore */
+                      }
+                      setFocusedTeamSlug(team.slug);
+                      setExpandedTeam(team.slug);
+                      navigate(teamPath);
                     }}
                     title={!sidebarOpen ? team.name : undefined}
                     data-testid={`team-select-${team.slug}`}
@@ -569,90 +534,6 @@ export function Sidebar() {
                     />
                   )}
                 </div>
-                {isExpanded && (
-                                    <div className="sidebar__nested">
-                    <NavItemLink
-                      path={teamTicketsPath}
-                      icon={IconTicket}
-                      label={t('nav.tickets')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-issues-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/cycles`}
-                      icon={IconCycle}
-                      label={t('nav.cycles')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-cycles-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/board`}
-                      icon={IconBoard}
-                      label={t('nav.board')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-board-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/gantt`}
-                      icon={IconGantt}
-                      label={t('nav.gantt')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-gantt-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/reports`}
-                      icon={IconDashboard}
-                      label={t('nav.reports')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-reports-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/dependencies`}
-                      icon={IconDependency}
-                      label={t('nav.dependencies')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-dependencies-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/projects`}
-                      icon={IconFolder}
-                      label={t('nav.projects')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-projects-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/triage`}
-                      icon={IconTicket}
-                      label={t('nav.triage')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-triage-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/wiki`}
-                      icon={IconWiki}
-                      label={t('nav.wiki')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-wiki-${team.slug}`}
-                    />
-                    <NavItemLink
-                      path={`/team/${team.slug}/settings`}
-                      icon={IconSettings}
-                      label={t('nav.settings')}
-                      sidebarOpen={sidebarOpen}
-                      nested
-                      testId={`nav-team-settings-${team.slug}`}
-                    />
-                  </div>
-                )}
               </div>
             );
           };
@@ -718,7 +599,7 @@ export function Sidebar() {
 
         {user?.isSystemAdmin && isInternalChannel() && (
           <NavLink
-            to="/admin"
+            to={pendingAiMcp > 0 ? '/admin?section=ai' : '/admin'}
             className={({ isActive }) =>
               `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
             }
@@ -727,6 +608,11 @@ export function Sidebar() {
           >
             <span className="sidebar__icon">🏢</span>
             {sidebarOpen && <span className="sidebar__label">{t('sidebar.systemAdmin')}</span>}
+            {pendingAiMcp > 0 && (
+              <span className="admin__nav-badge" data-testid="nav-admin-badge" title={t('aiMcp.notifRequest')}>
+                {pendingAiMcp}
+              </span>
+            )}
           </NavLink>
         )}
 

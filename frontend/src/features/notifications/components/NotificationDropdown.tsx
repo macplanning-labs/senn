@@ -39,6 +39,8 @@ const categoryIcons: Record<string, string> = {
   review_requested: '👁️',
   wiki_updated: '📄',
   cycle_auto_completed: '📅',
+  ai_mcp_request: '🤖',
+  ai_mcp_decision: '🤖',
   updated: '📝',
 };
 
@@ -194,6 +196,10 @@ export function NotificationDropdown() {
       // teamSlugがある通知はチーム側の詳細に留める(プロジェクト側への意図しない遷移を防ぐ)
       const projectKey = notification.teamSlug ? null : notification.projectKey;
       navigate(buildTicketDetailPath(projectKey, notification.ticketKey, undefined, notification.teamSlug));
+    } else if (notification.category === 'ai_mcp_request') {
+      navigate('/admin?section=ai');
+    } else if (notification.category === 'ai_mcp_decision') {
+      navigate('/settings?tab=ai');
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {

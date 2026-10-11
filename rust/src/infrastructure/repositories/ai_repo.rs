@@ -104,12 +104,13 @@ pub async fn build_associated_rules_text(
 }
 
 /// チケットのコメントを時系列で結合したテキスト("### author (日時)\nbody\n")。
+/// 削除したコメントは含めない(誤って貼った秘密などを消したのに、AI のプロンプトや外部の AI に送られないように)。
 pub async fn build_comments_text(pool: &PgPool, ticket_id: i32) -> anyhow::Result<String> {
     let rows = sqlx::query(
         "SELECT c.body, c.created_at, COALESCE(u.username, 'Unknown') as author_name
          FROM tickets_comment c
          LEFT JOIN accounts_user u ON c.author_id = u.id
-         WHERE c.ticket_id = $1
+         WHERE c.ticket_id = $1 AND c.deleted_at IS NULL
          ORDER BY c.created_at ASC",
     )
     .bind(ticket_id)
@@ -258,5 +259,40 @@ mod null_column_tests {
             get_ticket_ai_prompt(&pool, ticket_id).await.unwrap(),
             Some("cached".to_string())
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{
+        create_test_project, create_test_ticket, create_test_user, test_pool, unique_suffix,
+    };
+
+    /// 削除したコメントは、AI に渡すテキストに含めない(2026-10-11 のセキュリティ点検)
+    #[tokio::test]
+    async fn comments_text_skips_deleted_comments() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let user = create_test_user(&pool, &format!("aic-{}", unique_suffix())).await;
+        let project = create_test_project(&pool, "AIC", user).await;
+        let ticket = create_test_ticket(&pool, project, "AIC", user).await;
+        for (body, deleted) in [("残すコメント", false), ("消したコメント-secret", true)]
+        {
+            sqlx::query(
+                "INSERT INTO tickets_comment (ticket_id, author_id, body, created_at, deleted_at)
+                 VALUES ($1::int8, $2::int8, $3, NOW(), CASE WHEN $4 THEN NOW() END)",
+            )
+            .bind(ticket)
+            .bind(user)
+            .bind(body)
+            .bind(deleted)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let text = super::build_comments_text(&pool, ticket).await.unwrap();
+        assert!(text.contains("残すコメント"), "{text}");
+        assert!(!text.contains("消したコメント"), "{text}");
     }
 }

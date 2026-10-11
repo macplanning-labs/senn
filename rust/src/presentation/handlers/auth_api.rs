@@ -590,6 +590,23 @@ pub async fn register(
         }
     };
 
+    // 空のデータベースへの最初の登録者は、システム管理者にする(DEMO-000171)。
+    // 制限つきの登録(既定)で、ユーザーが 1 人もいなかったときだけ。既存の環境では、誰も昇格しない
+    if restricted && !has_any_user {
+        match user_repo::promote_if_only_user(&state.pool, user.id).await {
+            Ok(true) => {
+                user.is_staff = true;
+                user.is_system_admin = true;
+                tracing::info!(
+                    "登録: 最初の登録者をシステム管理者にしました (user_id={})",
+                    user.id
+                );
+            }
+            Ok(false) => {}
+            Err(e) => tracing::error!("登録: 最初の登録者の管理者化に失敗: {:?}", e),
+        }
+    }
+
     if let Some(alias) = body.alias {
         if !alias.trim().is_empty() {
             match user_repo::update_alias(&state.pool, user.id, Some(&alias)).await {

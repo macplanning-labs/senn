@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useUIStore } from '@/shared/stores/uiStore';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { userInitial, userLabel } from '@/shared/utils/userLabel';
@@ -15,6 +15,7 @@ import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
 import { SecuritySettings } from './SecuritySettings';
 import { AiSettings } from './AiSettings';
+import { AiMcpAccessSection } from '@/features/aiMcp/AiMcpAccessSection';
 import { NotificationSettings } from './NotificationSettings';
 import { AiPromptTemplateSettings } from './AiPromptTemplateSettings';
 import './SettingsPage.css';
@@ -49,7 +50,11 @@ export function SettingsPage() {
   const toast = useToast();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<TabKey>('profile');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    getTabs(t).some((x) => x.key === initialTab) ? (initialTab as TabKey) : 'profile',
+  );
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [deactivatePassword, setDeactivatePassword] = useState('');
@@ -387,6 +392,7 @@ export function SettingsPage() {
 
         {activeTab === 'ai' && (
           <>
+            <AiMcpAccessSection />
             <AiSettings />
             <AiPromptTemplateSettings />
           </>

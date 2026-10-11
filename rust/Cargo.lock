@@ -456,6 +456,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cf-access-jwt"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "jsonwebtoken",
+ "rand 0.8.8",
+ "reqwest",
+ "rsa",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2963,6 +2981,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64 0.22.1",
+ "cf-access-jwt",
  "chrono",
  "dotenvy",
  "futures-util",

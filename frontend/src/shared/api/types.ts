@@ -366,6 +366,72 @@ export interface GitIntegration {
   createdAt: string;
   eventCount: number;
   autoStatusTransition: boolean;
+  // GitHub App 連携の診断情報（optional）
+  installationId?: number | null;
+  lastDeliveryAt?: string | null;
+  lastDeliveryEvent?: string | null;
+  lastDeliveryResult?: 'ok' | 'no_ticket' | 'ignored' | 'error' | null;
+  lastDeliveryNote?: string | null;
+}
+
+// ============================================================
+// GitHub App 連携
+// ============================================================
+
+export type GitHubDeliveryResult = 'ok' | 'no_ticket' | 'ignored' | 'error';
+
+export interface GitHubInstallation {
+  installationId: number;
+  accountLogin: string;
+  accountType: 'User' | 'Organization';
+  repositorySelection: 'all' | 'selected';
+  suspended: boolean;
+}
+
+export interface GitHubAppStatus {
+  configured: boolean;
+  canCreateApp: boolean;
+  app: {
+    slug: string;
+    name: string;
+    htmlUrl: string;
+  } | null;
+  installations: GitHubInstallation[];
+  /** 閲覧者が、問い合わせたチームのメンバーか。false のとき(メンバーではないシステム管理者など)は案内を出す。範囲なし・プロジェクト単位は null */
+  viewerIsMember?: boolean | null;
+  /** GitHub App を作れない理由(この環境のアドレスがインターネットから届かないなど)。作れるなら null */
+  createBlockedReason?: string | null;
+}
+
+export interface GitHubRepo {
+  installationId: number;
+  fullName: string;
+  htmlUrl: string;
+  private: boolean;
+  linked: boolean;
+}
+
+// ============================================================
+// Git ステータス自動更新ルール
+// ============================================================
+
+export interface GitStatusRule {
+  trigger: string;
+  action: 'set' | 'none';
+  targetSlug: string | null;
+  targetCategory: string | null;
+  isDefault: boolean;
+}
+
+export interface GitStatusRuleStatus {
+  slug: string;
+  name: string;
+  category: string;
+}
+
+export interface GitStatusRulesResponse {
+  rules: GitStatusRule[];
+  statuses: GitStatusRuleStatus[];
 }
 
 // ============================================================
@@ -401,6 +467,15 @@ export interface GitEvent {
   prNumber: number | null;
   prState: PRState;
   createdAt: string;
+  // PR の詳細(Phase 2。古い PR は値が無いことがある)
+  isDraft?: boolean;
+  reviewState?: 'none' | 'approved' | 'changes_requested';
+  ciState?: 'none' | 'pending' | 'success' | 'failure';
+  reviewers?: string[];
+  additions?: number | null;
+  deletions?: number | null;
+  changedFiles?: number | null;
+  baseBranch?: string;
 }
 
 // ============================================================
@@ -587,6 +662,39 @@ export interface CloseAnalysisResult {
 }
 
 // ============================================================
+// Close Check (Pre-close verification)
+// ============================================================
+
+export interface CloseCheckBlocker {
+  code: string;
+  arg: string;
+  message: string;
+}
+
+export interface CloseCheckResponse {
+  engine: 'off' | 'rules';
+  canClose: boolean | null;
+  checkedAt: string;
+  blockers: CloseCheckBlocker[];
+}
+
+/** 過去の類似障害 1 件(KB 知識エンジン 3B) */
+export interface SimilarIncident {
+  ticketKey: string;
+  title: string;
+  score: number;
+  reasons: string[];
+  symptom: string | null;
+  cause: string | null;
+  solution: string | null;
+}
+
+export interface SimilarIncidentsResponse {
+  engine: 'off' | 'rules';
+  incidents: SimilarIncident[];
+}
+
+// ============================================================
 // Saved Views (Method P3)
 // ============================================================
 
@@ -685,4 +793,12 @@ export interface ProjectStructure {
     related: ProjectSummary[];
     roadmaps: Roadmap[];
   };
+}
+
+/** 連携の受信履歴(GET /integrations/{id}/deliveries/) */
+export interface GitDelivery {
+  event: string;
+  result: 'ok' | 'no_ticket' | 'ignored' | string;
+  note: string;
+  receivedAt: string;
 }

@@ -25,8 +25,8 @@ use crate::infrastructure::access::{
     shadow::{self, Mode, Resource},
 };
 use crate::infrastructure::repositories::{
-    ai_agent_key_repo, cycle_repo, resource_repo, team_repo, ticket_repo, user_repo,
-    wiki_attachment_repo, wiki_repo,
+    ai_agent_key_repo, ai_run_repo, cycle_repo, resource_repo, team_repo, ticket_repo, user_repo,
+    wiki_attachment_repo, wiki_repo, workflow_status_repo,
 };
 use crate::presentation::extractors::authorize;
 use crate::presentation::handlers::system_admin_api;
@@ -187,7 +187,7 @@ impl AiCaller {
 /// AI用APIキーを検証し、成功時は操作主体(AIエージェント用アカウント)のuser_idと、
 /// (人ごとキーで認証できた場合の)実行者のuser_idを返す。
 /// wip_api_key(人間/既存システム用)とは完全に別の鍵・別のユーザーを使う。
-async fn authenticate_ai(
+pub(crate) async fn authenticate_ai(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<AiAuthResult, (StatusCode, serde_json::Value)> {
@@ -253,7 +253,9 @@ async fn authenticate_ai(
 
 /// 共有 ai_agent アカウントを解決する(存在しなければ自動作成する)。
 /// アカウントが未作成なら、ここで一度だけ自動作成する(パスワードは使用不能ハッシュ '!' でログイン不可)。
-async fn resolve_shared_ai_user(state: &AppState) -> Result<i32, (StatusCode, serde_json::Value)> {
+pub(crate) async fn resolve_shared_ai_user(
+    state: &AppState,
+) -> Result<i32, (StatusCode, serde_json::Value)> {
     let username = &state.config.wip_ai_api_user;
     let existing = user_repo::find_by_username(&state.pool, username)
         .await
@@ -272,7 +274,7 @@ async fn resolve_shared_ai_user(state: &AppState) -> Result<i32, (StatusCode, se
     // 初回アクセス時にAI専用アカウントを自動作成する。
     // password_hash = "!" はDjangoの「使用不能パスワード」規約(check_passwordは常にfalse)で、
     // このアカウントは対話ログインができない= API経由の操作専用であることを保証する。
-    let created = user_repo::create_user(
+    match user_repo::create_user(
         &state.pool,
         username,
         "ai-agent@localhost",
@@ -281,15 +283,20 @@ async fn resolve_shared_ai_user(state: &AppState) -> Result<i32, (StatusCode, se
         "Agent",
     )
     .await
-    .map_err(|e| {
-        tracing::error!("AI agent account creation failed: {:?}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            err("サーバーエラーが発生しました"),
-        )
-    })?;
-
-    Ok(created.id)
+    {
+        Ok(created) => Ok(created.id),
+        Err(e) => {
+            // 初回に同時に 2 件来ると、片方の作成が重複で失敗する。先に作られた方を使う
+            if let Ok(Some(u)) = user_repo::find_by_username(&state.pool, username).await {
+                return Ok(u.id);
+            }
+            tracing::error!("AI agent account creation failed: {:?}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                err("サーバーエラーが発生しました"),
+            ))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +308,7 @@ fn key_on() -> bool {
     shadow::mode(Resource::Key) == Mode::On
 }
 
-fn ai_db_error(e: anyhow::Error) -> axum::response::Response {
+pub(crate) fn ai_db_error(e: anyhow::Error) -> axum::response::Response {
     tracing::error!("DB operation failed: {:?}", e);
     (
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -312,7 +319,10 @@ fn ai_db_error(e: anyhow::Error) -> axum::response::Response {
 
 /// 見つからないプロジェクトの応答。新しい判定(on)では、ほかのプロジェクトの Prefix を一覧しない
 /// (見えない物の名前を漏らさない。F-4・設計書 §5.3)
-async fn project_not_found(state: &AppState, project_prefix: &str) -> axum::response::Response {
+pub(crate) async fn project_not_found(
+    state: &AppState,
+    project_prefix: &str,
+) -> axum::response::Response {
     let message = format!("プロジェクト '{}' が見つかりません", project_prefix);
     if key_on() {
         return (StatusCode::NOT_FOUND, Json(err(message))).into_response();
@@ -331,7 +341,7 @@ async fn project_not_found(state: &AppState, project_prefix: &str) -> axum::resp
 }
 
 /// チケット(キー指定)への操作の判定
-async fn ai_ticket_gate(
+pub(crate) async fn ai_ticket_gate(
     state: &AppState,
     caller: &AiCaller,
     ticket_key: &str,
@@ -352,7 +362,7 @@ async fn ai_ticket_gate(
 }
 
 /// プロジェクト(Prefix 指定)への操作の判定
-async fn ai_project_gate(
+pub(crate) async fn ai_project_gate(
     state: &AppState,
     caller: &AiCaller,
     project_prefix: &str,
@@ -392,7 +402,7 @@ async fn ai_cycle_gate(
 }
 
 /// Wiki ページへの操作の判定
-async fn ai_wiki_gate(
+pub(crate) async fn ai_wiki_gate(
     state: &AppState,
     caller: &AiCaller,
     page_id: i32,
@@ -600,6 +610,16 @@ pub struct CreateAiTicketIn {
     #[serde(default = "default_ticket_type")]
     pub ticket_type: String,
     pub due_date: Option<NaiveDate>,
+    pub start_date: Option<NaiveDate>,
+    /// 状態の slug(省略時 open)。そのプロジェクト・チームに登録された状態だけ受け付ける
+    pub status: Option<String>,
+    pub story_points: Option<i16>,
+    /// Cycle の ID(そのプロジェクト・チームの Cycle だけ)
+    pub cycle: Option<i32>,
+    /// 親チケットの ID。parent_key と同時には指定しない
+    pub parent: Option<i32>,
+    /// 親チケットのキー(例: SENN-000001)
+    pub parent_key: Option<String>,
     /// ラベル名(存在しなければ同名でプロジェクト内に新規作成する)
     #[serde(default)]
     pub labels: Vec<String>,
@@ -607,11 +627,350 @@ pub struct CreateAiTicketIn {
     #[serde(default)]
     pub assignee_usernames: Vec<String>,
 }
-fn default_priority() -> String {
+pub(crate) fn default_priority() -> String {
     "medium".to_string()
 }
-fn default_ticket_type() -> String {
+pub(crate) fn default_ticket_type() -> String {
     "task".to_string()
+}
+
+pub(crate) fn bad_request(detail: impl Into<String>) -> axum::response::Response {
+    (StatusCode::BAD_REQUEST, Json(err(detail))).into_response()
+}
+
+/// チケットの作成先(チーム・プロジェクト)と、作成の判定に使う対象
+pub(crate) struct AiCreateTarget {
+    pub team_id: i32,
+    pub project_id: Option<i32>,
+    pub target: ResourceRef,
+}
+
+/// 作成先を project_prefix / team_id / team_slug から決め、作成できるかを判定する
+pub(crate) async fn resolve_ai_create_target(
+    state: &AppState,
+    caller: &AiCaller,
+    project_prefix: Option<&str>,
+    team_id: Option<i32>,
+    team_slug: Option<&str>,
+    route: &'static str,
+) -> Result<AiCreateTarget, axum::response::Response> {
+    // プロジェクト(指定があれば)
+    let project_id = match project_prefix {
+        Some(prefix) => {
+            match ticket_repo::resolve_project_id_by_prefix(&state.pool, prefix).await {
+                Ok(Some(id)) => Some(id),
+                Ok(None) => return Err(project_not_found(state, prefix).await),
+                Err(e) => return Err(ai_db_error(e)),
+            }
+        }
+        None => None,
+    };
+
+    // チーム: team_id → team_slug → プロジェクトの参加チーム(1 つだけのとき)
+    let team_id: i32 = if let Some(tid) = team_id {
+        tid
+    } else if let Some(slug) = team_slug {
+        match sqlx::query_scalar::<_, i32>("SELECT id::int4 FROM m_team WHERE slug = $1")
+            .bind(slug)
+            .fetch_optional(&state.pool)
+            .await
+        {
+            Ok(Some(tid)) => tid,
+            Ok(None) => return Err(bad_request(format!("チーム '{}' が見つかりません", slug))),
+            Err(e) => return Err(ai_db_error(e.into())),
+        }
+    } else if let (Some(pid), Some(prefix)) = (project_id, project_prefix) {
+        let project = match resource_repo::find_project_by_id(&state.pool, pid, None).await {
+            Ok(Some(p)) => p,
+            Ok(None) => return Err(ai_db_error(anyhow::anyhow!("project {pid} vanished"))),
+            Err(e) => return Err(ai_db_error(e)),
+        };
+        match project.teams.as_slice() {
+            [team] => team.id,
+            [] => {
+                return Err(bad_request(format!(
+                    "プロジェクト '{}' に参加チームがありません",
+                    prefix
+                )))
+            }
+            _ => {
+                return Err(bad_request(format!(
+                    "プロジェクト '{}' は複数チームに参加しており、teamId/teamSlug が必須です",
+                    prefix
+                )))
+            }
+        }
+    } else {
+        return Err(bad_request(
+            "project_prefix, team_id, または team_slug のいずれかが必須です",
+        ));
+    };
+
+    match team_repo::find_team_by_id(&state.pool, team_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return Err(bad_request(format!(
+                "チーム ID {} が見つかりません",
+                team_id
+            )))
+        }
+        Err(e) => return Err(ai_db_error(e)),
+    }
+
+    // 作成先の判定(新しい判定。持ち主がそのチームにチケットを作れること)
+    let team_facts = facts_repo::facts_for_team(&state.pool, team_id)
+        .await
+        .map_err(ai_db_error)?;
+    let target = ResourceRef::Ticket {
+        team: team_facts,
+        project_id,
+        author_id: caller.viewer.as_ref().and_then(|v| v.user_id()),
+        assignee_ids: vec![],
+    };
+    caller.gate(
+        &state.pool,
+        Some(&target),
+        Action::Create,
+        team_id as i64,
+        route,
+    )?;
+    Ok(AiCreateTarget {
+        team_id,
+        project_id,
+        target,
+    })
+}
+
+/// 担当者のユーザー名を user_id にする。`add_guests` が true なら、今の判定でプロジェクト外の人を Guest に足す
+/// (試しに実行するときは false。副作用を残さない)
+pub(crate) async fn resolve_ai_assignees(
+    state: &AppState,
+    tgt: &AiCreateTarget,
+    usernames: &[String],
+    add_guests: bool,
+) -> Result<Vec<i32>, axum::response::Response> {
+    let mut assignee_ids = Vec::with_capacity(usernames.len());
+    for username in usernames {
+        let user = match user_repo::find_by_username(&state.pool, username).await {
+            Ok(Some(u)) => u,
+            Ok(None) => {
+                return Err(bad_request(format!(
+                    "ユーザー '{}' が見つかりません",
+                    username
+                )))
+            }
+            Err(e) => return Err(ai_db_error(e)),
+        };
+
+        // F-4(新しい判定): 担当者を自動で Guest に追加しない。担当者は、そのチケットが見える人だけ
+        if key_on() {
+            let visible = match crate::infrastructure::access::viewer_repo::load(
+                &state.pool,
+                crate::domain::access::Principal::Human { user_id: user.id },
+                crate::infrastructure::access::viewer_repo::today_utc(),
+            )
+            .await
+            {
+                Ok(Some(v)) => {
+                    crate::domain::access::can(&v, Action::Read, &tgt.target)
+                        == crate::domain::access::Decision::Allow
+                }
+                Ok(None) => false,
+                Err(e) => return Err(ai_db_error(e)),
+            };
+            if !visible {
+                return Err(bad_request(format!(
+                    "ユーザー '{}' はこのチケットを見られないため、担当者にできません",
+                    username
+                )));
+            }
+        // L2②: Project限定ゲストとしての追加はproject_idがある場合のみ(team_idはこのprojectの所有チーム)
+        } else if let (Some(pid), true) = (tgt.project_id, add_guests) {
+            let is_member = team_repo::check_project_access(&state.pool, pid, user.id)
+                .await
+                .map_err(ai_db_error)?;
+            if !is_member {
+                team_repo::add_team_guest(&state.pool, tgt.team_id, user.id, pid, None)
+                    .await
+                    .map_err(ai_db_error)?;
+            }
+        }
+
+        assignee_ids.push(user.id);
+    }
+    Ok(assignee_ids)
+}
+
+/// 状態の slug が、そのプロジェクト・チームに登録されているか。登録がどこにも無い古いデータは確かめない。
+/// 使えないときは、その理由(Some)を返す
+pub(crate) async fn check_ai_status(
+    pool: &sqlx::PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    status: &str,
+) -> anyhow::Result<Option<String>> {
+    let slugs =
+        workflow_status_repo::list_status_slugs_for_scope(pool, project_id, team_id).await?;
+    if slugs.is_empty() || slugs.iter().any(|s| s == status) {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "状態 '{}' はこのプロジェクト・チームにありません。使える状態: {}",
+        status,
+        slugs.join(", ")
+    )))
+}
+
+pub(crate) async fn validate_ai_status(
+    pool: &sqlx::PgPool,
+    project_id: Option<i32>,
+    team_id: Option<i32>,
+    status: &str,
+) -> Result<(), axum::response::Response> {
+    match check_ai_status(pool, project_id, team_id, status).await {
+        Ok(None) => Ok(()),
+        Ok(Some(msg)) => Err(bad_request(msg)),
+        Err(e) => Err(ai_db_error(e)),
+    }
+}
+
+/// Cycle が、そのプロジェクト・チームのものか。違うときは、その理由(Some)を返す
+pub(crate) async fn check_ai_cycle(
+    pool: &sqlx::PgPool,
+    project_id: Option<i32>,
+    team_id: i32,
+    cycle_id: i32,
+) -> anyhow::Result<Option<String>> {
+    let row: Option<(Option<i32>, Option<i32>)> =
+        sqlx::query_as("SELECT project_id::int4, team_id::int4 FROM t_cycle WHERE id = $1::int8")
+            .bind(cycle_id as i64)
+            .fetch_optional(pool)
+            .await?;
+    Ok(match row {
+        None => Some(format!("Cycle {} が見つかりません", cycle_id)),
+        Some((c_project, c_team)) => {
+            let same_project = project_id.is_some() && c_project == project_id;
+            if same_project || c_team == Some(team_id) {
+                None
+            } else {
+                Some(format!(
+                    "Cycle {} は、このプロジェクト・チームのものではありません",
+                    cycle_id
+                ))
+            }
+        }
+    })
+}
+
+pub(crate) async fn validate_ai_cycle(
+    pool: &sqlx::PgPool,
+    project_id: Option<i32>,
+    team_id: i32,
+    cycle_id: i32,
+) -> Result<(), axum::response::Response> {
+    match check_ai_cycle(pool, project_id, team_id, cycle_id).await {
+        Ok(None) => Ok(()),
+        Ok(Some(msg)) => Err(bad_request(msg)),
+        Err(e) => Err(ai_db_error(e)),
+    }
+}
+
+/// ストーリーポイントは画面と同じく、フィボナッチ数(1, 2, 3, 5, 8, 13, 21)だけ
+pub(crate) fn check_ai_story_points(points: Option<i16>) -> Option<String> {
+    match points {
+        Some(p) if !crate::domain::models::ticket_api::FIBONACCI_POINTS.contains(&p) => {
+            Some("story_points は 1, 2, 3, 5, 8, 13, 21 のどれかを指定してください".to_string())
+        }
+        _ => None,
+    }
+}
+
+#[allow(clippy::result_large_err)]
+pub(crate) fn validate_ai_story_points(
+    points: Option<i16>,
+) -> Result<(), axum::response::Response> {
+    match check_ai_story_points(points) {
+        Some(msg) => Err(bad_request(msg)),
+        None => Ok(()),
+    }
+}
+
+/// 親チケット(ID かキー)を ID にする
+async fn resolve_ai_parent(
+    pool: &sqlx::PgPool,
+    parent: Option<i32>,
+    parent_key: Option<&str>,
+) -> Result<Option<i32>, axum::response::Response> {
+    match (parent, parent_key) {
+        (Some(_), Some(_)) => Err(bad_request(
+            "parent と parent_key は、どちらか一方だけ指定してください",
+        )),
+        (Some(id), None) => {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
+                    .bind(id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| ai_db_error(e.into()))?;
+            if exists {
+                Ok(Some(id))
+            } else {
+                Err(bad_request(format!(
+                    "親チケット ID {} が見つかりません",
+                    id
+                )))
+            }
+        }
+        (None, Some(key)) => match ticket_repo::resolve_ticket_id(pool, key).await {
+            Ok(Some(id)) => Ok(Some(id)),
+            Ok(None) => Err(bad_request(format!(
+                "親チケット '{}' が見つかりません",
+                key
+            ))),
+            Err(e) => Err(ai_db_error(e)),
+        },
+        (None, None) => Ok(None),
+    }
+}
+
+/// ラベル名を ID にする(無ければ作る)。呼び出し側のトランザクションの中で行う
+pub(crate) async fn resolve_ai_labels(
+    conn: &mut sqlx::PgConnection,
+    project_id: Option<i32>,
+    team_id: i32,
+    names: &[String],
+) -> anyhow::Result<Vec<i32>> {
+    let mut ids = Vec::with_capacity(names.len());
+    for name in names {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let id = resource_repo::find_or_create_label_for_scope_conn(
+            conn,
+            project_id,
+            Some(team_id),
+            name,
+        )
+        .await?;
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
+/// チケットを 1 件作り、AI 経由の印を付ける(呼び出し側のトランザクションの中で)
+pub(crate) async fn insert_ai_ticket(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    input: &TicketWriteIn,
+    author_id: i32,
+    key_id: Option<i32>,
+) -> anyhow::Result<i32> {
+    let ticket_id = ticket_repo::api_create(tx, input, author_id).await?;
+    // AI 経由の印(画面で「AI」と表示する。作成者が持ち主本人になっても、AI 経由だと分かるように)
+    ticket_repo::mark_created_via_ai(tx, ticket_id, key_id).await?;
+    Ok(ticket_id)
 }
 
 /// POST /api/v1/ai-agent/tickets/
@@ -625,336 +984,101 @@ pub async fn create_ticket(
 
     let title = match &body.title {
         Some(t) if !t.is_empty() => t,
-        _ => return (StatusCode::BAD_REQUEST, Json(err("title は必須です"))).into_response(),
+        _ => return bad_request("title は必須です"),
     };
 
-    // Resolve Team ID from team_id, team_slug, or project_prefix's participating teams
-    let team_id: i32 = if let Some(tid) = body.team_id {
-        tid
-    } else if let Some(slug) = &body.team_slug {
-        match sqlx::query_scalar::<_, i32>("SELECT id::int4 FROM m_team WHERE slug = $1")
-            .bind(slug)
-            .fetch_optional(&state.pool)
-            .await
+    let tgt = match resolve_ai_create_target(
+        &state,
+        &caller,
+        body.project_prefix.as_deref(),
+        body.team_id,
+        body.team_slug.as_deref(),
+        "POST /api/v1/ai-agent/tickets/",
+    )
+    .await
+    {
+        Ok(t) => t,
+        Err(resp) => return resp,
+    };
+
+    // 追加の項目(状態・ストーリーポイント・Cycle・親)の確認
+    if let Some(status) = &body.status {
+        if let Err(resp) =
+            validate_ai_status(&state.pool, tgt.project_id, Some(tgt.team_id), status).await
         {
-            Ok(Some(tid)) => tid,
-            Ok(None) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(err(format!("チーム '{}' が見つかりません", slug))),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(err("サーバーエラーが発生しました")),
-                )
-                    .into_response();
-            }
-        }
-    } else if let Some(project_prefix) = &body.project_prefix {
-        // Resolve project by prefix and get its participating teams
-        let project_id =
-            match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
-                Ok(Some(id)) => id,
-                Ok(None) => {
-                    return project_not_found(&state, project_prefix).await;
-                }
-                Err(e) => {
-                    tracing::error!("DB operation failed: {:?}", e);
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(err("サーバーエラーが発生しました")),
-                    )
-                        .into_response();
-                }
-            };
-
-        let project = match resource_repo::find_project_by_id(&state.pool, project_id, None).await {
-            Ok(Some(p)) => p,
-            Ok(None) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(err("サーバーエラーが発生しました")),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(err("サーバーエラーが発生しました")),
-                )
-                    .into_response();
-            }
-        };
-
-        match project.teams.as_slice() {
-            [team] => team.id,
-            [] => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(err(format!(
-                        "プロジェクト '{}' に参加チームがありません",
-                        project_prefix
-                    ))),
-                )
-                    .into_response();
-            }
-            _ => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(err(format!(
-                        "プロジェクト '{}' は複数チームに参加しており、teamId/teamSlug が必須です",
-                        project_prefix
-                    ))),
-                )
-                    .into_response();
-            }
-        }
-    } else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(err(
-                "project_prefix, team_id, または team_slug のいずれかが必須です",
-            )),
-        )
-            .into_response();
-    };
-
-    // Verify team exists
-    match team_repo::find_team_by_id(&state.pool, team_id).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(err(format!("チーム ID {} が見つかりません", team_id))),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(err("サーバーエラーが発生しました")),
-            )
-                .into_response();
+            return resp;
         }
     }
-
-    // Get project_id if project_prefix was specified
-    let project_id = if let Some(project_prefix) = &body.project_prefix {
-        match ticket_repo::resolve_project_id_by_prefix(&state.pool, project_prefix).await {
-            Ok(Some(id)) => Some(id),
-            Ok(None) => {
-                return (
-                    StatusCode::NOT_FOUND,
-                    Json(err(format!(
-                        "プロジェクト '{}' が見つかりません",
-                        project_prefix
-                    ))),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(err("サーバーエラーが発生しました")),
-                )
-                    .into_response();
-            }
-        }
-    } else {
-        None
-    };
-
-    // 作成先の判定(新しい判定。持ち主がそのチームにチケットを作れること)
-    let team_facts = match facts_repo::facts_for_team(&state.pool, team_id).await {
-        Ok(t) => t,
-        Err(e) => return ai_db_error(e),
-    };
-    let target = ResourceRef::Ticket {
-        team: team_facts,
-        project_id,
-        author_id: caller.viewer.as_ref().and_then(|v| v.user_id()),
-        assignee_ids: vec![],
-    };
-    if let Err(resp) = caller.gate(
-        &state.pool,
-        Some(&target),
-        Action::Create,
-        team_id as i64,
-        "POST /api/v1/ai-agent/tickets/",
-    ) {
+    if let Err(resp) = validate_ai_story_points(body.story_points) {
         return resp;
     }
-
-    // ラベルは名前指定。Project があれば Project マスタ、無ければ所属 Team マスタ。
-    let mut label_ids = Vec::with_capacity(body.labels.len());
-    if !body.labels.is_empty() {
-        for name in &body.labels {
-            match resource_repo::find_or_create_label_for_scope(
-                &state.pool,
-                project_id,
-                Some(team_id),
-                name,
-            )
-            .await
-            {
-                Ok(id) => label_ids.push(id),
-                Err(e) => {
-                    tracing::error!("DB operation failed: {:?}", e);
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(err("サーバーエラーが発生しました")),
-                    )
-                        .into_response();
-                }
-            }
+    if let Some(cycle_id) = body.cycle {
+        if let Err(resp) =
+            validate_ai_cycle(&state.pool, tgt.project_id, tgt.team_id, cycle_id).await
+        {
+            return resp;
         }
     }
+    let parent = match resolve_ai_parent(&state.pool, body.parent, body.parent_key.as_deref()).await
+    {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
 
-    // 担当者はユーザー名 → user_id に解決
-    let mut assignee_ids = Vec::with_capacity(body.assignee_usernames.len());
-    for username in &body.assignee_usernames {
-        let user = match user_repo::find_by_username(&state.pool, username).await {
-            Ok(Some(u)) => u,
-            Ok(None) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(err(format!("ユーザー '{}' が見つかりません", username))),
-                )
-                    .into_response();
-            }
-            Err(e) => {
-                tracing::error!("DB operation failed: {:?}", e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(err("サーバーエラーが発生しました")),
-                )
-                    .into_response();
-            }
+    let assignee_ids =
+        match resolve_ai_assignees(&state, &tgt, &body.assignee_usernames, true).await {
+            Ok(ids) => ids,
+            Err(resp) => return resp,
         };
 
-        // F-4(新しい判定): 担当者を自動で Guest に追加しない。担当者は、そのチケットが見える人だけ
-        if key_on() {
-            let visible = match crate::infrastructure::access::viewer_repo::load(
-                &state.pool,
-                crate::domain::access::Principal::Human { user_id: user.id },
-                crate::infrastructure::access::viewer_repo::today_utc(),
-            )
-            .await
-            {
-                Ok(Some(v)) => {
-                    crate::domain::access::can(&v, Action::Read, &target)
-                        == crate::domain::access::Decision::Allow
-                }
-                Ok(None) => false,
-                Err(e) => return ai_db_error(e),
-            };
-            if !visible {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(err(format!(
-                        "ユーザー '{}' はこのチケットを見られないため、担当者にできません",
-                        username
-                    ))),
-                )
-                    .into_response();
-            }
-        // L2②: Project限定ゲストとしての追加はproject_idがある場合のみ(team_idはこのprojectの所有チーム)
-        } else if let Some(pid) = project_id {
-            let is_member = match team_repo::check_project_access(&state.pool, pid, user.id).await {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!("DB operation failed: {:?}", e);
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(err("サーバーエラーが発生しました")),
-                    )
-                        .into_response();
-                }
-            };
-            if !is_member {
-                if let Err(e) =
-                    team_repo::add_team_guest(&state.pool, team_id, user.id, pid, None).await
-                {
-                    tracing::error!("DB operation failed: {:?}", e);
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(err("サーバーエラーが発生しました")),
-                    )
-                        .into_response();
-                }
-            }
-        }
+    let mut tx = match state.pool.begin().await {
+        Ok(t) => t,
+        Err(e) => return ai_db_error(e.into()),
+    };
 
-        assignee_ids.push(user.id);
-    }
+    // ラベルは名前指定。Project があれば Project マスタ、無ければ所属 Team マスタ。
+    let label_ids =
+        match resolve_ai_labels(&mut tx, tgt.project_id, tgt.team_id, &body.labels).await {
+            Ok(ids) => ids,
+            Err(e) => return ai_db_error(e),
+        };
 
     let ticket_in = TicketWriteIn {
         title: title.clone(),
         description: body.description.clone(),
-        status: "open".to_string(),
+        status: body.status.clone().unwrap_or_else(|| "open".to_string()),
         priority: body.priority.clone(),
         ticket_type: body.ticket_type.clone(),
         assignees: assignee_ids,
         reviewers: Vec::new(),
         category: None,
-        project: project_id,
+        project: tgt.project_id,
         milestone: None,
-        parent: None,
-        start_date: None,
+        parent,
+        start_date: body.start_date,
         due_date: body.due_date,
         labels: label_ids,
-        story_points: None,
-        cycle: None,
-        team_id: Some(team_id),
+        story_points: body.story_points,
+        cycle: body.cycle,
+        team_id: Some(tgt.team_id),
         linked_rules: Vec::new(),
     };
 
-    let mut tx = match state.pool.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(err("サーバーエラーが発生しました")),
-            )
-                .into_response();
-        }
-    };
-
-    let ticket_id = match ticket_repo::api_create(&mut tx, &ticket_in, author_id).await {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!("api_create failed: {:?}", e);
-            if let Err(e) = tx.rollback().await {
-                tracing::error!("transaction rollback failed: {:?}", e);
+    let ticket_id =
+        match insert_ai_ticket(&mut tx, &ticket_in, author_id, caller.legacy.key_id).await {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("api_create failed: {:?}", e);
+                if let Err(e) = tx.rollback().await {
+                    tracing::error!("transaction rollback failed: {:?}", e);
+                }
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(err("サーバーエラーが発生しました")),
+                )
+                    .into_response();
             }
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(err("サーバーエラーが発生しました")),
-            )
-                .into_response();
-        }
-    };
-    // AI 経由の印(画面で「AI」と表示する。作成者が持ち主本人になっても、AI 経由だと分かるように)
-    if let Err(e) = ticket_repo::mark_created_via_ai(&mut tx, ticket_id, caller.legacy.key_id).await
-    {
-        tracing::error!("mark_created_via_ai failed: {:?}", e);
-        if let Err(e) = tx.rollback().await {
-            tracing::error!("transaction rollback failed: {:?}", e);
-        }
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(err("サーバーエラーが発生しました")),
-        )
-            .into_response();
-    }
+        };
 
     if let Err(e) = tx.commit().await {
         tracing::error!("transaction commit failed: {:?}", e);
@@ -963,6 +1087,20 @@ pub async fn create_ticket(
             Json(err("サーバーエラーが発生しました")),
         )
             .into_response();
+    }
+
+    // 「着手」の状態で作ったときは、開始日が空なら入れる(更新のときと同じ)
+    if body.status.is_some() && body.start_date.is_none() {
+        if let Err(e) =
+            ai_run_repo::set_start_date_if_started(&state.pool, ticket_id, caller.legacy.user_id)
+                .await
+        {
+            tracing::warn!(
+                "[AI API] 処理=開始日の設定 結果=失敗 影響=開始日が空のまま | ticket_id={} {:?}",
+                ticket_id,
+                e
+            );
+        }
     }
 
     let ticket_key: Option<String> =
@@ -1095,6 +1233,39 @@ pub async fn list_wiki_pages(
 pub struct TicketsQuery {
     pub project_prefix: Option<String>,
     pub page: Option<i64>,
+    /// 状態(カンマ区切りで複数。例: open,in_progress)
+    pub status: Option<String>,
+    /// 除く状態(カンマ区切り。例: resolved,closed,canceled で「未完了だけ」)
+    pub status_not: Option<String>,
+    /// ラベル名
+    pub label: Option<String>,
+    /// Cycle の ID
+    pub cycle: Option<i32>,
+    /// 担当者のユーザー名
+    pub assignee: Option<String>,
+    /// この日時以降に更新されたもの(RFC 3339。例: 2026-10-09T00:00:00+09:00。日付だけなら、その日の 0 時 UTC)
+    pub updated_after: Option<String>,
+}
+
+/// カンマ区切りの一覧(空の要素は除く)
+fn split_csv(v: &Option<String>) -> Option<Vec<String>> {
+    v.as_ref().map(|s| {
+        s.split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect()
+    })
+}
+
+/// 日時(RFC 3339)か、日付(YYYY-MM-DD。0 時 UTC)を読む
+fn parse_updated_after(v: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(v.trim()) {
+        return Some(dt.with_timezone(&chrono::Utc));
+    }
+    NaiveDate::parse_from_str(v.trim(), "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .map(|dt| dt.and_utc())
 }
 
 /// GET /api/v1/ai-agent/tickets/?project_prefix=XXX
@@ -1145,6 +1316,32 @@ pub async fn list_tickets(
     filter.project = Some(project_id);
     // 新しい判定(on)では、個人キーの持ち主の見える範囲で絞る(共有キーは絞らない。設計書 §12.2)
     filter.scope = caller.scope_if_on();
+    // 絞り込み(DEMO-000222)
+    filter.status = split_csv(&params.status);
+    filter.status_not = split_csv(&params.status_not);
+    filter.label_name = params
+        .label
+        .as_ref()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty());
+    filter.cycle = params.cycle;
+    if let Some(v) = &params.updated_after {
+        match parse_updated_after(v) {
+            Some(dt) => filter.updated_after = Some(dt),
+            None => {
+                return bad_request(
+                    "updated_after は日時(例: 2026-10-09T00:00:00+09:00)か日付(例: 2026-10-09)で指定してください",
+                )
+            }
+        }
+    }
+    if let Some(username) = params.assignee.as_deref().filter(|u| !u.is_empty()) {
+        match user_repo::find_by_username(&state.pool, username).await {
+            Ok(Some(u)) => filter.assignees = Some(u.id),
+            Ok(None) => return bad_request(format!("ユーザー '{}' が見つかりません", username)),
+            Err(e) => return ai_db_error(e),
+        }
+    }
 
     let page = params.page.unwrap_or(1).max(1);
 
@@ -1243,13 +1440,96 @@ pub async fn get_ticket(
 // チケット更新(ステータス・優先度等)
 // ---------------------------------------------------------------------------
 
+/// ラベルの名前での指定(AI 専用。AI はラベルの番号を知らないため)
+/// - `label_names`: この名前のラベルに置き換える
+/// - `add_labels`: 足す(無ければ作る)
+/// - `remove_labels`: 外す(付いていなければ何もしない)
+#[derive(Default)]
+struct AiLabelOps {
+    replace: Option<Vec<String>>,
+    add: Vec<String>,
+    remove: Vec<String>,
+}
+
+impl AiLabelOps {
+    fn is_empty(&self) -> bool {
+        self.replace.is_none() && self.add.is_empty() && self.remove.is_empty()
+    }
+
+    /// 入力から名前の指定を取り出す。残りを返す
+    #[allow(clippy::result_large_err)]
+    fn take_from(
+        raw: serde_json::Value,
+    ) -> Result<(Self, serde_json::Value), axum::response::Response> {
+        let serde_json::Value::Object(mut map) = raw else {
+            return Err(bad_request("入力は JSON のオブジェクトで指定してください"));
+        };
+        let mut take = |key: &str| -> Result<Option<Vec<String>>, axum::response::Response> {
+            match map.remove(key) {
+                None | Some(serde_json::Value::Null) => Ok(None),
+                Some(v) => serde_json::from_value::<Vec<String>>(v)
+                    .map(Some)
+                    .map_err(|_| bad_request(format!("{} は文字列の配列で指定してください", key))),
+            }
+        };
+        let replace = take("label_names")?;
+        let add = take("add_labels")?.unwrap_or_default();
+        let remove = take("remove_labels")?.unwrap_or_default();
+        if replace.is_some() && (!add.is_empty() || !remove.is_empty()) {
+            return Err(bad_request(
+                "label_names(置き換え)と add_labels / remove_labels は、同時に指定できません",
+            ));
+        }
+        Ok((
+            AiLabelOps {
+                replace,
+                add,
+                remove,
+            },
+            serde_json::Value::Object(map),
+        ))
+    }
+
+    /// 更新後のラベルの ID の一覧を決める
+    async fn apply(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        ticket_id: i32,
+        project_id: Option<i32>,
+        team_id: i32,
+    ) -> anyhow::Result<Vec<i32>> {
+        if let Some(names) = &self.replace {
+            return resolve_ai_labels(conn, project_id, team_id, names).await;
+        }
+        let current: Vec<(i32, String)> = sqlx::query_as(
+            "SELECT l.id::int4, l.name FROM tickets_ticket_labels tl
+             JOIN m_label l ON l.id = tl.labelmodel_id
+             WHERE tl.ticketmodel_id = $1 ORDER BY tl.id",
+        )
+        .bind(ticket_id)
+        .fetch_all(&mut *conn)
+        .await?;
+        let mut ids: Vec<i32> = current
+            .iter()
+            .filter(|(_, name)| !self.remove.iter().any(|r| r.trim() == name))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in resolve_ai_labels(conn, project_id, team_id, &self.add).await? {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+}
+
 /// PATCH /api/v1/ai-agent/tickets/{ticket_key}/
 /// チケットの状態(status, priority等)を更新する。
 pub async fn patch_ticket(
     State(state): State<AppState>,
     caller: AiCaller,
     Path(ticket_key): Path<String>,
-    Json(body): Json<TicketPatchIn>,
+    Json(raw): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     if let Err(resp) = ai_ticket_gate(
         &state,
@@ -1264,8 +1544,30 @@ pub async fn patch_ticket(
     }
     let ai_user_id = caller.legacy.user_id;
 
-    let _ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
-        Ok(Some(id)) => id,
+    // ラベルの名前での指定(AI 専用)を取り出してから、残りを通常の更新項目として読む
+    let label_ops = match AiLabelOps::take_from(raw) {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let (label_ops, raw) = label_ops;
+    let mut body: TicketPatchIn = match serde_json::from_value(raw) {
+        Ok(b) => b,
+        Err(e) => return bad_request(format!("入力の形が正しくありません: {}", e)),
+    };
+    if body.labels.is_some() && !label_ops.is_empty() {
+        return bad_request(
+            "labels(番号)と label_names / add_labels / remove_labels(名前)は、同時に指定できません",
+        );
+    }
+
+    let (ticket_id, project_id, team_id) = match sqlx::query_as::<_, (i32, Option<i32>, Option<i32>)>(
+        "SELECT id::int4, project_id::int4, team_id::int4 FROM tickets_ticket WHERE ticket_key = $1",
+    )
+    .bind(&ticket_key)
+    .fetch_optional(&state.pool)
+    .await
+    {
+        Ok(Some(row)) => row,
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -1273,27 +1575,46 @@ pub async fn patch_ticket(
             )
                 .into_response();
         }
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(err("サーバーエラーが発生しました")),
-            )
-                .into_response();
-        }
+        Err(e) => return ai_db_error(e.into()),
     };
+
+    // 状態は、そのプロジェクト・チームに登録されたものだけ(存在しない状態を入れると、画面で Backlog に見える)
+    if let Some(status) = &body.status {
+        if let Err(resp) = validate_ai_status(&state.pool, project_id, team_id, status).await {
+            return resp;
+        }
+    }
+    if let Some(points) = body.story_points {
+        if let Err(resp) = validate_ai_story_points(points) {
+            return resp;
+        }
+    }
 
     let mut tx = match state.pool.begin().await {
         Ok(t) => t,
-        Err(e) => {
-            tracing::error!("DB operation failed: {:?}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(err("サーバーエラーが発生しました")),
-            )
-                .into_response();
-        }
+        Err(e) => return ai_db_error(e.into()),
     };
+
+    if !label_ops.is_empty() {
+        let Some(scope_team) = team_id else {
+            if let Err(e) = tx.rollback().await {
+                tracing::error!("transaction rollback failed: {:?}", e);
+            }
+            return bad_request("チームの無いチケットには、名前でラベルを付けられません");
+        };
+        match label_ops
+            .apply(&mut tx, ticket_id, project_id, scope_team)
+            .await
+        {
+            Ok(ids) => body.labels = Some(ids),
+            Err(e) => {
+                if let Err(e) = tx.rollback().await {
+                    tracing::error!("transaction rollback failed: {:?}", e);
+                }
+                return ai_db_error(e);
+            }
+        }
+    }
 
     match ticket_repo::api_patch(&mut tx, &ticket_key, &body, ai_user_id).await {
         Err(e) => {
@@ -1315,6 +1636,20 @@ pub async fn patch_ticket(
                     Json(err("サーバーエラーが発生しました")),
                 )
                     .into_response();
+            }
+
+            // AI が状態を「着手」に進めたとき、開始日が空なら入れる(人が入れた開始日は変えない)。
+            // 失敗しても、状態の更新は成功させる
+            if body.status.is_some() {
+                if let Err(e) =
+                    ai_run_repo::set_start_date_if_started(&state.pool, ticket_id, ai_user_id).await
+                {
+                    tracing::warn!(
+                        "[AI API] 処理=開始日の設定 結果=失敗 影響=開始日が空のまま | ticket={} {:?}",
+                        ticket_key,
+                        e
+                    );
+                }
             }
 
             match ticket_repo::api_find_by_key(
@@ -1548,6 +1883,19 @@ pub async fn add_comment(
     .await
     {
         Ok(comment) => {
+            // メンション通知(画面で書いたコメントと同じ。AI 経由でも通知する)
+            if let Err(e) = crate::presentation::handlers::tickets_api::process_mentions(
+                &state.pool,
+                &state.mail_sender,
+                ticket_id,
+                caller.comment_author(),
+                &body.body,
+                None,
+            )
+            .await
+            {
+                tracing::warn!("mention processing failed: {:?}", e);
+            }
             let pool = state.pool.clone();
             let ai_config = state.ai_config().await;
             tokio::spawn(async move {
@@ -1567,6 +1915,94 @@ pub async fn add_comment(
             )
                 .into_response()
         }
+    }
+}
+
+/// PATCH /api/v1/ai-agent/tickets/{ticket_key}/comments/{comment_id}/
+/// 既存コメントの本文を直す。AI が直せるのは次のコメントだけ。
+/// - 自分(人ごとのキーの持ち主)が AI 経由で書いたコメント
+/// - 共有の AI アカウントが書き、実行者の記録が無いコメント(共有キー時代のもの)
+/// 人が画面で書いたコメントと、ほかの人が AI 経由で書いたコメントは直せない。
+pub async fn update_comment(
+    State(state): State<AppState>,
+    caller: AiCaller,
+    Path((ticket_key, comment_id)): Path<(String, i32)>,
+    Json(body): Json<AddAiCommentIn>,
+) -> impl IntoResponse {
+    const ROUTE: &str = "PATCH /api/v1/ai-agent/tickets/{ticket_key}/comments/{comment_id}/";
+    if let Err(resp) = ai_ticket_gate(&state, &caller, &ticket_key, Action::Write, ROUTE).await {
+        return resp;
+    }
+    if body.body.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(err("body は必須です"))).into_response();
+    }
+    let ticket_id = match ticket_repo::resolve_ticket_id(&state.pool, &ticket_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チケット '{}' が見つかりません", ticket_key))),
+            )
+                .into_response();
+        }
+        Err(e) => return ai_db_error(e),
+    };
+    let (comment_ticket_id, author_id, is_deleted, acting_user_id) =
+        match ticket_repo::api_find_comment_owner(&state.pool, comment_id).await {
+            Ok(Some(o)) => o,
+            Ok(None) => {
+                return (StatusCode::NOT_FOUND, Json(err("コメントが見つかりません")))
+                    .into_response();
+            }
+            Err(e) => return ai_db_error(e),
+        };
+    if comment_ticket_id != ticket_id || is_deleted {
+        return (StatusCode::NOT_FOUND, Json(err("コメントが見つかりません"))).into_response();
+    }
+    let editable = match acting_user_id {
+        Some(acting) => caller.legacy.acting_user_id == Some(acting),
+        None => author_id == caller.legacy.user_id,
+    };
+    if !editable {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(err("このコメントは AI からは編集できません(自分が AI 経由で書いたコメントだけ編集できます)")),
+        )
+            .into_response();
+    }
+    let previous_body: Option<String> =
+        sqlx::query_scalar("SELECT body FROM tickets_comment WHERE id = $1")
+            .bind(comment_id)
+            .fetch_optional(&state.pool)
+            .await
+            .unwrap_or(None);
+    match ticket_repo::api_update_comment(&state.pool, comment_id, &body.body).await {
+        Ok(comment) => {
+            // 編集で新しく増えたメンションだけ通知する
+            if let Err(e) = crate::presentation::handlers::tickets_api::process_mentions(
+                &state.pool,
+                &state.mail_sender,
+                ticket_id,
+                caller.comment_author(),
+                &body.body,
+                previous_body.as_deref(),
+            )
+            .await
+            {
+                tracing::warn!("mention processing failed: {:?}", e);
+            }
+            let pool = state.pool.clone();
+            let ai_config = state.ai_config().await;
+            tokio::spawn(async move {
+                if let Err(e) =
+                    ai_service::generate_and_cache_ai_prompt(ticket_id, &pool, &ai_config).await
+                {
+                    tracing::warn!(ticket_id, "generate_and_cache_ai_prompt failed: {e:#}");
+                }
+            });
+            (StatusCode::OK, Json(comment)).into_response()
+        }
+        Err(e) => ai_db_error(e),
     }
 }
 
@@ -2323,6 +2759,21 @@ fn default_dependency_type() -> String {
     "blocks".to_string()
 }
 
+/// 依存の種類。画面が扱うのは blocks(先に終わらせる)と relates_to(関連)だけ
+pub(crate) const AI_DEPENDENCY_TYPES: [&str; 2] = ["blocks", "relates_to"];
+
+#[allow(clippy::result_large_err)]
+pub(crate) fn validate_ai_dependency_type(t: &str) -> Result<(), axum::response::Response> {
+    if AI_DEPENDENCY_TYPES.contains(&t) {
+        Ok(())
+    } else {
+        Err(bad_request(format!(
+            "dependency_type は blocks か relates_to を指定してください(指定: '{}')",
+            t
+        )))
+    }
+}
+
 /// POST /api/v1/ai-agent/tickets/{ticket_key}/dependencies/
 pub async fn add_dependency(
     State(state): State<AppState>,
@@ -2368,6 +2819,9 @@ pub async fn add_dependency(
         Some(k) if !k.is_empty() => k,
         _ => return (StatusCode::BAD_REQUEST, Json(err("to_task_key は必須です"))).into_response(),
     };
+    if let Err(resp) = validate_ai_dependency_type(&body.dependency_type) {
+        return resp;
+    }
     let to_task = match ticket_repo::resolve_ticket_id(&state.pool, to_task_key).await {
         Ok(Some(id)) => id,
         Ok(None) => {
@@ -2950,6 +3404,8 @@ pub struct CreateAiTeamIn {
     #[serde(default)]
     pub color: String,
     pub slack_webhook_url: Option<String>,
+    /// チケット番号の頭(英数字1〜20文字。例: AUT → AUT-000001)。省略時は slug から作る
+    pub prefix: Option<String>,
     /// 省略時 true（AI経由は有効なチームを作る）
     #[serde(default = "default_team_is_active")]
     pub is_active: bool,
@@ -3019,9 +3475,12 @@ pub async fn create_team(
         },
         slack_webhook_url: body.slack_webhook_url,
         is_active: body.is_active,
-        prefix: None,
+        prefix: body.prefix.clone(),
         visibility: None,
     };
+    if let Err(resp) = check_ai_team_prefix(&state.pool, body.prefix.as_deref(), None).await {
+        return resp;
+    }
 
     match crate::infrastructure::repositories::team_repo::create_team(&state.pool, &input).await {
         Ok(team_id) => {
@@ -3061,6 +3520,178 @@ pub async fn create_team(
                 Json(err("チームを作成できませんでした")),
             )
                 .into_response()
+        }
+    }
+}
+
+/// Prefix の形と重複を確かめる。重複なら、どのチームと重なったかを返す(DEMO-000217)
+async fn check_ai_team_prefix(
+    pool: &sqlx::PgPool,
+    prefix: Option<&str>,
+    exclude_team_id: Option<i32>,
+) -> Result<(), axum::response::Response> {
+    let normalized = match team_repo::normalize_and_validate_prefix(prefix) {
+        Ok(Some(p)) => p,
+        Ok(None) => return Ok(()),
+        Err(e) => return Err(bad_request(format!("prefix: {}", e))),
+    };
+    let other: Option<(String, String)> = sqlx::query_as(
+        "SELECT name, slug FROM m_team
+         WHERE UPPER(prefix) = $1 AND ($2::int4 IS NULL OR id <> $2::int4)
+         LIMIT 1",
+    )
+    .bind(&normalized)
+    .bind(exclude_team_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| ai_db_error(e.into()))?;
+    match other {
+        Some((name, slug)) => Err((
+            StatusCode::CONFLICT,
+            Json(err(format!(
+                "Prefix '{}' は、チーム「{}」(slug: {})で使われています。別の Prefix を指定してください",
+                normalized, name, slug
+            ))),
+        )
+            .into_response()),
+        None => Ok(()),
+    }
+}
+
+/// チームの変更(指定した項目だけ)
+#[derive(Deserialize)]
+pub struct PatchAiTeamIn {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    /// チケット番号の頭。変えても、作成済みのチケットの番号は変わらない(以後の新しいチケットから)
+    pub prefix: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+/// PATCH /api/v1/ai-agent/teams/{team}/ (team は ID か slug)
+///
+/// チームの設定の変更は、チームの管理者の個人キーだけ(共有キー・管理者でない人のキーは 403)。
+/// 新しい判定(on)では、キー経由の設定の管理はできない(画面と同じ。キー経由は ManageSettings 不可)
+pub async fn patch_team(
+    State(state): State<AppState>,
+    caller: AiCaller,
+    Path(team): Path<String>,
+    Json(body): Json<PatchAiTeamIn>,
+) -> impl IntoResponse {
+    if key_on() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(err(
+                "AI キーではチームの設定を変更できません。画面から変更してください",
+            )),
+        )
+            .into_response();
+    }
+    let team_id: i32 = match team.parse::<i32>() {
+        Ok(id) => id,
+        Err(_) => match sqlx::query_scalar::<_, i32>("SELECT id::int4 FROM m_team WHERE slug = $1")
+            .bind(&team)
+            .fetch_optional(&state.pool)
+            .await
+        {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(err(format!("チーム '{}' が見つかりません", team))),
+                )
+                    .into_response()
+            }
+            Err(e) => return ai_db_error(e.into()),
+        },
+    };
+    let Some(owner) = caller.legacy.acting_user_id else {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(err(
+                "共有の AI キーではチームを変更できません。個人の AI キーを使ってください",
+            )),
+        )
+            .into_response();
+    };
+    match crate::presentation::handlers::access_guard::can_manage_team(&state.pool, owner, team_id)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(err(
+                    "チームの設定を変えられるのは、そのチームの管理者だけです",
+                )),
+            )
+                .into_response()
+        }
+        Err(e) => return ai_db_error(e),
+    }
+    let current = match team_repo::find_team_by_id(&state.pool, team_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(err(format!("チーム '{}' が見つかりません", team))),
+            )
+                .into_response()
+        }
+        Err(e) => return ai_db_error(e),
+    };
+    if current.archived_at.is_some() {
+        return (
+            StatusCode::CONFLICT,
+            Json(err(
+                "アーカイブ済みのチームは変更できません(先に画面で復元してください)",
+            )),
+        )
+            .into_response();
+    }
+    if let Some(name) = &body.name {
+        if name.trim().is_empty() {
+            return bad_request("name は空にできません");
+        }
+    }
+    if let Err(resp) =
+        check_ai_team_prefix(&state.pool, body.prefix.as_deref(), Some(team_id)).await
+    {
+        return resp;
+    }
+
+    // update_team は全項目を書き換えるので、指定の無い項目は今の値を入れる
+    let input = crate::domain::models::team_api::TeamWriteIn {
+        name: body
+            .name
+            .as_ref()
+            .map(|n| n.trim().to_string())
+            .unwrap_or(current.name),
+        slug: String::new(),
+        description: body.description.unwrap_or_default(),
+        icon: body.icon.unwrap_or_default(),
+        color: body.color.unwrap_or_default(),
+        slack_webhook_url: current.slack_webhook_url,
+        is_active: body.is_active.unwrap_or(current.is_active),
+        prefix: body.prefix,
+        visibility: None,
+    };
+    match team_repo::update_team(&state.pool, team_id, &input).await {
+        Ok(true) => match team_repo::find_team_by_id(&state.pool, team_id).await {
+            Ok(Some(t)) => (StatusCode::OK, Json(t)).into_response(),
+            Ok(None) => (StatusCode::NOT_FOUND, Json(err("見つかりません"))).into_response(),
+            Err(e) => ai_db_error(e),
+        },
+        Ok(false) => (StatusCode::NOT_FOUND, Json(err("見つかりません"))).into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("Prefix") || msg.contains("別のチームで使われています") {
+                bad_request(msg)
+            } else {
+                ai_db_error(e)
+            }
         }
     }
 }

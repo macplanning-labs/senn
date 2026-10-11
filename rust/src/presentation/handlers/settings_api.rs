@@ -22,6 +22,9 @@ pub struct AiSettingsOut {
     pub ollama_connected: bool,
     #[serde(rename = "availableModels")]
     pub available_models: Vec<String>,
+    /// 設定中のモデルが Ollama に実在するか(接続できないときは null)。false なら、AI の要約は毎回失敗する
+    #[serde(rename = "ollamaModelInstalled")]
+    pub ollama_model_installed: Option<bool>,
     #[serde(rename = "canEdit")]
     pub can_edit: bool,
 }
@@ -64,6 +67,7 @@ pub async fn get_ai_settings(State(state): State<AppState>, viewer: Viewer) -> i
             env_default_timeout_secs: state.config.ollama_timeout_secs,
             ollama_connected: status.ollama.connected,
             available_models: status.ollama.available_models,
+            ollama_model_installed: status.ollama.model_installed,
             can_edit,
         }),
     )
@@ -197,6 +201,7 @@ pub async fn update_ai_settings(
             env_default_timeout_secs: state.config.ollama_timeout_secs,
             ollama_connected: status.ollama.connected,
             available_models: status.ollama.available_models,
+            ollama_model_installed: status.ollama.model_installed,
             can_edit: true,
         }),
     )
