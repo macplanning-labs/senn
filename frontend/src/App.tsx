@@ -47,6 +47,8 @@ import { TicketsPage } from '@/features/tickets/components/TicketsPage';
 import { TicketDetailPage } from '@/features/tickets/pages/TicketDetailPage';
 import { TriageRequestsPage } from '@/features/triage/components/TriageRequestsPage';
 import { WorkloadReportPage } from '@/features/reports/components/WorkloadReportPage';
+import { InsightsPage } from '@/features/insights/components/InsightsPage';
+import { ConnectPage } from '@/features/aiMcp/ConnectPage';
 import { CommandPalette } from '@/shared/components/ui/CommandPalette';
 import { TicketFormModal } from '@/features/tickets/components/TicketFormModal';
 import { ToastContainer } from '@/shared/components/ui/ToastContainer';
@@ -227,6 +229,8 @@ export default function App() {
             )}
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/reports" element={<WorkloadReportPage />} />
+            <Route path="/insights" element={<InsightsPage />} />
+            <Route path="/connect" element={<ConnectPage />} />
 
             {/* プロジェクトスコープ */}
             <Route path="/project/:projectKey" element={<ProjectLayout />}>

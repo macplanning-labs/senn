@@ -1567,12 +1567,14 @@ fn find_mentioned_user_ids(comment_body: &str, candidates: &[(i32, String)]) -> 
 }
 
 /// メンション処理：コメント本文からメンション対象ユーザーを抽出し、通知を送信
-async fn process_mentions(
+/// `previous_body` を渡すと(コメント編集時)、その本文で既にメンション済みの人には通知しない。
+pub(crate) async fn process_mentions(
     pool: &sqlx::PgPool,
     mail_sender: &Option<crate::infrastructure::mail::MailSender>,
     ticket_id: i32,
     actor_id: i32,
     comment_body: &str,
+    previous_body: Option<&str>,
 ) -> anyhow::Result<()> {
     // チケット情報取得（プロジェクトID確認用）
     let ticket = match ticket_repo::find_by_id(pool, ticket_id).await? {
@@ -1626,8 +1628,20 @@ async fn process_mentions(
         }
     }
 
+    // 編集時は、以前の本文でメンション済みの人を除く(同じ人に通知し直さない)
+    let already: std::collections::HashSet<i32> = previous_body
+        .map(|b| {
+            find_mentioned_user_ids(b, &candidates)
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_default();
+
     // 本文中に実際に登場するメンション対象を検出
     for mentioned_user_id in find_mentioned_user_ids(comment_body, &candidates) {
+        if already.contains(&mentioned_user_id) {
+            continue;
+        }
         // 自己メンションは通知しない
         if mentioned_user_id == actor_id {
             continue;
@@ -1772,6 +1786,7 @@ pub async fn add_comment(
                 ticket_id,
                 auth.user_id,
                 &body.body,
+                None,
             )
             .await
             {

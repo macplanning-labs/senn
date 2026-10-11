@@ -9,6 +9,7 @@ import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
 import { AiSettings } from '@/features/settings/components/AiSettings';
 import { AdminAiPersonalKeysSection } from './AdminAiPersonalKeysSection';
+import { AdminAiMcpRequestsSection } from '@/features/aiMcp/AdminAiMcpRequestsSection';
 import '../components/AdminPage.css';
 import '@/features/settings/components/SettingsPage.css';
 
@@ -89,6 +90,8 @@ export function AdminAiSection() {
           </div>
         </div>
       </section>
+
+      <AdminAiMcpRequestsSection />
 
       <AdminAiPersonalKeysSection />
 

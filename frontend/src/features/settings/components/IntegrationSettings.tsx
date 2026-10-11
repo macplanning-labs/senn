@@ -7,11 +7,16 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ForbiddenNotice, isForbiddenError } from './ForbiddenNotice';
+import { integrationQueryKeys } from '../utils/integrationQueryKeys';
 import { apiClient } from '@/shared/api/client';
 import type { GitIntegration, GitProvider } from '@/shared/api/types';
 import { useToast } from '@/shared/stores/toastStore';
 import './IntegrationSettings.css';
 import { useTranslation } from 'react-i18next';
+import { GitHubConnectCard } from './GitHubConnectCard';
+import { DeliveryHistory } from './DeliveryHistory';
+import { calculateRelativeTime, getDeliveryStatusColor } from '../utils/github';
 
 interface IntegrationSettingsProps {
   projectId?: number;
@@ -36,13 +41,21 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
       ? `/integrations/?project=${projectId}`
       : `/integrations/?team=${teamId}`;
 
-  const { data: integrations = [], isLoading } = useQuery<GitIntegration[]>({
+  const {
+    data: integrations = [],
+    isLoading,
+    isFetching,
+    refetch,
+    error: listError,
+  } = useQuery<GitIntegration[]>({
     queryKey: ['integrations', scopeKey],
     queryFn: async () => {
       const res = await apiClient.get(listQuery);
       return res.data;
     },
     enabled: projectId != null || teamId != null,
+    // 最終受信の表示が古くならないよう、画面を開いている間は定期的に取り直す(裏のタブでは止まる)
+    refetchInterval: 30_000,
   });
 
   const createMutation = useMutation({
@@ -66,7 +79,10 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
       await apiClient.delete(`/integrations/${id}/`);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['integrations', scopeKey] });
+      // 連携の一覧と、リポジトリ一覧の「連携済み」の印の両方を取り直す(DEMO-000182)
+      for (const queryKey of integrationQueryKeys(scopeKey)) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
       toast.success(t('integration.deleted'));
     },
   });
@@ -123,6 +139,10 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
     });
   };
 
+  if (isForbiddenError(listError)) {
+    return <ForbiddenNotice />;
+  }
+
   if (isLoading) {
     return <div className="integration-loading">Loading...</div>;
   }
@@ -131,75 +151,101 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
     <div className="integration-settings">
       <div className="settings-section__header">
         <h2 className="settings-section__title">Git Integrations</h2>
-        <button
-          className="settings-form__btn settings-form__btn--primary"
-          onClick={() => setShowAddForm(!showAddForm)}
-        >
-          {showAddForm ? '✕ Cancel' : '+ Add Integration'}
-        </button>
-      </div>
-
-      {/* Webhook URL 案内 */}
-      <div className="integration-info">
-        <div className="integration-info__label">Webhook URL</div>
-        <div className="integration-info__value">
-          <code>{webhookUrl}</code>
+        <div className="integration-refresh">
+          <span className="integration-refresh__note">{t('integration.github.autoRefreshNote')}</span>
           <button
-            className="integration-info__copy"
-            onClick={() => void handleCopy(webhookUrl, 'Webhook URL')}
-            title="Copy"
+            type="button"
+            className="settings-form__btn"
+            onClick={() => void refetch()}
+            disabled={isFetching}
           >
-            📋
+            {isFetching ? t('integration.github.refreshing') : t('integration.github.refreshNow')}
           </button>
         </div>
-        <p className="integration-info__help">
-          {t('integration.webhookHint')}
-          {t('settings.webhookHintLead')} <code>application/json</code>{t('settings.webhookHintEventsLabel')} <code>push</code> {t('settings.webhookHintAnd')} <code>pull_request</code>{t('settings.webhookHintTrail')}
-        </p>
       </div>
 
-      {/* 追加フォーム */}
-      {showAddForm && (
-        <form className="integration-form" onSubmit={handleSubmit}>
-          <div className="integration-form__field">
-            <label>Provider</label>
-            <select
-              value={formData.provider}
-              onChange={(e) => setFormData({ ...formData, provider: e.target.value as GitProvider })}
+      {/* GitHub App 連携 */}
+      <GitHubConnectCard projectId={projectId} teamId={teamId} />
+
+      {/* 手動登録（折りたたみ） */}
+      <details className="integration-manual-setup">
+        <summary className="integration-manual-setup__summary">
+          {t('integration.github.manualTab')}
+        </summary>
+
+        <div className="integration-manual-setup__content">
+          {/* Webhook URL 案内 */}
+          <div className="integration-info">
+            <div className="integration-info__label">Webhook URL</div>
+            <div className="integration-info__value">
+              <code>{webhookUrl}</code>
+              <button
+                className="integration-info__copy"
+                onClick={() => void handleCopy(webhookUrl, 'Webhook URL')}
+                title="Copy"
+              >
+                📋
+              </button>
+            </div>
+            <p className="integration-info__help">
+              {t('integration.webhookHint')}
+              {t('settings.webhookHintLead')} <code>application/json</code>{t('settings.webhookHintEventsLabel')} <code>push</code> {t('settings.webhookHintAnd')} <code>pull_request</code>{t('settings.webhookHintTrail')}
+            </p>
+          </div>
+
+          {/* 追加フォーム */}
+          <div className="integration-manual-setup__add-button">
+            <button
+              className="settings-form__btn settings-form__btn--primary"
+              onClick={() => setShowAddForm(!showAddForm)}
             >
-              <option value="github">GitHub</option>
-              <option value="gitlab">GitLab</option>
-            </select>
+              {showAddForm ? '✕ Cancel' : '+ Add Integration'}
+            </button>
           </div>
-          <div className="integration-form__field">
-            <label>Repository URL</label>
-            <input
-              type="url"
-              placeholder="https://github.com/org/repo"
-              value={formData.repository_url}
-              onChange={(e) => setFormData({ ...formData, repository_url: e.target.value })}
-              required
-            />
-          </div>
-          <div className="integration-form__field">
-            <label>Webhook Secret</label>
-            <input
-              type="text"
-              placeholder="your-webhook-secret"
-              value={formData.webhook_secret}
-              onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            className="settings-form__btn settings-form__btn--primary"
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? 'Adding...' : 'Add Integration'}
-          </button>
-        </form>
-      )}
+
+          {showAddForm && (
+            <form className="integration-form" onSubmit={handleSubmit}>
+              <div className="integration-form__field">
+                <label>Provider</label>
+                <select
+                  value={formData.provider}
+                  onChange={(e) => setFormData({ ...formData, provider: e.target.value as GitProvider })}
+                >
+                  <option value="github">GitHub</option>
+                  <option value="gitlab">GitLab</option>
+                </select>
+              </div>
+              <div className="integration-form__field">
+                <label>Repository URL</label>
+                <input
+                  type="url"
+                  placeholder="https://github.com/org/repo"
+                  value={formData.repository_url}
+                  onChange={(e) => setFormData({ ...formData, repository_url: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="integration-form__field">
+                <label>Webhook Secret</label>
+                <input
+                  type="text"
+                  placeholder="your-webhook-secret"
+                  value={formData.webhook_secret}
+                  onChange={(e) => setFormData({ ...formData, webhook_secret: e.target.value })}
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="settings-form__btn settings-form__btn--primary"
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending ? 'Adding...' : 'Add Integration'}
+              </button>
+            </form>
+          )}
+        </div>
+      </details>
 
       {/* 連携一覧 */}
       {integrations.length === 0 && !showAddForm ? (
@@ -219,9 +265,20 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
                   {integration.provider === 'github' ? '🐙' : '🦊'}
                   {integration.provider.charAt(0).toUpperCase() + integration.provider.slice(1)}
                 </span>
-                <span className={`integration-card__status ${integration.isActive ? 'integration-card__status--active' : ''}`}>
-                  {integration.isActive ? '● Active' : '○ Inactive'}
-                </span>
+                <div className="integration-card__badges">
+                  {integration.installationId != null ? (
+                    <span className="integration-card__badge integration-card__badge--github-app">
+                      {t('integration.github.diagnostics.githubApp')}
+                    </span>
+                  ) : (
+                    <span className="integration-card__badge integration-card__badge--manual">
+                      {t('integration.github.diagnostics.manual')}
+                    </span>
+                  )}
+                  <span className={`integration-card__status ${integration.isActive ? 'integration-card__status--active' : ''}`}>
+                    {integration.isActive ? '● Active' : '○ Inactive'}
+                  </span>
+                </div>
               </div>
 
               <div className="integration-card__url">
@@ -230,26 +287,71 @@ export function IntegrationSettings({ projectId, teamId }: IntegrationSettingsPr
                 </a>
               </div>
 
-              <div className="integration-card__secret">
-                <span className="integration-card__secret-label">Secret:</span>
-                <code>
-                  {revealedSecrets.has(integration.id)
-                    ? integration.webhookSecret
-                    : '••••••••••••'}
-                </code>
-                <button
-                  className="integration-card__secret-toggle"
-                  onClick={() => toggleSecret(integration.id)}
-                >
-                  {revealedSecrets.has(integration.id) ? '🙈' : '👁️'}
-                </button>
-                <button
-                  className="integration-card__secret-toggle"
-                  onClick={() => void handleCopy(integration.webhookSecret, 'Secret')}
-                >
-                  📋
-                </button>
+              {/* GitHub App 連携の診断情報 */}
+              <div className="integration-card__diagnostics">
+                {integration.lastDeliveryAt ? (
+                  <div className="integration-card__diagnostic-item">
+                    <span className="integration-card__diagnostic-label">
+                      {t('integration.github.diagnostics.lastDelivery')}:
+                    </span>
+                    <span className="integration-card__diagnostic-value">
+                      {(() => {
+                        const rel = calculateRelativeTime(integration.lastDeliveryAt);
+                        const unitKey = `common.relativeTime.unit.${rel.unit}`;
+                        const unit = t(unitKey, { defaultValue: '' });
+                        const ago = t('common.relativeTimeAgo', { defaultValue: ' ago' });
+                        return `${rel.value}${unit}${ago} (${integration.lastDeliveryEvent || 'unknown'})`;
+                      })()}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="integration-card__diagnostic-item">
+                    <span className="integration-card__diagnostic-label">
+                      {t('integration.github.diagnostics.never')}
+                    </span>
+                  </div>
+                )}
+
+                {integration.lastDeliveryResult &&
+                  (integration.lastDeliveryResult === 'no_ticket' ||
+                    integration.lastDeliveryResult === 'error') && (
+                    <div
+                      className={`integration-card__diagnostic-note integration-card__diagnostic-note--${getDeliveryStatusColor(
+                        integration.lastDeliveryResult,
+                      )}`}
+                    >
+                      {integration.lastDeliveryNote ||
+                        t(`integration.github.diagnostics.${integration.lastDeliveryResult}`)}
+                    </div>
+                  )}
               </div>
+
+              {/* 受信履歴(直近 20 件。開いたときだけ取得する) */}
+              <DeliveryHistory integrationId={integration.id} />
+
+              {/* 手動 Webhook のシークレット表示（App 連携では表示しない） */}
+              {integration.installationId == null && integration.webhookSecret && (
+                <div className="integration-card__secret">
+                  <span className="integration-card__secret-label">Secret:</span>
+                  <code>
+                    {revealedSecrets.has(integration.id)
+                      ? integration.webhookSecret
+                      : '••••••••••••'}
+                  </code>
+                  <button
+                    className="integration-card__secret-toggle"
+                    onClick={() => toggleSecret(integration.id)}
+                  >
+                    {revealedSecrets.has(integration.id) ? '🙈' : '👁️'}
+                  </button>
+                  <button
+                    className="integration-card__secret-toggle"
+                    onClick={() => void handleCopy(integration.webhookSecret, 'Secret')}
+                  >
+                    📋
+                  </button>
+                </div>
+              )}
 
               <div style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
                 <label style={{

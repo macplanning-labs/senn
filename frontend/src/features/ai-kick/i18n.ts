@@ -1,0 +1,207 @@
+/**
+ * ai-kick/i18n.ts - AI Kick 翻訳リソース
+ */
+
+import i18n from 'i18next';
+
+// 日本語
+const jaTranslations = {
+  aiKick: {
+    button: {
+      label: 'AIに対応させる',
+      tooltip: 'このチケットにAIで対応してもらう',
+    },
+    dialog: {
+      title: 'AIに対応させる',
+      preparing: 'AIに渡す内容を準備しています…(最大 2 分)',
+      retry: 'もう一度',
+      close: '閉じる',
+      execute: '実行',
+      cancel: 'キャンセル',
+      note: 'AI は、プログラムの変更までを行います。マージ・本番への反映は人が行います。',
+      dataSharing: 'このチケットの内容(説明・コメント・投稿者名・リンク)と、リポジトリ「{{repo}}」のコードが、ランナーに設定した Claude のアカウントを通じて Anthropic 社に送られます。',
+      repository: 'リポジトリ',
+      branch: 'ブランチ',
+      limits: {
+        title: '実行の上限',
+        max: '最大',
+        turns: 'ターン',
+        minutes: '分',
+        tokens: 'トークン',
+      },
+      preview: {
+        title: 'AI に渡る内容を確認する',
+        fullText: '全文',
+      },
+      warning: {
+        budgetOver: '予算の上限に達しています。AI の実行は止まります。',
+        budgetNear: 'トークンの予算が残り少なくなっています。',
+        emergency: 'これは緊急チケットです。優先度を引き上げています。',
+        externalContent: 'ゲストが書いた内容を含みます。AI に渡る内容を、下で確認してください。',
+        blocksOpen: 'このチケットが終わらないと進められない作業が {{count}} 件あります(優先度を引き上げています)',
+      },
+      confirmation: {
+        default: '警告の内容を確認し、承知して実行します',
+        emergency: '緊急として実行します。トークンの予算では止まりません',
+      },
+      denied: '実行できません',
+      error: {
+        promptChanged: '確認したあとに、チケットの内容が変わりました',
+        needsConfirm: '警告内容を確認して、チェックをしてください',
+        network: 'ネットワークエラー',
+        generic: 'エラーが発生しました',
+      },
+      success: 'AI の順番待ちに入りました',
+    },
+    status: {
+      queued: '順番待ち',
+      running: '実行中',
+      stopping: '停止中',
+      resolved: '完了',
+      blocked: 'ブロック',
+      aborted: '中止',
+      error: 'エラー',
+      unknown: '不明',
+    },
+    result: {
+      resolved: '完了',
+      blocked: 'ブロック',
+      aborted: '中止',
+      error: 'エラー',
+      unknown: '不明',
+    },
+    stopReason: {
+      perRunTokens: '1 実行のトークンの上限',
+      perRunTime: '1 実行の時間の上限',
+      burnRate: '使い方が急激だったため',
+      killed: '緊急停止',
+      userCancel: '取り消し',
+      budgetCeiling: '予算の上限',
+      runnerLost: 'ランナーの応答がなかったため',
+      projectDisabled: 'プロジェクトの許可が外れたため',
+      runnerRevoked: 'ランナーが無効になったため',
+      unknown: '不明',
+    },
+    statusPanel: {
+      title: '最新の AI 実行',
+      history: '履歴を見る',
+      cancel: '取り消す',
+      cancelConfirm: '実行を取り消しますか?',
+      cancelSuccess: '実行を取り消しました',
+      cancelError: '取り消せるのは起動した人と管理者だけです',
+      summary: '要約',
+      error: 'エラー詳細',
+    },
+    priority: {
+      emergency: '緊急',
+      high: '高',
+      normal: '通常',
+      low: '低',
+    },
+    systemKilled: '緊急停止中',
+    cannotShow: 'AI対応が設定されていません',
+  },
+};
+
+// 英語
+const enTranslations = {
+  aiKick: {
+    button: {
+      label: 'Ask AI',
+      tooltip: 'Have AI handle this ticket',
+    },
+    dialog: {
+      title: 'Ask AI to handle this',
+      preparing: 'Preparing content for AI… (up to 2 minutes)',
+      retry: 'Try again',
+      close: 'Close',
+      execute: 'Execute',
+      cancel: 'Cancel',
+      note: 'AI will only change the code. Merging and production deployment are done by humans.',
+      dataSharing: "This ticket's content (description, comments, author names, links) and the code of the repository \"{{repo}}\" are sent to Anthropic through the Claude account configured on the runner.",
+      repository: 'Repository',
+      branch: 'Branch',
+      limits: {
+        title: 'Execution limits',
+        max: 'Up to',
+        turns: 'turns',
+        minutes: 'minutes',
+        tokens: 'tokens',
+      },
+      preview: {
+        title: 'Review content sent to AI',
+        fullText: 'Full text',
+      },
+      warning: {
+        budgetOver: 'Budget limit reached. AI execution will stop.',
+        budgetNear: 'Token budget is running low.',
+        emergency: 'This is an urgent ticket. Priority is being elevated.',
+        externalContent: 'Contains content written by guests. Please review the content sent to AI below.',
+        blocksOpen: 'There are {{count}} items blocked by this ticket (priority is being elevated)',
+      },
+      confirmation: {
+        default: 'I understand the warnings and proceed with execution',
+        emergency: 'Execute as emergency. Token budget will not stop it',
+      },
+      denied: 'Cannot execute',
+      error: {
+        promptChanged: 'Ticket content changed after review',
+        needsConfirm: 'Please review warnings and check the confirmation',
+        network: 'Network error',
+        generic: 'An error occurred',
+      },
+      success: 'Added to AI queue',
+    },
+    status: {
+      queued: 'Queued',
+      running: 'Running',
+      stopping: 'Stopping',
+      resolved: 'Resolved',
+      blocked: 'Blocked',
+      aborted: 'Aborted',
+      error: 'Error',
+      unknown: 'Unknown',
+    },
+    result: {
+      resolved: 'Resolved',
+      blocked: 'Blocked',
+      aborted: 'Aborted',
+      error: 'Error',
+      unknown: 'Unknown',
+    },
+    stopReason: {
+      perRunTokens: 'Per-run token limit',
+      perRunTime: 'Per-run time limit',
+      burnRate: 'Burn rate exceeded',
+      killed: 'Emergency stop',
+      userCancel: 'Cancelled by user',
+      budgetCeiling: 'Budget ceiling',
+      runnerLost: 'Runner lost connection',
+      projectDisabled: 'Project disabled',
+      runnerRevoked: 'Runner revoked',
+      unknown: 'Unknown',
+    },
+    statusPanel: {
+      title: 'Latest AI run',
+      history: 'View history',
+      cancel: 'Cancel',
+      cancelConfirm: 'Cancel this run?',
+      cancelSuccess: 'Run cancelled',
+      cancelError: 'Only the initiator and admins can cancel',
+      summary: 'Summary',
+      error: 'Error details',
+    },
+    priority: {
+      emergency: 'Emergency',
+      high: 'High',
+      normal: 'Normal',
+      low: 'Low',
+    },
+    systemKilled: 'Emergency stopped',
+    cannotShow: 'AI handling is not configured',
+  },
+};
+
+// リソースバンドルを登録
+i18n.addResourceBundle('ja', 'translation', jaTranslations, true, true);
+i18n.addResourceBundle('en', 'translation', enTranslations, true, true);

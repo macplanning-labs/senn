@@ -41,6 +41,8 @@ const CATEGORY_ICONS: Record<string, string> = {
   review_requested: '👁️',
   wiki_updated: '📄',
   cycle_auto_completed: '📅',
+  ai_mcp_request: '🤖',
+  ai_mcp_decision: '🤖',
   updated: '📝',
 };
 
@@ -48,6 +50,8 @@ function categoryLabel(category: string, t: (key: string, options?: { defaultVal
   if (category === 'cycle_auto_completed') {
     return t('notifications.cycleAutoCompleted', { defaultValue: 'Cycle auto-completed' });
   }
+  if (category === 'ai_mcp_request') return t('aiMcp.notifRequest');
+  if (category === 'ai_mcp_decision') return t('aiMcp.notifDecision');
   const labels: Record<string, string> = {
     assigned: 'Assigned',
     commented: 'Comment',
@@ -244,6 +248,10 @@ export function NotificationsPage() {
       // teamSlugがある通知はチーム側の詳細に留める(プロジェクト側への意図しない遷移を防ぐ)
       const projectKey = notification.teamSlug ? null : notification.projectKey;
       navigate(buildTicketDetailPath(projectKey, notification.ticketKey, undefined, notification.teamSlug));
+    } else if (notification.category === 'ai_mcp_request') {
+      navigate('/admin?section=ai');
+    } else if (notification.category === 'ai_mcp_decision') {
+      navigate('/settings?tab=ai');
     } else if (notification.category === 'cycle_auto_completed') {
       const projectKey = notification.projectKey ?? routeProjectKey;
       if (projectKey) {

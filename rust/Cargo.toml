@@ -9,7 +9,7 @@ description = "SENN — プロジェクト管理（チケット・ガントチ�
 # 既存のディレクトリ構成・Dockerfile・CI(ci.yml)は変更不要
 # (cargo build/testはワークスペース全体を対象にするため自動的に対象に入る)。
 [workspace]
-members = ["auth-core", "google-auth"]
+members = ["auth-core", "google-auth", "cf-access-jwt"]
 
 [dependencies]
 # Web フレームワーク
@@ -59,6 +59,8 @@ async-trait = "0.1"
 # webauthn_service/middleware::jwt_auth/middleware::rate_limiterの呼び出しを
 # こちらへ差し替え済み)
 auth-core = { path = "auth-core" }
+# 社内 SSO(Cloudflare Access)の JWT 検証。正本は社内の SSO の共通部品(別リポジトリ)
+cf-access-jwt = { path = "cf-access-jwt" }
 argon2 = "0.5"
 totp-rs = { version = "5", features = ["qr"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation", "conditional-ui"] }

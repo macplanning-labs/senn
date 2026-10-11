@@ -4,6 +4,11 @@
   max-width: 700px;
 }
 
+/* Git 連携とチャット連携など、連携の設定ブロックが続くときは間を空ける */
+.integration-settings + .integration-settings {
+  margin-top: var(--space-8);
+}
+
 .integration-loading {
   color: var(--color-text-tertiary);
   padding: var(--space-4);
@@ -256,4 +261,179 @@
 
 .integration-card__delete:hover {
   background: rgba(248, 81, 73, 0.1);
+}
+
+/* Manual setup (details) */
+.integration-manual-setup {
+  margin-top: var(--space-4);
+}
+
+.integration-manual-setup__summary {
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.integration-manual-setup__summary:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.integration-manual-setup__summary::marker {
+  color: var(--color-text-tertiary);
+}
+
+.integration-manual-setup__content {
+  margin-top: var(--space-3);
+  padding: 0;
+}
+
+.integration-manual-setup__add-button {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* Badges */
+.integration-card__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.integration-card__badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.integration-card__badge--github-app {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--color-success);
+}
+
+.integration-card__badge--manual {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+/* Diagnostics */
+.integration-card__diagnostics {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border-default);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.integration-card__diagnostic-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-1);
+}
+
+.integration-card__diagnostic-item:last-of-type {
+  margin-bottom: 0;
+}
+
+.integration-card__diagnostic-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.integration-card__diagnostic-value {
+  color: var(--color-text-primary);
+}
+
+.integration-card__diagnostic-note {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.integration-card__diagnostic-note--error {
+  background: rgba(248, 81, 73, 0.1);
+  color: var(--color-error);
+  border-left: 3px solid var(--color-error);
+}
+
+.integration-card__diagnostic-note--warning {
+  background: rgba(255, 192, 61, 0.1);
+  color: var(--color-warning);
+  border-left: 3px solid var(--color-warning);
+}
+
+.integration-card__diagnostic-note--success {
+  background: rgba(63, 185, 80, 0.1);
+  color: var(--color-success);
+  border-left: 3px solid var(--color-success);
+}
+
+.integration-card__diagnostic-note--neutral {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border-left: 3px solid var(--color-border-default);
+}
+
+.integration-refresh {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.integration-refresh__note {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+}
+
+/* 受信履歴(Phase 2) */
+.integration-card__history {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.integration-card__history summary {
+  cursor: pointer;
+}
+
+.integration-card__history-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.integration-card__history-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.integration-card__history-time {
+  color: var(--color-text-tertiary);
+}
+
+.integration-card__history-item--no_ticket .integration-card__history-result {
+  color: #d29922;
+}
+
+.integration-card__history-item--ignored .integration-card__history-result {
+  color: var(--color-text-tertiary);
+}
+
+.integration-card__history-note {
+  color: var(--color-text-tertiary);
 }

@@ -20,6 +20,8 @@ pub struct AppState {
     pub realtime: Arc<crate::infrastructure::realtime::hub::Hub>,
     /// REALTIME_ENABLED=false で無効化できる（端末は従来の定期同期だけで動く）
     pub realtime_enabled: bool,
+    /// 社内 SSO(Cloudflare Access の JWT 検証)。`SENN_SSO_ENABLED=true` のときだけ Some
+    pub sso: Option<Arc<cf_access_jwt::Verifier>>,
     ollama_model_override: Arc<RwLock<Option<String>>>,
     ollama_timeout_override: Arc<RwLock<Option<u64>>>,
 }
@@ -48,6 +50,7 @@ impl AppState {
             realtime_enabled: std::env::var("REALTIME_ENABLED")
                 .map(|v| v != "false")
                 .unwrap_or(true),
+            sso: sso_from_env()?,
             ollama_model_override: Arc::new(RwLock::new(ollama_model_override)),
             ollama_timeout_override: Arc::new(RwLock::new(ollama_timeout_override)),
         })
@@ -71,4 +74,27 @@ impl AppState {
     pub async fn set_ollama_timeout_override(&self, timeout: Option<u64>) {
         *self.ollama_timeout_override.write().await = timeout;
     }
+}
+
+/// 社内 SSO の検証器を環境変数から作る。
+///   SENN_SSO_ENABLED=true のとき必須: CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD / CF_ACCESS_ALLOWED_EMAIL_DOMAINS
+/// 設定が足りなければ起動を止める(気づかないまま SSO が効かない・ドメイン制限なし、を防ぐ)。
+fn sso_from_env() -> anyhow::Result<Option<Arc<cf_access_jwt::Verifier>>> {
+    let enabled = std::env::var("SENN_SSO_ENABLED")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !enabled {
+        return Ok(None);
+    }
+    let mut cfg = cf_access_jwt::Config::from_env()
+        .map_err(|e| anyhow::anyhow!("社内 SSO の設定が不正です: {e}"))?;
+    if cfg.allowed_email_domains.is_empty() {
+        anyhow::bail!(
+            "SENN_SSO_ENABLED=true のときは CF_ACCESS_ALLOWED_EMAIL_DOMAINS を設定してください"
+        );
+    }
+    // 人のログインにだけ使う。Service Token(機械の通行証)ではログインさせない
+    cfg.allow_service_tokens = false;
+    tracing::info!("社内 SSO を有効にしました({})", cfg.team_domain);
+    Ok(Some(Arc::new(cf_access_jwt::Verifier::new(cfg))))
 }

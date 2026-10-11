@@ -53,6 +53,16 @@ pub struct AppConfig {
     pub openai_timeout_secs: u64,
     /// ビルドチャネル(customer / internal)。未設定は internal（自社向け既定）
     pub app_channel: String,
+    /// KB エンジン(SENN_KB_ENGINE: "off" | "rules"。既定: "off")
+    pub kb_engine: crate::domain::services::kb::config::KbEngine,
+    /// Scryer Prolog バイナリ(SENN_KB_SCRYER_BIN。既定: "scryer-prolog")
+    pub kb_scryer_bin: String,
+    /// KB 実行タイムアウト(ms)(SENN_KB_TIMEOUT_MS。既定: 5000。範囲: 100-60000)
+    pub kb_timeout_ms: u64,
+    /// KB 最大同時プロセス数(SENN_KB_MAX_PROCS。既定: 2。範囲: 1-8)
+    pub kb_max_procs: usize,
+    /// KB クローズ判定モード(SENN_KB_CLOSE_MODE: "warn" | "block"。既定: "warn")
+    pub kb_close_mode: crate::domain::services::kb::config::KbCloseMode,
 }
 
 /// `.env` のテンプレートに載せているプレースホルダ。署名鍵として受け付けない。
@@ -191,6 +201,24 @@ impl AppConfig {
             app_channel: std::env::var("SENN_APP_CHANNEL")
                 .or_else(|_| std::env::var("WIP_APP_CHANNEL"))
                 .unwrap_or_else(|_| "internal".to_string()),
+            kb_engine: crate::domain::services::kb::config::KbEngine::parse(
+                std::env::var("SENN_KB_ENGINE").ok().as_deref(),
+            ),
+            kb_scryer_bin: std::env::var("SENN_KB_SCRYER_BIN")
+                .unwrap_or_else(|_| "scryer-prolog".to_string()),
+            kb_timeout_ms: std::env::var("SENN_KB_TIMEOUT_MS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5000)
+                .clamp(100, 60000),
+            kb_max_procs: std::env::var("SENN_KB_MAX_PROCS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2)
+                .clamp(1, 8),
+            kb_close_mode: crate::domain::services::kb::config::KbCloseMode::parse(
+                std::env::var("SENN_KB_CLOSE_MODE").ok().as_deref(),
+            ),
         })
     }
 }

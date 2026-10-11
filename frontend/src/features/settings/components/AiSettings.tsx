@@ -15,6 +15,8 @@ interface AiSettingsData {
   envDefaultTimeoutSecs: number;
   ollamaConnected: boolean;
   availableModels: string[];
+  /** 設定中のモデルが Ollama に実在するか。null は、Ollama に接続できず判断できない */
+  ollamaModelInstalled?: boolean | null;
   canEdit: boolean;
 }
 
@@ -107,6 +109,12 @@ export function AiSettings() {
   }
 
   const usingOverride = data.ollamaModel !== data.envDefaultModel;
+  // 設定中のモデルが Ollama に無い(外された)とき。AI の要約が毎回失敗し、定型の文面に切り替わる(DEMO-000146)
+  const modelMissing = data.ollamaModelInstalled === false;
+  // 設定中のモデルが一覧に無いとき、一覧の先頭を、設定中の値のように見せない。設定中の値を、そのまま選択肢に出す
+  const modelOptions = data.availableModels.includes(data.ollamaModel)
+    ? data.availableModels
+    : [data.ollamaModel, ...data.availableModels];
 
   return (
     <section className="settings__section" data-testid="ai-settings">
@@ -121,6 +129,20 @@ export function AiSettings() {
           </div>
           <span>{data.ollamaConnected ? '✓' : '✗'}</span>
         </div>
+
+        {modelMissing && (
+          <div
+            role="alert"
+            data-testid="ai-model-missing"
+            className="settings__hint"
+            style={{ marginTop: '1rem', color: 'var(--color-error, #f87171)' }}
+          >
+            {t('settings.aiModelMissing', {
+              model: data.ollamaModel,
+              available: data.availableModels.join(', ') || '-',
+            })}
+          </div>
+        )}
 
         <div className="settings__row" style={{ marginTop: '1rem' }}>
           <div style={{ flex: 1 }}>
@@ -138,9 +160,11 @@ export function AiSettings() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 disabled={!data.ollamaConnected || saveMutation.isPending}
               >
-                {data.availableModels.map((model) => (
+                {modelOptions.map((model) => (
                   <option key={model} value={model}>
-                    {model}
+                    {data.availableModels.includes(model)
+                      ? model
+                      : `${model} (${t('settings.aiModelNotInstalled')})`}
                   </option>
                 ))}
               </select>

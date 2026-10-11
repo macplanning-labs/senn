@@ -7,7 +7,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams, useParams } from 'react-router-dom';
+import { useSearchParams, useParams, useLocation, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { FilterBar } from '@/shared/components/ui/FilterBar';
@@ -16,6 +16,8 @@ import { useTeam } from '@/shared/hooks/useTeam';
 import './WikiList.css';
 import { TeamTabPageHeader } from '@/features/teams/components/TeamTabPageHeader';
 import { IconWiki } from '@/shared/components/layout/Sidebar';
+import { useTicketRow } from '@/shared/sync/repos/ticketRepo';
+import { buildTicketLinkPath } from '@/features/tickets/utils/ticketNavigation';
 import { QuickCreateTicketButton } from '@/features/tickets/components/QuickCreateTicketButton';
 import type { LinkedTicketSummary } from '@/shared/api/types';
 interface WikiPage {
@@ -65,6 +67,36 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** 紐付きチケット1行。リンク先は、いまの画面(チーム/プロジェクト)かチケット自身の所属から決める */
+function LinkedTicketRow({ ticket }: { ticket: LinkedTicketSummary }) {
+  const { pathname } = useLocation();
+  const { row } = useTicketRow(ticket.ticketKey);
+  const to = buildTicketLinkPath(pathname, ticket.ticketKey, row);
+  const style = {
+    padding: '0.5rem 0.625rem', borderRadius: '6px',
+    background: 'var(--color-bg-tertiary)',
+    border: '1px solid var(--color-border, #e0e0e0)',
+    color: 'var(--color-text-primary)',
+    fontSize: '0.8125rem', textDecoration: 'none',
+    display: 'flex', alignItems: 'center', gap: '0.5rem',
+  } as const;
+  const content = (
+    <>
+      <span style={{ fontWeight: 600, opacity: 0.7 }}>{ticket.ticketKey}</span>
+      <span>{ticket.title}</span>
+      <span style={{
+        marginLeft: 'auto', fontSize: '0.75rem',
+        padding: '0.125rem 0.375rem', borderRadius: '4px',
+        background: ticket.status === 'closed' ? 'rgba(107,114,128,0.15)' : 'rgba(59,130,246,0.15)',
+        color: ticket.status === 'closed' ? '#6b7280' : '#3b82f6',
+      }}>
+        {ticket.status}
+      </span>
+    </>
+  );
+  return to ? <Link to={to} style={style}>{content}</Link> : <div style={style}>{content}</div>;
 }
 
 export function WikiList() {
@@ -482,37 +514,17 @@ export function WikiList() {
                   <QuickCreateTicketButton
                     defaultTitle={`[Wiki] ${selectedPage.title}`}
                     defaultDescription={`${t('wiki.filedFromWikiPrefix', { title: selectedPage.title })}\n\n---\n\n${selectedPage.content?.slice(0, 500) ?? ''}`}
-                    projectId={selectedPage.project ?? 0}
+                    projectId={selectedPage.project ?? null}
+                    teamId={selectedPage.team ?? (selectedPage.project ? null : (currentTeam?.id ?? null))}
+                    teamSlug={currentTeam?.slug ?? null}
                     wikiPageId={selectedPage.id}
                     label={`⚡ ${t('ticket.fileTicketButton')}`}
                   />
                 </div>
                 {selectedPage.linkedTickets && selectedPage.linkedTickets.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-                    {selectedPage.linkedTickets.map((t: { id: number; ticketKey: string; title: string; status: string }) => (
-                      <a
-                        key={t.id}
-                        href={`/project/${t.ticketKey?.split('-')[0] ?? 'XX'}/tickets/${t.ticketKey}`}
-                        style={{
-                          padding: '0.5rem 0.625rem', borderRadius: '6px',
-                          background: 'var(--color-bg-tertiary)',
-                          border: '1px solid var(--color-border, #e0e0e0)',
-                          color: 'var(--color-text-primary)',
-                          fontSize: '0.8125rem', textDecoration: 'none',
-                          display: 'flex', alignItems: 'center', gap: '0.5rem',
-                        }}
-                      >
-                        <span style={{ fontWeight: 600, opacity: 0.7 }}>{t.ticketKey}</span>
-                        <span>{t.title}</span>
-                        <span style={{
-                          marginLeft: 'auto', fontSize: '0.75rem',
-                          padding: '0.125rem 0.375rem', borderRadius: '4px',
-                          background: t.status === 'closed' ? 'rgba(107,114,128,0.15)' : 'rgba(59,130,246,0.15)',
-                          color: t.status === 'closed' ? '#6b7280' : '#3b82f6',
-                        }}>
-                          {t.status}
-                        </span>
-                      </a>
+                    {selectedPage.linkedTickets.map((lt) => (
+                      <LinkedTicketRow key={lt.id} ticket={lt} />
                     ))}
                   </div>
                 ) : (

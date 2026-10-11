@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { generateAndCopyAiPrompt } from './generateAndCopyAiPrompt';
 import * as client from '@/shared/api/client';
-import type { UserAiPromptTemplates } from './buildCopyPrompt';
 
 // Mock apiClient
 vi.mock('@/shared/api/client', () => ({
@@ -28,6 +27,7 @@ describe('generateAndCopyAiPrompt', () => {
       'ticketDetail.aiPromptPending': 'Prompt not ready yet.',
       'ticketDetail.aiPromptCopied': 'Copied prompt for {{ticketKey}}',
       'ticketDetail.aiPromptCopyFailed': 'Failed to copy to clipboard',
+      'ticketDetail.aiRunBlockSkipped': 'Copied prompt but AI work-record block is missing',
     };
     return translations[key] || key;
   };
@@ -43,15 +43,33 @@ describe('generateAndCopyAiPrompt', () => {
     vi.clearAllMocks();
   });
 
+  // ヘルパー：apiClient.post を URL で条件分岐するモック設定
+  const setupMockPost = (mockFn: any) => {
+    mockFn.mockImplementation((url: string, _data?: any, _opts?: any) => {
+      if (url.includes('/ai-prompt/')) {
+        // ai-prompt エンドポイント
+        return Promise.resolve({ data: { aiPrompt: 'Generated prompt content' } });
+      } else if (url.includes('/ai-run/')) {
+        // ai-run エンドポイント
+        return Promise.resolve({
+          data: {
+            runUuid: 'test-uuid-1234',
+            instructionBlock: '--- AI Work Record Block ---\nInstructions here',
+            reused: false,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('should return success when prompt is generated and copied', async () => {
+  it('should return success when prompt is generated and copied with instruction block', async () => {
     const mockApiClient = client.apiClient as any;
-    mockApiClient.post.mockResolvedValue({
-      data: { aiPrompt: 'Generated prompt content' },
-    });
+    setupMockPost(mockApiClient.post);
 
     const result = await generateAndCopyAiPrompt(
       'PROJ-123',
@@ -65,8 +83,9 @@ describe('generateAndCopyAiPrompt', () => {
     expect(result.success).toBe(true);
     expect(result.toast.type).toBe('success');
     expect(result.toast.message).toContain('PROJ-123');
+    // クリップボードに「プロンプト + おまじない + 手順ブロック」が入ることを確認
     expect(clipboardWriteSpy).toHaveBeenCalledWith(
-      'Generated prompt content\n\n---\ndefault common\ndefault cursor',
+      'Generated prompt content\n\n---\ndefault common\ndefault cursor\n\n--- AI Work Record Block ---\nInstructions here',
     );
   });
 
@@ -88,6 +107,10 @@ describe('generateAndCopyAiPrompt', () => {
     expect(result.success).toBe(false);
     expect(result.toast.type).toBe('info');
     expect(result.toast.message).toContain('not ready');
+    // プロンプトが無いときは、AI実行の記録(run の発行)をしない=見張りの通知が増えない
+    const urls = mockApiClient.post.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(urls.some((u: string) => u.includes('/ai-run/'))).toBe(false);
+    expect(clipboardWriteSpy).not.toHaveBeenCalled();
   });
 
   it('should return error when clipboard write fails', async () => {
@@ -168,9 +191,7 @@ describe('generateAndCopyAiPrompt', () => {
 
   it('should handle empty template gracefully', async () => {
     const mockApiClient = client.apiClient as any;
-    mockApiClient.post.mockResolvedValue({
-      data: { aiPrompt: 'Generated prompt' },
-    });
+    setupMockPost(mockApiClient.post);
 
     const result = await generateAndCopyAiPrompt(
       'PROJ-333',
@@ -182,6 +203,81 @@ describe('generateAndCopyAiPrompt', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(clipboardWriteSpy).toHaveBeenCalledWith('Generated prompt');
+    // 空のテンプレートでも instruction block は付く
+    expect(clipboardWriteSpy).toHaveBeenCalledWith(
+      'Generated prompt content\n\n--- AI Work Record Block ---\nInstructions here',
+    );
+  });
+
+  it('should copy prompt and show info toast when ai-run fails', async () => {
+    const mockApiClient = client.apiClient as any;
+    mockApiClient.post.mockImplementation((url: string) => {
+      if (url.includes('/ai-prompt/')) {
+        return Promise.resolve({ data: { aiPrompt: 'Generated prompt' } });
+      } else if (url.includes('/ai-run/')) {
+        // ai-run が失敗
+        return Promise.reject(new Error('AI run API failed'));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const result = await generateAndCopyAiPrompt(
+      'PROJ-444',
+      isGeneratingRef,
+      'Claude Code',
+      undefined,
+      defaults,
+      getI18nString,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.toast.type).toBe('info');
+    expect(result.toast.message).toContain('work-record block is missing');
+    // プロンプト自体のコピーは成功（ai-run がないので手順ブロックは付かない）
+    expect(clipboardWriteSpy).toHaveBeenCalledWith(
+      'Generated prompt\n\n---\ndefault common\ndefault claude',
+    );
+  });
+
+  it('should pass correct tool parameter to ai-run API', async () => {
+    const mockApiClient = client.apiClient as any;
+    setupMockPost(mockApiClient.post);
+
+    await generateAndCopyAiPrompt(
+      'PROJ-555',
+      isGeneratingRef,
+      'Claude Code',
+      undefined,
+      defaults,
+      getI18nString,
+    );
+
+    // ai-run endpoint に claude_code ツールで呼ばれること
+    expect(mockApiClient.post).toHaveBeenCalledWith(
+      expect.stringContaining('/ai-run/'),
+      expect.objectContaining({ tool: 'claude_code' }),
+      expect.any(Object),
+    );
+  });
+
+  it('should pass cursor tool parameter to ai-run API when Cursor is selected', async () => {
+    const mockApiClient = client.apiClient as any;
+    setupMockPost(mockApiClient.post);
+
+    await generateAndCopyAiPrompt(
+      'PROJ-666',
+      isGeneratingRef,
+      'Cursor',
+      undefined,
+      defaults,
+      getI18nString,
+    );
+
+    // ai-run endpoint に cursor ツールで呼ばれること
+    expect(mockApiClient.post).toHaveBeenCalledWith(
+      expect.stringContaining('/ai-run/'),
+      expect.objectContaining({ tool: 'cursor' }),
+      expect.any(Object),
+    );
   });
 });

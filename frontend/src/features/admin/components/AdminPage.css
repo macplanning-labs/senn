@@ -230,3 +230,17 @@
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
 }
+
+/* 承認待ちの件数バッジ(ナビ・サイドバー) */
+.admin__nav-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}

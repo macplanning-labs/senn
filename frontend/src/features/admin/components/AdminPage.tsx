@@ -3,21 +3,28 @@
  */
 
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { SystemMailSettings } from './SystemMailSettings';
 import { AdminAiSection } from './AdminAiSection';
+import { AdminAiKickSection } from './AdminAiKickSection';
 import { AdminBackupSection } from './AdminBackupSection';
 import { AdminAccessSection } from './AdminAccessSection';
+import { usePendingAiMcpCount } from '@/features/aiMcp/usePendingAiMcpCount';
 import './AdminPage.css';
 
-type AdminSection = 'system' | 'ai' | 'access' | 'backup';
+type AdminSection = 'system' | 'ai' | 'aiKick' | 'access' | 'backup';
 
 export function AdminPage() {
   const { t } = useTranslation();
   const { user, isLoading } = useAuthStore();
-  const [section, setSection] = useState<AdminSection>('system');
+  const [searchParams] = useSearchParams();
+  const initialSection = searchParams.get('section');
+  const [section, setSection] = useState<AdminSection>(
+    (['system', 'ai', 'aiKick', 'access', 'backup'] as const).find((s) => s === initialSection) ?? 'system',
+  );
+  const pendingAiMcp = usePendingAiMcpCount(!!user?.isSystemAdmin);
 
   if (isLoading) {
     return (
@@ -55,6 +62,18 @@ export function AdminPage() {
             onClick={() => setSection('ai')}
           >
             {t('admin.navAiSettings')}
+            {pendingAiMcp > 0 && (
+              <span className="admin__nav-badge" data-testid="admin-ai-mcp-badge">
+                {pendingAiMcp}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`admin__nav-btn ${section === 'aiKick' ? 'admin__nav-btn--active' : ''}`}
+            onClick={() => setSection('aiKick')}
+          >
+            {t('admin.navAiKick')}
           </button>
           <button
             type="button"
@@ -76,6 +95,7 @@ export function AdminPage() {
         <div className="admin__content">
           {section === 'system' && <SystemMailSettings />}
           {section === 'ai' && <AdminAiSection />}
+          {section === 'aiKick' && <AdminAiKickSection />}
           {section === 'access' && <AdminAccessSection />}
           {section === 'backup' && <AdminBackupSection />}
         </div>

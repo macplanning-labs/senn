@@ -1186,6 +1186,37 @@ mod tests {
         assert_eq!(seen, expected, "5件がちょうど1回ずつ返ること");
     }
 
+    /// 最後のページまでたどって、変更と削除をまとめる。
+    /// 並行して動く他のテストが大量に変更すると、自分の変更が 1 ページ目(1000 件)に収まらないため。
+    async fn sync_all_pages(
+        pool: &sqlx::PgPool,
+        member: i32,
+        mut cursor: SyncCursor,
+    ) -> (
+        Vec<crate::domain::models::sync_api::TicketSyncOut>,
+        Vec<crate::domain::models::sync_api::SyncDeletedOut>,
+        String,
+    ) {
+        let mut changes = Vec::new();
+        let mut deleted = Vec::new();
+        loop {
+            let page = sync_tickets(
+                pool,
+                super::ticket_access(pool, member).await.unwrap(),
+                Some(cursor),
+                1000,
+            )
+            .await
+            .unwrap();
+            changes.extend(page.changes);
+            deleted.extend(page.deleted);
+            if !page.has_more {
+                return (changes, deleted, page.cursor);
+            }
+            cursor = SyncCursor::decode(&page.cursor).unwrap();
+        }
+    }
+
     /// T1b: 見られないチームへ移したチケットは deleted（key なし）で返る。削除したチケットは key 付きで返る
     #[tokio::test]
     async fn t1b_moved_out_ticket_is_reported_as_deleted() {
@@ -1220,23 +1251,21 @@ mod tests {
                 .await
                 .unwrap();
 
-        let first = sync_tickets(
+        let (first_changes, _, first_cursor) = sync_all_pages(
             &pool,
-            super::ticket_access(&pool, member).await.unwrap(),
-            Some(SyncCursor {
+            member,
+            SyncCursor {
                 c: start,
                 i: 0,
                 d: chrono::Utc::now(),
                 di: 0,
-            }),
-            1000,
+            },
         )
-        .await
-        .unwrap();
-        let first_ids: Vec<i32> = first.changes.iter().map(|t| t.base.id).collect();
+        .await;
+        let first_ids: Vec<i32> = first_changes.iter().map(|t| t.base.id).collect();
         assert!(first_ids.contains(&moved) && first_ids.contains(&removed));
         // 付随データは含まない・説明文は含む
-        let json = serde_json::to_value(&first.changes[0]).unwrap();
+        let json = serde_json::to_value(&first_changes[0]).unwrap();
         assert!(json.get("description").is_some() && json.get("comments").is_none());
 
         sqlx::query("UPDATE tickets_ticket SET team_id = $1 WHERE id = $2")
@@ -1252,27 +1281,18 @@ mod tests {
             .unwrap();
 
         // 前回の cursor から（最終ページの cursor は10秒巻き戻っているので、今の変更も必ず拾える）
-        let cursor = SyncCursor::decode(&first.cursor).unwrap();
-        let second = sync_tickets(
-            &pool,
-            super::ticket_access(&pool, member).await.unwrap(),
-            Some(cursor),
-            1000,
-        )
-        .await
-        .unwrap();
+        let cursor = SyncCursor::decode(&first_cursor).unwrap();
+        let (second_changes, second_deleted, _) = sync_all_pages(&pool, member, cursor).await;
         assert!(
-            !second.changes.iter().any(|t| t.base.id == moved),
+            !second_changes.iter().any(|t| t.base.id == moved),
             "見られない行は changes に入らない"
         );
-        let moved_del = second
-            .deleted
+        let moved_del = second_deleted
             .iter()
             .find(|d| d.id == moved as i64)
             .expect("移したチケットが deleted に入る");
         assert_eq!(moved_del.key, None, "見られないチケットのキーは返さない");
-        let removed_del = second
-            .deleted
+        let removed_del = second_deleted
             .iter()
             .find(|d| d.id == removed as i64)
             .expect("削除したチケットが deleted に入る");

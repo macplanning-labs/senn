@@ -16,6 +16,15 @@ interface GenerateAiPromptResponse {
 }
 
 /**
+ * AI実行記録 API のレスポンス型
+ */
+interface AiRunResponse {
+  runUuid: string;
+  instructionBlock: string;
+  reused: boolean;
+}
+
+/**
  * AI プロンプト生成・コピーユーティリティ
  *
  * @param ticketKey - チケットキー（例: "PROJ-123"）
@@ -77,9 +86,42 @@ export async function generateAndCopyAiPrompt(
     // プロンプトを個人設定のおまじないと結合
     const finalPrompt = buildCopyPrompt(aiPrompt, codingTool, userTemplates, defaults);
 
+    // AI実行記録 API を呼び出し（作業記録の手順ブロックを取得）
+    let instructionBlock = '';
+    try {
+      const aiRunResponse = await apiClient.post<AiRunResponse>(
+        `/tickets/${ticketKey}/ai-run/`,
+        {
+          tool: codingTool === 'Claude Code' ? 'claude_code' : 'cursor',
+        },
+        { timeout: 15_000 },
+      );
+      instructionBlock = aiRunResponse.data.instructionBlock;
+    } catch (error) {
+      // ai-run API 呼び出し失敗時は無視して続行（プロンプト自体のコピーは行う）
+      console.debug('Failed to fetch AI run instruction block:', error);
+    }
+
     // クリップボードに書き込み
     try {
-      await navigator.clipboard.writeText(finalPrompt);
+      let textToCopy = finalPrompt;
+      if (instructionBlock) {
+        textToCopy = `${finalPrompt}\n\n${instructionBlock}`;
+      }
+
+      await navigator.clipboard.writeText(textToCopy);
+
+      // ai-run が失敗した場合は info トースト、成功時は success トースト
+      if (!instructionBlock) {
+        return {
+          success: true,
+          toast: {
+            message: getI18nString('ticketDetail.aiRunBlockSkipped'),
+            type: 'info',
+          },
+        };
+      }
+
       return {
         success: true,
         toast: {

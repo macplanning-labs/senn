@@ -6,6 +6,8 @@
  */
 
 import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import { SimilarIncidentsNeedProjectHint, SimilarIncidentsPanel } from './SimilarIncidentsPanel';
+import { SIMILAR_MIN_TITLE_CHARS, useSimilarIncidents } from '../hooks/useSimilarIncidents';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -172,6 +174,13 @@ export function TicketForm({
   const [teamId, setTeamId] = useState<string>('');
 
   const assigneeProjectId = activeProject?.id ?? null;
+  // 新規のバグ起票中だけ、似た過去の障害を探す(編集中・バグ以外では探さない)
+  const { incidents: similarIncidents, searched: similarSearched } = useSimilarIncidents({
+    enabled: !isEditing && formData.ticket_type === 'bug',
+    projectPrefix: activeProject?.prefix,
+    title: formData.title,
+    description: formData.description,
+  });
   const assigneeTeamId = teamId ? Number(teamId) : (currentTeam?.id ?? null);
   const { data: users } = useQuery<UserOption[]>({
     queryKey: ['users', 'ticket-form', assigneeProjectId, assigneeTeamId],
@@ -626,6 +635,22 @@ export function TicketForm({
             </div>
           )}
         </div>
+
+        {/* 過去の類似障害(新規のバグ起票中だけ。該当なしなら何も出ない) */}
+        {activeProject?.prefix && (
+          <SimilarIncidentsPanel
+            projectPrefix={activeProject.prefix}
+            incidents={similarIncidents}
+            searched={similarSearched}
+            descriptionEmpty={formData.description.trim() === ''}
+          />
+        )}
+
+        {/* プロジェクト未選択のバグ起票では、類似障害を探せないことを案内する */}
+        {!isEditing &&
+          formData.ticket_type === 'bug' &&
+          !activeProject &&
+          formData.title.trim().length >= SIMILAR_MIN_TITLE_CHARS && <SimilarIncidentsNeedProjectHint />}
 
         {/* 2カラム: ステータス + 優先度 */}
         <div className="ticket-form__row">

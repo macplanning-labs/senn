@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.macplanning.senn-ai-runner</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__ROOT__/launchd/run-runner.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__NODE_DIR__:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Docker.app/Contents/Resources/bin</string>
+    <key>NODE_BIN</key><string>__NODE__</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <!-- 落ちたら再起動する(連続の再起動は 30 秒空ける。設定が不正なときに暴走しない) -->
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__HOME__/.senn-ai-runner/logs/runner.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/.senn-ai-runner/logs/runner.log</string>
+</dict>
+</plist>

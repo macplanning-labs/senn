@@ -84,15 +84,6 @@ function ticketDetailPath(
 
 const PRIORITY_OPTIONS = ['urgent', 'high', 'medium', 'low'] as const;
 
-const statusColors: Record<string, string> = {
-  backlog: 'var(--color-status-backlog, #6b7280)',
-  open: 'var(--color-status-open)',
-  in_progress: 'var(--color-status-in-progress)',
-  resolved: 'var(--color-status-resolved)',
-  closed: 'var(--color-status-closed)',
-  canceled: 'var(--color-status-canceled, #9ca3af)',
-};
-
 const priorityIcons: Record<string, string> = {
   urgent: '⚠',
   high: '▮▮▮',
@@ -918,8 +909,8 @@ export function TicketTable({ cycleId }: TicketTableProps = {}) {
                         statusMutation.mutate({ ticketKey: ticket.ticketKey, status: e.target.value });
                       }}
                       style={{
-                        color: statusColors[ticket.status] ?? 'inherit',
-                        borderColor: statusColors[ticket.status] ?? 'transparent',
+                        color: statusChoices.find((o) => o.value === ticket.status)?.color ?? 'inherit',
+                        borderColor: statusChoices.find((o) => o.value === ticket.status)?.color ?? 'transparent',
                       }}
                       data-testid={`status-select-${ticket.ticketKey}`}
                     >

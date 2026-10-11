@@ -5,18 +5,24 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { WorkflowStatus } from '@/shared/api/types';
 
+export function workflowStatusesQueryKey(projectId?: number, teamId?: number) {
+  return ['workflow-statuses', projectId ?? null, teamId ?? null] as const;
+}
+
+export async function fetchWorkflowStatuses(projectId?: number, teamId?: number): Promise<WorkflowStatus[]> {
+  const { data } = await apiClient.get('/workflow-statuses/', {
+    params: {
+      ...(projectId ? { project: projectId } : {}),
+      ...(teamId ? { team: teamId } : {}),
+    },
+  });
+  return (data.results ?? data) as WorkflowStatus[];
+}
+
 export function useWorkflowStatuses(projectId?: number, teamId?: number) {
   return useQuery<WorkflowStatus[]>({
-    queryKey: ['workflow-statuses', projectId ?? null, teamId ?? null],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/workflow-statuses/', {
-        params: {
-          ...(projectId ? { project: projectId } : {}),
-          ...(teamId ? { team: teamId } : {}),
-        },
-      });
-      return (data.results ?? data) as WorkflowStatus[];
-    },
+    queryKey: workflowStatusesQueryKey(projectId, teamId),
+    queryFn: () => fetchWorkflowStatuses(projectId, teamId),
     enabled: !!projectId || !!teamId,
   });
 }

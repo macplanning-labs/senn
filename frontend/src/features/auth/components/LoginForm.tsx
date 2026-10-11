@@ -3,14 +3,15 @@
  *
  * ユーザー名 + パスワードでJWT認証。
  * Zodバリデーション + 入力値保持 + エラー表示。
+ * SSO（Cloudflare Access）対応。
  */
 
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { startAuthentication } from '@simplewebauthn/browser';
-import { useAuthStore } from '@/shared/stores/authStore';
+import { useAuthStore, type SsoAccount } from '@/shared/stores/authStore';
 import { apiClient } from '@/shared/api/client';
 import './LoginForm.css';
 import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
@@ -28,6 +29,7 @@ export function LoginForm() {
   const login = useAuthStore((s) => s.login);
   const verifyMfa = useAuthStore((s) => s.verifyMfa);
   const loginWithPasskey = useAuthStore((s) => s.loginWithPasskey);
+  const loginWithSso = useAuthStore((s) => s.loginWithSso);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,6 +39,90 @@ export function LoginForm() {
   // MFA（TOTP）2段階目
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [totpCode, setTotpCode] = useState('');
+
+  // SSO 関連のstate
+  const [ssoAvailable, setSsoAvailable] = useState<boolean | undefined>(undefined);
+  const [ssoAccounts, setSsoAccounts] = useState<SsoAccount[] | null>(null);
+  const [ssoAutoCheckInProgress, setSsoAutoCheckInProgress] = useState(true);
+
+  // SSO 自動試行（マウント時に1度だけ実行）
+  useEffect(() => {
+    const attemptSsoAuto = async () => {
+      const skipAuto = sessionStorage.getItem('senn_sso_skip_auto') === '1';
+      if (skipAuto) {
+        setSsoAutoCheckInProgress(false);
+        return;
+      }
+
+      try {
+        const result = await loginWithSso();
+        if (result.status === 'loggedIn') {
+          navigate('/my-issues');
+          return;
+        } else if (result.status === 'choose') {
+          setSsoAccounts(result.accounts);
+          setSsoAvailable(true);
+          setSsoAutoCheckInProgress(false);
+          return;
+        } else if (result.status === 'disabled') {
+          setSsoAvailable(false);
+          setSsoAutoCheckInProgress(false);
+          return;
+        } else if (result.status === 'failed') {
+          // Silently fail on automatic attempt; keep ssoAvailable true so the button appears
+          setSsoAvailable(true);
+          setSsoAutoCheckInProgress(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('[auth] SSO auto-attempt failed:', err);
+        setSsoAvailable(true);
+        setSsoAutoCheckInProgress(false);
+      }
+    };
+
+    void attemptSsoAuto();
+  }, [loginWithSso, navigate]);
+
+  async function handleSsoLogin() {
+    setError('');
+    // Remove the skip flag so we can try SSO
+    sessionStorage.removeItem('senn_sso_skip_auto');
+    setSsoAutoCheckInProgress(true);
+    try {
+      const result = await loginWithSso();
+      if (result.status === 'loggedIn') {
+        navigate('/my-issues');
+      } else if (result.status === 'choose') {
+        setSsoAccounts(result.accounts);
+      } else if (result.status === 'disabled') {
+        setSsoAvailable(false);
+      } else if (result.status === 'failed') {
+        setError(result.detail);
+      }
+    } finally {
+      setSsoAutoCheckInProgress(false);
+    }
+  }
+
+  async function handleSsoAccountSelect(account: SsoAccount) {
+    setError('');
+    setSsoAutoCheckInProgress(true);
+    try {
+      const result = await loginWithSso(account.id);
+      if (result.status === 'loggedIn') {
+        navigate('/my-issues');
+      } else if (result.status === 'choose') {
+        setSsoAccounts(result.accounts);
+      } else if (result.status === 'disabled') {
+        setSsoAvailable(false);
+      } else if (result.status === 'failed') {
+        setError(result.detail);
+      }
+    } finally {
+      setSsoAutoCheckInProgress(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -111,6 +197,59 @@ export function LoginForm() {
     }
   }
 
+  // Account chooser modal for SSO
+  if (ssoAccounts) {
+    return (
+      <div className="login" data-testid="login-page">
+        <LanguageToggle className="lang-toggle--floating" />
+        <div className="login__card">
+          <div className="login__header">
+            <h1 className="login__logo">SENN</h1>
+            <p className="login__tagline">{t('auth.ssoChooseAccount', 'Which account do you want to use?')}</p>
+          </div>
+
+          <div className="login__account-chooser">
+            {ssoAccounts.map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                className="login__account-option"
+                onClick={() => { void handleSsoAccountSelect(account); }}
+                disabled={ssoAutoCheckInProgress}
+              >
+                <div className="login__account-name">
+                  {account.displayName}
+                  {account.isSystemAdmin && (
+                    <>
+                      {' '}
+                      <span className="login__account-badge">{t('auth.ssoAdminBadge', ' (admin)')}</span>
+                    </>
+                  )}
+                </div>
+                <div className="login__account-username">{account.username}</div>
+              </button>
+            ))}
+          </div>
+
+          {error && (
+            <div className="login__error" data-testid="login-error" role="alert">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="login__link-btn"
+            onClick={() => { setSsoAccounts(null); setError(''); }}
+            disabled={ssoAutoCheckInProgress}
+          >
+            {t('auth.ssoOtherMethod', 'Sign in another way')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (mfaToken) {
     return (
       <div className="login" data-testid="login-page">
@@ -163,6 +302,22 @@ export function LoginForm() {
     );
   }
 
+  // Show loading state during auto-SSO check
+  if (ssoAutoCheckInProgress) {
+    return (
+      <div className="login" data-testid="login-page">
+        <LanguageToggle className="lang-toggle--floating" />
+        <div className="login__card">
+          <div className="login__header">
+            <h1 className="login__logo">SENN</h1>
+            <p className="login__tagline">{t('auth.ssoChecking', 'Checking your company account…')}</p>
+          </div>
+          <div className="login__loading" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="login" data-testid="login-page">
       <LanguageToggle className="lang-toggle--floating" />
@@ -172,6 +327,26 @@ export function LoginForm() {
           <h1 className="login__logo">SENN</h1>
           <p className="login__tagline">{t('app.tagline')}</p>
         </div>
+
+        {/* SSO ボタン（SSO が使用可能な場合のみ表示） */}
+        {ssoAvailable !== false && (
+          <>
+            <button
+              type="button"
+              className="login__sso-btn"
+              onClick={() => { void handleSsoLogin(); }}
+              disabled={isLoading}
+              data-testid="login-sso-btn"
+            >
+              {t('auth.ssoLogin', 'Sign in with company account (SSO)')}
+            </button>
+
+            {/* SSO と通常ログインの区切り */}
+            <div className="login__divider">
+              <span>{t('auth.or', 'or')}</span>
+            </div>
+          </>
+        )}
 
         {/* フォーム */}
         <form className="login__form" onSubmit={(e) => { void handleSubmit(e); }} data-testid="login-form">

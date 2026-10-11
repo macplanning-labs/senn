@@ -3,6 +3,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 // テスト環境は node のため、DOM ではなくサーバーレンダリングした HTML を検証する
+// AI 自動実行の設定は、react-query を使う別コンポーネント(専用のテストがある)。ここでは描画しない
+vi.mock('./ProjectAiKickSettings', () => ({ ProjectAiKickSettings: () => null }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'ja', changeLanguage: vi.fn() } }),
 }));

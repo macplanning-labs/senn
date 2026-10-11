@@ -1,0 +1,12 @@
+{
+  "name": "senn-ai-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SENN の「AIに対応させる」を、社内マシンで実行するランナー(依存パッケージなし)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/runner.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

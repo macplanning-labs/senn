@@ -248,6 +248,24 @@ pub async fn create_user(
     Ok(row)
 }
 
+/// 空のデータベースへの最初の登録者を、システム管理者にする(DEMO-000171)。
+///
+/// 新しく立てたサーバーには、ほかに管理者を作る手段が無い。管理者がいないと、
+/// ランナーの登録(AI 自動実行)や、Owner のいないチームの救済ができない。
+/// 「この人しかいないとき」だけ昇格させ、判定と昇格を 1 つの UPDATE で行う。
+/// 同時に 2 人が登録したときは、どちらも昇格しない(管理者が 2 人できるより安全)。
+/// 昇格したら true。
+pub async fn promote_if_only_user(pool: &PgPool, user_id: i32) -> anyhow::Result<bool> {
+    let r = sqlx::query(
+        "UPDATE accounts_user SET is_staff = true, is_system_admin = true
+         WHERE id = $1 AND (SELECT count(*) FROM accounts_user) = 1",
+    )
+    .bind(i64::from(user_id))
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() == 1)
+}
+
 // --- TOTP ---
 
 const TOTP_COLUMNS: &str =
@@ -390,6 +408,25 @@ pub async fn update_webauthn_passkey_json(
 mod tests {
     use super::*;
     use crate::test_support::{create_test_user, test_pool, unique_suffix};
+
+    /// DEMO-000171: ほかに利用者がいるときは、昇格させない(既存の環境で、招待で入った人が管理者にならない)。
+    /// 空のデータベースで昇格することは、共有のテスト DB では確かめられないため、新規構築の通しの確認で確かめる。
+    #[tokio::test]
+    async fn promote_if_only_user_does_nothing_when_others_exist() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let a = create_test_user(&pool, &format!("first-a-{}", unique_suffix())).await;
+        let _b = create_test_user(&pool, &format!("first-b-{}", unique_suffix())).await;
+        assert!(!super::promote_if_only_user(&pool, a).await.unwrap());
+        let (staff, admin): (bool, bool) =
+            sqlx::query_as("SELECT is_staff, is_system_admin FROM accounts_user WHERE id = $1")
+                .bind(i64::from(a))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!staff && !admin);
+    }
 
     /// DEMO-000164: 認証とリアルタイムが、同じ接続で続けて有効性を確かめても失敗しないこと。
     /// 以前は、認証が i64・リアルタイムが i32 で同じ SQL を実行しており、同じ接続で

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStatusOptions, DEFAULT_STATUS_OPTIONS, statusLabelOf } from './statusOptions';
+import { buildStatusOptions, DEFAULT_STATUS_OPTIONS, mergeStatusOptions, statusLabelOf } from './statusOptions';
 
 describe('statusOptions', () => {
   it('ワークフロー設定が無いときは標準の6種類（英語名）', () => {
@@ -27,5 +27,27 @@ describe('statusOptions', () => {
     expect(statusLabelOf('in_progress', options)).toBe('In Progress');
     expect(statusLabelOf('custom_x', options)).toBe('custom_x');
     expect(statusLabelOf(null, options)).toBe('—');
+  });
+
+  describe('mergeStatusOptions', () => {
+    const opt = (value: string, label = value, color = '#000') => ({ value, label, color });
+
+    it('すべて空なら標準の選択肢', () => {
+      expect(mergeStatusOptions([])).toEqual([...DEFAULT_STATUS_OPTIONS]);
+      expect(mergeStatusOptions([[], []])).toEqual([...DEFAULT_STATUS_OPTIONS]);
+    });
+
+    it('value で重複排除し、最初の出現の名前・色を採用する', () => {
+      const merged = mergeStatusOptions([[opt('open', 'Todo', '#111')], [opt('open', 'Other', '#222')]]);
+      expect(merged).toEqual([opt('open', 'Todo', '#111')]);
+    });
+
+    it('標準の slug を標準の順で先に、追加の slug は初出順で後ろに並べる', () => {
+      const merged = mergeStatusOptions([
+        [opt('review'), opt('closed'), opt('open')],
+        [opt('qa'), opt('backlog'), opt('review')],
+      ]);
+      expect(merged.map((o) => o.value)).toEqual(['backlog', 'open', 'closed', 'review', 'qa']);
+    });
   });
 });

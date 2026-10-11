@@ -1,0 +1,55 @@
+/* BarChart.css - 棒グラフ(素の SVG)。色はテーマ変数(--insights-*)を使う */
+
+.insights-chart {
+  margin: 0;
+}
+
+.insights-chart__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.insights-chart__grid {
+  stroke: var(--color-border, rgba(128, 128, 128, 0.25));
+  stroke-width: 0.5;
+  stroke-dasharray: 3 3;
+}
+
+.insights-chart__axis {
+  stroke: var(--color-text-tertiary, #888);
+  stroke-width: 1;
+}
+
+.insights-chart__tick {
+  fill: var(--color-text-secondary, #888);
+  font-size: 11px;
+}
+
+.insights-chart__bar {
+  stroke: var(--insights-frame, rgba(128, 128, 128, 0.5));
+  stroke-width: 0.5;
+}
+
+.insights-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--color-text-secondary, #888);
+}
+
+.insights-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.insights-chart__swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}

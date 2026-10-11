@@ -361,6 +361,20 @@ pub async fn generate_prompt_text(
         };
 
     let ai_config = state.ai_config().await;
+    // SENN_KB_ENGINE=rules のときは Ollama を呼ばず、ルールで状況サマリを決める
+    if ai_config.kb_engine == crate::domain::services::kb::config::KbEngine::Rules {
+        let result = ai_service::generate_dev_ai_prompt_rules(
+            &ai_config,
+            &state.pool,
+            &ticket.ticket_key,
+            &ticket.title,
+            &ticket.status,
+            &ticket.description,
+            &comments_text,
+        )
+        .await;
+        return (StatusCode::OK, Json(result)).into_response();
+    }
     // ハイブリッド方式: Ollama 失敗時も Ok（テンプレート + フォールバック文言）を返す。
     // エラーは実質ほぼ発生しない（チケット不存在・DB エラー時のみ）。
     match ai_service::generate_dev_ai_prompt(

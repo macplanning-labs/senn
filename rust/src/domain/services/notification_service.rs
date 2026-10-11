@@ -28,7 +28,7 @@ async fn should_send_email(pool: &PgPool, user: &User, category: &NotificationCa
     }
 }
 
-/// チケット操作に基づく通知生成
+/// チケット操作に基づく通知生成(操作した本人には送らない)
 pub async fn notify_ticket_event(
     pool: &PgPool,
     mail_sender: &Option<MailSender>,
@@ -36,6 +36,29 @@ pub async fn notify_ticket_event(
     actor_id: i32,
     category: NotificationCategory,
     extra_message: &str,
+) -> anyhow::Result<()> {
+    notify_ticket_event_with(
+        pool,
+        mail_sender,
+        ticket_id,
+        actor_id,
+        category,
+        extra_message,
+        true,
+    )
+    .await
+}
+
+/// `skip_actor` が false のときは、操作者(`actor_id`)も宛先に含める。
+/// 人の操作ではない変更(Git の自動遷移など)は、操作した本人がいないので、false にする。
+pub async fn notify_ticket_event_with(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+    ticket_id: i32,
+    actor_id: i32,
+    category: NotificationCategory,
+    extra_message: &str,
+    skip_actor: bool,
 ) -> anyhow::Result<()> {
     // チケット情報取得
     let ticket = match ticket_repo::find_by_id(pool, ticket_id).await? {
@@ -80,7 +103,7 @@ pub async fn notify_ticket_event(
     let watchers = ticket_repo::find_watchers(pool, ticket_id).await?;
 
     for watcher_id in watchers {
-        if watcher_id == actor_id {
+        if skip_actor && watcher_id == actor_id {
             continue;
         }
         // 送る時点で、宛先がこのチケットを見られること(アクセス制御の再設計 C-5)
@@ -202,6 +225,31 @@ pub async fn notify_status_change(
         actor_id,
         NotificationCategory::StatusChanged,
         &msg,
+    )
+    .await
+}
+
+/// Git(push・PR のマージなど)による自動のステータス変更の通知。
+/// 人の操作ではないので、ウォッチャー全員(連携を作った人も含む)に送る。チャット連携にも載る。
+/// `source` は出どころの説明(例: 「GitHub: PR のマージ」)。
+pub async fn notify_status_change_from_git(
+    pool: &PgPool,
+    mail_sender: &Option<MailSender>,
+    ticket_id: i32,
+    actor_id: i32,
+    old_status: &str,
+    new_status: &str,
+    source: &str,
+) -> anyhow::Result<()> {
+    let msg = format!("{} → {}({})", old_status, new_status, source);
+    notify_ticket_event_with(
+        pool,
+        mail_sender,
+        ticket_id,
+        actor_id,
+        NotificationCategory::StatusChanged,
+        &msg,
+        false,
     )
     .await
 }

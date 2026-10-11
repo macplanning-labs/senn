@@ -12,9 +12,9 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { EntityName } from './packets';
 
 /** 端末内 DB に表を持たず、REST + react-query で動いている対象 */
-export type SignalEntity = 'attachment' | 'cycle' | 'notification' | 'wiki' | 'reaction';
+export type SignalEntity = 'attachment' | 'cycle' | 'notification' | 'wiki' | 'reaction' | 'git_event';
 
-export const SIGNAL_ENTITIES: readonly SignalEntity[] = ['attachment', 'cycle', 'notification', 'wiki', 'reaction'];
+export const SIGNAL_ENTITIES: readonly SignalEntity[] = ['attachment', 'cycle', 'notification', 'wiki', 'reaction', 'git_event'];
 
 /** 文字列が SignalEntity かどうかを判定（型ガード） */
 export function isSignalEntity(e: string): e is SignalEntity {
@@ -27,6 +27,7 @@ export const SIGNAL_QUERY_KEYS: Record<Exclude<SignalEntity, 'reaction'>, QueryK
   cycle: [['cycles'], ['cycle'], ['cycle-progress']],
   notification: [['notifications'], ['unread-count']],
   wiki: [['wiki-pages'], ['wiki-page'], ['wiki']],
+  git_event: [['git-events']],                           // チケット画面の「GIT ACTIVITY」(コミット・PR)
 };
 
 /** JSON.stringify による重複排除用ヘルパー */

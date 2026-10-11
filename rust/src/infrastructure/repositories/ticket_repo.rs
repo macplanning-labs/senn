@@ -305,6 +305,12 @@ pub struct ApiTicketFilter {
     pub due_date_gte: Option<NaiveDate>,
     pub due_date_lte: Option<NaiveDate>,
     pub due_date_isnull: Option<bool>,
+    /// 除く状態(AI 用の一覧。「未完了だけ」を 1 回で取るため)
+    pub status_not: Option<Vec<String>>,
+    /// ラベル名(AI 用の一覧。AI はラベルの番号を知らないため、名前で絞る)
+    pub label_name: Option<String>,
+    /// この日時以降に更新されたもの(AI 用の一覧)
+    pub updated_after: Option<chrono::DateTime<chrono::Utc>>,
     /// 今の判定に使う閲覧者(フェーズ H で削除し、scope に一本化する)
     pub user_id: Option<i32>,
     pub team_slug: Option<String>,
@@ -763,6 +769,21 @@ fn push_ticket_list_filters(
         } else {
             " AND t.due_date IS NOT NULL"
         });
+    }
+    if let Some(ref statuses) = filter.status_not {
+        if !statuses.is_empty() {
+            qb.push(" AND NOT (t.status = ANY(")
+                .push_bind(statuses.clone())
+                .push("::text[]))");
+        }
+    }
+    if let Some(ref name) = filter.label_name {
+        qb.push(" AND EXISTS(SELECT 1 FROM tickets_ticket_labels tl JOIN m_label l ON l.id = tl.labelmodel_id WHERE tl.ticketmodel_id = t.id AND l.name = ")
+            .push_bind(name.clone())
+            .push(")");
+    }
+    if let Some(after) = filter.updated_after {
+        qb.push(" AND t.updated_at >= ").push_bind(after);
     }
     if let Some(search_term) = search {
         if !search_term.is_empty() {
@@ -3146,6 +3167,25 @@ pub async fn create_dependency(
     dependency_type: &str,
     created_by: i32,
 ) -> anyhow::Result<CreateDependencyResult> {
+    let mut conn = pool.acquire().await?;
+    create_dependency_conn(
+        &mut conn,
+        from_task_id,
+        to_task_id,
+        dependency_type,
+        created_by,
+    )
+    .await
+}
+
+/// 同じ。ただし、呼び出し側の接続(トランザクション)の中で行う(AI の一括登録で、まとめて取り消せるように)
+pub async fn create_dependency_conn(
+    conn: &mut sqlx::PgConnection,
+    from_task_id: i32,
+    to_task_id: i32,
+    dependency_type: &str,
+    created_by: i32,
+) -> anyhow::Result<CreateDependencyResult> {
     if from_task_id == to_task_id {
         return Ok(CreateDependencyResult::SelfReference);
     }
@@ -3153,7 +3193,7 @@ pub async fn create_dependency(
     let to_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tickets_ticket WHERE id = $1)")
             .bind(to_task_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?;
     if !to_exists {
         return Ok(CreateDependencyResult::ToTaskNotFound);
@@ -3164,7 +3204,7 @@ pub async fn create_dependency(
     )
     .bind(from_task_id)
     .bind(to_task_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     if exists {
         return Ok(CreateDependencyResult::Duplicate);
@@ -3185,7 +3225,7 @@ pub async fn create_dependency(
     )
     .bind(to_task_id)
     .bind(from_task_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     if would_create_cycle {
         return Ok(CreateDependencyResult::CircularDependency);
@@ -3200,7 +3240,7 @@ pub async fn create_dependency(
     .bind(to_task_id)
     .bind(dependency_type)
     .bind(created_by)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
 
     Ok(CreateDependencyResult::Success(id))

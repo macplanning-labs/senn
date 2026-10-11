@@ -44,6 +44,27 @@ export function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 
+/**
+ * 「ログインそのもの」の API か。ここでの 401 は「期限切れ」ではなく「認証の失敗」
+ * (資格情報が違う・SSO の情報が届かない)なので、リフレッシュ処理には入れず、そのままエラーとして返す。
+ * 入れてしまうと、リフレッシュトークンが無い状態で「更新中」の印が立ったまま戻らず、
+ * 以降の 401 が永久に待たされる(ログイン画面のスピナーが消えない。DEMO-000179)。
+ */
+const AUTH_FAILURE_PATHS = [
+  '/auth/login/',
+  '/auth/sso/login/',
+  '/auth/login/verify/',
+  '/auth/token/refresh/',
+  '/auth/passkey/login/begin/',
+  '/auth/passkey/login/complete/',
+];
+
+export function isAuthFailureRequest(url: string | undefined): boolean {
+  if (!url) return false;
+  const path = url.split('?')[0] ?? '';
+  return AUTH_FAILURE_PATHS.some((p) => path.endsWith(p));
+}
+
 /** 認証ページにいるときはフルリロードしない（401 ループ防止） */
 function redirectToLoginIfNeeded(): void {
   const path = window.location.pathname;
@@ -154,6 +175,11 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // ログインそのものの 401 は、認証の失敗。リフレッシュ処理には入れず、そのまま返す
+    if (error.response?.status === 401 && isAuthFailureRequest(originalRequest?.url)) {
+      return Promise.reject(error);
+    }
+
     // 401かつリフレッシュ未実行の場合
     if (
       error.response?.status === 401 &&
@@ -180,6 +206,9 @@ apiClient.interceptors.response.use(
 
       const refreshToken = getRefreshToken();
       if (!refreshToken) {
+        // 「更新中」の印を戻し、すでに待っている要求も、エラーで終わらせる(戻さないと、以降の 401 が永久に待たされる)
+        isRefreshing = false;
+        processQueue(error, null);
         clearTokens();
         redirectToLoginIfNeeded();
         return Promise.reject(error);

@@ -1,0 +1,66 @@
+/**
+ * ProjectAiKickSettings.css
+ * 管理画面のスタイル(admin__*)は、プロジェクト設定の画面では読み込まれないため、ここで定義する。
+ */
+
+.project-ai-kick-settings {
+  max-width: 560px;
+}
+
+.project-ai-kick-settings .admin__field {
+  margin-bottom: var(--space-4);
+}
+
+.project-ai-kick-settings .admin__label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.project-ai-kick-settings .admin__hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
+}
+
+.project-ai-kick-settings .admin__input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+}
+
+.project-ai-kick-settings .admin__input:disabled {
+  opacity: 0.6;
+}
+
+.project-ai-kick-settings .admin__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.project-ai-kick-settings .admin__btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.project-ai-kick-settings .admin__btn--primary {
+  background: var(--color-accent-primary);
+  color: #fff;
+}
+
+.project-ai-kick-settings .admin__btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

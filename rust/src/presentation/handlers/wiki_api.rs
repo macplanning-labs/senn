@@ -134,7 +134,7 @@ fn db_error(e: anyhow::Error) -> axum::response::Response {
 }
 
 /// 作成先・移動先への書き込みの判定(今の判定は `authorize_scope_write`)
-async fn scope_write_gate(
+pub(crate) async fn scope_write_gate(
     state: &AppState,
     viewer: &Viewer,
     user_id: i32,
@@ -159,7 +159,7 @@ async fn scope_write_gate(
 }
 
 /// 既存ページへの操作の判定(今の判定は `authorize_page_write`)。ページの所属を返す
-async fn page_gate(
+pub(crate) async fn page_gate(
     state: &AppState,
     viewer: &Viewer,
     user_id: i32,

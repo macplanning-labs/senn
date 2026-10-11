@@ -6,8 +6,10 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/shared/api/client';
 import type { GitEvent } from '@/shared/api/types';
+import { prBadges, changeStats, reviewersSummary } from '../utils/gitActivity';
 import './GitActivity.css';
 
 interface GitActivityProps {
@@ -37,6 +39,7 @@ const PR_STATE_STYLES: Record<string, { bg: string; color: string; label: string
 };
 
 export function GitActivity({ ticketKey }: GitActivityProps) {
+  const { t } = useTranslation();
   const { data: events = [], isLoading } = useQuery<GitEvent[]>({
     queryKey: ['git-events', ticketKey],
     queryFn: async () => {
@@ -106,6 +109,14 @@ export function GitActivity({ ticketKey }: GitActivityProps) {
                         {PR_STATE_STYLES[event.prState]!.label}
                       </span>
                     )}
+                    {prBadges(event).map((b) => (
+                      <span
+                        key={b.kind}
+                        className={`git-event__detail-badge git-event__detail-badge--${b.tone}`}
+                      >
+                        {t(b.i18nKey)}
+                      </span>
+                    ))}
                   </>
                 )}
                 <span className="git-event__time">
@@ -146,6 +157,29 @@ export function GitActivity({ ticketKey }: GitActivityProps) {
                     🌿 {event.branch}
                   </span>
                 )}
+                {event.eventType === 'pull_request' && (() => {
+                  const stats = changeStats(event);
+                  const rv = reviewersSummary(event.reviewers);
+                  return (
+                    <>
+                      {stats && (
+                        <span className="git-event__stats">
+                          <span className="git-event__stats-add">+{stats.additions}</span>{' '}
+                          <span className="git-event__stats-del">−{stats.deletions}</span>
+                          {stats.changedFiles != null && (
+                            <> · {t('gitActivity.files', { count: stats.changedFiles })}</>
+                          )}
+                        </span>
+                      )}
+                      {rv && (
+                        <span className="git-event__reviewers">
+                          {t('gitActivity.reviewers')}: {rv.shown.join(', ')}
+                          {rv.others > 0 && <> {t('gitActivity.others', { count: rv.others })}</>}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

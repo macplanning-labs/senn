@@ -1,0 +1,4 @@
+# ランナーが使う gitleaks の設定(既定の規則をそのまま使う)。
+# 作業ディレクトリの .gitleaks.toml / .gitleaksignore は読まない(AI が書き換えて、検査を無効にできるため)。
+[extend]
+useDefault = true
