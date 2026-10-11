@@ -100,6 +100,21 @@ From a ticket, click **Ask AI**, and Claude Code works on it in an isolated cont
 3. Create your token with `claude setup-token`, set the environment variables, and start `node src/runner.mjs`.
 4. In the project settings, enable **AI auto-run**, then click **Ask AI** on a ticket.
 
+## Use SENN from your AI (MCP)
+
+`mcp-server/` is an MCP server that lets your own AI client (Claude Code, Claude Desktop, Cursor, …) search, create and update tickets, read and write the wiki, and record AI work **on your own SENN server**. It also ships `senn-ai-run`, a small CLI to report the start and end of AI work.
+
+**Before you start**
+- **Tool results are sent to your AI provider.** Ticket descriptions, comments and wiki pages returned by the tools go to the AI you use (Anthropic, for Claude). Use it only with projects whose content may be shown to that AI.
+- **Per-person keys.** The AI can only see and do what the key's owner can see and do in SENN.
+- **File uploads are restricted.** The wiki-attachment tools read local files. To stop a prompt-injected AI from uploading secrets, only regular files under the current working directory (or `SENN_UPLOAD_ROOTS`) can be sent; dot-files and dot-directories (`.ssh`, `.env`, …), keys and credential files are refused.
+
+**Set up** (details: [`mcp-server/README.md`](./mcp-server/README.md), Japanese):
+1. `cd mcp-server && npm ci && npm run build`
+2. Put `SENN_BASE_URL=https://<your SENN host>` in `~/.config/senn-ai-agent/credentials.env` (mode 600).
+3. Register `bash /path/to/senn/mcp-server/run-with-credentials.sh` as an MCP server (e.g. `claude mcp add senn -- bash /path/to/senn/mcp-server/run-with-credentials.sh`).
+4. Ask the AI to "connect to SENN". Open the link it returns, click **Request approval**, and once a system administrator approves (**Admin → AI settings**), the key is saved on your machine automatically — no copy and paste.
+
 ## Key Features
 
 - **Ticket management** — issues/tickets with status, priority, labels, assignees, threaded comments (with @mentions), and Linear-style keyboard navigation

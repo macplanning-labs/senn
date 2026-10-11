@@ -3,6 +3,7 @@ name: CI
 # Runs the same checks as the maintainer script `run_local_ci.sh`:
 #   rust:     cargo check --workspace / cargo test --workspace
 #   frontend: npm ci / lint / build / test
+#   ai-runner, mcp-server: npm test (mcp-server also npm audit)
 on:
   pull_request:
   push:
@@ -81,3 +82,28 @@ jobs:
         if: ${{ hashFiles('tools/ai-runner/package.json') != '' }}
         working-directory: tools/ai-runner
         run: npm test
+
+  mcp-server:
+    name: MCP server (test / audit)
+    runs-on: ubuntu-latest
+    # Tests run with a temporary HOME and fakes (no SENN server or real credentials needed).
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('mcp-server/package-lock.json') != '' }}
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+      - name: Install dependencies
+        if: ${{ hashFiles('mcp-server/package-lock.json') != '' }}
+        run: npm ci
+      - name: Test
+        if: ${{ hashFiles('mcp-server/package-lock.json') != '' }}
+        run: npm test
+      - name: Audit (high or above)
+        if: ${{ hashFiles('mcp-server/package-lock.json') != '' }}
+        run: npm audit --audit-level=high
