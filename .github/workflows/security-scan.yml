@@ -36,10 +36,15 @@ jobs:
 
       # --redact は必須。このリポジトリは公開されており、Actions のログも
       # 誰でも読める。検出時に値そのものをログへ出してはいけない。
+      # --log-opts で「チェックアウトしたコミットから辿れる履歴」だけを走査する。
+      # 既定は git log --all で、fetch-depth: 0 だと他のブランチまで走査してしまい、
+      # どこか 1 本のブランチに秘密があると無関係な PR まで全部落ちる。
+      # pull_request では HEAD は PR のマージコミットなので、main の履歴 + PR のコミットが対象。
       - name: Run gitleaks
         run: |
           gitleaks detect \
             --source . \
+            --log-opts="--full-history HEAD" \
             --redact \
             --no-banner \
             --exit-code 1 \
