@@ -66,3 +66,18 @@ jobs:
 
       - name: Test
         run: npm test
+
+  ai-runner:
+    name: AI runner (test)
+    runs-on: ubuntu-latest
+    # The runner has no dependencies; tests use fakes (no Docker, Claude, or SENN needed).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('tools/ai-runner/package.json') != '' }}
+        with:
+          node-version: "22"
+      - name: Test
+        if: ${{ hashFiles('tools/ai-runner/package.json') != '' }}
+        working-directory: tools/ai-runner
+        run: npm test
