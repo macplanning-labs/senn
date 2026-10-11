@@ -80,6 +80,26 @@ Advanced (Japanese): [`docs/利用ガイド_OSS自己構築.md`](./docs/利用�
 
 ---
 
+## Ask AI to work on tickets (Claude Pro / Max)
+
+From a ticket, click **Ask AI**, and Claude Code works on it in an isolated container on **your own machine**, using **your own Claude Pro / Max subscription**. The result is a commit (and, if you allow it, a pushed branch) for a human to review.
+
+**Before you start**
+- **Data is sent to Anthropic.** When AI works on a ticket, the ticket's content (description, comments, author names, links) and the code of the target repository are sent to Anthropic through the Claude account configured on the runner. SENN asks you to confirm this when you enable the feature for a project and each time you run it.
+- **It uses your subscription**, via a token created with `claude setup-token`. Pay-as-you-go API keys are not used (the runner refuses to start if `ANTHROPIC_API_KEY` is set).
+- **Always review AI changes before merging.** Instructions hidden in a ticket can steer the AI (prompt injection); this cannot be fully prevented.
+
+**How it stays contained**
+- The runner polls SENN (nothing connects in), checks the signed request, and runs Claude Code in a disposable container with a read-only root, no capabilities, and only the working directory mounted.
+- **Your real Claude token never enters the AI's container.** A per-run gateway holds it, sends requests only to `api.anthropic.com`, and refuses server-side tools (web fetch/search, MCP, code execution) that could carry data elsewhere.
+- AI may only work on repositories a SENN system administrator allows, which must also be on the runner's own allowlist. By default nothing is pushed.
+
+**Set up**: see [`tools/ai-runner/README.md`](./tools/ai-runner/README.md) (Japanese). In short:
+1. As the system administrator (the first account on a new server), open **Admin → AI auto-run**: save limits, allow repositories, and add a runner (copy its token and signing secret).
+2. On the runner machine: `docker build` the sandbox image, run `docker/setup-networks.sh`, then `./verify-sandbox.sh`.
+3. Create your token with `claude setup-token`, set the environment variables, and start `node src/runner.mjs`.
+4. In the project settings, enable **AI auto-run**, then click **Ask AI** on a ticket.
+
 ## Key Features
 
 - **Ticket management** — issues/tickets with status, priority, labels, assignees, threaded comments (with @mentions), and Linear-style keyboard navigation
