@@ -48,6 +48,24 @@ pub struct LoginVerifyRequest {
     pub totp_code: String,
 }
 
+/// ログインの試行ロック(DEMO-000153)は、ユーザー名で数える。
+/// 大文字小文字・前後の空白は、ミドルウェア側でそろえてからキーにする。
+/// 存在しないユーザー名でも、ログインは同じ 401 を返すので、同じように数えられる
+/// (ロックの有無から、アカウントの有無は分からない)。
+impl auth_core::domain::attempt_lock::LockKey for LoginRequest {
+    fn lock_key(&self) -> &str {
+        &self.username
+    }
+}
+
+/// 二要素認証(TOTP)の試行ロックは、MFA トークンで数える(トークン1つにつき数回まで)。
+/// 新しいトークンを得るにはパスワードが要るので、第三者が本人を締め出すことはできない。
+impl auth_core::domain::attempt_lock::LockKey for LoginVerifyRequest {
+    fn lock_key(&self) -> &str {
+        &self.mfa_token
+    }
+}
+
 #[derive(Deserialize)]
 pub struct TokenRefreshRequest {
     pub refresh: String,

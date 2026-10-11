@@ -176,10 +176,13 @@ describe('ProjectAiKickSettings', () => {
     expect(screen.getByTestId('ai-kick-data-sharing-ack')).toBeInTheDocument();
     await user.click(screen.getByText(/保存/i));
 
-    await waitFor(() => {
-      expect(screen.getByText(/確認にチェックを入れてください/)).toBeInTheDocument();
-    });
+    // エラーは、確認のチェックのすぐ下に出る
+    const err = await screen.findByTestId('ai-kick-data-sharing-error');
+    expect(err.textContent).toMatch(/確認にチェックを入れてください/);
     expect(mockApiClient.put).not.toHaveBeenCalled();
+    // チェックを入れると、エラーは消える
+    await user.click(screen.getByTestId('ai-kick-data-sharing-ack'));
+    expect(screen.queryByTestId('ai-kick-data-sharing-error')).not.toBeInTheDocument();
   });
 
   it('shows system disabled message', async () => {

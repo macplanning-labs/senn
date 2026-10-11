@@ -367,6 +367,60 @@ async fn find_candidates_scoped(
         .collect())
 }
 
+/// 類似障害の検索(文字の重なり方式)で、点数をつける対象を読む上限(新しい順)
+pub const INCIDENT_POOL_MAX: i64 = 1_000;
+
+/// プロジェクトの、完了済みの障害(bug/不具合、または type:incident|infra)を、新しい順に最大 `limit` 件読む。
+/// `exclude_key` があれば、そのチケットは除く。語の絞り込みはしない(点数づけは呼び出し側)。
+/// 返す `matched_terms` は空、`score` は 0。
+pub async fn list_project_incidents(
+    pool: &PgPool,
+    project_id: i32,
+    exclude_key: Option<&str>,
+    limit: i64,
+) -> anyhow::Result<Vec<PatternCandidate>> {
+    let cat = category_sql("t.status");
+    let sql = format!(
+        "SELECT t.ticket_key, t.title, t.description,
+                (SELECT COALESCE(array_agg(m.name ORDER BY m.name), ARRAY[]::text[])
+                   FROM tickets_ticket_labels tl JOIN m_label m ON m.id = tl.labelmodel_id
+                  WHERE tl.ticketmodel_id = t.id) AS labels,
+                COALESCE((SELECT string_agg(c.body, E'\n') FROM tickets_comment c
+                           WHERE c.ticket_id = t.id AND c.deleted_at IS NULL), '') AS comments
+           FROM tickets_ticket t
+          WHERE t.project_id = $1
+            AND ($2::text IS NULL OR t.ticket_key <> $2)
+            AND COALESCE({cat}, '') = 'completed'
+            AND (t.ticket_type IN {BUG_TYPES_SQL}
+                 OR EXISTS (SELECT 1 FROM tickets_ticket_labels tl JOIN m_label m ON m.id = tl.labelmodel_id
+                             WHERE tl.ticketmodel_id = t.id AND m.name IN {BUG_LABELS_SQL}))
+          ORDER BY t.updated_at DESC, t.id DESC
+          LIMIT $3"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(project_id)
+        .bind(exclude_key)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let title: String = r.try_get("title")?;
+        let description: String = r.try_get("description")?;
+        let comments: String = r.try_get("comments")?;
+        out.push(PatternCandidate {
+            key: r.try_get("ticket_key")?,
+            text_for_files: format!("{title}\n{description}\n{comments}"),
+            title,
+            description,
+            labels: r.try_get("labels")?,
+            matched_terms: Vec::new(),
+            score: 0,
+        });
+    }
+    Ok(out)
+}
+
 /// SQL で多めに取る倍率(重なりを数え直して減ったあとでも、上限件数を満たすため)
 const OVERFETCH: i64 = 4;
 

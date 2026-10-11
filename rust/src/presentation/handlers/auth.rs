@@ -43,6 +43,14 @@ pub struct LoginForm {
     pub password: String,
 }
 
+/// 試行ロックの識別子(DEMO-000153)。JSON の `LoginRequest` と同じくユーザー名で数え、
+/// 同じストアを使うので、ログイン画面と API のどちらから試しても、回数は合算される
+impl auth_core::domain::attempt_lock::LockKey for LoginForm {
+    fn lock_key(&self) -> &str {
+        &self.username
+    }
+}
+
 pub async fn login_submit(
     State(state): State<AppState>,
     Form(form): Form<LoginForm>,
@@ -133,8 +141,12 @@ async fn build_login_cookie_jar(state: &AppState, user_id: i32) -> CookieJar {
         .add(clear_mfa)
 }
 
+/// 失敗は 401 で返す(画面の表示は同じ)。試行ロックが「失敗」として数えるため(DEMO-000153。以前は 200 だった)
 fn login_failed_response() -> Response {
-    Html("<script>alert('ユーザー名またはパスワードが正しくありません');history.back();</script>")
+    (
+        StatusCode::UNAUTHORIZED,
+        Html("<script>alert('ユーザー名またはパスワードが正しくありません');history.back();</script>"),
+    )
         .into_response()
 }
 
@@ -283,7 +295,11 @@ pub async fn totp_verify(
     .await
     {
         Ok(true) => issue_login_cookies_and_redirect(&state, user_id, "/").await,
-        _ => Html("<script>alert('認証コードが正しくありません');history.back();</script>")
+        // 失敗は 401 で返す(画面の表示は同じ)。試行ロックが「失敗」として数えるため(DEMO-000153)
+        _ => (
+            StatusCode::UNAUTHORIZED,
+            Html("<script>alert('認証コードが正しくありません');history.back();</script>"),
+        )
             .into_response(),
     }
 }

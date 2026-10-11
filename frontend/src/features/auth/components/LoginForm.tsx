@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { useAuthStore, type SsoAccount } from '@/shared/stores/authStore';
 import { apiClient } from '@/shared/api/client';
+import { rateLimitMessage } from '../rateLimitMessage';
 import './LoginForm.css';
 import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 
@@ -143,8 +144,9 @@ export function LoginForm() {
         return;
       }
       navigate('/my-issues');
-    } catch {
-      setError(t('auth.loginError', 'Invalid username or password'));
+    } catch (err) {
+      // 429(試行ロック・回数制限)は「パスワードが違う」とは別の文言にする(DEMO-000153)
+      setError(rateLimitMessage(err, t) ?? t('auth.loginError', 'Invalid username or password'));
     } finally {
       setIsLoading(false);
     }
@@ -159,8 +161,8 @@ export function LoginForm() {
     try {
       await verifyMfa(mfaToken, totpCode);
       navigate('/my-issues');
-    } catch {
-      setError(t('auth.mfaError', 'Invalid authentication code'));
+    } catch (err) {
+      setError(rateLimitMessage(err, t) ?? t('auth.mfaError', 'Invalid authentication code'));
     } finally {
       setIsLoading(false);
     }

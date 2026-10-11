@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { AxiosError } from 'axios';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { apiClient } from '@/shared/api/client';
+import { rateLimitMessage } from '../rateLimitMessage';
 import './LoginForm.css';
 import { LanguageToggle } from '@/shared/components/ui/LanguageToggle';
 
@@ -72,8 +73,12 @@ export function RegisterForm() {
       navigate('/my-issues');
     } catch (err) {
       const data = (err as AxiosError<{ detail?: string; code?: string }>)?.response?.data;
+      const limited = rateLimitMessage(err, t);
       // 招待制で断られたときは、サーバーの文言(日本語)ではなく、表示中の言語の文言を出す
-      if (data?.code === 'invite_required') {
+      if (limited) {
+        // 回数制限(429。DEMO-000153)
+        setError(limited);
+      } else if (data?.code === 'invite_required') {
         setError(t('auth.inviteRequired'));
       } else if (data?.code === 'external_email_invite_required') {
         setError(t('auth.externalEmailInviteRequired'));

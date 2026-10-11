@@ -36,6 +36,8 @@ export function ProjectAiKickSettings({ projectId }: ProjectAiKickSettingsProps)
   const [repoError, setRepoError] = useState('');
   // Anthropic 社に送られることの確認(有効にして保存するたびに必要。サーバーでも確かめる)
   const [ackInput, setAckInput] = useState(false);
+  // 確認のエラーは、確認のチェックのすぐ下に出す(リポジトリの欄の下だと、どこを直せばよいか分かりにくい)
+  const [ackError, setAckError] = useState('');
   const initializedRef = useRef(false);
 
   const { data: settings, isLoading } = useQuery<AiKickSettings>({
@@ -73,7 +75,7 @@ export function ProjectAiKickSettings({ projectId }: ProjectAiKickSettingsProps)
       }
 
       if (enabledInput && !ackInput) {
-        setRepoError(t('projectSettings.aiKickDataSharingRequired'));
+        setAckError(t('projectSettings.aiKickDataSharingRequired'));
         return;
       }
 
@@ -101,7 +103,12 @@ export function ProjectAiKickSettings({ projectId }: ProjectAiKickSettingsProps)
       const axiosErr = error as { response?: { data?: { detail?: string } } };
       const detail = axiosErr.response?.data?.detail;
       if (detail) {
-        setRepoError(detail);
+        // サーバーが確認の不足を返したときも、確認のチェックの下に出す
+        if (detail.includes('Anthropic')) {
+          setAckError(detail);
+        } else {
+          setRepoError(detail);
+        }
       } else {
         addToast({ message: t('projectSettings.aiKickSaveFailed'), type: 'error' });
       }
@@ -192,6 +199,7 @@ export function ProjectAiKickSettings({ projectId }: ProjectAiKickSettingsProps)
                 checked={enabledInput}
                 onChange={(e) => {
                   setEnabledInput(e.target.checked);
+                  setAckError('');
                 }}
                 disabled={saveMutation.isPending}
                 style={{ cursor: 'pointer', width: 18, height: 18 }}
@@ -278,7 +286,7 @@ export function ProjectAiKickSettings({ projectId }: ProjectAiKickSettingsProps)
                   checked={ackInput}
                   onChange={(e) => {
                     setAckInput(e.target.checked);
-                    setRepoError('');
+                    setAckError('');
                   }}
                   disabled={saveMutation.isPending}
                   style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0 }}
@@ -287,6 +295,15 @@ export function ProjectAiKickSettings({ projectId }: ProjectAiKickSettingsProps)
                   {t('projectSettings.aiKickDataSharing')}
                 </span>
               </label>
+              {ackError && (
+                <div
+                  role="alert"
+                  data-testid="ai-kick-data-sharing-error"
+                  style={{ fontSize: 'var(--font-size-sm)', color: '#dc2626', marginTop: 'var(--space-1)' }}
+                >
+                  {ackError}
+                </div>
+              )}
             </div>
           )}
 
