@@ -159,6 +159,21 @@ cargo run
 3. `claude setup-token` でトークンを作り、環境変数を設定して `node src/runner.mjs` で起動する
 4. プロジェクトの設定で **AI 自動実行** を有効にし、チケットで **AIに対応させる** を押す
 
+## AI から SENN を操作する（MCP）
+
+`mcp-server/` は、あなたの AI（Claude Code・Claude Desktop・Cursor など）から、**あなたの SENN** のチケットの検索・起票・更新、Wiki の読み書き、AI の作業の記録などを行うための MCP サーバーです。作業の着手・完了を記録するコマンド `senn-ai-run` も入っています。
+
+**使う前に**
+- **ツールの結果は、あなたが使う AI の提供元に送られます。** ツールが返すチケットの説明・コメント・Wiki のページは、あなたが使う AI（Claude なら Anthropic 社）に送られます。AI に見せてよい内容のプロジェクトで使ってください。
+- **人ごとのキーです。** AI が見られる物・できることは、キーの持ち主が SENN の画面で見られる物・できることだけです。
+- **ファイルの添付は制限しています。** Wiki の添付ツールは手元のファイルを読みます。仕込まれた指示で AI が秘密のファイルを送らないよう、送れるのは作業中のフォルダ（または `SENN_UPLOAD_ROOTS`）の下の通常のファイルだけです。`.ssh`・`.env` など「.」で始まるもの・鍵・認証情報らしいファイルは断ります。
+
+**設置**（詳しくは [`mcp-server/README.md`](./mcp-server/README.md)）:
+1. `cd mcp-server && npm ci && npm run build`
+2. `~/.config/senn-ai-agent/credentials.env`（権限 600）に `SENN_BASE_URL=https://<あなたの SENN のホスト>` を書く
+3. `bash /path/to/senn/mcp-server/run-with-credentials.sh` を MCP サーバーとして登録する（例: `claude mcp add senn -- bash /path/to/senn/mcp-server/run-with-credentials.sh`）
+4. AI に「SENN に接続して」と頼み、返ったリンクで **許可を求める** を押す。システム管理者が承認すると（**システム管理 → AI 設定**）、キーが手元に自動で保存され、すぐ使えます（コピー・貼り付けは要りません）
+
 ## テスト
 
 ローカル CI 相当（[CONTRIBUTING.md](./CONTRIBUTING.md) / メンテナ用 `run_local_ci.sh` と同じ）:
