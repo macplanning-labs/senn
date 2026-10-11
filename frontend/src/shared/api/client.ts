@@ -232,6 +232,11 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
+        // 429(更新の回数制限。DEMO-000153)は、トークンが無効になったわけではない。
+        // ここでトークンを消すとログアウトしてしまうので、消さずにエラーだけ返す(次の 401 で、もう一度更新する)
+        if (axios.isAxiosError(refreshError) && refreshError.response?.status === 429) {
+          return Promise.reject(refreshError);
+        }
         clearTokens();
         redirectToLoginIfNeeded();
         return Promise.reject(refreshError);

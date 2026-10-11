@@ -38,6 +38,8 @@ url = "2"
 # シリアライズ
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# ログイン画面のフォーム(application/x-www-form-urlencoded)からロックの識別子を読む(axum の Form と同じ部品)
+serde_urlencoded = "0.7"
 
 # 日時
 chrono = { version = "0.4", features = ["serde"] }

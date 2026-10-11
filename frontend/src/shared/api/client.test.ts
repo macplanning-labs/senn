@@ -5,7 +5,7 @@
  * 以降の 401 が永久に待たされた(ログイン画面のスピナーが消えない)。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AxiosError } from 'axios';
+import axios, { AxiosError } from 'axios';
 
 const store = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -91,5 +91,33 @@ describe('401 の処理', () => {
     expect(await settle(apiClient.get('/tickets/'))).toBe('rejected');
     expect(await settle(apiClient.get('/tickets/'))).toBe('rejected');
     expect(await settle(apiClient.get('/projects/'))).toBe('rejected');
+  });
+});
+
+describe('トークン更新の回数制限(429)', () => {
+  it('更新が 429 でも、トークンを消さない(ログアウトしない)', async () => {
+    const { apiClient } = await load();
+    store.set('wip_access_token', 'old-access');
+    store.set('wip_refresh_token', 'still-valid');
+    always401(apiClient);
+    const original = axios.defaults.adapter;
+    axios.defaults.adapter = async (config: never) => {
+      throw new AxiosError('Too Many Requests', 'ERR_BAD_REQUEST', config, undefined, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {},
+        config,
+        data: { detail: 'リクエストが多すぎます。' },
+      });
+    };
+    try {
+      expect(await settle(apiClient.get('/tickets/'))).toBe('rejected');
+      expect(store.get('wip_refresh_token')).toBe('still-valid');
+      expect(store.get('wip_access_token')).toBe('old-access');
+      // 「更新中」の印も戻っている(次の要求が固まらない)
+      expect(await settle(apiClient.get('/tickets/'))).toBe('rejected');
+    } finally {
+      axios.defaults.adapter = original;
+    }
   });
 });

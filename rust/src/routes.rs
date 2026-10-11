@@ -28,7 +28,14 @@ use crate::presentation::{
         team_archive_api, team_rule_api, ticket_link_api, tickets_api, time_entry_api, triage_api,
         wiki_api, workflow_status_api,
     },
-    middleware::{auth::require_auth, jwt_auth},
+    middleware::{
+        auth::require_auth,
+        jwt_auth,
+        login_lock::{
+            with_cookie_login_lock, with_cookie_totp_lock, with_login_lock, with_login_verify_lock,
+            LoginAttemptStores,
+        },
+    },
     state::AppState,
 };
 use auth_core::infrastructure::rate_limit::{ip_rate_limit_layer, IpRateLimitConfig};
@@ -50,12 +57,28 @@ pub fn create_router(state: AppState) -> Router {
     let allowed_origins = Arc::new(origins);
 
     // Origin/Referer検証対象：Cookie session方式のログインルート（/auth/login, /auth/totp）
+    // ログインの試行回数ロック(DEMO-000153)。ストアはルーターを作るときに1回だけ作る。
+    // ログインと二要素認証のルート(API とログイン画面)にだけ route_layer でかける(他のルートの本文は読まない)。
+    // 詳細は presentation/middleware/login_lock.rs の冒頭を参照
+    let login_attempt_stores = LoginAttemptStores::new();
+
+    // ログイン画面(Cookie 方式)。送信(POST)には、API のログインと同じ IP 率制限と試行ロックをかける
+    // (以前は制限が無く、API の制限を迂回できた。DEMO-000153)。画面の表示(GET)にはかけない
     let login_cookie_routes = Router::new()
         .route(
             "/auth/login",
-            get(auth::login_page).post(auth::login_submit),
+            get(auth::login_page).merge(
+                with_cookie_login_lock(post(auth::login_submit), &login_attempt_stores)
+                    .layer(ip_rate_limit_layer(IpRateLimitConfig::login_preset())),
+            ),
         )
-        .route("/auth/totp", get(auth::totp_page).post(auth::totp_verify))
+        .route(
+            "/auth/totp",
+            get(auth::totp_page).merge(
+                with_cookie_totp_lock(post(auth::totp_verify), &login_attempt_stores)
+                    .layer(ip_rate_limit_layer(IpRateLimitConfig::login_preset())),
+            ),
+        )
         .route(
             "/auth/webauthn/login/begin",
             post(security_api::passkey_login_begin),
@@ -68,13 +91,10 @@ pub fn create_router(state: AppState) -> Router {
             allowed_origins.clone(),
         )));
 
-    // ルートのうち率制限なし（/auth/login, /auth/totp 除く）
+    // ルートのうち率制限なし(ログイン画面の送信は login_cookie_routes で制限している)
     let basic_public_routes = Router::new()
         .route("/auth/webauthn", get(auth::webauthn_page))
         .route("/health", get(health::check))
-        // REST API（APIキー認証 = セッション不要）
-        .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
-        .route("/api/v1/auth/register/", post(auth_api::register))
         // リアルタイム同期の WebSocket。JWT ではなく、使い捨ての接続用トークンで認証する
         .route(
             "/api/v1/realtime/ws",
@@ -82,10 +102,29 @@ pub fn create_router(state: AppState) -> Router {
         )
         .merge(login_cookie_routes);
 
+    // 新規登録: IPごとに10回/分。毎回パスワードのハッシュ計算(重い処理)をするため、狭くする(DEMO-000153)
+    let register_routes = Router::new()
+        .route("/api/v1/auth/register/", post(auth_api::register))
+        .layer(ip_rate_limit_layer(IpRateLimitConfig::register_preset()));
+
+    // トークン更新: IPごとに30回/分。通常の端末はアクセストークンの期限ごとに1回程度(DEMO-000153)
+    let token_refresh_routes = Router::new()
+        .route("/api/v1/auth/token/refresh/", post(auth_api::token_refresh))
+        .layer(ip_rate_limit_layer(
+            IpRateLimitConfig::token_refresh_preset(),
+        ));
+
     // JSON認証API（ログイン）: 20 requests/min per IP
+    // 外側から: IP率制限(20回/分) → ユーザー名単位のロック(30回) → IP＋ユーザー名のロック(5回) → ハンドラ
     let login_routes = Router::new()
-        .route("/api/v1/auth/login/", post(auth_api::login))
-        .route("/api/v1/auth/login/verify/", post(auth_api::login_verify))
+        .route(
+            "/api/v1/auth/login/",
+            with_login_lock(post(auth_api::login), &login_attempt_stores),
+        )
+        .route(
+            "/api/v1/auth/login/verify/",
+            with_login_verify_lock(post(auth_api::login_verify), &login_attempt_stores),
+        )
         // 社内 SSO(Cloudflare Access の JWT を署名検証してログイン。無効なら 404)
         .route("/api/v1/auth/sso/login/", post(sso_api::login))
         .route(
@@ -303,6 +342,8 @@ pub fn create_router(state: AppState) -> Router {
 
     // 認証不要ルート（すべてのサブルーターを統合）
     let public_routes = basic_public_routes
+        .merge(register_routes)
+        .merge(token_refresh_routes)
         .merge(login_routes)
         .merge(webhook_routes)
         .merge(external_routes)
@@ -1643,5 +1684,112 @@ mod registered_routes_tests {
                 "{method} {path} は、認証なしで 401 になるはず(404 ならルートが登録されていない)"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod auth_limits_wiring_tests {
+    //! ログインの試行ロック・新規登録/トークン更新の率制限が、本物のルーターに配線されていること(DEMO-000153)。
+    //! 判定そのものは presentation/middleware/login_lock.rs のテスト(DB 不要)で確かめる。ここは DB が要る。
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use std::net::SocketAddr;
+    use tower::ServiceExt;
+
+    fn post_json(path: &str, client: &str, body: serde_json::Value) -> Request<Body> {
+        let mut req = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("x-real-ip", client)
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        req.extensions_mut()
+            .insert(axum::extract::ConnectInfo(SocketAddr::from((
+                [172, 18, 0, 5],
+                40000,
+            ))));
+        req
+    }
+
+    async fn statuses(
+        app: &Router,
+        path: &str,
+        client: &str,
+        body: serde_json::Value,
+        n: usize,
+    ) -> Vec<StatusCode> {
+        let mut out = Vec::new();
+        for _ in 0..n {
+            out.push(
+                app.clone()
+                    .oneshot(post_json(path, client, body.clone()))
+                    .await
+                    .unwrap()
+                    .status(),
+            );
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn login_lock_and_auth_rate_limits_are_wired() {
+        let Some(pool) = crate::test_support::test_pool().await else {
+            return;
+        };
+        let app = create_router(crate::test_support::test_state(&pool).await);
+
+        // 存在しないユーザー名でも、5回の 401 の後は 429(account_locked)
+        let name = format!("no-such-user-{}", crate::test_support::unique_suffix());
+        let s = statuses(
+            &app,
+            "/api/v1/auth/login/",
+            "198.51.100.11",
+            serde_json::json!({ "username": name, "password": "wrong" }),
+            6,
+        )
+        .await;
+        assert_eq!(&s[..5], &[StatusCode::UNAUTHORIZED; 5], "{s:?}");
+        assert_eq!(s[5], StatusCode::TOO_MANY_REQUESTS, "{s:?}");
+
+        // 二要素認証: 認証コードの誤り(400)が5回 → 429
+        let s = statuses(
+            &app,
+            "/api/v1/auth/login/verify/",
+            "198.51.100.12",
+            serde_json::json!({ "mfa_token": "not-a-token", "totp_code": "000000" }),
+            6,
+        )
+        .await;
+        assert_eq!(&s[..5], &[StatusCode::BAD_REQUEST; 5], "{s:?}");
+        assert_eq!(s[5], StatusCode::TOO_MANY_REQUESTS, "{s:?}");
+
+        // 新規登録: 10回まで(本文が不正なのでハンドラは 4xx)、11回目は 429
+        let s = statuses(
+            &app,
+            "/api/v1/auth/register/",
+            "198.51.100.13",
+            serde_json::json!({}),
+            11,
+        )
+        .await;
+        assert!(
+            s[..10].iter().all(|c| *c != StatusCode::TOO_MANY_REQUESTS),
+            "{s:?}"
+        );
+        assert_eq!(s[10], StatusCode::TOO_MANY_REQUESTS, "{s:?}");
+
+        // トークン更新: 30回まで 401、31回目は 429
+        let s = statuses(
+            &app,
+            "/api/v1/auth/token/refresh/",
+            "198.51.100.14",
+            serde_json::json!({ "refresh": "invalid" }),
+            31,
+        )
+        .await;
+        assert_eq!(&s[..30], &[StatusCode::UNAUTHORIZED; 30], "{s:?}");
+        assert_eq!(s[30], StatusCode::TOO_MANY_REQUESTS, "{s:?}");
     }
 }

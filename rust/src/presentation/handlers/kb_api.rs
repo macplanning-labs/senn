@@ -611,6 +611,19 @@ mod tests {
     }
 
     /// 完了済みの障害を作る(症状・調査・対策つき)
+    /// 無関係な過去の障害を n 件作る(点数の重みは、候補が少ないと偏るので、ある程度の数を用意する)
+    async fn filler_bugs(pool: &sqlx::PgPool, project: i32, user: i32, n: usize) {
+        for i in 0..n {
+            let id = create_test_ticket(pool, project, "KBA", user).await;
+            sqlx::query("UPDATE tickets_ticket SET title = $2, description = '別の話題の説明', status = 'closed', ticket_type = 'bug' WHERE id = $1")
+                .bind(id)
+                .bind(format!("冷蔵庫の温度警告が鳴る その{i}"))
+                .execute(pool)
+                .await
+                .expect("filler");
+        }
+    }
+
     async fn past_bug(pool: &sqlx::PgPool, project: i32, user: i32, title: &str) -> String {
         let id = create_test_ticket(pool, project, "KBA", user).await;
         sqlx::query("UPDATE tickets_ticket SET title = $2, description = $3, status = 'closed', ticket_type = 'bug' WHERE id = $1")
@@ -677,6 +690,7 @@ mod tests {
         let (viewer, _, _, _) = fixture(&pool).await;
         let user = viewer.user_id().expect("user");
         let project = create_test_project(&pool, "KBS", user).await;
+        filler_bugs(&pool, project, user, 12).await;
         let k1 = past_bug(&pool, project, user, "請求書の出力が失敗する").await;
         let k2 = past_bug(&pool, project, user, "請求書の出力が止まる").await;
         // 機能追加(障害でない)は出ない
@@ -713,7 +727,7 @@ mod tests {
             "機能追加は出ない: {keys:?}"
         );
         let first = &list[0];
-        assert!(first["score"].as_u64().unwrap_or(0) >= 2);
+        assert!(first["score"].as_u64().unwrap_or(0) >= 25, "{first}");
         assert_eq!(first["symptom"], "請求書 一括出力 が失敗する。");
         assert_eq!(first["cause"], "待ち時間が短い rust/src/billing.rs");
         assert_eq!(first["solution"], "待ち時間を延ばした");
@@ -734,14 +748,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn similar_incidents_short_title_with_one_long_term_still_matches() {
+    async fn similar_incidents_match_even_when_wording_differs() {
         let Some(pool) = test_pool().await else {
             return;
         };
         let (viewer, _, _, _) = fixture(&pool).await;
         let user = viewer.user_id().expect("user");
         let project = create_test_project(&pool, "KBS", user).await;
-        // 日本語は単語に分けないので、短い題「ログインできない」は検索語が 1 つ(8 文字)だけになる
+        filler_bugs(&pool, project, user, 12).await;
         let k = past_bug(&pool, project, user, "ログインできない").await;
         let prefix = prefix_of(&pool, project).await;
         let state = state_with(&pool, KbEngine::Rules).await;
@@ -757,11 +771,23 @@ mod tests {
             keys.contains(&k.as_str()),
             "1 語でも長い複合語なら出る: {keys:?}"
         );
-        // 短い 1 語(5 文字以下)では、従来どおり 2 語の条件で出ない
-        let (_, v2) = post_similar(&state, &viewer, &prefix, "ログイン", "").await;
+        // 言い回しが違っても、重なりが多ければ出る(「ログインできない」→「ログイン」だけ)
+        let (_, v2) = post_similar(&state, &viewer, &prefix, "ログインが出来ない", "").await;
+        let keys2: Vec<&str> = v2["incidents"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .filter_map(|x| x["ticketKey"].as_str())
+            .collect();
         assert!(
-            v2["incidents"].as_array().expect("array").is_empty(),
-            "{v2}"
+            keys2.contains(&k.as_str()),
+            "言い回しが違っても出る: {keys2:?}"
+        );
+        // 関係の無い入力では出ない
+        let (_, v3) = post_similar(&state, &viewer, &prefix, "猫の写真が表示されない", "").await;
+        assert!(
+            v3["incidents"].as_array().expect("array").is_empty(),
+            "{v3}"
         );
     }
 
@@ -811,6 +837,7 @@ mod tests {
         let (viewer, _, _, _) = fixture(&pool).await;
         let user = viewer.user_id().expect("user");
         let project = create_test_project(&pool, "KBS", user).await;
+        filler_bugs(&pool, project, user, 12).await;
         let k1 = past_bug(&pool, project, user, "請求書の出力が失敗する").await;
         past_bug(&pool, project, user, "請求書の出力が止まる").await;
         let prefix = prefix_of(&pool, project).await;

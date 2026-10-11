@@ -12,6 +12,7 @@ pub mod config;
 pub mod detect;
 pub mod facts;
 pub mod messages;
+pub mod overlap;
 pub mod parse;
 pub mod pattern;
 pub mod pattern_check;

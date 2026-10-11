@@ -120,9 +120,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    // レート制限のSmartIpKeyExtractorがX-Forwarded-For等のヘッダーを
-    // 持たないリクエストに対してpeer IPへフォールバックできるよう、
-    // ConnectInfoを有効化しておく。
+    // レート制限の送り元IPの判定(auth_core::infrastructure::client_ip)は、
+    // 接続元(peer)が信用する中継かどうかを見るため、ConnectInfoが必須。
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

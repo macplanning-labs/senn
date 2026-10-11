@@ -1,28 +1,19 @@
 //! 類似障害検索(3B): 新しく起票する障害(またはAIの調査の入力)に似た、過去の完了済み障害を探す。
 //!
-//! 順位は SQL の一致語数(互いに重ならない検索語の数)の多い順。Prolog は使わない
+//! 順位は「文字の重なり」の点数(overlap.rs)の高い順。Prolog は使わない
 //! (プロンプトの知見と違い、結果をそのまま一覧にして返すだけで、規則による選別が無いため)。
 //! 本文は Prolog に渡さない。症状・原因・対策は、説明文の節から Rust が取り出して返す。
 
-use super::{detect, sections, KbError};
-use crate::infrastructure::repositories::kb_repo::{self, CandidateKind};
+use super::{detect, overlap, sections, KbError};
+use crate::infrastructure::repositories::kb_repo;
 
 /// 検索語のもとにする、入力のタイトル+本文の最大文字数
 const SEARCH_TEXT_MAX_CHARS: usize = 4_000;
-/// 候補に必要な、一致した(重ならない)語の最小数
-const MIN_HITS: i64 = 2;
-/// 検索語が 1 つしか作れない短い入力(例: 「ログインできない」)のとき、その 1 語がこの文字数以上なら、
-/// 1 語の一致でも候補にする(日本語は単語に分けないため、短い題だと語が 1 つしかできず、常に 0 件になるのを防ぐ)
-const SINGLE_TERM_MIN_CHARS: usize = 6;
-
-/// 検索語の数と長さから、候補に必要な一致語数を決める。
-/// 語が 1 つだけで、それが十分長い複合語のときだけ 1 にゆるめる。それ以外は `MIN_HITS`。
-fn min_hits_for(terms: &[String]) -> i64 {
-    match terms {
-        [only] if only.chars().count() >= SINGLE_TERM_MIN_CHARS => 1,
-        _ => MIN_HITS,
-    }
-}
+/// 候補にする、点数(0〜1)の下限。本番の障害データでの測定で、無関係な入力の最高点(0.02〜0.21)と、
+/// 関係ある候補の最低点(0.28)の間に置いた(設計書 3 章)
+const MIN_SCORE: f64 = 0.25;
+/// 候補の本文として見る最大文字数(タイトルに続けて)
+const DOC_TEXT_MAX_CHARS: usize = 1_500;
 /// 返す最大件数
 pub const MAX_RESULTS: usize = 5;
 /// 症状・原因・対策の抜粋の最大文字数
@@ -36,7 +27,7 @@ const MAX_REASON_ITEMS: usize = 4;
 pub struct SimilarIncident {
     pub ticket_key: String,
     pub title: String,
-    /// 一致の点数(互いに重ならない一致語の数)
+    /// 一致の点数(0〜100。入力の特徴のうち、重みで見て、どれだけ重なったか)
     pub score: usize,
     /// 一致の理由(共通する語、同じファイル)
     pub reasons: Vec<String>,
@@ -113,38 +104,57 @@ pub async fn search_similar_incidents(
         .chars()
         .take(SEARCH_TEXT_MAX_CHARS)
         .collect();
-    let terms = detect::search_terms(&text);
-    if terms.is_empty() {
+    let query = overlap::grams(&text);
+    if query.is_empty() {
         return Ok(Vec::new());
     }
-    let candidates = kb_repo::find_candidates_in_project(
-        pool,
-        project_id,
-        None,
-        CandidateKind::Incident,
-        &terms,
-        min_hits_for(&terms),
-        MAX_RESULTS as i64,
-    )
-    .await
-    .map_err(|e| KbError::Db(e.to_string()))?;
+    let query_title = overlap::grams(title);
+    let candidates =
+        kb_repo::list_project_incidents(pool, project_id, None, kb_repo::INCIDENT_POOL_MAX)
+            .await
+            .map_err(|e| KbError::Db(e.to_string()))?;
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    // 候補ごとの特徴(タイトル + 本文の先頭)。重みは、この候補全体での出現数から決める
+    let doc_grams: Vec<_> = candidates
+        .iter()
+        .map(|c| {
+            let body: String = c.description.chars().take(DOC_TEXT_MAX_CHARS).collect();
+            let mut g = overlap::grams(&c.title);
+            g.extend(overlap::grams(&body));
+            g
+        })
+        .collect();
+    let corpus = overlap::Corpus::new(&doc_grams);
+    let mut scored: Vec<(f64, usize)> = doc_grams
+        .iter()
+        .enumerate()
+        .map(|(i, g)| (overlap::score(&corpus, &query, &query_title, g), i))
+        .filter(|(s, _)| *s >= MIN_SCORE)
+        .collect();
+    // 点数の高い順。同点は新しい順(読んだ順)のまま
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(MAX_RESULTS);
 
     let input_files = detect::files(&text);
-    Ok(candidates
+    Ok(scored
         .into_iter()
-        .map(|c| {
+        .map(|(s, i)| {
+            let c = &candidates[i];
             let past_files = detect::files(&c.text_for_files);
             let shared: Vec<String> = input_files
                 .iter()
                 .filter(|f| past_files.contains(f))
                 .cloned()
                 .collect();
+            let phrases = overlap::shared_phrases(&text, &doc_grams[i], MAX_REASON_ITEMS);
             let (symptom, cause, solution) = excerpts_of(&c.description);
             SimilarIncident {
-                reasons: reasons_of(&c.matched_terms, &shared),
-                ticket_key: c.key,
-                title: c.title,
-                score: c.score,
+                reasons: reasons_of(&phrases, &shared),
+                ticket_key: c.key.clone(),
+                title: c.title.clone(),
+                score: (s * 100.0).round() as usize,
                 symptom,
                 cause,
                 solution,
@@ -156,26 +166,6 @@ pub async fn search_similar_incidents(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn owned(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn min_hits_relaxes_only_for_one_long_term() {
-        // 短い題が 1 語(8 文字)になる → 1 語の一致でも候補にする
-        assert_eq!(min_hits_for(&detect::search_terms("ログインできない\n")), 1);
-        // 6 文字ちょうどは緩める、5 文字は緩めない
-        assert_eq!(min_hits_for(&owned(&["abcdef"])), 1);
-        assert_eq!(min_hits_for(&owned(&["abcde"])), MIN_HITS);
-        // 語が複数あれば従来どおり 2 語必要
-        assert_eq!(
-            min_hits_for(&owned(&["ログインできない", "認証エラー"])),
-            MIN_HITS
-        );
-        // 語が無いとき(呼び出し側で先に空を返すが、念のため)
-        assert_eq!(min_hits_for(&[]), MIN_HITS);
-    }
 
     #[test]
     fn excerpt_flattens_whitespace_and_control_chars_and_truncates() {
