@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First-run failure when `.env.example` was copied without editing: `JWT_SECRET_KEY` and `DB_PASSWORD` are now empty in the template, and `docker-compose.yml` stops immediately with an actionable message instead of crash-looping the backend/web containers.
 - README (EN/JA): a single onboarding route (`docker compose`) with a one-line `sed` that fills `DB_PASSWORD` / `JWT_SECRET_KEY`, plus first-use, stop, restart and reset instructions.
 
+## [0.3.2] - 2026-10-13
+
+### Security
+- **Wiki**: strengthened the safety of the HTML shown for Wiki pages (output is now sanitized with an allow-list). **Please update**; see the security advisory published with this release.
+- **Two-factor codes**: failed attempts are now counted per user in the database, and a code that was already used is rejected.
+- **Administrators**: groundwork for requiring a passkey for system administrators. It is **not enforced by default** (set `sys.auth.admin_passkey_enforce_after` to start enforcing).
+- **Dependencies**: `quinn-proto` updated (RUSTSEC-2026-0338 to 0342).
+
 ## [0.1.0] - 2026-09-16
 
 First public OSS release of Senn.
