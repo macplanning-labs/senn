@@ -67,6 +67,22 @@ pub async fn login_submit(
         _ => return login_failed_response(),
     }
 
+    // 管理者のパスキー必須(DEMO-000153 A-4b): この画面(Cookie 方式)は、パスキーの確認の段階を持たない。
+    // パスワードだけで入れてしまわないよう、パスキーの確認が要る管理者・強制の期間の未登録の管理者は、断る。
+    // (メインのログイン画面で、パスワード + パスキー、またはパスキーだけで入る)
+    match auth_service::admin_passkey_status(&state.pool, user.id).await {
+        Ok(st)
+            if auth_service::admin_login_policy(&st, chrono::Utc::now())
+                == auth_service::AdminLoginPolicy::Normal => {}
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                Html("<script>alert('管理者は、メインのログイン画面から、パスキーでログインしてください');history.back();</script>"),
+            )
+                .into_response();
+        }
+    }
+
     // MFA判定（auth_api::login と同じロジック）
     let totp_confirmed = matches!(
         user_repo::find_totp(&state.pool, user.id).await,

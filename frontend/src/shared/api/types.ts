@@ -482,6 +482,16 @@ export interface GitEvent {
 // メール通知設定
 // ============================================================
 
+/** 管理者のパスキー必須の状態(GET /auth/me/ の adminPasskey)。enforceAfter は強制の開始日時(RFC 3339)。未設定なら null */
+export interface AdminPasskeyStatus {
+  isAdmin: boolean;
+  registered: boolean;
+  mustRegister: boolean;
+  enforceAfter: string | null;
+  /** すでに強制の期間か(開始日時を過ぎている) */
+  enforced: boolean;
+}
+
 export interface EmailPreferences {
   emailNotificationsEnabled: boolean;
   notifyOnAssigned: boolean;

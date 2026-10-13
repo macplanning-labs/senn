@@ -31,6 +31,7 @@ vi.mock('@/shared/api/client', () => ({
   getRefreshToken: vi.fn(() => 'r'),
 }));
 
+import { apiClient } from '@/shared/api/client';
 import { useAuthStore } from './authStore';
 
 describe('authStore: アカウントの切り替えで画面のキャッシュを消す', () => {
@@ -46,5 +47,25 @@ describe('authStore: アカウントの切り替えで画面のキャッシュ�
   it('発行済みのトークンでのログイン(新規登録・招待の受諾・パスキー)で消す', async () => {
     await useAuthStore.getState().loginWithPasskey('a', 'r');
     expect(clearCachedQueries).toHaveBeenCalled();
+  });
+});
+
+describe('authStore: 管理者のパスキー(A-4b)のログインの段階', () => {
+  it('passkey_required の応答は、パスキーの確認の段階として返す(トークンを加工しない)', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ data: { passkey_required: true, passkey_token: 'PT' } } as any);
+    const result = await useAuthStore.getState().login('admin', 'pw');
+    expect(result).toEqual({ mfaRequired: false, passkeyRequired: true, passkeyToken: 'PT' });
+  });
+
+  it('passkey_enroll_required の応答は、パスキーの新規登録の段階として返す', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ data: { passkey_enroll_required: true, enroll_token: 'ET' } } as any);
+    const result = await useAuthStore.getState().login('admin', 'pw');
+    expect(result).toEqual({ mfaRequired: false, passkeyEnrollRequired: true, enrollToken: 'ET' });
+  });
+
+  it('mfa_required の応答は、今までどおり TOTP の段階', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce({ data: { mfa_required: true, mfa_token: 'MT' } } as any);
+    const result = await useAuthStore.getState().login('admin', 'pw');
+    expect(result).toEqual({ mfaRequired: true, mfaToken: 'MT' });
   });
 });

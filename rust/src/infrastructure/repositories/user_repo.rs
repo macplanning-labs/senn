@@ -280,6 +280,177 @@ pub async fn find_totp(pool: &PgPool, user_id: i32) -> anyhow::Result<Option<Tot
     Ok(row)
 }
 
+/// 管理者のアカウントか: システム管理者、または、いずれかのチームの Owner(`t_team_membership.role = 'admin'`。
+/// プロジェクト限定のゲスト行は除く)。管理者のパスキー必須(DEMO-000153 A-4)の対象を決める。
+pub async fn is_admin_account(pool: &PgPool, user_id: i32) -> anyhow::Result<bool> {
+    let admin: bool = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT is_system_admin FROM accounts_user WHERE id = $1 AND is_active), false)
+             OR EXISTS (SELECT 1 FROM t_team_membership tm
+                        JOIN accounts_user u ON u.id = tm.user_id AND u.is_active
+                        WHERE tm.user_id = $1 AND tm.role = 'admin' AND tm.scoped_project_id IS NULL)",
+    )
+    .bind(user_id as i64)
+    .fetch_one(pool)
+    .await?;
+    Ok(admin)
+}
+
+/// 確認に使えるパスキーの数(`passkey_json` が入っている行だけ。ログインの確認が読むのと同じ条件。
+/// 昔の行で `passkey_json` が空のものを「登録済み」と数えると、確認に使えない鍵で管理者が締め出される)
+pub async fn count_passkeys(pool: &PgPool, user_id: i32) -> anyhow::Result<i64> {
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM mfa_webauthn_credential WHERE user_id = $1 AND passkey_json IS NOT NULL",
+    )
+    .bind(user_id as i64)
+    .fetch_one(pool)
+    .await?;
+    Ok(n)
+}
+
+/// パスキーの新規登録の窓を開ける(`hours` 時間。管理者によるリセット・復旧コマンドから呼ぶ)。
+/// 窓が開いている間だけ、強制の期間のパスワードのログインで、パスキーを登録できる(DEMO-000153 A-4b)。
+pub async fn open_passkey_enroll_window(
+    pool: &PgPool,
+    user_id: i32,
+    hours: i64,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "UPDATE accounts_user SET passkey_enroll_until = now() + make_interval(hours => $2::int) WHERE id = $1",
+    )
+    .bind(user_id as i64)
+    .bind(hours as i32)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// パスキーの新規登録の窓が開いているか(時刻は DB の `now()`)
+pub async fn passkey_enroll_window_open(pool: &PgPool, user_id: i32) -> anyhow::Result<bool> {
+    let open: bool = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT passkey_enroll_until > now() FROM accounts_user WHERE id = $1), false)",
+    )
+    .bind(user_id as i64)
+    .fetch_one(pool)
+    .await?;
+    Ok(open)
+}
+
+/// 窓を閉じる(登録が終わったとき)
+pub async fn close_passkey_enroll_window(pool: &PgPool, user_id: i32) -> anyhow::Result<()> {
+    sqlx::query("UPDATE accounts_user SET passkey_enroll_until = NULL WHERE id = $1")
+        .bind(user_id as i64)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// そのユーザーのパスキーをすべて削除する(管理者によるリセット・復旧コマンド。DEMO-000153 A-4)。削除した件数を返す。
+pub async fn delete_all_passkeys(pool: &PgPool, user_id: i32) -> anyhow::Result<u64> {
+    let r = sqlx::query("DELETE FROM mfa_webauthn_credential WHERE user_id = $1")
+        .bind(user_id as i64)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected())
+}
+
+// 試行の数え方の純粋な計算は、複数のアプリで共通の `auth-core` に置いた(DEMO-000153 A-1)
+pub use auth_core::domain::attempt_window::{
+    next_attempt_state, AttemptReservation as TotpAttemptReservation,
+};
+
+/// 確認コードを調べる**前**に、試行を 1 回予約する。
+///
+/// 調べたあとに数えると、同時に大量に送られたとき、数える前に全部が通ってしまう。
+/// 行をロック(FOR UPDATE)して、予約を直列にするので、並列に送っても上限を超えて調べることはできない。
+/// 時刻は DB の `now()` を使う(複数台でもずれない)。
+pub async fn totp_reserve_attempt(
+    pool: &PgPool,
+    user_id: i32,
+    max_attempts: i32,
+    window: chrono::Duration,
+) -> anyhow::Result<TotpAttemptReservation> {
+    use chrono::{DateTime, Utc};
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO mfa_totp_attempt (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id as i64)
+    .execute(&mut *tx)
+    .await?;
+    let (attempts, window_start, locked_until, now): (
+        i32,
+        DateTime<Utc>,
+        Option<DateTime<Utc>>,
+        DateTime<Utc>,
+    ) = sqlx::query_as(
+        "SELECT attempts, window_start, locked_until, now() FROM mfa_totp_attempt WHERE user_id = $1 FOR UPDATE",
+    )
+    .bind(user_id as i64)
+    .fetch_one(&mut *tx)
+    .await?;
+    let (attempts, window_start, locked_until, result) = next_attempt_state(
+        attempts,
+        window_start,
+        locked_until,
+        now,
+        max_attempts,
+        window,
+    );
+    sqlx::query(
+        "UPDATE mfa_totp_attempt SET attempts = $2, window_start = $3, locked_until = $4 WHERE user_id = $1",
+    )
+    .bind(user_id as i64)
+    .bind(attempts)
+    .bind(window_start)
+    .bind(locked_until)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// 確認コードが正しかったとき、試行の数を消す。
+pub async fn totp_reset_attempts(pool: &PgPool, user_id: i32) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM mfa_totp_attempt WHERE user_id = $1")
+        .bind(user_id as i64)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// 使った区間を記録する(DEMO-000153 A-3)。**それより新しい区間のときだけ**記録でき、
+/// 同じ区間・古い区間なら false(使用済み)。1 回の UPDATE なので、同時に同じコードを送られても 1 回しか通らない。
+pub async fn totp_mark_step_used(pool: &PgPool, device_id: i32, step: i64) -> anyhow::Result<bool> {
+    let r = sqlx::query(
+        "UPDATE mfa_totp_device SET last_used_step = $2 \
+         WHERE id = $1 AND (last_used_step IS NULL OR last_used_step < $2)",
+    )
+    .bind(device_id as i64)
+    .bind(step)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() == 1)
+}
+
+/// 期限切れの試行の行を、古い順に一定件数ずつ消す(DEMO-000153 R2)。
+pub async fn totp_purge_expired_attempts(
+    pool: &PgPool,
+    window: chrono::Duration,
+    limit: i64,
+) -> anyhow::Result<u64> {
+    let r = sqlx::query(
+        "DELETE FROM mfa_totp_attempt WHERE user_id IN ( \
+           SELECT user_id FROM mfa_totp_attempt \
+           WHERE locked_until IS NULL AND window_start < now() - make_interval(secs => $1) \
+           ORDER BY window_start LIMIT $2)",
+    )
+    .bind(window.num_seconds() as f64)
+    .bind(limit)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected())
+}
+
 pub async fn save_totp(pool: &PgPool, user_id: i32, secret: &str) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO mfa_totp_device (user_id, secret, confirmed, created_at) VALUES ($1, $2, false, NOW())
@@ -522,5 +693,50 @@ mod tests {
             .expect("find")
             .expect("user");
         assert_eq!(found.id, user_id);
+    }
+}
+
+#[cfg(test)]
+mod attempt_purge_tests {
+    use super::*;
+    use crate::test_support::{create_test_user, test_pool};
+
+    #[tokio::test]
+    async fn purge_removes_only_expired_unlocked_rows_in_batches() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let old = create_test_user(&pool, "purge-old").await;
+        let locked = create_test_user(&pool, "purge-locked").await;
+        let fresh = create_test_user(&pool, "purge-fresh").await;
+        for (u, ws, lk) in [
+            (old, "now() - interval '1 hour'", "NULL"),
+            (
+                locked,
+                "now() - interval '1 hour'",
+                "now() + interval '10 minutes'",
+            ),
+            (fresh, "now()", "NULL"),
+        ] {
+            sqlx::query(&format!(
+                "INSERT INTO mfa_totp_attempt (user_id, attempts, window_start, locked_until) VALUES ($1, 3, {ws}, {lk})"
+            ))
+            .bind(u as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let n = totp_purge_expired_attempts(&pool, chrono::Duration::minutes(15), 1000)
+            .await
+            .unwrap();
+        assert!(n >= 1);
+        let remaining: Vec<i64> =
+            sqlx::query_scalar("SELECT user_id FROM mfa_totp_attempt WHERE user_id = ANY($1)")
+                .bind(vec![old as i64, locked as i64, fresh as i64])
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(!remaining.contains(&(old as i64)));
+        assert!(remaining.contains(&(locked as i64)) && remaining.contains(&(fresh as i64)));
     }
 }

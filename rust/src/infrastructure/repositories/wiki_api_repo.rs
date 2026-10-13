@@ -28,11 +28,10 @@ fn generate_slug(input: &str) -> String {
     }
 }
 
-/// Markdown → HTML変換 + [[Wikiリンク]]解決。
-/// 既存 domain/services/wiki_service.rs の関数を再利用。
+/// Markdown → HTML変換 + [[Wikiリンク]]解決 + HTML無害化。
+/// 既存 domain/services/wiki_service.rs の関数を再利用(無害化込み)。
 fn render_content(content: &str, project_id: Option<i32>) -> String {
-    let html = crate::domain::services::wiki_service::render_markdown(content);
-    crate::domain::services::wiki_service::resolve_wiki_links(&html, project_id)
+    crate::domain::services::wiki_service::render_wiki_html(content, project_id)
 }
 
 const LIST_SELECT: &str = "

@@ -62,7 +62,7 @@ pub struct ProjectOut {
     pub roadmap_ids: Vec<i32>,
     #[serde(rename = "aiPromptTemplate")]
     #[deprecated(
-        since = "v2.0",
+        since = "2.0.0",
         note = "Use /api/v1/auth/me/ai-prompt-templates/ instead"
     )]
     pub ai_prompt_template: Option<String>,
@@ -115,7 +115,7 @@ pub struct ProjectPatchIn {
         deserialize_with = "deserialize_present"
     )]
     #[deprecated(
-        since = "v2.0",
+        since = "2.0.0",
         note = "Use /api/v1/auth/me/ai-prompt-templates/ instead"
     )]
     pub ai_prompt_template: Option<Option<String>>,

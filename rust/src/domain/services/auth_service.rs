@@ -95,32 +95,19 @@ fn verify_django_pbkdf2(password: &str, stored: &str) -> anyhow::Result<bool> {
     Ok(computed_hash == expected_hash)
 }
 
-/// TOTP コード検証
-///
-/// DB保存されているsecretはpyotp.random_base32()が生成するBase32エンコード済み
-/// 文字列(Djangoの apps/mfa/views.py, apps/api/views/auth.py がpyotp.TOTP(device.secret)
-/// と直接渡している値と同じ)。Secret::Rawだと文字列のバイト列をそのまま秘密鍵として
-/// 扱ってしまいBase32デコードされず、pyotp側と異なる鍵で検証することになり必ず失敗する
-/// ため、Secret::Encodedで正しくBase32デコードする。
-pub fn verify_totp(secret: &str, code: &str) -> anyhow::Result<bool> {
-    use totp_rs::{Algorithm, Secret, TOTP};
+fn current_unix_time() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
-    let secret_bytes = Secret::Encoded(secret.to_string())
-        .to_bytes()
-        .map_err(|e| anyhow::anyhow!("TOTP secret error: {}", e))?;
-
-    let totp = TOTP::new(
-        Algorithm::SHA1,
-        6,
-        1,
-        30,
-        secret_bytes,
-        Some("WIP".to_string()),
-        String::new(),
-    )
-    .map_err(|e| anyhow::anyhow!("TOTP error: {}", e))?;
-
-    Ok(totp.check_current(code).unwrap_or(false))
+/// コードが合う区間(UNIX 時間 / 30 秒)を返す。前後 1 区間まで許容する(時計のずれに備える)。合わなければ None。
+/// どの区間で合ったかを知る必要がある(使用済みのコードを断るため。DEMO-000153 A-3)。
+/// 実体は、複数のアプリで共通の `auth-core`(`totp::matching_step_base32`)。
+pub fn totp_matching_step(secret: &str, code: &str, now_unix: u64) -> anyhow::Result<Option<i64>> {
+    auth_core::domain::totp::matching_step_base32(secret, code, now_unix)
+        .map_err(|e| anyhow::anyhow!("TOTP error: {}", e))
 }
 
 /// TOTP セットアップ（QR コード URL 生成）
@@ -184,5 +171,305 @@ pub async fn verify_totp_for_user(
         device.secret.clone()
     };
 
-    verify_totp(&secret_to_verify, code)
+    // 1. コードを調べる前に、試行を予約する。ロック中は、コードを調べずに断る(DEMO-000153 A-1)
+    if user_repo::totp_reserve_attempt(
+        pool,
+        user_id,
+        TOTP_MAX_ATTEMPTS,
+        chrono::Duration::minutes(TOTP_LOCK_WINDOW_MINUTES),
+    )
+    .await?
+        == user_repo::TotpAttemptReservation::Locked
+    {
+        tracing::warn!(
+            user_id,
+            "二要素認証の確認コードの試行が上限に達したため、一時的に止めています"
+        );
+        return Ok(false);
+    }
+
+    // 2. コードが合う区間を調べる
+    let Some(step) = totp_matching_step(&secret_to_verify, code, current_unix_time())? else {
+        return Ok(false);
+    };
+
+    // 3. 使用済みの区間(同じ区間・古い区間)は断る。1 回の UPDATE で、同時に同じコードを送られても 1 回しか通らない(A-3)
+    if !user_repo::totp_mark_step_used(pool, device.id, step).await? {
+        return Ok(false);
+    }
+
+    // 4. 正しいコードだったので、数を消す
+    user_repo::totp_reset_attempts(pool, user_id).await?;
+    Ok(true)
+}
+
+/// 管理者のパスキー必須の、強制の開始日時を入れるシステム設定のキー(RFC 3339)。未設定なら、強制しない
+pub const ADMIN_PASSKEY_ENFORCE_AFTER_KEY: &str = "sys.auth.admin_passkey_enforce_after";
+
+/// 管理者のパスキーの状態(DEMO-000153 A-4)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminPasskeyStatus {
+    /// 管理者(システム管理者・チーム Owner)か
+    pub is_admin: bool,
+    /// パスキーを 1 つ以上登録しているか
+    pub has_passkey: bool,
+    /// 強制の開始日時(未設定なら None)
+    pub enforce_after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl AdminPasskeyStatus {
+    /// 登録が必要か(管理者で、まだ登録していない)
+    pub fn must_register(&self) -> bool {
+        self.is_admin && !self.has_passkey
+    }
+
+    /// すでに強制の期間か(開始日時を過ぎている)。開始日時が未設定なら、強制しない
+    pub fn is_enforced(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.enforce_after.is_some_and(|t| now >= t)
+    }
+}
+
+/// 管理者がパスワードでログインしたあと、どう進めるか(DEMO-000153 A-4b)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdminLoginPolicy {
+    /// 今までどおり(管理者でない / 猶予の間で未登録)
+    Normal,
+    /// パスキーの確認が必須(TOTP の段階には進まない)
+    RequirePasskey,
+    /// 強制の期間で、パスキーが未登録。新しく登録するには、別の管理者が開けた窓が要る
+    EnrollRequired,
+}
+
+pub fn admin_login_policy(
+    st: &AdminPasskeyStatus,
+    now: chrono::DateTime<chrono::Utc>,
+) -> AdminLoginPolicy {
+    if !st.is_admin {
+        AdminLoginPolicy::Normal
+    } else if st.has_passkey {
+        AdminLoginPolicy::RequirePasskey
+    } else if st.is_enforced(now) {
+        AdminLoginPolicy::EnrollRequired
+    } else {
+        AdminLoginPolicy::Normal
+    }
+}
+
+pub async fn admin_passkey_status(
+    pool: &PgPool,
+    user_id: i32,
+) -> anyhow::Result<AdminPasskeyStatus> {
+    let is_admin = user_repo::is_admin_account(pool, user_id).await?;
+    // 管理者でなければ、パスキーの数は調べない
+    let has_passkey = is_admin && user_repo::count_passkeys(pool, user_id).await? > 0;
+    let enforce_after = crate::infrastructure::repositories::system_settings_repo::get(
+        pool,
+        ADMIN_PASSKEY_ENFORCE_AFTER_KEY,
+    )
+    .await?
+    .and_then(|v| chrono::DateTime::parse_from_rfc3339(v.trim()).ok())
+    .map(|t| t.with_timezone(&chrono::Utc));
+    Ok(AdminPasskeyStatus {
+        is_admin,
+        has_passkey,
+        enforce_after,
+    })
+}
+
+/// 確認コードの試行の上限(時間窓の間に調べてよい回数)と、時間窓・ロックの長さ(分)。運用を見て調整する。
+pub const TOTP_MAX_ATTEMPTS: i32 = 10;
+pub const TOTP_LOCK_WINDOW_MINUTES: i64 = 15;
+
+#[cfg(test)]
+mod totp_guard_tests {
+    use super::*;
+    use crate::test_support::{create_test_user, test_pool};
+    use totp_rs::{Algorithm, Secret, TOTP};
+
+    const JWT: &str = "test-jwt-secret-not-used-for-plain-totp";
+
+    fn new_secret() -> String {
+        let mut raw = vec![0u8; 20];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut raw);
+        Secret::Raw(raw).to_encoded().to_string()
+    }
+
+    fn code_at(secret: &str, unix: u64) -> String {
+        let bytes = Secret::Encoded(secret.to_string()).to_bytes().unwrap();
+        TOTP::new(Algorithm::SHA1, 6, 1, 30, bytes, None, String::new())
+            .unwrap()
+            .generate(unix)
+    }
+
+    fn wrong_code(secret: &str, unix: u64) -> String {
+        // 前後 1 区間のどれとも違う 6 桁
+        let ok: Vec<String> = [0u64, 30, 60]
+            .iter()
+            .flat_map(|d| {
+                [
+                    code_at(secret, unix + d),
+                    code_at(secret, unix.saturating_sub(*d)),
+                ]
+            })
+            .collect();
+        (0..1_000_000u32)
+            .map(|n| format!("{n:06}"))
+            .find(|c| !ok.contains(c))
+            .unwrap()
+    }
+
+    async fn user_with_totp(pool: &PgPool) -> (i32, i32, String) {
+        let user_id = create_test_user(pool, "totp-guard").await;
+        let secret = new_secret();
+        let device_id: i64 = sqlx::query_scalar(
+            "INSERT INTO mfa_totp_device (secret, confirmed, created_at, user_id) VALUES ($1, true, now(), $2) RETURNING id",
+        )
+        .bind(&secret)
+        .bind(user_id as i64)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        (user_id, device_id as i32, secret)
+    }
+
+    #[test]
+    fn matching_step_accepts_current_and_adjacent_but_not_further() {
+        let secret = new_secret();
+        let now = 1_800_000_000u64;
+        let step = (now / 30) as i64;
+        assert_eq!(
+            totp_matching_step(&secret, &code_at(&secret, now), now).unwrap(),
+            Some(step)
+        );
+        assert_eq!(
+            totp_matching_step(&secret, &code_at(&secret, now - 30), now).unwrap(),
+            Some(step - 1)
+        );
+        assert_eq!(
+            totp_matching_step(&secret, &code_at(&secret, now + 30), now).unwrap(),
+            Some(step + 1)
+        );
+        assert_eq!(
+            totp_matching_step(&secret, &code_at(&secret, now - 90), now).unwrap(),
+            None
+        );
+        assert_eq!(
+            totp_matching_step(&secret, &wrong_code(&secret, now), now).unwrap(),
+            None
+        );
+        assert_eq!(totp_matching_step(&secret, "12345", now).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn same_code_cannot_be_used_twice_and_older_code_is_refused() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (user_id, _dev, secret) = user_with_totp(&pool).await;
+        let now = current_unix_time();
+        let cur = code_at(&secret, now);
+        let prev = code_at(&secret, now - 30);
+        assert!(verify_totp_for_user(&pool, JWT, user_id, &cur)
+            .await
+            .unwrap());
+        // 同じコードの 2 回目は断る
+        assert!(!verify_totp_for_user(&pool, JWT, user_id, &cur)
+            .await
+            .unwrap());
+        // 使った区間より古い区間のコードも断る
+        assert!(!verify_totp_for_user(&pool, JWT, user_id, &prev)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn locks_after_max_attempts_even_for_the_correct_code_and_survives_new_calls() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (user_id, _dev, secret) = user_with_totp(&pool).await;
+        let now = current_unix_time();
+        let bad = wrong_code(&secret, now);
+        // 上限までは、調べられる(間違い)
+        for _ in 0..TOTP_MAX_ATTEMPTS {
+            assert!(!verify_totp_for_user(&pool, JWT, user_id, &bad)
+                .await
+                .unwrap());
+        }
+        // 上限を超えたら、正しいコードでも断る(ログインし直しても、数は DB にあるので引き継がれる)
+        let good = code_at(&secret, now);
+        assert!(!verify_totp_for_user(&pool, JWT, user_id, &good)
+            .await
+            .unwrap());
+        let locked: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT locked_until FROM mfa_totp_attempt WHERE user_id = $1")
+                .bind(user_id as i64)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(locked.is_some_and(|t| t > chrono::Utc::now()));
+
+        // ロックが明けたら、正しいコードで入れて、数が消える
+        sqlx::query("UPDATE mfa_totp_attempt SET locked_until = now() - interval '1 second' WHERE user_id = $1")
+            .bind(user_id as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(verify_totp_for_user(&pool, JWT, user_id, &good)
+            .await
+            .unwrap());
+        let rows: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM mfa_totp_attempt WHERE user_id = $1")
+                .bind(user_id as i64)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
+    async fn other_users_are_not_locked() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (a, _, sa) = user_with_totp(&pool).await;
+        let (b, _, sb) = user_with_totp(&pool).await;
+        let now = current_unix_time();
+        for _ in 0..=TOTP_MAX_ATTEMPTS {
+            let _ = verify_totp_for_user(&pool, JWT, a, &wrong_code(&sa, now)).await;
+        }
+        assert!(verify_totp_for_user(&pool, JWT, b, &code_at(&sb, now))
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn parallel_attempts_never_exceed_the_limit() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (user_id, _dev, _secret) = user_with_totp(&pool).await;
+        // 同時に 40 回送っても、コードを調べるのは上限の回数まで(残りはロックで断られる)
+        let mut handles = Vec::new();
+        for _ in 0..40 {
+            let pool = pool.clone();
+            handles.push(tokio::spawn(async move {
+                user_repo::totp_reserve_attempt(
+                    &pool,
+                    user_id,
+                    TOTP_MAX_ATTEMPTS,
+                    chrono::Duration::minutes(15),
+                )
+                .await
+                .unwrap()
+            }));
+        }
+        let mut allowed = 0;
+        for h in handles {
+            if h.await.unwrap() == user_repo::TotpAttemptReservation::Allowed {
+                allowed += 1;
+            }
+        }
+        assert_eq!(allowed, TOTP_MAX_ATTEMPTS);
+    }
 }

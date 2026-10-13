@@ -42,6 +42,20 @@ pub struct LoginMfaResponse {
     pub mfa_token: String,
 }
 
+/// 管理者でパスキーを登録済み: パスキーの確認に進む(DEMO-000153 A-4b)
+#[derive(Serialize)]
+pub struct LoginPasskeyResponse {
+    pub passkey_required: bool,
+    pub passkey_token: String,
+}
+
+/// 管理者で強制の期間に未登録、かつ窓が開いている: パスキーの新規登録に進む(DEMO-000153 A-4b)
+#[derive(Serialize)]
+pub struct LoginEnrollResponse {
+    pub passkey_enroll_required: bool,
+    pub enroll_token: String,
+}
+
 #[derive(Deserialize)]
 pub struct LoginVerifyRequest {
     pub mfa_token: String,
@@ -143,6 +157,23 @@ pub struct DeactivateMyAccountIn {
 }
 
 #[derive(Serialize)]
+pub struct AdminPasskeyOut {
+    /// 管理者(システム管理者・チーム Owner)か
+    #[serde(rename = "isAdmin")]
+    pub is_admin: bool,
+    /// パスキーを登録済みか(管理者のみ意味がある)
+    pub registered: bool,
+    /// 登録が必要か(管理者で、未登録)
+    #[serde(rename = "mustRegister")]
+    pub must_register: bool,
+    /// 強制の開始日時(RFC 3339)。未設定なら null
+    #[serde(rename = "enforceAfter")]
+    pub enforce_after: Option<String>,
+    /// すでに強制の期間か(開始日時を過ぎている)。画面の文言の切り替えに使う
+    pub enforced: bool,
+}
+
+#[derive(Serialize)]
 pub struct MeResponse {
     pub id: i32,
     pub username: String,
@@ -160,6 +191,9 @@ pub struct MeResponse {
     pub is_guest: bool,
     #[serde(rename = "emailNotificationsEnabled")]
     pub email_notifications_enabled: bool,
+    /// 管理者のパスキー必須の状況(DEMO-000153 A-4)
+    #[serde(rename = "adminPasskey")]
+    pub admin_passkey: AdminPasskeyOut,
 }
 
 // =============================================================================
@@ -214,6 +248,85 @@ pub async fn login(
             ),
         )
             .into_response();
+    }
+
+    // 管理者のパスキー必須(DEMO-000153 A-4b): パスワードのあとに、パスキーの確認(または新規登録)に進む
+    let admin_status = match auth_service::admin_passkey_status(&state.pool, user.id).await {
+        Ok(st) => st,
+        Err(e) => {
+            // 判定できないときは、通さない(管理者かどうか分からないまま、パスワードだけで入れない)
+            tracing::error!(error = ?e, "管理者のパスキーの状態を取得できませんでした");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"detail": "サーバーエラーが発生しました"})),
+            )
+                .into_response();
+        }
+    };
+    match auth_service::admin_login_policy(&admin_status, chrono::Utc::now()) {
+        auth_service::AdminLoginPolicy::Normal => {}
+        auth_service::AdminLoginPolicy::RequirePasskey => {
+            return match jwt_service::issue_passkey_step_token(
+                user.id,
+                &state.config.jwt_secret,
+                state.config.mfa_token_lifetime_seconds,
+            ) {
+                Ok(token) => (
+                    StatusCode::OK,
+                    Json(LoginPasskeyResponse {
+                        passkey_required: true,
+                        passkey_token: token,
+                    }),
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"detail": "トークン発行エラー"})),
+                    )
+                        .into_response()
+                }
+            };
+        }
+        auth_service::AdminLoginPolicy::EnrollRequired => {
+            // 新しく登録できるのは、別の管理者(または復旧コマンド)が、この人のために窓を開けたときだけ
+            let window_open = user_repo::passkey_enroll_window_open(&state.pool, user.id)
+                .await
+                .unwrap_or(false);
+            if !window_open {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({
+                        "detail": "管理者のパスキーが未登録です。社内 SSO でログインして登録するか、別のシステム管理者に、パスキーのリセットを依頼してください",
+                        "code": "passkey_enroll_not_allowed"
+                    })),
+                )
+                    .into_response();
+            }
+            return match jwt_service::issue_enroll_token(
+                user.id,
+                &state.config.jwt_secret,
+                state.config.mfa_token_lifetime_seconds,
+            ) {
+                Ok(token) => (
+                    StatusCode::OK,
+                    Json(LoginEnrollResponse {
+                        passkey_enroll_required: true,
+                        enroll_token: token,
+                    }),
+                )
+                    .into_response(),
+                Err(e) => {
+                    tracing::error!("DB operation failed: {:?}", e);
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"detail": "トークン発行エラー"})),
+                    )
+                        .into_response()
+                }
+            };
+        }
     }
 
     // MFA確認
@@ -469,6 +582,27 @@ pub async fn me(State(state): State<AppState>, viewer: Viewer) -> impl IntoRespo
         }
     };
 
+    // 表示のための情報。取れなくても、ログインの状態確認(me)は返す
+    let admin_passkey_out = match auth_service::admin_passkey_status(&state.pool, user.id).await {
+        Ok(st) => AdminPasskeyOut {
+            is_admin: st.is_admin,
+            registered: st.has_passkey,
+            must_register: st.must_register(),
+            enforced: st.is_enforced(chrono::Utc::now()),
+            enforce_after: st.enforce_after.map(|t| t.to_rfc3339()),
+        },
+        Err(e) => {
+            tracing::warn!(error = ?e, "管理者のパスキーの状態を取得できませんでした");
+            AdminPasskeyOut {
+                is_admin: false,
+                registered: false,
+                must_register: false,
+                enforce_after: None,
+                enforced: false,
+            }
+        }
+    };
+
     (
         StatusCode::OK,
         Json(MeResponse {
@@ -482,6 +616,7 @@ pub async fn me(State(state): State<AppState>, viewer: Viewer) -> impl IntoRespo
             is_system_admin: user.is_system_admin,
             is_guest: user.is_guest,
             email_notifications_enabled: user.email_notifications_enabled,
+            admin_passkey: admin_passkey_out,
         }),
     )
         .into_response()

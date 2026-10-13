@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import type { UserSummary } from '@/shared/api/types';
 import { useToastStore } from '@/shared/stores/toastStore';
+import { AdminPasskeyResetSection } from './AdminPasskeyResetSection';
 
 interface OrphanTeam {
   id: number;
@@ -123,6 +124,8 @@ export function AdminAccessSection() {
           <InvitePanel teamId={null} />
         </div>
       </section>
+
+      <AdminPasskeyResetSection />
 
       <section className="settings__section" data-testid="admin-access-report">
         <h2 className="settings__section-title">{t('teamAccess.reportHeading')}</h2>

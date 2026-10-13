@@ -11,6 +11,39 @@ use chrono::Utc;
 use sqlx::PgPool;
 use std::time::Duration;
 
+/// 二要素認証の試行の記録のうち、期限切れの行を消す(DEMO-000153 A-2・R2)。
+/// 5 分ごとに、古い順に 1000 件ずつ(最大 10 回まで続けて)消す。総当たりを受けて行が急増しても、1 回の削除が重くならない。
+pub fn spawn_mfa_attempt_purge(pool: PgPool) {
+    tokio::spawn(async move {
+        // 最初の実行は 5 分後。起動の直後は、マイグレーションの適用が終わる前で、テーブルがまだ無いことがある
+        let period = Duration::from_secs(300);
+        let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+        let window = chrono::Duration::minutes(
+            crate::domain::services::auth_service::TOTP_LOCK_WINDOW_MINUTES,
+        );
+        loop {
+            interval.tick().await;
+            for _ in 0..10 {
+                match crate::infrastructure::repositories::user_repo::totp_purge_expired_attempts(
+                    &pool, window, 1000,
+                )
+                .await
+                {
+                    Ok(n) if n >= 1000 => continue,
+                    Ok(_) => break,
+                    Err(e) => {
+                        tracing::error!(
+                            "mfa attempt purge failed: {:?} 処理=二要素認証の試行記録の掃除",
+                            e
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
 pub fn spawn_cycle_auto_activation(pool: PgPool) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(300));

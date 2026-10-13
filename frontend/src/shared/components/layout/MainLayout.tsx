@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { isDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
 import { useAuthStore } from '@/shared/stores/authStore';
 import { getAccessToken } from '@/shared/api/client';
+import { AdminPasskeyBanner } from './AdminPasskeyBanner';
 import './MainLayout.css';
 
 function ThemeToggle() {
@@ -190,6 +191,9 @@ export function MainLayout() {
             </div>
           </div>
         )}
+
+        {/* 管理者のパスキー登録の案内(登録するまで出す) */}
+        <AdminPasskeyBanner />
 
         {/* オフラインバナー */}
         {isOffline && (

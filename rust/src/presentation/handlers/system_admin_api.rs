@@ -748,6 +748,125 @@ pub async fn backup_export(State(state): State<AppState>, viewer: Viewer) -> imp
     response
 }
 
+/// パスキーのリセットで開ける、新規登録の窓の長さ(時間)
+pub(crate) const PASSKEY_ENROLL_WINDOW_HOURS: i64 = 24;
+
+/// POST /api/v1/system-admin/users/{id}/passkeys/reset/
+///
+/// 指定したユーザーのパスキーを、すべて削除する(パスキーを失くした管理者の復旧。DEMO-000153 A-4)。
+/// - システム管理者だけが実行できる。**自分自身には使えない**(パスワードだけを知る攻撃者が、
+///   自分のパスキーを消して入れ替えられないようにするため。別の管理者が行う)
+/// - 実行の記録(ログ)を残し、対象の本人にメールで知らせる(メールを送れない環境では、記録のみ)
+/// - リセットしたあと、本人はパスワードで入り、パスキーを登録し直す
+pub async fn reset_user_passkeys(
+    State(state): State<AppState>,
+    viewer: Viewer,
+    Path(target_id): Path<i32>,
+) -> impl IntoResponse {
+    if let Err(resp) = require_staff(&state, &viewer) {
+        return resp.into_response();
+    }
+    let actor_id = match viewer.require_user_id() {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if actor_id == target_id {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "detail": "自分自身のパスキーはリセットできません。別のシステム管理者に依頼してください" })),
+        )
+            .into_response();
+    }
+
+    let target = match user_repo::find_by_id(&state.pool, target_id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "detail": "ユーザーが見つかりません" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!(error = ?e, "ユーザーの取得に失敗しました");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "detail": "サーバーエラーが発生しました" })),
+            )
+                .into_response();
+        }
+    };
+
+    let deleted = match user_repo::delete_all_passkeys(&state.pool, target_id).await {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::error!(error = ?e, "パスキーの削除に失敗しました");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "detail": "サーバーエラーが発生しました" })),
+            )
+                .into_response();
+        }
+    };
+
+    // リセットした本人が、パスワードでログインして、パスキーを登録し直せるように、窓を開ける(24 時間。A-4b)
+    if let Err(e) =
+        user_repo::open_passkey_enroll_window(&state.pool, target_id, PASSKEY_ENROLL_WINDOW_HOURS)
+            .await
+    {
+        tracing::error!(error = ?e, "パスキーの登録の窓を開けられませんでした");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "detail": "サーバーエラーが発生しました" })),
+        )
+            .into_response();
+    }
+
+    // 実行の記録(秘密の値は含まない)
+    tracing::warn!(
+        event = "admin_passkey_reset",
+        actor_user_id = actor_id,
+        target_user_id = target_id,
+        deleted_count = deleted,
+        "システム管理者がユーザーのパスキーをリセットしました"
+    );
+
+    // 本人への通知(失敗しても、リセットは取り消さない。失敗は記録する)
+    let mut notified = false;
+    if !target.email.is_empty() {
+        if let Some(mailer) = state.mail_sender.as_ref() {
+            if mailer.is_configured().await {
+                let actor_name = match user_repo::find_by_id(&state.pool, actor_id).await {
+                    Ok(Some(a)) => a.display().to_string(),
+                    _ => String::from("システム管理者"),
+                };
+                let body = format!(
+                    "{} さんのパスキーが、システム管理者({})によってリセットされました。\n\n\
+                     パスワードでログインしたあと、パスキーを登録し直してください。\n\
+                     心当たりがない場合は、すぐにシステム管理者に連絡してください。",
+                    target.display(),
+                    actor_name
+                );
+                match mailer
+                    .send(&target.email, "【SENN】パスキーがリセットされました", &body)
+                    .await
+                {
+                    Ok(()) => notified = true,
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "パスキーのリセットの通知メールを送れませんでした")
+                    }
+                }
+            }
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({ "deleted": deleted, "notified": notified, "enrollWindowHours": PASSKEY_ENROLL_WINDOW_HOURS })),
+    )
+        .into_response()
+}
+
 /// GET /api/v1/system-admin/realtime/stats/
 ///
 /// リアルタイム同期の計測（接続数・部屋数・リングのメモリの目安・配信数・遅い接続の切断・再同期・死活確認の往復など）。
@@ -764,4 +883,209 @@ pub async fn get_realtime_stats(
         obj.insert("enabled".to_string(), json!(state.realtime_enabled));
     }
     (StatusCode::OK, Json(body)).into_response()
+}
+
+#[cfg(test)]
+mod passkey_reset_tests {
+    use super::*;
+    use crate::infrastructure::repositories::user_repo;
+    use crate::test_support::{
+        add_test_team_member, create_test_team, create_test_user, test_pool, test_state,
+        test_viewer, unique_suffix,
+    };
+    use axum::body::to_bytes;
+
+    async fn add_passkey(pool: &sqlx::PgPool, user_id: i32) {
+        sqlx::query(
+            "INSERT INTO mfa_webauthn_credential (credential_id, public_key, passkey_json, sign_count, name, created_at, user_id)
+             VALUES ($1, $2, '{}', 0, 'test', now(), $3)",
+        )
+        .bind(format!("cred-{}", unique_suffix()).into_bytes())
+        .bind(vec![1u8, 2, 3])
+        .bind(user_id as i64)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn make_system_admin(pool: &sqlx::PgPool, user_id: i32) {
+        sqlx::query(
+            "UPDATE accounts_user SET is_staff = true, is_system_admin = true WHERE id = $1",
+        )
+        .bind(user_id as i64)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn call(state: &AppState, actor: i32, target: i32) -> (StatusCode, serde_json::Value) {
+        let pool = &state.pool;
+        let viewer = test_viewer(pool, actor).await;
+        let resp = reset_user_passkeys(State(state.clone()), viewer, Path(target))
+            .await
+            .into_response();
+        let status = resp.status();
+        let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    #[tokio::test]
+    async fn only_another_system_admin_can_reset_and_only_the_target_is_affected() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let state = test_state(&pool).await;
+        let admin = create_test_user(&pool, "pk-admin").await;
+        make_system_admin(&pool, admin).await;
+        let target = create_test_user(&pool, "pk-target").await;
+        let other = create_test_user(&pool, "pk-other").await;
+        let plain = create_test_user(&pool, "pk-plain").await;
+        for u in [target, other] {
+            add_passkey(&pool, u).await;
+            add_passkey(&pool, u).await;
+        }
+
+        // 管理者でない人は断られる(削除されない)
+        let (st, _) = call(&state, plain, target).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        assert_eq!(user_repo::count_passkeys(&pool, target).await.unwrap(), 2);
+
+        // 自分自身には使えない(管理者本人のパスキーも消えない)
+        add_passkey(&pool, admin).await;
+        let (st, _) = call(&state, admin, admin).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert_eq!(user_repo::count_passkeys(&pool, admin).await.unwrap(), 1);
+
+        // 存在しないユーザー
+        let (st, _) = call(&state, admin, 2_000_000_000).await;
+        assert_eq!(st, StatusCode::NOT_FOUND);
+
+        // 別の管理者は、対象のパスキーだけを削除できる
+        let (st, body) = call(&state, admin, target).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(body["deleted"], 2);
+        assert_eq!(user_repo::count_passkeys(&pool, target).await.unwrap(), 0);
+        assert_eq!(user_repo::count_passkeys(&pool, other).await.unwrap(), 2);
+        // リセットした本人だけ、パスキーの新規登録の窓が開く(他の人は閉じたまま)。A-4b
+        assert!(user_repo::passkey_enroll_window_open(&pool, target)
+            .await
+            .unwrap());
+        assert!(!user_repo::passkey_enroll_window_open(&pool, other)
+            .await
+            .unwrap());
+        assert_eq!(body["enrollWindowHours"], 24);
+    }
+
+    #[tokio::test]
+    async fn legacy_passkey_rows_without_json_do_not_count_as_registered() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let user = create_test_user(&pool, "pk-legacy").await;
+        // 昔の行: passkey_json が空。ログインの確認では使えないので、登録済みとは数えない(数えると、管理者が締め出される)
+        sqlx::query(
+            "INSERT INTO mfa_webauthn_credential (credential_id, public_key, sign_count, name, created_at, user_id)
+             VALUES ($1, $2, 0, 'legacy', now(), $3)",
+        )
+        .bind(format!("legacy-{}", unique_suffix()).into_bytes())
+        .bind(vec![1u8])
+        .bind(user as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(user_repo::count_passkeys(&pool, user).await.unwrap(), 0);
+        add_passkey(&pool, user).await;
+        assert_eq!(user_repo::count_passkeys(&pool, user).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn admin_account_detection_covers_system_admin_and_team_owner_only() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let sys = create_test_user(&pool, "adm-sys").await;
+        make_system_admin(&pool, sys).await;
+        let owner = create_test_user(&pool, "adm-owner").await;
+        let member = create_test_user(&pool, "adm-member").await;
+        let plain = create_test_user(&pool, "adm-plain").await;
+        let team = create_test_team(&pool, "adm-team").await;
+        add_test_team_member(&pool, team, owner, "admin").await;
+        add_test_team_member(&pool, team, member, "member").await;
+
+        assert!(user_repo::is_admin_account(&pool, sys).await.unwrap());
+        assert!(user_repo::is_admin_account(&pool, owner).await.unwrap());
+        assert!(!user_repo::is_admin_account(&pool, member).await.unwrap());
+        assert!(!user_repo::is_admin_account(&pool, plain).await.unwrap());
+
+        // プロジェクト限定のゲストの行は、Owner として数えない
+        let guest = create_test_user(&pool, "adm-guest").await;
+        let project = crate::test_support::create_test_project(&pool, "ADMG", sys).await;
+        sqlx::query(
+            "INSERT INTO t_team_membership (role, joined_at, user_id, team_id, scoped_project_id)
+             VALUES ('admin', now(), $1, $2, $3)",
+        )
+        .bind(guest as i64)
+        .bind(team as i64)
+        .bind(project as i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(!user_repo::is_admin_account(&pool, guest).await.unwrap());
+
+        // 無効化したアカウントは、管理者として数えない
+        sqlx::query("UPDATE accounts_user SET is_active = false WHERE id = $1")
+            .bind(owner as i64)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(!user_repo::is_admin_account(&pool, owner).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn status_reports_registration_and_enforcement_window() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let _guard = crate::test_support::ADMIN_PASSKEY_SETTING_LOCK.lock().await;
+        use crate::domain::services::auth_service::{
+            admin_passkey_status, ADMIN_PASSKEY_ENFORCE_AFTER_KEY,
+        };
+        use crate::infrastructure::repositories::system_settings_repo;
+        let admin = create_test_user(&pool, "st-admin").await;
+        make_system_admin(&pool, admin).await;
+
+        // 開始日時が未設定: 管理者で未登録なら登録が必要だが、強制はしない
+        system_settings_repo::delete(&pool, ADMIN_PASSKEY_ENFORCE_AFTER_KEY)
+            .await
+            .unwrap();
+        let st = admin_passkey_status(&pool, admin).await.unwrap();
+        assert!(st.is_admin && !st.has_passkey && st.must_register());
+        assert!(!st.is_enforced(chrono::Utc::now()));
+
+        // 開始日時を過去にする: 強制の期間。パスキーを登録すると、登録は不要になる
+        let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        system_settings_repo::set(&pool, ADMIN_PASSKEY_ENFORCE_AFTER_KEY, &past)
+            .await
+            .unwrap();
+        let st = admin_passkey_status(&pool, admin).await.unwrap();
+        assert!(st.is_enforced(chrono::Utc::now()));
+        add_passkey(&pool, admin).await;
+        let st = admin_passkey_status(&pool, admin).await.unwrap();
+        assert!(st.has_passkey && !st.must_register());
+
+        // 管理者でない人は、パスキーを調べず、登録も不要
+        let plain = create_test_user(&pool, "st-plain").await;
+        let st = admin_passkey_status(&pool, plain).await.unwrap();
+        assert!(!st.is_admin && !st.must_register());
+
+        // 開始日時が読めない値なら、強制しない(安全側ではなく、締め出さない側に倒す)
+        system_settings_repo::set(&pool, ADMIN_PASSKEY_ENFORCE_AFTER_KEY, "不正な値")
+            .await
+            .unwrap();
+        let st = admin_passkey_status(&pool, admin).await.unwrap();
+        assert!(st.enforce_after.is_none() && !st.is_enforced(chrono::Utc::now()));
+        system_settings_repo::delete(&pool, ADMIN_PASSKEY_ENFORCE_AFTER_KEY)
+            .await
+            .unwrap();
+    }
 }

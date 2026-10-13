@@ -23,6 +23,10 @@ pub enum TokenType {
     Mfa,
     /// /media(添付ファイル)の配信専用。API の認証には使えない(Access ではない)。
     Media,
+    /// 管理者のパスワードログインの次の段階「パスキーの確認」専用(DEMO-000153 A-4b)。API の認証には使えない
+    Passkey,
+    /// 管理者の「パスキーの新規登録」専用(DEMO-000153 A-4b)。API の認証には使えない
+    Enroll,
 }
 
 /// WIP統一JWTクレーム。access/refresh/MFAチャレンジの全トークン種別を
@@ -134,6 +138,100 @@ pub fn issue_mfa_token(user_id: i32, secret: &str, ttl_seconds: i64) -> Result<S
         None,
     );
     encode_claims(&claims, secret)
+}
+
+/// 「パスキーの確認」の段階のトークンを発行する(パスワード確認済みの管理者に渡す)
+pub fn issue_passkey_step_token(
+    user_id: i32,
+    secret: &str,
+    ttl_seconds: i64,
+) -> Result<String, AuthError> {
+    let claims = build_claims(
+        user_id,
+        TokenType::Passkey,
+        Duration::seconds(ttl_seconds),
+        None,
+    );
+    encode_claims(&claims, secret)
+}
+
+pub fn decode_passkey_step_token(token: &str, secret: &str) -> Result<Claims, AuthError> {
+    let claims = decode_claims::<Claims>(token, secret)?;
+    if claims.token_type != TokenType::Passkey {
+        return Err(AuthError::InvalidToken("invalid token purpose".to_string()));
+    }
+    Ok(claims)
+}
+
+/// 「パスキーの新規登録」の段階のトークンを発行する(窓が開いている管理者に渡す)
+pub fn issue_enroll_token(
+    user_id: i32,
+    secret: &str,
+    ttl_seconds: i64,
+) -> Result<String, AuthError> {
+    let claims = build_claims(
+        user_id,
+        TokenType::Enroll,
+        Duration::seconds(ttl_seconds),
+        None,
+    );
+    encode_claims(&claims, secret)
+}
+
+pub fn decode_enroll_token(token: &str, secret: &str) -> Result<Claims, AuthError> {
+    let claims = decode_claims::<Claims>(token, secret)?;
+    if claims.token_type != TokenType::Enroll {
+        return Err(AuthError::InvalidToken("invalid token purpose".to_string()));
+    }
+    Ok(claims)
+}
+
+/// WebAuthn の「状態」を、署名つきで預けるトークン。
+///
+/// 既存のパスキーの状態は、クライアントが保持して送り返す作りだが、**特定の鍵を指定する認証の状態には、
+/// 公開鍵の一覧が含まれる**。クライアントが作った状態をそのまま信じると、攻撃者が自分の公開鍵を入れた状態で
+/// 確認を通れてしまう。そのため、サーバーが署名した状態だけを受け付ける(用途・ユーザー・期限つき)。
+#[derive(Debug, Serialize, Deserialize)]
+struct WebauthnStateClaims {
+    sub: String,
+    purpose: String,
+    state: String,
+    exp: i64,
+    iat: i64,
+    iss: String,
+}
+
+pub fn issue_webauthn_state_token(
+    user_id: i32,
+    purpose: &str,
+    state_json: &str,
+    secret: &str,
+    ttl_seconds: i64,
+) -> Result<String, AuthError> {
+    let now = Utc::now();
+    let claims = WebauthnStateClaims {
+        sub: user_id.to_string(),
+        purpose: purpose.to_string(),
+        state: state_json.to_string(),
+        iat: now.timestamp(),
+        exp: (now + Duration::seconds(ttl_seconds)).timestamp(),
+        iss: ISSUER.to_string(),
+    };
+    encode_claims(&claims, secret)
+}
+
+/// 署名・期限・用途・ユーザーを確かめて、状態の JSON を返す
+pub fn decode_webauthn_state_token(
+    token: &str,
+    purpose: &str,
+    expected_user_id: i32,
+    secret: &str,
+) -> Result<String, AuthError> {
+    let claims = decode_claims::<WebauthnStateClaims>(token, secret)?;
+    if claims.purpose != purpose || claims.sub != expected_user_id.to_string() {
+        return Err(AuthError::InvalidToken("invalid state token".to_string()));
+    }
+    Ok(claims.state)
 }
 
 /// /media 配信専用トークンを発行する(Cookie に入れる。ユーザーIDだけを持つ)
