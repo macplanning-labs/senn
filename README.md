@@ -115,6 +115,20 @@ From a ticket, click **Ask AI**, and Claude Code works on it in an isolated cont
 3. Register `bash /path/to/senn/mcp-server/run-with-credentials.sh` as an MCP server (e.g. `claude mcp add senn -- bash /path/to/senn/mcp-server/run-with-credentials.sh`).
 4. Ask the AI to "connect to SENN". Open the link it returns, click **Request approval**, and once a system administrator approves (**Admin → AI settings**), the key is saved on your machine automatically — no copy and paste.
 
+**Asking your AI** — Once connected, just talk to the AI in plain words. Examples:
+- "Connect to SENN." (first time only; you get an approval link)
+- "Find the open tickets in project ABC that were updated this week."
+- "Create a ticket from what we just did. Write it so a non-engineer can follow."
+- "Record in SENN that you started / finished this task."
+- "Summarize this investigation and save it as a wiki page."
+
+Tips:
+- **Name the project** (its prefix, e.g. `ABC`) so the AI does not guess.
+- **Ask it to show the draft first** before it creates, updates or deletes anything ("show me the ticket text first").
+- **Start with read-only requests** (search, summarize) to check the connection and what the AI can see.
+- The AI acts **as the key's owner**. Do not share a key, and approve a connection request only if you started it yourself.
+- Everything the AI reads goes to your AI provider (see "Before you start" above).
+
 ## Key Features
 
 - **Ticket management** — issues/tickets with status, priority, labels, assignees, threaded comments (with @mentions), and Linear-style keyboard navigation
