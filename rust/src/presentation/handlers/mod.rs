@@ -1,5 +1,6 @@
 pub mod access_guard;
 pub mod access_report_api;
+pub mod admin_passkey_login_api;
 pub mod ai_agent_api;
 pub mod ai_agent_bulk_api;
 pub mod ai_agent_wiki_api;

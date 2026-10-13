@@ -16,17 +16,17 @@ use utoipa_swagger_ui::SwaggerUi;
 // Step 2: レート制限(IPトークンバケット)は auth-core::infrastructure::rate_limit へ移行済み。
 use crate::presentation::{
     handlers::{
-        access_report_api, ai_agent_api, ai_agent_bulk_api, ai_agent_wiki_api, ai_api,
-        ai_kick_admin_api, ai_kick_api, ai_mcp_pairing_api, ai_mcp_request_api, ai_run_api,
-        ai_run_issue_api, ai_runner_api, api_doc, attachment_api, auth, auth_api,
-        chat_integration_api, cycle_api, dashboard_api, external_api, git_status_rule_api,
-        github_app_link_api, github_app_setup, github_app_webhook, health, insights_api,
-        integration_api, invitation_api, kb_api, media_api, notification_api2, password_reset_api,
-        project_activity_api, project_structure_api, project_team_api, reaction_api, realtime_api,
-        reports_api, resource_api, roadmap_api, saved_view_api, search_api, security_api,
-        settings_api, sso_api, sync_api, system_admin_api, team_access_api, team_api,
-        team_archive_api, team_rule_api, ticket_link_api, tickets_api, time_entry_api, triage_api,
-        wiki_api, workflow_status_api,
+        access_report_api, admin_passkey_login_api, ai_agent_api, ai_agent_bulk_api,
+        ai_agent_wiki_api, ai_api, ai_kick_admin_api, ai_kick_api, ai_mcp_pairing_api,
+        ai_mcp_request_api, ai_run_api, ai_run_issue_api, ai_runner_api, api_doc, attachment_api,
+        auth, auth_api, chat_integration_api, cycle_api, dashboard_api, external_api,
+        git_status_rule_api, github_app_link_api, github_app_setup, github_app_webhook, health,
+        insights_api, integration_api, invitation_api, kb_api, media_api, notification_api2,
+        password_reset_api, project_activity_api, project_structure_api, project_team_api,
+        reaction_api, realtime_api, reports_api, resource_api, roadmap_api, saved_view_api,
+        search_api, security_api, settings_api, sso_api, sync_api, system_admin_api,
+        team_access_api, team_api, team_archive_api, team_rule_api, ticket_link_api, tickets_api,
+        time_entry_api, triage_api, wiki_api, workflow_status_api,
     },
     middleware::{
         auth::require_auth,
@@ -124,6 +124,23 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/auth/login/verify/",
             with_login_verify_lock(post(auth_api::login_verify), &login_attempt_stores),
+        )
+        // 管理者のパスワードログインの次の段階: パスキーの確認と、パスキーの新規登録(DEMO-000153 A-4b)
+        .route(
+            "/api/v1/auth/login/passkey/begin/",
+            post(admin_passkey_login_api::step_begin),
+        )
+        .route(
+            "/api/v1/auth/login/passkey/verify/",
+            post(admin_passkey_login_api::step_complete),
+        )
+        .route(
+            "/api/v1/auth/login/passkey-enroll/begin/",
+            post(admin_passkey_login_api::enroll_begin),
+        )
+        .route(
+            "/api/v1/auth/login/passkey-enroll/complete/",
+            post(admin_passkey_login_api::enroll_complete),
         )
         // 社内 SSO(Cloudflare Access の JWT を署名検証してログイン。無効なら 404)
         .route("/api/v1/auth/sso/login/", post(sso_api::login))
@@ -1063,6 +1080,10 @@ pub fn create_router(state: AppState) -> Router {
             post(ai_mcp_request_api::admin_reject),
         )
         .route(
+            "/api/v1/system-admin/users/{id}/passkeys/reset/",
+            post(system_admin_api::reset_user_passkeys),
+        )
+        .route(
             "/api/v1/system-admin/ai-agent-personal-keys/{id}/",
             axum::routing::delete(system_admin_api::revoke_ai_agent_personal_key),
         )
@@ -1285,6 +1306,22 @@ mod access_route_tests {
         ("auth::password_page", "画面のセッション(Cookie)。本人のみ"),
         ("auth_api::login", "ログイン(認証前)"),
         ("auth_api::login_verify", "二要素認証(認証の途中)"),
+        (
+            "admin_passkey_login_api::step_begin",
+            "管理者のパスキーの確認(認証の途中。段階のトークンで認証)",
+        ),
+        (
+            "admin_passkey_login_api::step_complete",
+            "管理者のパスキーの確認(認証の途中。段階のトークンと、署名つきの状態で認証)",
+        ),
+        (
+            "admin_passkey_login_api::enroll_begin",
+            "管理者のパスキーの新規登録(認証の途中。登録の段階のトークンと、開いている窓で認証)",
+        ),
+        (
+            "admin_passkey_login_api::enroll_complete",
+            "管理者のパスキーの新規登録(認証の途中。登録の段階のトークンと、開いている窓で認証)",
+        ),
         (
             "sso_api::login",
             "社内 SSO(Cloudflare Access の JWT を署名検証。無効なら 404)",

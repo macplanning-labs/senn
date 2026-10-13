@@ -83,6 +83,8 @@ futures-util = "0.3"
 
 # Markdown
 pulldown-cmark = "0.12"
+# Wiki の HTML 無害化(保存型 XSS 対策。許可リスト方式)
+ammonia = "4.2"
 
 # Excel
 rust_xlsxwriter = "0.80"

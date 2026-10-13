@@ -1,0 +1,33 @@
+/* AdminPasskeyBanner.css — 管理者のパスキー登録の案内 */
+
+.admin-passkey-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: var(--space-2, 0.5rem) var(--space-6, 1.5rem);
+  background: rgba(245, 158, 11, 0.12);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.45);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm, 0.875rem);
+}
+
+.admin-passkey-banner__text {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.admin-passkey-banner__link {
+  flex-shrink: 0;
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  color: inherit;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+}
+
+.admin-passkey-banner__link:hover {
+  background: rgba(245, 158, 11, 0.2);
+}

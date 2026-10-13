@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { isAxiosError } from 'axios';
 import { apiClient, setTokens, clearTokens, getAccessToken, getRefreshToken } from '@/shared/api/client';
+import type { AdminPasskeyStatus } from '@/shared/api/types';
 import { enableDemoMode, DEMO_ACCESS_TOKEN } from '@/features/demo/demoMode';
 import {
   ensureMediaSession,
@@ -27,12 +28,21 @@ interface User {
   isSystemAdmin: boolean;
   isGuest: boolean;
   emailNotificationsEnabled: boolean;
+  /** 管理者のパスキー必須の状態(GET /auth/me/ が返す) */
+  adminPasskey: AdminPasskeyStatus;
 }
 
-/** login() の結果。MFA登録済みユーザーは即ログインせずmfaTokenを返す */
+/**
+ * login() の結果。
+ * - MFA登録済みユーザーは即ログインせず mfaToken を返す
+ * - 管理者でパスキー登録済みは、パスキーの確認の段階(passkeyToken)を返す(A-4b)
+ * - 管理者で強制の期間に未登録(窓が開いている)は、パスキーの新規登録の段階(enrollToken)を返す(A-4b)
+ */
 export type LoginResult =
-  | { mfaRequired: false }
-  | { mfaRequired: true; mfaToken: string };
+  | { mfaRequired: false; passkeyRequired?: undefined; passkeyEnrollRequired?: undefined }
+  | { mfaRequired: true; mfaToken: string; passkeyRequired?: undefined; passkeyEnrollRequired?: undefined }
+  | { mfaRequired: false; passkeyRequired: true; passkeyToken: string; passkeyEnrollRequired?: undefined }
+  | { mfaRequired: false; passkeyEnrollRequired: true; enrollToken: string; passkeyRequired?: undefined };
 
 /** SSO ログインで複数アカウントがある場合の選択肢 */
 export interface SsoAccount {
@@ -94,11 +104,20 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
   login: async (username, password) => {
     const { data } = await apiClient.post<
-      { access: string; refresh: string } | { mfa_required: true; mfa_token: string }
+      | { access: string; refresh: string }
+      | { mfa_required: true; mfa_token: string }
+      | { passkey_required: true; passkey_token: string }
+      | { passkey_enroll_required: true; enroll_token: string }
     >('/auth/login/', { username, password });
 
     if ('mfa_required' in data) {
       return { mfaRequired: true, mfaToken: data.mfa_token };
+    }
+    if ('passkey_required' in data) {
+      return { mfaRequired: false, passkeyRequired: true, passkeyToken: data.passkey_token };
+    }
+    if ('passkey_enroll_required' in data) {
+      return { mfaRequired: false, passkeyEnrollRequired: true, enrollToken: data.enroll_token };
     }
 
     await completeLogin(set, data.access, data.refresh);

@@ -10,7 +10,8 @@ import { useState, useEffect, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { startAuthentication } from '@simplewebauthn/browser';
+import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
+import { isAxiosError } from 'axios';
 import { useAuthStore, type SsoAccount } from '@/shared/stores/authStore';
 import { apiClient } from '@/shared/api/client';
 import { rateLimitMessage } from '../rateLimitMessage';
@@ -21,6 +22,19 @@ const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
 });
+
+/** 強制の期間に、パスキーの新規登録の窓が閉じている(403 passkey_enroll_not_allowed)なら、サーバーの説明を返す */
+function enrollNotAllowedDetail(err: unknown): string | null {
+  if (!isAxiosError<{ detail?: string; code?: string }>(err)) return null;
+  if (err.response?.status !== 403 || err.response.data?.code !== 'passkey_enroll_not_allowed') return null;
+  return err.response.data.detail || null;
+}
+
+/** WebAuthn の操作を、利用者が自分で取り消したかどうか(取り消しは、エラーとして表示しない) */
+function isUserCancelled(err: unknown): boolean {
+  const msg = (err as { message?: string } | null)?.message || '';
+  return /AbortError|NotAllowedError|取消|canceled|cancelled/i.test(msg);
+}
 
 export function LoginForm() {
   const { t } = useTranslation();
@@ -40,6 +54,10 @@ export function LoginForm() {
   // MFA（TOTP）2段階目
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [totpCode, setTotpCode] = useState('');
+
+  // 管理者のパスキー(A-4b): パスキーの確認の段階 / パスキーの新規登録の段階
+  const [passkeyToken, setPasskeyToken] = useState<string | null>(null);
+  const [enrollToken, setEnrollToken] = useState<string | null>(null);
 
   // SSO 関連のstate
   const [ssoAvailable, setSsoAvailable] = useState<boolean | undefined>(undefined);
@@ -143,10 +161,23 @@ export function LoginForm() {
         setMfaToken(loginResult.mfaToken);
         return;
       }
+      if (loginResult.passkeyRequired) {
+        setPasskeyToken(loginResult.passkeyToken);
+        return;
+      }
+      if (loginResult.passkeyEnrollRequired) {
+        setEnrollToken(loginResult.enrollToken);
+        return;
+      }
       navigate('/my-issues');
     } catch (err) {
       // 429(試行ロック・回数制限)は「パスワードが違う」とは別の文言にする(DEMO-000153)
-      setError(rateLimitMessage(err, t) ?? t('auth.loginError', 'Invalid username or password'));
+      // 403(強制の期間に、登録の窓が閉じている)は、サーバーの説明をそのまま出す(A-4b)
+      setError(
+        enrollNotAllowedDetail(err) ??
+          rateLimitMessage(err, t) ??
+          t('auth.loginError', 'Invalid username or password'),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -163,6 +194,84 @@ export function LoginForm() {
       navigate('/my-issues');
     } catch (err) {
       setError(rateLimitMessage(err, t) ?? t('auth.mfaError', 'Invalid authentication code'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  /** パスワードの画面に戻る(パスキーの確認・登録の段階を抜ける) */
+  function backToPassword() {
+    setPasskeyToken(null);
+    setEnrollToken(null);
+    setError('');
+  }
+
+  /** 管理者のパスキーの確認(A-4b): begin → WebAuthn → verify */
+  async function handlePasskeyStepSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!passkeyToken) return;
+
+    setIsLoading(true);
+    try {
+      const beginRes = await apiClient.post('/auth/login/passkey/begin/', {
+        passkey_token: passkeyToken,
+      });
+      const { request_challenge, auth_token } = beginRes.data;
+      const optionsJSON = request_challenge.publicKey ?? request_challenge;
+
+      const credential = await startAuthentication({ optionsJSON });
+
+      const verifyRes = await apiClient.post('/auth/login/passkey/verify/', {
+        passkey_token: passkeyToken,
+        auth_token,
+        credential,
+      });
+
+      await loginWithPasskey(verifyRes.data.access, verifyRes.data.refresh);
+      navigate('/my-issues');
+    } catch (err: any) {
+      if (!isUserCancelled(err)) {
+        const detail = err?.response?.data?.detail;
+        setError(detail || t('auth.passkeyAuthFailed'));
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  /** 管理者のパスキーの新規登録(A-4b。窓が開いているときだけ): begin → WebAuthn の登録 → complete */
+  async function handleEnrollSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!enrollToken) return;
+
+    setIsLoading(true);
+    try {
+      const beginRes = await apiClient.post('/auth/login/passkey-enroll/begin/', {
+        enroll_token: enrollToken,
+      });
+      const { creation_challenge, registration_token } = beginRes.data;
+      const optionsJSON = creation_challenge.publicKey ?? creation_challenge;
+
+      const credential = await startRegistration({ optionsJSON });
+
+      const completeRes = await apiClient.post('/auth/login/passkey-enroll/complete/', {
+        enroll_token: enrollToken,
+        registration_token,
+        credential,
+      });
+
+      await loginWithPasskey(completeRes.data.access, completeRes.data.refresh);
+      navigate('/my-issues');
+    } catch (err: any) {
+      if (!isUserCancelled(err)) {
+        setError(
+          enrollNotAllowedDetail(err) ??
+            err?.response?.data?.detail ??
+            t('auth.passkeyEnrollFailed'),
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -186,11 +295,9 @@ export function LoginForm() {
       await loginWithPasskey(completeRes.data.access, completeRes.data.refresh);
       navigate('/my-issues');
     } catch (err: any) {
-      const msg = err?.message || '';
-      if (/AbortError|NotAllowedError|取消|canceled|cancelled/i.test(msg)) {
-        // ユーザーが自らキャンセルした場合は、画面全体のエラー表示は
-        // 出さない。静かにローディング状態を解除するのみ。
-      } else {
+      // ユーザーが自らキャンセルした場合は、画面全体のエラー表示は
+      // 出さない。静かにローディング状態を解除するのみ。
+      if (!isUserCancelled(err)) {
         const detail = err?.response?.data?.detail;
         setError(detail || t('auth.passkeyAuthFailed'));
       }
@@ -297,6 +404,98 @@ export function LoginForm() {
               data-testid="mfa-verify-submit"
             >
               {isLoading ? t('common.loading') : t('auth.verify', 'Verify')}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 管理者のパスキーの確認の段階(A-4b)
+  if (passkeyToken) {
+    return (
+      <div className="login" data-testid="login-page">
+        <LanguageToggle className="lang-toggle--floating" />
+        <div className="login__card">
+          <div className="login__header">
+            <h1 className="login__logo">SENN</h1>
+            <p className="login__tagline">{t('auth.passkeyStepPrompt')}</p>
+          </div>
+
+          <form
+            className="login__form"
+            onSubmit={(e) => { void handlePasskeyStepSubmit(e); }}
+            data-testid="passkey-step-form"
+          >
+            {error && (
+              <div className="login__error" data-testid="login-error" role="alert">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="login__submit"
+              disabled={isLoading}
+              data-testid="passkey-step-submit"
+            >
+              {isLoading ? t('common.loading') : t('auth.passkeyStepSubmit')}
+            </button>
+
+            <button
+              type="button"
+              className="login__link-btn"
+              onClick={backToPassword}
+              disabled={isLoading}
+              data-testid="passkey-step-back"
+            >
+              {t('auth.passkeyBack')}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 管理者のパスキーの新規登録の段階(A-4b。強制の期間・窓が開いているときだけ)
+  if (enrollToken) {
+    return (
+      <div className="login" data-testid="login-page">
+        <LanguageToggle className="lang-toggle--floating" />
+        <div className="login__card">
+          <div className="login__header">
+            <h1 className="login__logo">SENN</h1>
+            <p className="login__tagline">{t('auth.passkeyEnrollPrompt')}</p>
+          </div>
+
+          <form
+            className="login__form"
+            onSubmit={(e) => { void handleEnrollSubmit(e); }}
+            data-testid="passkey-enroll-form"
+          >
+            {error && (
+              <div className="login__error" data-testid="login-error" role="alert">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="login__submit"
+              disabled={isLoading}
+              data-testid="passkey-enroll-submit"
+            >
+              {isLoading ? t('common.loading') : t('auth.passkeyEnrollSubmit')}
+            </button>
+
+            <button
+              type="button"
+              className="login__link-btn"
+              onClick={backToPassword}
+              disabled={isLoading}
+              data-testid="passkey-enroll-back"
+            >
+              {t('auth.passkeyBack')}
             </button>
           </form>
         </div>

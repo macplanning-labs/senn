@@ -27,6 +27,12 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // `senn --reset-passkeys <ユーザー名>`: サーバーを起動せず、そのユーザーのパスキーをすべて削除して終わる
+    // (パスキーを失くした管理者の復旧用。サーバー上で、DB につながる環境(root など)から実行する。DEMO-000153 A-4)
+    if std::env::args().nth(1).as_deref() == Some("--reset-passkeys") {
+        return reset_passkeys_cli(std::env::args().nth(2)).await;
+    }
+
     // ログ初期化
     tracing_subscriber::registry()
         .with(
@@ -47,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     // サイクル自動アクティブ化スケジューラを起動
     infrastructure::scheduler::spawn_cycle_auto_activation(pool.clone());
+    infrastructure::scheduler::spawn_mfa_attempt_purge(pool.clone());
 
     // マイグレーション実行
     //
@@ -128,6 +135,34 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
 
+    Ok(())
+}
+
+/// `--reset-passkeys` の本体。実行した事実を、標準出力とログに残す。
+async fn reset_passkeys_cli(username: Option<String>) -> anyhow::Result<()> {
+    let Some(username) = username.filter(|u| !u.is_empty()) else {
+        anyhow::bail!("使い方: senn --reset-passkeys <ユーザー名>");
+    };
+    dotenvy::dotenv().ok();
+    let pool = infrastructure::db::create_pool().await?;
+    let Some(user) =
+        infrastructure::repositories::user_repo::find_by_username(&pool, &username).await?
+    else {
+        anyhow::bail!("ユーザーが見つかりません: {username}");
+    };
+    let deleted =
+        infrastructure::repositories::user_repo::delete_all_passkeys(&pool, user.id).await?;
+    infrastructure::repositories::user_repo::open_passkey_enroll_window(
+        &pool,
+        user.id,
+        presentation::handlers::system_admin_api::PASSKEY_ENROLL_WINDOW_HOURS,
+    )
+    .await?;
+    println!("パスキーを {deleted} 件削除しました(ユーザー: {username})。本人は、パスワードでログインして、パスキーを登録し直してください。");
+    eprintln!(
+        "event=admin_passkey_reset_cli target_user_id={} deleted_count={deleted}",
+        user.id
+    );
     Ok(())
 }
 

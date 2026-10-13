@@ -1,0 +1,39 @@
+/* ConfirmDialog.css — 確認ダイアログ(共通) */
+
+.confirm-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-dialog {
+  background: var(--color-bg-elevated, #1f1f1f);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default, #2a2a2a);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: min(480px, 90vw);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.confirm-dialog__title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.confirm-dialog__message {
+  margin: 0 0 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary, inherit);
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

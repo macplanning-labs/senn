@@ -16,6 +16,13 @@ export const demoUser = {
   isSystemAdmin: false,
   isGuest: false,
   emailNotificationsEnabled: true,
+  adminPasskey: {
+    isAdmin: false,
+    registered: false,
+    mustRegister: false,
+    enforceAfter: null as string | null,
+    enforced: false,
+  },
 };
 
 const demoAuthor = {

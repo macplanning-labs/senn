@@ -107,6 +107,10 @@ pub fn unique_suffix() -> String {
     Uuid::new_v4().simple().to_string()[..8].to_string()
 }
 
+/// システム全体で 1 つの設定「管理者のパスキーの強制の開始日時」を書き換える試験どうしが、
+/// 並列で動いて干渉しないようにする排他(DEMO-000153 A-4)。その設定を触る試験は、これを取ってから始める。
+pub static ADMIN_PASSKEY_SETTING_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// 使い捨てのテスト用ユーザーを作成し、その `id` を返す。
 /// `accounts_user` はNOT NULL制約が多いため、テストに必要な最小限の値のみ埋める。
 pub async fn create_test_user(pool: &PgPool, username_prefix: &str) -> i32 {
