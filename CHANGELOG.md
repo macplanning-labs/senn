@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First-run failure when `.env.example` was copied without editing: `JWT_SECRET_KEY` and `DB_PASSWORD` are now empty in the template, and `docker-compose.yml` stops immediately with an actionable message instead of crash-looping the backend/web containers.
 - README (EN/JA): a single onboarding route (`docker compose`) with a one-line `sed` that fills `DB_PASSWORD` / `JWT_SECRET_KEY`, plus first-use, stop, restart and reset instructions.
 
+## [0.3.3] - 2026-10-14
+
+### Added
+- **AI Agent comments show who ran them.** The connect page and the personal API key screen now say whose account the AI Agent acts as ("This will connect as ...'s account." / "Actions performed by AI Agent with this key will be recorded as ...'s actions."), in both English and Japanese.
+- **Tooltips on the ticket detail properties.** Hover a property in the ticket sidebar to see what it means.
+- **MCP server guide**: tips on how to ask your AI (for example Claude Code) to work with your Senn.
+
+### Changed
+- **The "latest AI run" box in the ticket header was moved** into the "..." menu as "View AI run history" (time, who ran it, status, tokens), so the header layout no longer breaks.
+
+### Fixed
+- **Editing and deleting AI Agent comments**: whether you may edit or delete a comment is now decided by one shared rule, so the list, the edit action and the delete action always agree between the screen and the server.
+
 ## [0.3.2] - 2026-10-13
 
 ### Security
