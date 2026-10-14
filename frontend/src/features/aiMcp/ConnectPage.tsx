@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/stores/toastStore';
+import { useAuthStore } from '@/shared/stores/authStore';
 import { apiErrorMessage } from './types';
 import '@/features/settings/components/SettingsPage.css';
 
@@ -27,6 +28,8 @@ export function ConnectPage() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const code = searchParams.get('code');
+  const user = useAuthStore((s) => s.user);
+  const actingName = user ? user.displayName || user.username : null;
 
   // GET /ai-mcp/pairings/{code}/
   const { data, isLoading, error, isError } = useQuery<PairingResponse>({
@@ -110,6 +113,8 @@ export function ConnectPage() {
 
         {/* 各ステータスごとの表示 */}
         {data.status === 'waiting' && (
+          <>
+            {actingName && <p>{t('aiMcp.connectActingAs', { name: actingName })}</p>}
           <div className="admin__actions">
             <button
               type="button"
@@ -121,6 +126,7 @@ export function ConnectPage() {
               {t('aiMcp.connectRequestButton')}
             </button>
           </div>
+          </>
         )}
 
         {data.status === 'requested' && (

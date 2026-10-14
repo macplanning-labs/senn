@@ -86,6 +86,8 @@ export interface AiKickRun {
   weightedTokens: number;
   stopReason: string | null;
   errorDetail: string | null;
+  /** 起動した人(表示名)。不明・未設定なら null */
+  triggeredBy: { id: number; name: string } | null;
 }
 
 /**

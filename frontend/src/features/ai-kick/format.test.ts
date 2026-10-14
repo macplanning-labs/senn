@@ -28,6 +28,7 @@ function makeRun(overrides: Partial<AiKickRun> = {}): AiKickRun {
     weightedTokens: 0,
     stopReason: null,
     errorDetail: null,
+    triggeredBy: null,
     ...overrides,
   };
 }

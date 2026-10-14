@@ -1,0 +1,290 @@
+[
+  {
+    "name": "none",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "assignee",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "ai_author",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "ai_author_assignee",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "acting",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": true
+  },
+  {
+    "name": "acting_assignee",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "acting_ai_author",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": true
+  },
+  {
+    "name": "acting_ai_author_assignee",
+    "isDeleted": false,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_assignee",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_ai_author",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_ai_author_assignee",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_acting",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_acting_assignee",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_acting_ai_author",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": true
+  },
+  {
+    "name": "own_acting_ai_author_assignee",
+    "isDeleted": false,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": true
+  },
+  {
+    "name": "deleted",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_assignee",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_ai_author",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_ai_author_assignee",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_acting",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_acting_assignee",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_acting_ai_author",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_acting_ai_author_assignee",
+    "isDeleted": true,
+    "isOwn": false,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_assignee",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_ai_author",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_ai_author_assignee",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": false,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_acting",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_acting_assignee",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": false,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_acting_ai_author",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": false,
+    "expectCanEdit": false
+  },
+  {
+    "name": "deleted_own_acting_ai_author_assignee",
+    "isDeleted": true,
+    "isOwn": true,
+    "isActingUser": true,
+    "isAiAgentAuthor": true,
+    "viewerIsAssignee": true,
+    "expectCanEdit": false
+  }
+]
