@@ -1077,8 +1077,13 @@ pub async fn api_find_by_key(
 
             let is_own = viewer_user_id == Some(author_id);
             let is_acting_user = acting_user_id == viewer_user_id;
-            let is_ai_agent_and_assignee = is_ai_agent_author && viewer_is_assignee;
-            let can_edit = !is_deleted && (is_own || is_acting_user || is_ai_agent_and_assignee);
+            let can_edit = comment_can_edit(
+                is_deleted,
+                is_own,
+                is_acting_user,
+                is_ai_agent_author,
+                viewer_is_assignee,
+            );
             let can_delete = can_edit;
 
             CommentOut {
@@ -3802,6 +3807,21 @@ pub async fn assert_team_participates_in_project(
     Ok(())
 }
 
+/// コメントを閲覧者が編集・削除できるか(画面の canEdit / canDelete)。
+/// フロントの `deriveComments`(frontend/src/shared/sync/commentView.ts)と同じ規則。
+/// 入力の全組み合わせの表は shared/test-fixtures/comment_can_edit_cases.json にあり、
+/// フロントとサーバーの両方のテストが読む。
+pub(crate) fn comment_can_edit(
+    is_deleted: bool,
+    is_own: bool,
+    is_acting_user: bool,
+    is_ai_agent_author: bool,
+    viewer_is_assignee: bool,
+) -> bool {
+    let is_ai_agent_and_assignee = is_ai_agent_author && viewer_is_assignee;
+    !is_deleted && (is_own || is_acting_user || is_ai_agent_and_assignee)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4658,5 +4678,39 @@ mod tests {
             closed_at_of(&pool, id).await.is_some(),
             "完了の分類なら入る"
         );
+    }
+
+    /// 入力表(shared/test-fixtures/comment_can_edit_cases.json)の全行で、判定式が expectCanEdit と一致する。
+    /// 表はリポジトリ直下の shared/ にあるため、実行時に CARGO_MANIFEST_DIR(rust/)から読む。
+    #[test]
+    fn comment_can_edit_matches_shared_case_table() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../shared/test-fixtures/comment_can_edit_cases.json"
+        );
+        let text = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("入力表を読めない({path}): {e}"));
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&text).expect("入力表の JSON");
+        assert_eq!(rows.len(), 32, "5 項目の全組み合わせ");
+        for row in &rows {
+            let flag = |k: &str| {
+                row[k]
+                    .as_bool()
+                    .unwrap_or_else(|| panic!("{k} が bool でない"))
+            };
+            let got = comment_can_edit(
+                flag("isDeleted"),
+                flag("isOwn"),
+                flag("isActingUser"),
+                flag("isAiAgentAuthor"),
+                flag("viewerIsAssignee"),
+            );
+            assert_eq!(
+                got,
+                flag("expectCanEdit"),
+                "行 {} で判定が表と違う",
+                row["name"]
+            );
+        }
     }
 }

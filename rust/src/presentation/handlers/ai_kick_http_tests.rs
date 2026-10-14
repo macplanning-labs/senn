@@ -636,6 +636,54 @@ async fn runs_list_shows_status_and_hides_unused_prepared_runs() {
 }
 
 #[tokio::test]
+async fn runs_list_shows_triggered_by_name_or_null() {
+    let Some(h) = hx().await else { return };
+    let (tid, key) = h.ticket("medium").await;
+    // 実行者の表示名(他チームの人でも名前を出す)
+    sqlx::query("UPDATE accounts_user SET display_name = '実行 太郎' WHERE id = $1")
+        .bind(h.member)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    // 実行者あり(queued 済み)
+    sqlx::query("INSERT INTO t_ai_run (run_uuid, ticket_id, trigger_type, triggered_by_id, queued_at) VALUES (gen_random_uuid(), $1, 'manual_copy', $2, NOW())")
+        .bind(i64::from(tid))
+        .bind(i64::from(h.member))
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    // 実行者なし(NULL)
+    sqlx::query("INSERT INTO t_ai_run (run_uuid, ticket_id, trigger_type, triggered_by_id, queued_at) VALUES (gen_random_uuid(), $1, 'manual_copy', NULL, NOW())")
+        .bind(i64::from(tid))
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let (s, body) = h
+        .as_user(
+            h.other_member,
+            "GET",
+            &format!("/api/v1/tickets/{key}/ai-runs/"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{body}");
+    let runs = body["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    let named: Vec<&Value> = runs
+        .iter()
+        .filter(|r| !r["triggeredBy"].is_null())
+        .collect();
+    assert_eq!(named.len(), 1, "{body}");
+    assert_eq!(named[0]["triggeredBy"]["id"], i64::from(h.member));
+    assert_eq!(named[0]["triggeredBy"]["name"], "実行 太郎");
+    let nulls = runs.iter().filter(|r| r["triggeredBy"].is_null()).count();
+    assert_eq!(
+        nulls, 1,
+        "triggered_by_id が NULL の実行は triggeredBy が null: {body}"
+    );
+}
+
+#[tokio::test]
 async fn project_settings_can_be_changed_only_by_owner_or_admin_and_are_validated() {
     let Some(h) = hx().await else { return };
     let uri = format!("/api/v1/projects/{}/ai-kick/", h.project);

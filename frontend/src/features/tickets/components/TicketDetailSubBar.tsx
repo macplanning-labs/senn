@@ -10,7 +10,6 @@ import type { TicketDetailView } from '../types/ticketDetailView';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../../shared/stores/authStore';
 import { AiKickButton } from '../../ai-kick/components/AiKickButton';
-import { AiKickStatus } from '../../ai-kick/components/AiKickStatus';
 import { getProjectAiKick } from '../../ai-kick/api';
 
 interface TicketDetailSubBarProps {
@@ -135,7 +134,6 @@ export function TicketDetailSubBar({ ticket }: TicketDetailSubBarProps) {
         projectKick={projectKick ?? null}
         isGuest={currentUser?.isGuest ?? false}
       />
-      <AiKickStatus ticketKey={ticket.ticketKey} />
     </div>
   );
 }

@@ -17,6 +17,13 @@ import { useToast } from '@/shared/stores/toastStore';
 vi.mock('@/shared/api/client');
 vi.mock('@/shared/stores/toastStore');
 
+const mockAuth = vi.hoisted(() => ({
+  user: null as null | { displayName: string; username: string },
+}));
+vi.mock('@/shared/stores/authStore', () => ({
+  useAuthStore: (sel: (st: { user: typeof mockAuth.user }) => unknown) => sel({ user: mockAuth.user }),
+}));
+
 const mockApi = apiClient as unknown as {
   get: ReturnType<typeof vi.fn>;
   post: ReturnType<typeof vi.fn>;
@@ -34,6 +41,7 @@ if (!i18n.isInitialized) {
           'common.error': 'エラーが発生しました',
           'aiMcp.connectPageTitle': 'AI Agent を使うことを申請する',
           'aiMcp.connectDescription': '`{{label}}` で AI Agent(Claude など)を使えるように、管理者に許可を求めます。',
+          'aiMcp.connectActingAs': '{{name}} のアカウントで接続します。',
           'aiMcp.connectRequestButton': '許可を求める',
           'aiMcp.connectRequestedMessage': '許可を求めました。承認されると、自動で使えるようになります。この画面は閉じて構いません。',
           'aiMcp.connectApprovedMessage': '使えるようになりました。Claude から、そのまま使えます。',
@@ -67,6 +75,7 @@ function renderWithRouter(ui: React.ReactElement, initialRoute = '/connect?code=
 describe('ConnectPage', () => {
   beforeEach(() => {
     mockToast.mockReturnValue({ success: vi.fn(), error: vi.fn() });
+    mockAuth.user = { displayName: '山田 太郎', username: 'yamada' };
     mockApi.get = vi.fn();
     mockApi.post = vi.fn();
   });
@@ -95,6 +104,23 @@ describe('ConnectPage', () => {
 
     expect(screen.getByTestId('connect-apply-btn')).toBeInTheDocument();
     expect(screen.getByText('許可を求める')).toBeInTheDocument();
+  });
+
+  it('waiting のとき、接続するアカウント名を表示する', async () => {
+    mockApi.get.mockResolvedValue({
+      data: {
+        code: 'ABCD-EFGH',
+        label: 'My MacBook',
+        status: 'waiting',
+        message: null,
+        createdAt: '2026-10-08T00:00:00Z',
+      },
+    });
+
+    renderWithRouter(<ConnectPage />);
+    await waitFor(() => {
+      expect(screen.getByText('山田 太郎 のアカウントで接続します。')).toBeInTheDocument();
+    });
   });
 
   it('waiting でボタンを押すと apply を呼ぶ', async () => {

@@ -83,6 +83,7 @@ function makeRun(overrides: Partial<api.AiKickRun> = {}): api.AiKickRun {
     weightedTokens: 1000,
     stopReason: null,
     errorDetail: null,
+    triggeredBy: null,
     ...overrides,
   };
 }

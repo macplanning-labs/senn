@@ -145,3 +145,35 @@ describe('TicketPropertiesSidebar - Type Property', () => {
     expect(html).toContain('ticket-property-item--button');
   });
 });
+
+describe('TicketPropertiesSidebar - Property help tooltips', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('各プロパティ項目に title(ヘルプ文言のキー)が付く', () => {
+    const html = render();
+    const helpKeys = [
+      'status',
+      'type',
+      'assignee',
+      'priority',
+      'cycle',
+      'project',
+      'labels',
+      'estimate',
+      'dueDate',
+      'startDate',
+      'author',
+      'category',
+      'milestone',
+      'wiki',
+      'reviewer',
+    ];
+    for (const key of helpKeys) {
+      expect(html).toContain(`title="ticketDetail.propertyHelp.${key}"`);
+    }
+    const count = html.match(/title="ticketDetail\.propertyHelp\./g)?.length ?? 0;
+    expect(count).toBe(15);
+  });
+});

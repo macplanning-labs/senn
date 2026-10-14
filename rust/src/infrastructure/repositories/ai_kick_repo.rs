@@ -505,6 +505,26 @@ pub async fn recent_failed_flags(pool: &PgPool, n: i64) -> anyhow::Result<Vec<bo
     Ok(rows.into_iter().map(|(f,)| f).collect())
 }
 
+/// ユーザー id → 表示名(実行者の表示用)。見つからない id は結果に含めない。
+/// ids が空なら DB を呼ばずに空を返す。表示名は `COALESCE(NULLIF(display_name, ''), username)`。
+pub async fn user_names(
+    pool: &PgPool,
+    ids: &[i64],
+) -> anyhow::Result<std::collections::HashMap<i64, String>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT u.id::int8, COALESCE(NULLIF(u.display_name, ''), u.username)
+         FROM accounts_user u
+         WHERE u.id = ANY($1::int8[])",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
 /// チケットの最近の実行(画面の状態表示用)。
 pub async fn recent_runs_of_ticket(
     pool: &PgPool,

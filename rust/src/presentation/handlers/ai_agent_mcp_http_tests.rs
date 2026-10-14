@@ -1,6 +1,6 @@
 //! AI 用 API の追加分(DEMO-000217〜000222)の、ルーターを通した HTTP テスト。
 //! 作成時の項目・ラベルの名前での更新・一覧の絞り込み・一括登録・チームの Prefix。
-use crate::infrastructure::repositories::ai_agent_key_repo;
+use crate::infrastructure::repositories::{ai_agent_key_repo, ticket_repo};
 use crate::test_support::{
     add_test_team_member, create_test_project, create_test_ticket, create_test_user, test_config,
     test_pool,
@@ -633,4 +633,349 @@ async fn team_prefix_on_create_and_patch() {
         Some("Prefixテスト"),
         "指定の無い項目は変えない"
     );
+}
+
+/// AI コメントの実行者表示と編集可否(詳細設計書 2.2 の通しのテスト)。
+/// 人ごとのキーで投稿 → 閲覧者視点のコメント一覧(ticket_repo::api_find_by_key)を取り、
+/// ① actingUser がキーの持ち主 ② 持ち主は canEdit=true ③ 担当者でない別の人は false ④ 共有キーの投稿は actingUser なし。
+#[tokio::test]
+async fn ai_comment_acting_user_and_can_edit_end_to_end() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let f = fixture(&pool, "ACE").await;
+    let owner = create_test_user(&pool, "ace-owner").await;
+    let other = create_test_user(&pool, "ace-other").await;
+    add_test_team_member(&pool, f.team_id, owner, "member").await;
+    let suffix = crate::test_support::unique_suffix();
+    let owner_key = format!("senn_ai_ace_{suffix}");
+    ai_agent_key_repo::create(
+        &pool,
+        owner,
+        &ai_agent_key_repo::hash_key(&owner_key),
+        &ai_agent_key_repo::display_prefix(&owner_key),
+        None,
+        owner,
+    )
+    .await
+    .unwrap();
+    let app = app(&pool).await;
+    let uri = format!("/api/v1/ai-agent/tickets/{}/comments/", f.existing_key);
+
+    let (st, b) = call(
+        &app,
+        "POST",
+        &uri,
+        &owner_key,
+        Some(json!({"body": "個人キーのコメント"})),
+    )
+    .await;
+    assert!(st.is_success(), "{b}");
+    let (st, b) = call(
+        &app,
+        "POST",
+        &uri,
+        KEY,
+        Some(json!({"body": "共有キーのコメント"})),
+    )
+    .await;
+    assert!(st.is_success(), "{b}");
+
+    let ai_user = test_config().wip_ai_api_user;
+    let view = |viewer: i32| {
+        let pool = pool.clone();
+        let key = f.existing_key.clone();
+        let ai_user = ai_user.clone();
+        async move {
+            let detail = ticket_repo::api_find_by_key(&pool, &key, Some(viewer), &ai_user)
+                .await
+                .unwrap()
+                .expect("チケットがある");
+            serde_json::to_value(&detail).unwrap()["comments"].clone()
+        }
+    };
+    let find = |comments: &Value, body: &str| -> Value {
+        comments
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["body"] == body)
+            .cloned()
+            .unwrap_or_else(|| panic!("コメントが無い: {body} / {comments}"))
+    };
+
+    let as_owner = view(owner).await;
+    let personal = find(&as_owner, "個人キーのコメント");
+    // ① 実行者はキーの持ち主
+    assert_eq!(
+        personal["actingUser"]["id"].as_i64(),
+        Some(i64::from(owner)),
+        "{personal}"
+    );
+    // ② 持ち主が閲覧すると編集できる
+    assert_eq!(personal["canEdit"], json!(true), "{personal}");
+    // ④ 共有キーの投稿は実行者なし(持ち主でも、担当者でなければ編集できない)
+    let shared = find(&as_owner, "共有キーのコメント");
+    assert!(shared.get("actingUser").is_none(), "{shared}");
+    assert_eq!(shared["canEdit"], json!(false), "{shared}");
+
+    // ③ 担当者でない別の人は編集できない
+    let as_other = view(other).await;
+    let personal_other = find(&as_other, "個人キーのコメント");
+    assert_eq!(personal_other["canEdit"], json!(false), "{personal_other}");
+}
+
+/// 人(JWT の Bearer)として API を呼ぶ。画面と同じ認証。
+async fn user_call(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    user_id: i32,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let token = crate::domain::services::jwt_service::issue_access_token(
+        user_id,
+        &test_config().jwt_secret,
+        60,
+    )
+    .expect("JWT の発行");
+    let mut req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(match body {
+            Some(b) => Body::from(b.to_string()),
+            None => Body::empty(),
+        })
+        .unwrap();
+    req.extensions_mut().insert(axum::extract::ConnectInfo(
+        "127.0.0.1:40000".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// 本文で一意に決まるコメントの id(テストの作成したもの限定)
+async fn comment_id_of(pool: &PgPool, ticket_key: &str, body: &str) -> i32 {
+    sqlx::query_scalar(
+        "SELECT c.id::int4 FROM tickets_comment c JOIN tickets_ticket t ON t.id = c.ticket_id
+         WHERE t.ticket_key = $1 AND c.body = $2 ORDER BY c.id DESC LIMIT 1",
+    )
+    .bind(ticket_key)
+    .bind(body)
+    .fetch_one(pool)
+    .await
+    .expect("テストのコメントが見つかる")
+}
+
+/// コメントの編集(PATCH)・削除(DELETE)の権限を、HTTP で通しで確かめる。
+/// ① 実行者 A は編集可・無関係 B は 403 ② 担当者 C は AI コメントを編集可 ③ 削除も同じ規則
+/// ④ 共有キーの AI コメントは、担当者でなければ 403 ⑤ 人が書いたコメントは本人だけ(担当者でも不可)
+#[tokio::test]
+async fn comment_edit_delete_permissions_over_http() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let f = fixture(&pool, "CED").await;
+    let a = create_test_user(&pool, "ced-a").await;
+    let b = create_test_user(&pool, "ced-b").await;
+    let c = create_test_user(&pool, "ced-c").await;
+    for u in [a, b, c] {
+        add_test_team_member(&pool, f.team_id, u, "member").await;
+    }
+    let suffix = crate::test_support::unique_suffix();
+    let a_key = format!("senn_ai_ced_{suffix}");
+    ai_agent_key_repo::create(
+        &pool,
+        a,
+        &ai_agent_key_repo::hash_key(&a_key),
+        &ai_agent_key_repo::display_prefix(&a_key),
+        None,
+        a,
+    )
+    .await
+    .unwrap();
+    let app = app(&pool).await;
+    let key = f.existing_key.clone();
+    let ai_uri = format!("/api/v1/ai-agent/tickets/{key}/comments/");
+    let human_uri = format!("/api/v1/tickets/{key}/comments/");
+    let item_uri = |id: i32| format!("/api/v1/tickets/{key}/comments/{id}/");
+    let ticket_id: i32 =
+        sqlx::query_scalar("SELECT id::int4 FROM tickets_ticket WHERE ticket_key = $1")
+            .bind(&key)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    // 前提: 実行者 A の個人キーで AI コメント c1 を投稿。担当者はまだいない
+    let (st, b_body) = call(
+        &app,
+        "POST",
+        &ai_uri,
+        &a_key,
+        Some(json!({"body": "CED-c1 実行者Aの投稿"})),
+    )
+    .await;
+    assert!(st.is_success(), "AI投稿(A): {st} {b_body}");
+    let c1 = comment_id_of(&pool, &key, "CED-c1 実行者Aの投稿").await;
+
+    // ① 実行者 A は編集できる。無関係 B は 403
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(c1),
+        a,
+        Some(json!({"body": "CED-c1 A編集"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "① 実行者A PATCH: {body}");
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(c1),
+        b,
+        Some(json!({"body": "CED-c1 B編集"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "① 無関係B PATCH: {body}");
+
+    // ② 担当者 C を付ける。C は AI コメントを編集できる。B は引き続き 403
+    sqlx::query("INSERT INTO tickets_ticket_assignees (ticketmodel_id, user_id) VALUES ($1, $2)")
+        .bind(i64::from(ticket_id))
+        .bind(i64::from(c))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(c1),
+        c,
+        Some(json!({"body": "CED-c1 C編集"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "② 担当者C PATCH: {body}");
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(c1),
+        b,
+        Some(json!({"body": "CED-c1 B再編集"})),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "② 無関係B PATCH(担当者あり): {body}"
+    );
+
+    // ③ 削除: B は 403、実行者 A は成功、別の AI コメント c3 は担当者 C が削除できる
+    let (st, body) = user_call(&app, "DELETE", &item_uri(c1), b, None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "③ 無関係B DELETE: {body}");
+    let (st, body) = user_call(&app, "DELETE", &item_uri(c1), a, None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT, "③ 実行者A DELETE: {body}");
+    let (st, b_body) = call(
+        &app,
+        "POST",
+        &ai_uri,
+        &a_key,
+        Some(json!({"body": "CED-c3 実行者Aの投稿"})),
+    )
+    .await;
+    assert!(st.is_success(), "AI投稿(c3): {st} {b_body}");
+    let c3 = comment_id_of(&pool, &key, "CED-c3 実行者Aの投稿").await;
+    let (st, body) = user_call(&app, "DELETE", &item_uri(c3), c, None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT, "③ 担当者C DELETE: {body}");
+
+    // ④ 共有キーで投稿した AI コメント(実行者なし)。担当者でない A は PATCH/DELETE とも 403
+    let (st, b_body) = call(
+        &app,
+        "POST",
+        &ai_uri,
+        KEY,
+        Some(json!({"body": "CED-s1 共有キーの投稿"})),
+    )
+    .await;
+    assert!(st.is_success(), "共有キー投稿: {st} {b_body}");
+    let s1 = comment_id_of(&pool, &key, "CED-s1 共有キーの投稿").await;
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(s1),
+        a,
+        Some(json!({"body": "CED-s1 A編集"})),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "④ 共有キー投稿・非担当者A PATCH: {body}"
+    );
+    let (st, body) = user_call(&app, "DELETE", &item_uri(s1), a, None).await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "④ 共有キー投稿・非担当者A DELETE: {body}"
+    );
+    // 参考: 同じ共有キーの投稿でも、担当者 C は編集できる
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(s1),
+        c,
+        Some(json!({"body": "CED-s1 C編集"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "④ 共有キー投稿・担当者C PATCH: {body}");
+
+    // ⑤ 人が書いたコメント h1(Bearer)。本人 A は PATCH 可、無関係 B は 403、担当者 C も 403
+    let (st, body) = user_call(
+        &app,
+        "POST",
+        &human_uri,
+        a,
+        Some(json!({"body": "CED-h1 人が書いたコメント"})),
+    )
+    .await;
+    assert!(st.is_success(), "人のコメント投稿: {st} {body}");
+    let h1 = comment_id_of(&pool, &key, "CED-h1 人が書いたコメント").await;
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(h1),
+        a,
+        Some(json!({"body": "CED-h1 本人編集"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "⑤ 本人A PATCH: {body}");
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(h1),
+        b,
+        Some(json!({"body": "CED-h1 B編集"})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "⑤ 無関係B PATCH: {body}");
+    let (st, body) = user_call(
+        &app,
+        "PATCH",
+        &item_uri(h1),
+        c,
+        Some(json!({"body": "CED-h1 C編集"})),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "⑤ 担当者C(人のコメント) PATCH: {body}"
+    );
+    let (st, body) = user_call(&app, "DELETE", &item_uri(h1), b, None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "⑤ 無関係B DELETE: {body}");
 }

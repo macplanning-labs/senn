@@ -65,6 +65,8 @@ export function AdminAiPersonalKeysSection() {
     queryFn: async () => (await apiClient.get('/users/')).data,
   });
 
+  const selectedUser = (users ?? []).find((u) => String(u.id) === selectedUserId);
+
   const issueMutation = useMutation({
     mutationFn: async () => {
       const res = await apiClient.post<IssuedKeyResult>('/system-admin/ai-agent-personal-keys/', {
@@ -133,6 +135,10 @@ export function AdminAiPersonalKeysSection() {
             placeholder={t('admin.labelPlaceholderExample')}
           />
         </div>
+
+        {selectedUser && (
+          <p>{t('admin.aiPersonalKeyActingAs', { name: selectedUser.displayName || selectedUser.username })}</p>
+        )}
 
         <div className="admin__actions">
           <button

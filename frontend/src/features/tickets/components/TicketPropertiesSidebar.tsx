@@ -382,10 +382,12 @@ export function TicketPropertiesSidebar({
     label: string,
     value: string,
     editable: boolean,
+    helpKey: string,
   ) => {
+    const helpTitle = t(`ticketDetail.propertyHelp.${helpKey}`);
     if (!editable || !field) {
       return (
-        <div className="ticket-property-item">
+        <div className="ticket-property-item" title={helpTitle}>
           <span className="ticket-property-label">{label}</span>
           <span className="ticket-property-value">{value}</span>
         </div>
@@ -395,6 +397,7 @@ export function TicketPropertiesSidebar({
       <button
         type="button"
         className="ticket-property-item ticket-property-item--button"
+        title={helpTitle}
         onClick={(e) => openPicker(field, e.currentTarget.getBoundingClientRect())}
         data-testid={`ticket-property-${field}`}
       >
@@ -409,8 +412,8 @@ export function TicketPropertiesSidebar({
       <div className="ticket-properties-sidebar">
         <h3 className="ticket-properties-sidebar__title">Properties</h3>
         <div className="ticket-properties-list">
-          {row('status', 'Status', statusLabelOf(ticket.status), true)}
-          {row('type', 'Type', ticket.ticketType || '—', true)}
+          {row('status', 'Status', statusLabelOf(ticket.status), true, 'status')}
+          {row('type', 'Type', ticket.ticketType || '—', true, 'type')}
           {row(
             'assignee',
             'Assignee',
@@ -418,23 +421,26 @@ export function TicketPropertiesSidebar({
               ? ticket.assignees.map((a) => a.displayName || a.username).join(', ')
               : '—',
             true,
+            'assignee',
           )}
-          {row('priority', 'Priority', ticket.priority || '—', true)}
-          {row('cycle', 'Cycle', ticket.cycleName || '—', true)}
-          {row('project', 'Project', projectLabel || '—', true)}
+          {row('priority', 'Priority', ticket.priority || '—', true, 'priority')}
+          {row('cycle', 'Cycle', ticket.cycleName || '—', true, 'cycle')}
+          {row('project', 'Project', projectLabel || '—', true, 'project')}
           {row(
             'labels',
             'Labels',
             ticket.labels.length > 0 ? ticket.labels.map((l) => l.name).join(', ') : '—',
             true,
+            'labels',
           )}
           {row(
             'estimate',
             'Estimate',
             ticket.storyPoints != null ? String(ticket.storyPoints) : '—',
             true,
+            'estimate',
           )}
-          <div className="ticket-property-item">
+          <div className="ticket-property-item" title={t('ticketDetail.propertyHelp.dueDate')}>
             <span className="ticket-property-label">Due Date</span>
             <DateInput
               variant="inline"
@@ -451,7 +457,7 @@ export function TicketPropertiesSidebar({
       <div className="ticket-properties-sidebar">
         <h3 className="ticket-properties-sidebar__title">Others</h3>
         <div className="ticket-properties-list">
-          <div className="ticket-property-item">
+          <div className="ticket-property-item" title={t('ticketDetail.propertyHelp.author')}>
             <span className="ticket-property-label">Author</span>
             <span className="ticket-property-value" data-testid="ticket-property-author">
               {ticket.author?.displayName || ticket.author?.username || '—'}
@@ -466,7 +472,7 @@ export function TicketPropertiesSidebar({
               )}
             </span>
           </div>
-          <div className="ticket-property-item">
+          <div className="ticket-property-item" title={t('ticketDetail.propertyHelp.startDate')}>
             <span className="ticket-property-label">Start date</span>
             <DateInput
               variant="inline"
@@ -476,9 +482,9 @@ export function TicketPropertiesSidebar({
               testId="ticket-property-startDate"
             />
           </div>
-          {row('category', 'Category', ticket.category?.name || '—', true)}
-          {row('milestone', 'Milestone', ticket.milestone?.name || '—', true)}
-          {row(null, 'Linked Wiki', wikiLabel || '—', false)}
+          {row('category', 'Category', ticket.category?.name || '—', true, 'category')}
+          {row('milestone', 'Milestone', ticket.milestone?.name || '—', true, 'milestone')}
+          {row(null, 'Linked Wiki', wikiLabel || '—', false, 'wiki')}
           {row(
             'reviewer',
             'Reviewer',
@@ -486,6 +492,7 @@ export function TicketPropertiesSidebar({
               ? ticket.reviewers.map((r) => r.displayName || r.username).join(', ')
               : '—',
             true,
+            'reviewer',
           )}
         </div>
       </div>

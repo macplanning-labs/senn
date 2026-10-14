@@ -14,6 +14,8 @@ import { apiClient } from '../../../shared/api/client';
 import { useToastStore } from '../../../shared/stores/toastStore';
 import type { TicketDetailView } from '../types/ticketDetailView';
 import { IconMoreHorizontal } from '../../../shared/components/ui/icons';
+import { useAuthStore } from '../../../shared/stores/authStore';
+import { AiKickHistoryPopup } from '../../ai-kick/components/AiKickHistoryPopup';
 
 export type RelationMenuAction =
   | 'createExisting'
@@ -35,7 +37,9 @@ export function TicketDetailTopBar({ ticket, ticketId, onRelationMenuAction }: T
   const { addToast } = useToastStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showAiHistory, setShowAiHistory] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const isGuest = useAuthStore((s) => s.user?.isGuest ?? false);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -141,6 +145,11 @@ export function TicketDetailTopBar({ ticket, ticketId, onRelationMenuAction }: T
     setMenuOpen(false);
   };
 
+  const openAiHistory = () => {
+    setMenuOpen(false);
+    setShowAiHistory(true);
+  };
+
   const canCreateRelationTicket = !!(ticket.projectPrefix || ticket.team?.slug);
 
   const runRelationAction = (action: RelationMenuAction) => {
@@ -207,6 +216,16 @@ export function TicketDetailTopBar({ ticket, ticketId, onRelationMenuAction }: T
               <button type="button" role="menuitem" onClick={copyId}>
                 {t('ticketDetail.copyId')}
               </button>
+              {!isGuest && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={openAiHistory}
+                  data-testid="ticket-detail-ai-history"
+                >
+                  {t('ticketDetail.aiHistory')}
+                </button>
+              )}
               {onRelationMenuAction && (
                 <>
                   <div className="ticket-detail-topbar__dropdown-sep" role="separator" />
@@ -293,6 +312,9 @@ export function TicketDetailTopBar({ ticket, ticketId, onRelationMenuAction }: T
           )}
         </div>
       </div>
+      {showAiHistory && (
+        <AiKickHistoryPopup ticketKey={ticket.ticketKey} onClose={() => setShowAiHistory(false)} />
+      )}
     </div>
   );
 }

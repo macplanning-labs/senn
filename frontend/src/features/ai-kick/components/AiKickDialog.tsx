@@ -141,6 +141,7 @@ export function AiKickDialog({
           weightedTokens: 0,
           stopReason: null,
           errorDetail: null,
+          triggeredBy: null,
         });
       }
 

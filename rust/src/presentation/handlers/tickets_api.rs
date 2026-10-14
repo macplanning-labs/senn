@@ -2049,8 +2049,9 @@ pub async fn update_comment(
     // 投稿者本人、AIエージェント実行者本人、またはAiAgent投稿×担当者のみ編集可 (000100 + 000098)
     let is_own = author_id == auth.user_id;
     let is_acting_user = acting_user_id == Some(auth.user_id);
-    let is_ai_agent_and_assignee = if is_own || is_acting_user {
-        false
+    // AI 投稿×担当者の確認(DB 参照)は、本人・実行者でないときだけ行う。判定の規則は comment_can_edit に一本化
+    let (is_ai_agent_author, viewer_is_assignee) = if is_own || is_acting_user {
+        (false, false)
     } else {
         let author_username =
             match ticket_repo::api_find_user_username(&state.pool, author_id).await {
@@ -2059,12 +2060,19 @@ pub async fn update_comment(
             };
         let is_ai_agent_author =
             author_username.as_deref() == Some(state.config.wip_ai_api_user.as_str());
-        is_ai_agent_author
+        let is_assignee = is_ai_agent_author
             && ticket_repo::is_ticket_assignee(&state.pool, ticket_id, auth.user_id)
                 .await
-                .unwrap_or(false)
+                .unwrap_or(false);
+        (is_ai_agent_author, is_assignee)
     };
-    if !is_own && !is_acting_user && !is_ai_agent_and_assignee {
+    if !ticket_repo::comment_can_edit(
+        false,
+        is_own,
+        is_acting_user,
+        is_ai_agent_author,
+        viewer_is_assignee,
+    ) {
         return (
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {
@@ -2193,8 +2201,9 @@ pub async fn delete_comment(
     // 投稿者本人、AIエージェント実行者本人、またはAiAgent投稿×担当者のみ削除可 (000100 + 000098)
     let is_own = author_id == auth.user_id;
     let is_acting_user = acting_user_id == Some(auth.user_id);
-    let is_ai_agent_and_assignee = if is_own || is_acting_user {
-        false
+    // AI 投稿×担当者の確認(DB 参照)は、本人・実行者でないときだけ行う。判定の規則は comment_can_edit に一本化
+    let (is_ai_agent_author, viewer_is_assignee) = if is_own || is_acting_user {
+        (false, false)
     } else {
         let author_username =
             match ticket_repo::api_find_user_username(&state.pool, author_id).await {
@@ -2203,12 +2212,19 @@ pub async fn delete_comment(
             };
         let is_ai_agent_author =
             author_username.as_deref() == Some(state.config.wip_ai_api_user.as_str());
-        is_ai_agent_author
+        let is_assignee = is_ai_agent_author
             && ticket_repo::is_ticket_assignee(&state.pool, ticket_id, auth.user_id)
                 .await
-                .unwrap_or(false)
+                .unwrap_or(false);
+        (is_ai_agent_author, is_assignee)
     };
-    if !is_own && !is_acting_user && !is_ai_agent_and_assignee {
+    if !ticket_repo::comment_can_edit(
+        false,
+        is_own,
+        is_acting_user,
+        is_ai_agent_author,
+        viewer_is_assignee,
+    ) {
         return (
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {

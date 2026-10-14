@@ -445,11 +445,20 @@ pub async fn list_runs(
             Ok(r) => r,
             Err(e) => return server_error(e),
         };
+    // 実行者の名前は、ids を集めて 1 回だけ引く(N+1 にしない)
+    let actor_ids: Vec<i64> = runs.iter().filter_map(|r| r.triggered_by_id).collect();
+    let names = match ai_kick_repo::user_names(&state.pool, &actor_ids).await {
+        Ok(v) => v,
+        Err(e) => return server_error(e),
+    };
     let items: Vec<Value> = runs
         .iter()
         // 手動コピー用に準備されただけで、使われていないものは出さない
         .filter(|r| r.queued_at.is_some() || r.started_at.is_some() || r.result.is_some())
         .map(|r| {
+            let triggered_by = r
+                .triggered_by_id
+                .and_then(|id| names.get(&id).map(|name| json!({ "id": id, "name": name })));
             json!({
                 "runUuid": r.run_uuid,
                 "status": status_of(r),
@@ -463,6 +472,7 @@ pub async fn list_runs(
                 "weightedTokens": r.weighted_tokens,
                 "stopReason": r.stop_reason,
                 "errorDetail": r.error_detail,
+                "triggeredBy": triggered_by,
             })
         })
         .collect();
